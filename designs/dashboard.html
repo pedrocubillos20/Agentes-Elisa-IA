@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Elisa IA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --accent: #06b6d4;
+            --accent-glow: rgba(6, 182, 212, 0.3);
+            --dark: #0f0f1a;
+            --dark-secondary: #1a1a2e;
+            --dark-tertiary: #252540;
+            --dark-hover: #2a2a48;
+            --light: #f8fafc;
+            --gray: #94a3b8;
+            --gray-dark: #64748b;
+            --success: #10b981;
+            --success-bg: rgba(16, 185, 129, 0.1);
+            --warning: #f59e0b;
+            --warning-bg: rgba(245, 158, 11, 0.1);
+            --error: #ef4444;
+            --error-bg: rgba(239, 68, 68, 0.1);
+            --sidebar-width: 280px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--dark);
+            color: var(--light);
+            min-height: 100vh;
+        }
+
+        /* Layout */
+        .dashboard-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--dark-secondary);
+            border-right: 1px solid rgba(99, 102, 241, 0.1);
+            padding: 1.5rem;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            margin-bottom: 2rem;
+        }
+
+        .logo-icon {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: white;
+        }
+
+        .logo-text {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--light);
+        }
+
+        .logo-text span {
+            color: var(--accent);
+        }
+
+        /* Navigation */
+        .nav-section {
+            margin-bottom: 2rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--gray-dark);
+            margin-bottom: 0.75rem;
+            padding-left: 0.75rem;
+        }
+
+        .nav-menu {
+            list-style: none;
+        }
+
+        .nav-item {
+            margin-bottom: 0.25rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.875rem 1rem;
+            border-radius: 12px;
+            color: var(--gray);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }
+
+        .nav-link:hover {
+            background: var(--dark-tertiary);
+            color: var(--light);
+        }
+
+        .nav-link.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(6, 182, 212, 0.1));
+            color: var(--light);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .nav-link .icon {
+            font-size: 1.25rem;
+            width: 24px;
+            text-align: center;
+        }
+
+        .nav-link .badge {
+            margin-left: auto;
+            background: var(--error);
+            color: white;
+            font-size: 0.7rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 50px;
+            font-weight: 600;
+        }
+
+        /* User Profile in Sidebar */
+        .sidebar-profile {
+            margin-top: auto;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .profile-card {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 12px;
+            background: var(--dark-tertiary);
+        }
+
+        .profile-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .profile-info {
+            flex: 1;
+        }
+
+        .profile-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .profile-plan {
+            font-size: 0.75rem;
+            color: var(--accent);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: 2rem;
+        }
+
+        /* Header */
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .header-title h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .header-title p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 1rem;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            border: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--dark-tertiary);
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-secondary:hover {
+            background: var(--dark-hover);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-accent {
+            background: linear-gradient(135deg, var(--accent), #0891b2);
+            color: white;
+        }
+
+        /* Status Cards Grid */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .status-card {
+            background: var(--dark-secondary);
+            border: 1px solid rgba(99, 102, 241, 0.1);
+            border-radius: 16px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .status-card:hover {
+            border-color: rgba(99, 102, 241, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .status-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .status-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .status-icon.primary {
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .status-icon.success {
+            background: var(--success-bg);
+        }
+
+        .status-icon.warning {
+            background: var(--warning-bg);
+        }
+
+        .status-icon.accent {
+            background: rgba(6, 182, 212, 0.1);
+        }
+
+        .status-trend {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-trend.up {
+            color: var(--success);
+        }
+
+        .status-trend.down {
+            color: var(--error);
+        }
+
+        .status-value {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .status-label {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        /* Main Grid Layout */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--dark-secondary);
+            border: 1px solid rgba(99, 102, 241, 0.1);
+            border-radius: 20px;
+            padding: 1.75rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .card-title {
+            font-size: 1.15rem;
+            font-weight: 600;
+        }
+
+        .card-action {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .card-action:hover {
+            text-decoration: underline;
+        }
+
+        /* API Connection Card */
+        .api-status {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            background: var(--dark-tertiary);
+            border-radius: 16px;
+            margin-bottom: 1.5rem;
+        }
+
+        .api-status-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.75rem;
+        }
+
+        .api-status-icon.connected {
+            background: var(--success-bg);
+        }
+
+        .api-status-icon.disconnected {
+            background: var(--warning-bg);
+        }
+
+        .api-status-info {
+            flex: 1;
+        }
+
+        .api-status-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .api-status-text {
+            color: var(--gray);
+            font-size: 0.9rem;
+        }
+
+        .api-status-badge {
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .api-status-badge.connected {
+            background: var(--success-bg);
+            color: var(--success);
+        }
+
+        .api-status-badge.disconnected {
+            background: var(--warning-bg);
+            color: var(--warning);
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            color: var(--light);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: var(--dark-tertiary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            color: var(--light);
+            font-size: 0.95rem;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.2s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: var(--gray-dark);
+        }
+
+        .form-hint {
+            font-size: 0.8rem;
+            color: var(--gray);
+            margin-top: 0.5rem;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .input-group .form-input {
+            flex: 1;
+        }
+
+        /* Assistant Preview */
+        .assistant-preview {
+            background: var(--dark-tertiary);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .assistant-header {
+            padding: 1rem 1.25rem;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .assistant-avatar {
+            width: 45px;
+            height: 45px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .assistant-info h4 {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .assistant-info span {
+            font-size: 0.8rem;
+            color: var(--success);
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .assistant-body {
+            padding: 1.25rem;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .preview-message {
+            padding: 0.875rem 1rem;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            max-width: 85%;
+        }
+
+        .preview-message.bot {
+            background: rgba(99, 102, 241, 0.1);
+            align-self: flex-start;
+            border-bottom-left-radius: 4px;
+        }
+
+        .preview-message.user {
+            background: var(--primary);
+            align-self: flex-end;
+            border-bottom-right-radius: 4px;
+        }
+
+        /* Progress Steps */
+        .setup-progress {
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 8px;
+            background: var(--dark-tertiary);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-text {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .setup-steps {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .setup-step {
+            flex: 1;
+            padding: 1rem;
+            background: var(--dark-tertiary);
+            border-radius: 12px;
+            border: 1px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .setup-step.completed {
+            border-color: var(--success);
+            background: var(--success-bg);
+        }
+
+        .setup-step.current {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .setup-step.pending {
+            opacity: 0.5;
+        }
+
+        .step-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .setup-step.completed .step-icon {
+            background: var(--success);
+            color: white;
+        }
+
+        .setup-step.current .step-icon {
+            background: var(--primary);
+            color: white;
+        }
+
+        .setup-step.pending .step-icon {
+            background: var(--dark-hover);
+            color: var(--gray);
+        }
+
+        .step-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-desc {
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        /* Quick Actions */
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .quick-action {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.25rem;
+            background: var(--dark-tertiary);
+            border-radius: 14px;
+            text-decoration: none;
+            color: var(--light);
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .quick-action:hover {
+            background: var(--dark-hover);
+            border-color: rgba(99, 102, 241, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .quick-action-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.35rem;
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .quick-action-text h4 {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .quick-action-text p {
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        /* Activity List */
+        .activity-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--dark-tertiary);
+            border-radius: 12px;
+        }
+
+        .activity-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+        }
+
+        .activity-icon.chat {
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .activity-icon.config {
+            background: rgba(6, 182, 212, 0.1);
+        }
+
+        .activity-icon.alert {
+            background: var(--warning-bg);
+        }
+
+        .activity-content {
+            flex: 1;
+        }
+
+        .activity-title {
+            font-weight: 500;
+            font-size: 0.9rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .activity-time {
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        /* Credits Info */
+        .credits-info {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(6, 182, 212, 0.1));
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .credits-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .credits-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .credits-amount {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .credits-bar {
+            height: 8px;
+            background: var(--dark-tertiary);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 0.75rem;
+        }
+
+        .credits-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success), var(--accent));
+            border-radius: 10px;
+        }
+
+        .credits-hint {
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        /* Responsive */
+        @media (max-width: 1400px) {
+            .status-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 80px;
+                padding: 1rem;
+            }
+
+            .logo-text,
+            .nav-section-title,
+            .nav-link span:not(.icon),
+            .profile-info {
+                display: none;
+            }
+
+            .nav-link {
+                justify-content: center;
+                padding: 1rem;
+            }
+
+            .main-content {
+                margin-left: 80px;
+            }
+
+            .profile-card {
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .status-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .setup-steps {
+                flex-direction: column;
+            }
+
+            .quick-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .header-actions {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <a href="landing-page.html" class="logo">
+                <div class="logo-icon">E</div>
+                <span class="logo-text">Elisa<span>IA</span></span>
+            </a>
+
+            <nav class="nav-section">
+                <p class="nav-section-title">Principal</p>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="dashboard.html" class="nav-link active">
+                            <span class="icon">🏠</span>
+                            <span>Dashboard</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="onboarding.html" class="nav-link">
+                            <span class="icon">📋</span>
+                            <span>Mi Negocio</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">🤖</span>
+                            <span>Mi Asistente</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section">
+                <p class="nav-section-title">Herramientas</p>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">💬</span>
+                            <span>Conversaciones</span>
+                            <span class="badge">12</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">📊</span>
+                            <span>Analíticas</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">🔗</span>
+                            <span>Integraciones</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">📚</span>
+                            <span>Base de Conocimiento</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section">
+                <p class="nav-section-title">Cuenta</p>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">⚙️</span>
+                            <span>Configuración</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">❓</span>
+                            <span>Ayuda</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-profile">
+                <div class="profile-card">
+                    <div class="profile-avatar">JD</div>
+                    <div class="profile-info">
+                        <p class="profile-name">Juan Díaz</p>
+                        <p class="profile-plan">Plan Mensual</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="dashboard-header">
+                <div class="header-title">
+                    <h1>Bienvenido, Juan 👋</h1>
+                    <p>Aquí está el estado de tu asistente de IA</p>
+                </div>
+                <div class="header-actions">
+                    <a href="#" class="btn btn-secondary">
+                        📖 Documentación
+                    </a>
+                    <a href="#" class="btn btn-primary">
+                        💬 Soporte
+                    </a>
+                </div>
+            </header>
+
+            <!-- Status Cards -->
+            <div class="status-grid">
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <div class="status-icon primary">💬</div>
+                        <span class="status-trend up">↑ 12%</span>
+                    </div>
+                    <div class="status-value">1,247</div>
+                    <div class="status-label">Conversaciones este mes</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <div class="status-icon success">✅</div>
+                        <span class="status-trend up">↑ 5%</span>
+                    </div>
+                    <div class="status-value">94%</div>
+                    <div class="status-label">Tasa de resolución</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <div class="status-icon warning">⏱️</div>
+                        <span class="status-trend down">↓ 8%</span>
+                    </div>
+                    <div class="status-value">1.2s</div>
+                    <div class="status-label">Tiempo de respuesta</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <div class="status-icon accent">🎯</div>
+                        <span class="status-trend up">↑ 18%</span>
+                    </div>
+                    <div class="status-value">156</div>
+                    <div class="status-label">Leads generados</div>
+                </div>
+            </div>
+
+            <div class="content-grid">
+                <!-- Main Column -->
+                <div class="main-column">
+                    <!-- Setup Progress -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Estado de Configuración</h3>
+                            <a href="onboarding.html" class="card-action">Completar →</a>
+                        </div>
+
+                        <div class="setup-progress">
+                            <div class="progress-bar-container">
+                                <div class="progress-bar">
+                                    <div class="progress-bar-fill" style="width: 75%"></div>
+                                </div>
+                                <span class="progress-text">75%</span>
+                            </div>
+
+                            <div class="setup-steps">
+                                <div class="setup-step completed">
+                                    <div class="step-icon">✓</div>
+                                    <div class="step-title">Registro</div>
+                                    <div class="step-desc">Completado</div>
+                                </div>
+                                <div class="setup-step completed">
+                                    <div class="step-icon">✓</div>
+                                    <div class="step-title">API Key</div>
+                                    <div class="step-desc">Conectada</div>
+                                </div>
+                                <div class="setup-step current">
+                                    <div class="step-icon">3</div>
+                                    <div class="step-title">Información</div>
+                                    <div class="step-desc">En progreso</div>
+                                </div>
+                                <div class="setup-step pending">
+                                    <div class="step-icon">4</div>
+                                    <div class="step-title">Revisión</div>
+                                    <div class="step-desc">Pendiente</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- API Connection -->
+                    <div class="card" style="margin-top: 1.5rem;">
+                        <div class="card-header">
+                            <h3 class="card-title">Conexión API OpenAI</h3>
+                        </div>
+
+                        <div class="api-status">
+                            <div class="api-status-icon connected">🔗</div>
+                            <div class="api-status-info">
+                                <h4 class="api-status-title">API Conectada</h4>
+                                <p class="api-status-text">Última verificación: hace 5 minutos</p>
+                            </div>
+                            <span class="api-status-badge connected">● Activa</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Tu API Key de OpenAI</label>
+                            <div class="input-group">
+                                <input type="password" class="form-input" value="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" readonly>
+                                <button class="btn btn-secondary">Cambiar</button>
+                            </div>
+                            <p class="form-hint">La API Key está encriptada y segura. Solo tú tienes acceso.</p>
+                        </div>
+
+                        <div class="credits-info">
+                            <div class="credits-header">
+                                <span class="credits-title">Créditos OpenAI</span>
+                                <span class="credits-amount">$8.50</span>
+                            </div>
+                            <div class="credits-bar">
+                                <div class="credits-bar-fill" style="width: 70%"></div>
+                            </div>
+                            <p class="credits-hint">Los créditos se gestionan directamente en tu cuenta de OpenAI. <a href="https://platform.openai.com" target="_blank" style="color: var(--accent);">Recargar →</a></p>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="card" style="margin-top: 1.5rem;">
+                        <div class="card-header">
+                            <h3 class="card-title">Acciones Rápidas</h3>
+                        </div>
+
+                        <div class="quick-actions">
+                            <a href="onboarding.html" class="quick-action">
+                                <div class="quick-action-icon">📝</div>
+                                <div class="quick-action-text">
+                                    <h4>Completar información</h4>
+                                    <p>Agrega datos de tu negocio</p>
+                                </div>
+                            </a>
+                            <a href="#" class="quick-action">
+                                <div class="quick-action-icon">🎨</div>
+                                <div class="quick-action-text">
+                                    <h4>Personalizar asistente</h4>
+                                    <p>Ajusta tono y estilo</p>
+                                </div>
+                            </a>
+                            <a href="#" class="quick-action">
+                                <div class="quick-action-icon">🔗</div>
+                                <div class="quick-action-text">
+                                    <h4>Obtener widget</h4>
+                                    <p>Código para tu web</p>
+                                </div>
+                            </a>
+                            <a href="#" class="quick-action">
+                                <div class="quick-action-icon">📱</div>
+                                <div class="quick-action-text">
+                                    <h4>Conectar WhatsApp</h4>
+                                    <p>Integración Business API</p>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sidebar Column -->
+                <div class="sidebar-column">
+                    <!-- Assistant Preview -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Vista Previa</h3>
+                            <a href="#" class="card-action">Probar →</a>
+                        </div>
+
+                        <div class="assistant-preview">
+                            <div class="assistant-header">
+                                <div class="assistant-avatar">🤖</div>
+                                <div class="assistant-info">
+                                    <h4>Elisa</h4>
+                                    <span>● En línea</span>
+                                </div>
+                            </div>
+                            <div class="assistant-body">
+                                <div class="preview-message bot">
+                                    ¡Hola! 👋 Soy Elisa, asistente de TechStore. ¿En qué puedo ayudarte?
+                                </div>
+                                <div class="preview-message user">
+                                    ¿Tienen iPhone 15?
+                                </div>
+                                <div class="preview-message bot">
+                                    ¡Sí! Tenemos el iPhone 15 desde $999. ¿Te gustaría ver los modelos disponibles?
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <div class="card" style="margin-top: 1.5rem;">
+                        <div class="card-header">
+                            <h3 class="card-title">Actividad Reciente</h3>
+                            <a href="#" class="card-action">Ver todo →</a>
+                        </div>
+
+                        <div class="activity-list">
+                            <div class="activity-item">
+                                <div class="activity-icon chat">💬</div>
+                                <div class="activity-content">
+                                    <p class="activity-title">Nueva conversación</p>
+                                    <p class="activity-time">Hace 5 minutos</p>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-icon config">⚙️</div>
+                                <div class="activity-content">
+                                    <p class="activity-title">Base de conocimiento actualizada</p>
+                                    <p class="activity-time">Hace 2 horas</p>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-icon alert">🎯</div>
+                                <div class="activity-content">
+                                    <p class="activity-title">Nuevo lead capturado</p>
+                                    <p class="activity-time">Hace 3 horas</p>
+                                </div>
+                            </div>
+                            <div class="activity-item">
+                                <div class="activity-icon chat">💬</div>
+                                <div class="activity-content">
+                                    <p class="activity-title">Conversación escalada</p>
+                                    <p class="activity-time">Hace 5 horas</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

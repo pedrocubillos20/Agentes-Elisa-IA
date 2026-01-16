@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # BASE DE DATOS POSTGRESQL
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: elisa-ia-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: elisa
+      POSTGRES_PASSWORD: elisa_password_dev
+      POSTGRES_DB: elisa_ia
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elisa -d elisa_ia"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # REDIS (PARA CACHÉ Y RATE LIMITING)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: elisa-ia-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==========================================
+  # BACKEND API
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: elisa-ia-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://elisa:elisa_password_dev@postgres:5432/elisa_ia
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev-jwt-secret-change-in-production-32chars
+      ENCRYPTION_KEY: dev-encryption-key-32characters!
+      FRONTEND_URL: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # ==========================================
+  # FRONTEND NEXT.JS
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: elisa-ia-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+  # ==========================================
+  # ADMINER (PARA VER LA BASE DE DATOS)
+  # ==========================================
+  adminer:
+    image: adminer:4
+    container_name: elisa-ia-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: elisa-ia-network

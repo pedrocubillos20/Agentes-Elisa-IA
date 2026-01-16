@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurar Mi Negocio - Elisa IA</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --accent: #06b6d4;
+            --dark: #0f0f1a;
+            --dark-secondary: #1a1a2e;
+            --dark-tertiary: #252540;
+            --dark-hover: #2a2a48;
+            --light: #f8fafc;
+            --gray: #94a3b8;
+            --gray-dark: #64748b;
+            --success: #10b981;
+            --success-bg: rgba(16, 185, 129, 0.1);
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --sidebar-width: 280px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--dark);
+            color: var(--light);
+            min-height: 100vh;
+        }
+
+        .dashboard-layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar - Same as dashboard */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--dark-secondary);
+            border-right: 1px solid rgba(99, 102, 241, 0.1);
+            padding: 1.5rem;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            margin-bottom: 2rem;
+        }
+
+        .logo-icon {
+            width: 42px;
+            height: 42px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: white;
+        }
+
+        .logo-text {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--light);
+        }
+
+        .logo-text span {
+            color: var(--accent);
+        }
+
+        .nav-section {
+            margin-bottom: 2rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--gray-dark);
+            margin-bottom: 0.75rem;
+            padding-left: 0.75rem;
+        }
+
+        .nav-menu {
+            list-style: none;
+        }
+
+        .nav-item {
+            margin-bottom: 0.25rem;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.875rem 1rem;
+            border-radius: 12px;
+            color: var(--gray);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: all 0.2s ease;
+        }
+
+        .nav-link:hover {
+            background: var(--dark-tertiary);
+            color: var(--light);
+        }
+
+        .nav-link.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(6, 182, 212, 0.1));
+            color: var(--light);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+        }
+
+        .nav-link .icon {
+            font-size: 1.25rem;
+            width: 24px;
+            text-align: center;
+        }
+
+        .sidebar-profile {
+            margin-top: auto;
+            padding-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .profile-card {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 12px;
+            background: var(--dark-tertiary);
+        }
+
+        .profile-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .profile-info {
+            flex: 1;
+        }
+
+        .profile-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .profile-plan {
+            font-size: 0.75rem;
+            color: var(--accent);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            margin-left: var(--sidebar-width);
+            padding: 2rem;
+            max-width: 1000px;
+        }
+
+        /* Header */
+        .page-header {
+            margin-bottom: 2rem;
+        }
+
+        .page-header h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .page-header p {
+            color: var(--gray);
+        }
+
+        /* Progress Indicator */
+        .progress-indicator {
+            display: flex;
+            margin-bottom: 2.5rem;
+            position: relative;
+        }
+
+        .progress-indicator::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 40px;
+            right: 40px;
+            height: 2px;
+            background: var(--dark-tertiary);
+        }
+
+        .progress-step {
+            flex: 1;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step-circle {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 0.75rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .progress-step.completed .step-circle {
+            background: var(--success);
+            color: white;
+        }
+
+        .progress-step.active .step-circle {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2);
+        }
+
+        .progress-step.pending .step-circle {
+            background: var(--dark-tertiary);
+            color: var(--gray);
+        }
+
+        .step-label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--gray);
+        }
+
+        .progress-step.active .step-label,
+        .progress-step.completed .step-label {
+            color: var(--light);
+        }
+
+        /* Form Card */
+        .form-card {
+            background: var(--dark-secondary);
+            border: 1px solid rgba(99, 102, 241, 0.1);
+            border-radius: 24px;
+            padding: 2.5rem;
+        }
+
+        .form-section {
+            display: none;
+        }
+
+        .form-section.active {
+            display: block;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-header {
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.35rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-title .icon {
+            font-size: 1.5rem;
+        }
+
+        .section-description {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            color: var(--light);
+        }
+
+        .form-label .required {
+            color: var(--error);
+        }
+
+        .form-input,
+        .form-select,
+        .form-textarea {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: var(--dark-tertiary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: var(--light);
+            font-size: 0.95rem;
+            font-family: 'Outfit', sans-serif;
+            transition: all 0.2s ease;
+        }
+
+        .form-input:focus,
+        .form-select:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .form-input::placeholder,
+        .form-textarea::placeholder {
+            color: var(--gray-dark);
+        }
+
+        .form-select {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+            background-size: 20px;
+            padding-right: 3rem;
+        }
+
+        .form-select option {
+            background: var(--dark-secondary);
+            color: var(--light);
+        }
+
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        .form-hint {
+            font-size: 0.8rem;
+            color: var(--gray);
+            margin-top: 0.5rem;
+        }
+
+        /* File Upload */
+        .file-upload {
+            border: 2px dashed rgba(99, 102, 241, 0.3);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(99, 102, 241, 0.02);
+        }
+
+        .file-upload:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .file-upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .file-upload-text {
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .file-upload-hint {
+            font-size: 0.85rem;
+            color: var(--gray);
+        }
+
+        .file-upload input {
+            display: none;
+        }
+
+        .uploaded-files {
+            margin-top: 1rem;
+        }
+
+        .uploaded-file {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--dark-tertiary);
+            border-radius: 10px;
+            margin-top: 0.5rem;
+        }
+
+        .uploaded-file-icon {
+            font-size: 1.25rem;
+        }
+
+        .uploaded-file-name {
+            flex: 1;
+            font-size: 0.9rem;
+        }
+
+        .uploaded-file-remove {
+            background: none;
+            border: none;
+            color: var(--error);
+            cursor: pointer;
+            font-size: 1.25rem;
+        }
+
+        /* Dynamic Lists */
+        .dynamic-list {
+            margin-top: 1rem;
+        }
+
+        .dynamic-item {
+            background: var(--dark-tertiary);
+            border-radius: 14px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .dynamic-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .dynamic-item-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .dynamic-item-remove {
+            background: var(--error);
+            color: white;
+            border: none;
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .add-item-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 1rem;
+            background: transparent;
+            border: 2px dashed rgba(99, 102, 241, 0.3);
+            border-radius: 14px;
+            color: var(--primary-light);
+            font-weight: 500;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .add-item-btn:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        /* Radio/Checkbox Options */
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .option-card {
+            padding: 1.25rem;
+            background: var(--dark-tertiary);
+            border: 2px solid transparent;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+        }
+
+        .option-card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .option-card.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .option-card input {
+            display: none;
+        }
+
+        .option-icon {
+            font-size: 2rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .option-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .option-desc {
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.875rem 1.75rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            border: none;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-secondary {
+            background: var(--dark-tertiary);
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-secondary:hover {
+            background: var(--dark-hover);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, var(--success), #059669);
+            color: white;
+        }
+
+        .btn-large {
+            padding: 1rem 2.5rem;
+            font-size: 1rem;
+        }
+
+        .form-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 2.5rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Info Box */
+        .info-box {
+            display: flex;
+            gap: 1rem;
+            padding: 1.25rem;
+            background: rgba(6, 182, 212, 0.1);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 14px;
+            margin-bottom: 1.5rem;
+        }
+
+        .info-box-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .info-box-content h4 {
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .info-box-content p {
+            font-size: 0.85rem;
+            color: var(--gray);
+        }
+
+        /* Success State */
+        .success-state {
+            text-align: center;
+            padding: 3rem 2rem;
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: var(--success-bg);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            margin: 0 auto 1.5rem;
+            animation: scaleIn 0.5s ease;
+        }
+
+        @keyframes scaleIn {
+            from { transform: scale(0); }
+            to { transform: scale(1); }
+        }
+
+        .success-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+        }
+
+        .success-text {
+            color: var(--gray);
+            font-size: 1rem;
+            max-width: 500px;
+            margin: 0 auto 2rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 80px;
+                padding: 1rem;
+            }
+
+            .logo-text,
+            .nav-section-title,
+            .nav-link span:not(.icon),
+            .profile-info {
+                display: none;
+            }
+
+            .nav-link {
+                justify-content: center;
+                padding: 1rem;
+            }
+
+            .main-content {
+                margin-left: 80px;
+            }
+
+            .profile-card {
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .progress-indicator {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+
+            .progress-step {
+                flex: 0 0 45%;
+            }
+
+            .progress-indicator::before {
+                display: none;
+            }
+
+            .form-actions {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .form-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <a href="landing-page.html" class="logo">
+                <div class="logo-icon">E</div>
+                <span class="logo-text">Elisa<span>IA</span></span>
+            </a>
+
+            <nav class="nav-section">
+                <p class="nav-section-title">Principal</p>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="dashboard.html" class="nav-link">
+                            <span class="icon">🏠</span>
+                            <span>Dashboard</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="onboarding.html" class="nav-link active">
+                            <span class="icon">📋</span>
+                            <span>Mi Negocio</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">🤖</span>
+                            <span>Mi Asistente</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section">
+                <p class="nav-section-title">Herramientas</p>
+                <ul class="nav-menu">
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">💬</span>
+                            <span>Conversaciones</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">📊</span>
+                            <span>Analíticas</span>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="#" class="nav-link">
+                            <span class="icon">📚</span>
+                            <span>Base de Conocimiento</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <div class="sidebar-profile">
+                <div class="profile-card">
+                    <div class="profile-avatar">JD</div>
+                    <div class="profile-info">
+                        <p class="profile-name">Juan Díaz</p>
+                        <p class="profile-plan">Plan Mensual</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="page-header">
+                <h1>📋 Configurar Mi Negocio</h1>
+                <p>Completa la información para que configuremos tu asistente de IA</p>
+            </div>
+
+            <!-- Progress Indicator -->
+            <div class="progress-indicator">
+                <div class="progress-step completed" data-step="1">
+                    <div class="step-circle">✓</div>
+                    <span class="step-label">Negocio</span>
+                </div>
+                <div class="progress-step active" data-step="2">
+                    <div class="step-circle">2</div>
+                    <span class="step-label">Productos</span>
+                </div>
+                <div class="progress-step pending" data-step="3">
+                    <div class="step-circle">3</div>
+                    <span class="step-label">FAQs</span>
+                </div>
+                <div class="progress-step pending" data-step="4">
+                    <div class="step-circle">4</div>
+                    <span class="step-label">Personalización</span>
+                </div>
+                <div class="progress-step pending" data-step="5">
+                    <div class="step-circle">5</div>
+                    <span class="step-label">Revisión</span>
+                </div>
+            </div>
+
+            <!-- Form Card -->
+            <div class="form-card">
+                <!-- Step 1: Business Info -->
+                <div class="form-section" data-section="1">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="icon">🏢</span>
+                            Información del Negocio
+                        </h2>
+                        <p class="section-description">Cuéntanos sobre tu empresa para personalizar tu asistente</p>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Nombre del Negocio <span class="required">*</span></label>
+                            <input type="text" class="form-input" placeholder="Ej: TechStore Colombia" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Industria <span class="required">*</span></label>
+                            <select class="form-select" required>
+                                <option value="">Selecciona una industria</option>
+                                <option value="ecommerce">E-commerce / Tienda Online</option>
+                                <option value="restaurante">Restaurante / Comida</option>
+                                <option value="salud">Salud / Clínica</option>
+                                <option value="educacion">Educación / Cursos</option>
+                                <option value="servicios">Servicios Profesionales</option>
+                                <option value="tecnologia">Tecnología / Software</option>
+                                <option value="inmobiliaria">Inmobiliaria</option>
+                                <option value="turismo">Turismo / Viajes</option>
+                                <option value="belleza">Belleza / Estética</option>
+                                <option value="otro">Otro</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Descripción del Negocio <span class="required">*</span></label>
+                        <textarea class="form-textarea" placeholder="Describe tu negocio, qué vendes o qué servicios ofreces, qué te hace único..." required></textarea>
+                        <p class="form-hint">Entre más detallada sea la descripción, mejor podrá responder tu asistente.</p>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Sitio Web</label>
+                            <input type="url" class="form-input" placeholder="https://tuempresa.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">WhatsApp del Negocio</label>
+                            <input type="tel" class="form-input" placeholder="+57 300 123 4567">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Instagram</label>
+                            <input type="text" class="form-input" placeholder="@tunegocio">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Ubicación / Ciudad</label>
+                            <input type="text" class="form-input" placeholder="Bogotá, Colombia">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Logo del Negocio</label>
+                        <div class="file-upload" onclick="document.getElementById('logoUpload').click()">
+                            <div class="file-upload-icon">🖼️</div>
+                            <p class="file-upload-text">Arrastra tu logo o haz clic para subir</p>
+                            <p class="file-upload-hint">PNG, JPG o SVG. Máximo 5MB.</p>
+                            <input type="file" id="logoUpload" accept="image/*">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <div></div>
+                        <button class="btn btn-primary" onclick="nextStep(1)">
+                            Continuar
+                            <span>→</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Products/Services -->
+                <div class="form-section active" data-section="2">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="icon">📦</span>
+                            Productos o Servicios
+                        </h2>
+                        <p class="section-description">Agrega los productos o servicios que ofreces</p>
+                    </div>
+
+                    <div class="info-box">
+                        <div class="info-box-icon">💡</div>
+                        <div class="info-box-content">
+                            <h4>Tip: Agrega todos tus productos</h4>
+                            <p>Entre más productos agregues, mejor podrá tu asistente recomendar y responder a los clientes.</p>
+                        </div>
+                    </div>
+
+                    <div class="dynamic-list" id="productsList">
+                        <div class="dynamic-item">
+                            <div class="dynamic-item-header">
+                                <span class="dynamic-item-title">Producto #1</span>
+                                <button class="dynamic-item-remove" onclick="removeItem(this)">×</button>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Nombre del producto</label>
+                                    <input type="text" class="form-input" placeholder="Ej: iPhone 15 Pro">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Precio</label>
+                                    <input type="text" class="form-input" placeholder="$999 USD">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Descripción</label>
+                                <textarea class="form-textarea" placeholder="Describe el producto, características principales..." style="min-height: 80px;"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="add-item-btn" onclick="addProduct()">
+                        <span>+</span> Agregar otro producto
+                    </button>
+
+                    <div class="form-group" style="margin-top: 2rem;">
+                        <label class="form-label">O sube un archivo con tus productos</label>
+                        <div class="file-upload" onclick="document.getElementById('productsUpload').click()">
+                            <div class="file-upload-icon">📄</div>
+                            <p class="file-upload-text">Sube tu catálogo o lista de productos</p>
+                            <p class="file-upload-hint">Excel, CSV o PDF. Máximo 10MB.</p>
+                            <input type="file" id="productsUpload" accept=".xlsx,.xls,.csv,.pdf">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="prevStep(2)">
+                            <span>←</span> Anterior
+                        </button>
+                        <button class="btn btn-primary" onclick="nextStep(2)">
+                            Continuar
+                            <span>→</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 3: FAQs -->
+                <div class="form-section" data-section="3">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="icon">❓</span>
+                            Preguntas Frecuentes
+                        </h2>
+                        <p class="section-description">¿Qué preguntan más tus clientes? Agrega las respuestas</p>
+                    </div>
+
+                    <div class="info-box">
+                        <div class="info-box-icon">🎯</div>
+                        <div class="info-box-content">
+                            <h4>Recomendación: Mínimo 10 preguntas</h4>
+                            <p>Incluye preguntas sobre envíos, pagos, garantías, horarios, y cualquier duda común de tus clientes.</p>
+                        </div>
+                    </div>
+
+                    <div class="dynamic-list" id="faqsList">
+                        <div class="dynamic-item">
+                            <div class="dynamic-item-header">
+                                <span class="dynamic-item-title">Pregunta #1</span>
+                                <button class="dynamic-item-remove" onclick="removeItem(this)">×</button>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Pregunta</label>
+                                <input type="text" class="form-input" placeholder="Ej: ¿Cuánto tiempo tarda el envío?">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Respuesta</label>
+                                <textarea class="form-textarea" placeholder="Ej: Los envíos a Bogotá tardan 1-2 días hábiles. A otras ciudades entre 3-5 días." style="min-height: 80px;"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="add-item-btn" onclick="addFaq()">
+                        <span>+</span> Agregar otra pregunta
+                    </button>
+
+                    <div class="form-group" style="margin-top: 2rem;">
+                        <label class="form-label">O sube un documento con FAQs</label>
+                        <div class="file-upload" onclick="document.getElementById('faqsUpload').click()">
+                            <div class="file-upload-icon">📋</div>
+                            <p class="file-upload-text">Sube tus preguntas frecuentes</p>
+                            <p class="file-upload-hint">Word, Excel, PDF o TXT. Máximo 5MB.</p>
+                            <input type="file" id="faqsUpload" accept=".docx,.doc,.xlsx,.xls,.pdf,.txt">
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="prevStep(3)">
+                            <span>←</span> Anterior
+                        </button>
+                        <button class="btn btn-primary" onclick="nextStep(3)">
+                            Continuar
+                            <span>→</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 4: Personalization -->
+                <div class="form-section" data-section="4">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="icon">🎨</span>
+                            Personalización del Asistente
+                        </h2>
+                        <p class="section-description">Define cómo quieres que se comporte tu asistente</p>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Nombre del Asistente <span class="required">*</span></label>
+                            <input type="text" class="form-input" placeholder="Ej: Ana, Carlos, Elisa..." value="Elisa">
+                            <p class="form-hint">Este nombre usará el asistente para presentarse</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Horario de Atención</label>
+                            <input type="text" class="form-input" placeholder="Ej: Lunes a Viernes 8am-6pm">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Tono de Comunicación <span class="required">*</span></label>
+                        <div class="options-grid">
+                            <label class="option-card selected">
+                                <input type="radio" name="tone" value="amigable" checked>
+                                <div class="option-icon">😊</div>
+                                <div class="option-title">Amigable</div>
+                                <div class="option-desc">Cercano y casual, usa emojis</div>
+                            </label>
+                            <label class="option-card">
+                                <input type="radio" name="tone" value="profesional">
+                                <div class="option-icon">👔</div>
+                                <div class="option-title">Profesional</div>
+                                <div class="option-desc">Formal pero accesible</div>
+                            </label>
+                            <label class="option-card">
+                                <input type="radio" name="tone" value="tecnico">
+                                <div class="option-icon">🔬</div>
+                                <div class="option-title">Técnico</div>
+                                <div class="option-desc">Preciso y detallado</div>
+                            </label>
+                            <label class="option-card">
+                                <input type="radio" name="tone" value="ventas">
+                                <div class="option-icon">🎯</div>
+                                <div class="option-title">Ventas</div>
+                                <div class="option-desc">Persuasivo y orientado a cerrar</div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">¿Qué debe hacer si no sabe responder? <span class="required">*</span></label>
+                        <div class="options-grid">
+                            <label class="option-card selected">
+                                <input type="radio" name="fallback" value="escalar" checked>
+                                <div class="option-icon">📞</div>
+                                <div class="option-title">Escalar a humano</div>
+                                <div class="option-desc">Pide datos y notifica al equipo</div>
+                            </label>
+                            <label class="option-card">
+                                <input type="radio" name="fallback" value="contacto">
+                                <div class="option-icon">💬</div>
+                                <div class="option-title">Sugerir contacto</div>
+                                <div class="option-desc">Da WhatsApp o email de contacto</div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Mensaje de Bienvenida</label>
+                        <textarea class="form-textarea" placeholder="Ej: ¡Hola! 👋 Soy Ana, tu asistente virtual de TechStore. Estoy aquí para ayudarte con información sobre nuestros productos, precios, envíos y más. ¿En qué puedo ayudarte hoy?"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Instrucciones Especiales (Opcional)</label>
+                        <textarea class="form-textarea" placeholder="Ej: Siempre mencionar la promoción del 20% en primera compra. No dar información de precios a mayoristas, pedirles que contacten al 310-XXX-XXXX..."></textarea>
+                        <p class="form-hint">Agrega cualquier instrucción o regla especial que deba seguir tu asistente</p>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="prevStep(4)">
+                            <span>←</span> Anterior
+                        </button>
+                        <button class="btn btn-primary" onclick="nextStep(4)">
+                            Continuar
+                            <span>→</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 5: Review -->
+                <div class="form-section" data-section="5">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <span class="icon">✅</span>
+                            Revisión y Envío
+                        </h2>
+                        <p class="section-description">Revisa tu información antes de enviar</p>
+                    </div>
+
+                    <div class="info-box" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.2);">
+                        <div class="info-box-icon">🎉</div>
+                        <div class="info-box-content">
+                            <h4>¡Casi listo!</h4>
+                            <p>Una vez envíes esta información, nuestro equipo configurará tu asistente en las próximas 24-48 horas. Te notificaremos cuando esté listo.</p>
+                        </div>
+                    </div>
+
+                    <div style="background: var(--dark-tertiary); border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem;">
+                        <h4 style="margin-bottom: 1rem; font-size: 1rem;">📊 Resumen de tu información</h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;">
+                            <div>
+                                <p style="color: var(--gray); font-size: 0.85rem;">Negocio</p>
+                                <p style="font-weight: 500;">TechStore Colombia</p>
+                            </div>
+                            <div>
+                                <p style="color: var(--gray); font-size: 0.85rem;">Industria</p>
+                                <p style="font-weight: 500;">E-commerce</p>
+                            </div>
+                            <div>
+                                <p style="color: var(--gray); font-size: 0.85rem;">Productos agregados</p>
+                                <p style="font-weight: 500;">12 productos</p>
+                            </div>
+                            <div>
+                                <p style="color: var(--gray); font-size: 0.85rem;">FAQs agregadas</p>
+                                <p style="font-weight: 500;">8 preguntas</p>
+                            </div>
+                            <div>
+                                <p style="color: var(--gray); font-size: 0.85rem;">Nombre del asistente</p>
+                                <p style="font-weight: 500;">Elisa</p>
+                            </div>
+                            <div>
+                                <p style="color: var(--gray); font-size: 0.85rem;">Tono</p>
+                                <p style="font-weight: 500;">Amigable</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display: flex; align-items: flex-start; gap: 0.75rem; cursor: pointer;">
+                            <input type="checkbox" style="width: 20px; height: 20px; margin-top: 2px;" required>
+                            <span style="font-size: 0.9rem; color: var(--gray);">
+                                Confirmo que la información es correcta y autorizo a Elisa IA a configurar mi asistente con estos datos. Entiendo que podré hacer cambios después.
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="form-actions">
+                        <button class="btn btn-secondary" onclick="prevStep(5)">
+                            <span>←</span> Anterior
+                        </button>
+                        <button class="btn btn-success btn-large" onclick="submitForm()">
+                            ✓ Enviar para Configuración
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Success State -->
+                <div class="form-section" data-section="success">
+                    <div class="success-state">
+                        <div class="success-icon">🎉</div>
+                        <h2 class="success-title">¡Información Enviada!</h2>
+                        <p class="success-text">
+                            Hemos recibido tu información correctamente. Nuestro equipo comenzará a configurar tu asistente de IA. Te notificaremos por email cuando esté listo (generalmente 24-48 horas).
+                        </p>
+                        <a href="dashboard.html" class="btn btn-primary btn-large">
+                            Volver al Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let currentStep = 2;
+        let productCount = 1;
+        let faqCount = 1;
+
+        function updateProgressIndicator() {
+            document.querySelectorAll('.progress-step').forEach((step, index) => {
+                const stepNum = index + 1;
+                step.classList.remove('completed', 'active', 'pending');
+                
+                if (stepNum < currentStep) {
+                    step.classList.add('completed');
+                    step.querySelector('.step-circle').textContent = '✓';
+                } else if (stepNum === currentStep) {
+                    step.classList.add('active');
+                    step.querySelector('.step-circle').textContent = stepNum;
+                } else {
+                    step.classList.add('pending');
+                    step.querySelector('.step-circle').textContent = stepNum;
+                }
+            });
+        }
+
+        function showSection(sectionNum) {
+            document.querySelectorAll('.form-section').forEach(section => {
+                section.classList.remove('active');
+            });
+            document.querySelector(`[data-section="${sectionNum}"]`).classList.add('active');
+        }
+
+        function nextStep(current) {
+            currentStep = current + 1;
+            updateProgressIndicator();
+            showSection(currentStep);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function prevStep(current) {
+            currentStep = current - 1;
+            updateProgressIndicator();
+            showSection(currentStep);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function addProduct() {
+            productCount++;
+            const html = `
+                <div class="dynamic-item">
+                    <div class="dynamic-item-header">
+                        <span class="dynamic-item-title">Producto #${productCount}</span>
+                        <button class="dynamic-item-remove" onclick="removeItem(this)">×</button>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Nombre del producto</label>
+                            <input type="text" class="form-input" placeholder="Ej: iPhone 15 Pro">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Precio</label>
+                            <input type="text" class="form-input" placeholder="$999 USD">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Descripción</label>
+                        <textarea class="form-textarea" placeholder="Describe el producto, características principales..." style="min-height: 80px;"></textarea>
+                    </div>
+                </div>
+            `;
+            document.getElementById('productsList').insertAdjacentHTML('beforeend', html);
+        }
+
+        function addFaq() {
+            faqCount++;
+            const html = `
+                <div class="dynamic-item">
+                    <div class="dynamic-item-header">
+                        <span class="dynamic-item-title">Pregunta #${faqCount}</span>
+                        <button class="dynamic-item-remove" onclick="removeItem(this)">×</button>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Pregunta</label>
+                        <input type="text" class="form-input" placeholder="Ej: ¿Cuánto tiempo tarda el envío?">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Respuesta</label>
+                        <textarea class="form-textarea" placeholder="Ej: Los envíos a Bogotá tardan 1-2 días hábiles..." style="min-height: 80px;"></textarea>
+                    </div>
+                </div>
+            `;
+            document.getElementById('faqsList').insertAdjacentHTML('beforeend', html);
+        }
+
+        function removeItem(btn) {
+            btn.closest('.dynamic-item').remove();
+        }
+
+        function submitForm() {
+            showSection('success');
+            document.querySelector('.progress-indicator').style.display = 'none';
+        }
+
+        // Option card selection
+        document.querySelectorAll('.option-card').forEach(card => {
+            card.addEventListener('click', function() {
+                const name = this.querySelector('input').name;
+                document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
+                    input.closest('.option-card').classList.remove('selected');
+                });
+                this.classList.add('selected');
+            });
+        });
+
+        // Initialize
+        updateProgressIndicator();
+    </script>
+</body>
+</html>

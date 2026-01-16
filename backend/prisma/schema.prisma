@@ -1,0 +1,345 @@
+// ==========================================
+// ELISA IA - ESQUEMA DE BASE DE DATOS
+// ==========================================
+// Usando Prisma ORM con PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// MODELO: USUARIO
+// ==========================================
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatar        String?
+  
+  // Plan y suscripción
+  plan          Plan      @default(FREE)
+  planType      PlanType  @default(MONTHLY)
+  stripeCustomerId String?
+  subscriptionId   String?
+  subscriptionStatus SubscriptionStatus @default(INACTIVE)
+  
+  // API Key de OpenAI (encriptada)
+  openaiApiKey  String?
+  apiKeyConnected Boolean @default(false)
+  
+  // Estado
+  isActive      Boolean   @default(true)
+  isAdmin       Boolean   @default(false)
+  emailVerified Boolean   @default(false)
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLogin     DateTime?
+  
+  // Relaciones
+  businesses    Business[]
+  assistants    Assistant[]
+  
+  @@index([email])
+  @@index([stripeCustomerId])
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PRO
+  BUSINESS
+  AGENCY
+}
+
+enum PlanType {
+  MONTHLY
+  LIFETIME
+}
+
+enum SubscriptionStatus {
+  INACTIVE
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+// ==========================================
+// MODELO: NEGOCIO
+// ==========================================
+model Business {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Información básica
+  name          String
+  industry      String
+  description   String    @db.Text
+  logo          String?
+  
+  // Contacto
+  website       String?
+  whatsapp      String?
+  instagram     String?
+  facebook      String?
+  email         String?
+  phone         String?
+  address       String?
+  
+  // Estado del onboarding
+  onboardingStatus OnboardingStatus @default(PENDING)
+  onboardingStep   Int       @default(1)
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relaciones
+  products      Product[]
+  faqs          FAQ[]
+  assistants    Assistant[]
+  
+  @@index([userId])
+}
+
+enum OnboardingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ACTIVE
+}
+
+// ==========================================
+// MODELO: PRODUCTO/SERVICIO
+// ==========================================
+model Product {
+  id            String    @id @default(uuid())
+  businessId    String
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  name          String
+  price         Decimal?  @db.Decimal(10, 2)
+  currency      String    @default("USD")
+  description   String?   @db.Text
+  category      String?
+  imageUrl      String?
+  isActive      Boolean   @default(true)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([businessId])
+}
+
+// ==========================================
+// MODELO: PREGUNTAS FRECUENTES
+// ==========================================
+model FAQ {
+  id            String    @id @default(uuid())
+  businessId    String
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  question      String    @db.Text
+  answer        String    @db.Text
+  category      String?
+  order         Int       @default(0)
+  isActive      Boolean   @default(true)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  @@index([businessId])
+}
+
+// ==========================================
+// MODELO: ASISTENTE DE IA
+// ==========================================
+model Assistant {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessId    String
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  
+  // Configuración básica
+  name          String    @default("Elisa")
+  language      String    @default("es")
+  timezone      String    @default("America/Bogota")
+  
+  // Mensajes
+  welcomeMessage String   @db.Text
+  offlineMessage String?  @db.Text
+  fallbackMessage String? @db.Text
+  
+  // Personalidad
+  tone          AssistantTone @default(FRIENDLY)
+  useEmojis     Boolean   @default(true)
+  customInstructions String? @db.Text
+  
+  // Prompt del sistema (generado automáticamente)
+  systemPrompt  String    @db.Text
+  
+  // Comportamiento
+  autoEscalate  Boolean   @default(true)
+  captureLeads  Boolean   @default(true)
+  showOfflineMsg Boolean  @default(true)
+  
+  // Horario
+  businessHours String?   // JSON con horarios
+  
+  // Apariencia del widget
+  primaryColor  String    @default("#6366f1")
+  position      String    @default("bottom-right")
+  avatarType    String    @default("robot")
+  
+  // Estado
+  status        AssistantStatus @default(PENDING)
+  isActive      Boolean   @default(false)
+  
+  // API pública
+  publicApiKey  String    @unique @default(uuid())
+  
+  // Timestamps
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  activatedAt   DateTime?
+  
+  // Relaciones
+  conversations Conversation[]
+  
+  @@index([userId])
+  @@index([businessId])
+  @@index([publicApiKey])
+}
+
+enum AssistantTone {
+  FRIENDLY
+  PROFESSIONAL
+  TECHNICAL
+  SALES
+}
+
+enum AssistantStatus {
+  PENDING
+  CONFIGURING
+  REVIEW
+  ACTIVE
+  PAUSED
+}
+
+// ==========================================
+// MODELO: CONVERSACIÓN
+// ==========================================
+model Conversation {
+  id            String    @id @default(uuid())
+  assistantId   String
+  assistant     Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade)
+  
+  // Identificador del cliente
+  clientId      String    // Puede ser teléfono, email, o ID único
+  clientName    String?
+  clientEmail   String?
+  clientPhone   String?
+  
+  // Canal
+  channel       Channel   @default(WEB)
+  
+  // Estado
+  status        ConversationStatus @default(ACTIVE)
+  
+  // Métricas
+  messageCount  Int       @default(0)
+  duration      Int?      // en segundos
+  
+  // Etiquetas y notas
+  tags          String[]
+  internalNotes String?   @db.Text
+  
+  // Para leads
+  isLead        Boolean   @default(false)
+  leadScore     Int?
+  
+  // Timestamps
+  startedAt     DateTime  @default(now())
+  lastMessageAt DateTime  @default(now())
+  endedAt       DateTime?
+  
+  // Relaciones
+  messages      Message[]
+  
+  @@index([assistantId])
+  @@index([clientId])
+  @@index([channel])
+  @@index([status])
+}
+
+enum Channel {
+  WEB
+  WHATSAPP
+  INSTAGRAM
+  MESSENGER
+  API
+}
+
+enum ConversationStatus {
+  ACTIVE
+  RESOLVED
+  ESCALATED
+  ABANDONED
+}
+
+// ==========================================
+// MODELO: MENSAJE
+// ==========================================
+model Message {
+  id              String    @id @default(uuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  role            MessageRole
+  content         String    @db.Text
+  
+  // Metadata
+  tokensUsed      Int?
+  responseTime    Int?      // en milisegundos
+  
+  // Para WhatsApp
+  whatsappMsgId   String?
+  
+  createdAt       DateTime  @default(now())
+  
+  @@index([conversationId])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ==========================================
+// MODELO: WEBHOOK LOG (PARA DEBUGGING)
+// ==========================================
+model WebhookLog {
+  id            String    @id @default(uuid())
+  source        String    // 'stripe', 'whatsapp', etc.
+  event         String
+  payload       Json
+  status        String    @default("received")
+  error         String?
+  createdAt     DateTime  @default(now())
+  
+  @@index([source])
+  @@index([createdAt])
+}

@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Widget de Chat - Elisa IA</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Demo page styles */
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .demo-container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+            color: white;
+        }
+
+        .demo-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .demo-subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 3rem;
+        }
+
+        .demo-card {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            color: #1f2937;
+            text-align: left;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+        }
+
+        .demo-card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+        }
+
+        .demo-card p {
+            color: #6b7280;
+            margin-bottom: 1.5rem;
+        }
+
+        .code-block {
+            background: #1f2937;
+            border-radius: 12px;
+            padding: 1.25rem;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            color: #e5e7eb;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .code-block .tag { color: #f472b6; }
+        .code-block .attr { color: #a78bfa; }
+        .code-block .string { color: #34d399; }
+        .code-block .comment { color: #6b7280; }
+
+        /* ========================================
+           WIDGET STYLES - EMBED THIS CSS
+           ======================================== */
+        
+        .elisa-widget-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 999999;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        /* Chat Button */
+        .elisa-chat-button {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 24px rgba(99, 102, 241, 0.4);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .elisa-chat-button:hover {
+            transform: scale(1.08);
+            box-shadow: 0 6px 30px rgba(99, 102, 241, 0.5);
+        }
+
+        .elisa-chat-button svg {
+            width: 28px;
+            height: 28px;
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        .elisa-chat-button .close-icon {
+            position: absolute;
+            opacity: 0;
+            transform: rotate(-90deg);
+        }
+
+        .elisa-chat-button.open .chat-icon {
+            opacity: 0;
+            transform: rotate(90deg);
+        }
+
+        .elisa-chat-button.open .close-icon {
+            opacity: 1;
+            transform: rotate(0deg);
+        }
+
+        /* Notification Badge */
+        .elisa-notification-badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            width: 22px;
+            height: 22px;
+            background: #ef4444;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: white;
+            border: 3px solid white;
+            animation: pulse-badge 2s infinite;
+        }
+
+        @keyframes pulse-badge {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+
+        /* Chat Window */
+        .elisa-chat-window {
+            position: absolute;
+            bottom: 80px;
+            right: 0;
+            width: 380px;
+            height: 550px;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 10px 60px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(20px) scale(0.95);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .elisa-chat-window.open {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0) scale(1);
+        }
+
+        /* Chat Header */
+        .elisa-chat-header {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            padding: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .elisa-avatar {
+            width: 48px;
+            height: 48px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .elisa-header-info {
+            flex: 1;
+        }
+
+        .elisa-header-info h4 {
+            color: white;
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin: 0 0 0.2rem 0;
+        }
+
+        .elisa-header-info .status {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .elisa-header-info .status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #4ade80;
+            border-radius: 50%;
+            animation: status-pulse 2s infinite;
+        }
+
+        @keyframes status-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .elisa-header-close {
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            transition: background 0.2s ease;
+        }
+
+        .elisa-header-close:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Chat Messages */
+        .elisa-chat-messages {
+            flex: 1;
+            padding: 1.25rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: #f9fafb;
+        }
+
+        .elisa-message {
+            max-width: 85%;
+            animation: message-in 0.3s ease;
+        }
+
+        @keyframes message-in {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .elisa-message.bot {
+            align-self: flex-start;
+        }
+
+        .elisa-message.user {
+            align-self: flex-end;
+        }
+
+        .elisa-message-content {
+            padding: 0.875rem 1.1rem;
+            border-radius: 18px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .elisa-message.bot .elisa-message-content {
+            background: white;
+            color: #1f2937;
+            border-bottom-left-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .elisa-message.user .elisa-message-content {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .elisa-message-time {
+            font-size: 0.7rem;
+            color: #9ca3af;
+            margin-top: 0.35rem;
+            padding: 0 0.5rem;
+        }
+
+        .elisa-message.user .elisa-message-time {
+            text-align: right;
+        }
+
+        /* Typing Indicator */
+        .elisa-typing {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.875rem 1.1rem;
+            background: white;
+            border-radius: 18px;
+            border-bottom-left-radius: 6px;
+            width: fit-content;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        .elisa-typing span {
+            width: 8px;
+            height: 8px;
+            background: #9ca3af;
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .elisa-typing span:nth-child(2) { animation-delay: 0.2s; }
+        .elisa-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); }
+            30% { transform: translateY(-6px); }
+        }
+
+        /* Quick Replies */
+        .elisa-quick-replies {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 0 1.25rem 1rem;
+            background: #f9fafb;
+        }
+
+        .elisa-quick-reply {
+            padding: 0.5rem 1rem;
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            color: #6366f1;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .elisa-quick-reply:hover {
+            background: #6366f1;
+            color: white;
+            border-color: #6366f1;
+        }
+
+        /* Chat Input */
+        .elisa-chat-input {
+            padding: 1rem 1.25rem;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .elisa-chat-input input {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: #f3f4f6;
+            border: 1px solid transparent;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            color: #1f2937;
+            outline: none;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .elisa-chat-input input:focus {
+            background: white;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .elisa-chat-input input::placeholder {
+            color: #9ca3af;
+        }
+
+        .elisa-send-button {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .elisa-send-button:hover {
+            transform: scale(1.05);
+        }
+
+        .elisa-send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .elisa-send-button svg {
+            width: 20px;
+            height: 20px;
+            color: white;
+        }
+
+        /* Powered By */
+        .elisa-powered {
+            text-align: center;
+            padding: 0.75rem;
+            font-size: 0.7rem;
+            color: #9ca3af;
+            background: #f9fafb;
+        }
+
+        .elisa-powered a {
+            color: #6366f1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 480px) {
+            .elisa-chat-window {
+                width: calc(100vw - 32px);
+                height: calc(100vh - 120px);
+                bottom: 76px;
+                right: -8px;
+                border-radius: 16px;
+            }
+
+            .elisa-chat-button {
+                width: 56px;
+                height: 56px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Demo Page Content -->
+    <div class="demo-container">
+        <h1 class="demo-title">🤖 Widget de Chat Elisa IA</h1>
+        <p class="demo-subtitle">Prueba el widget en la esquina inferior derecha. Este es el código para integrarlo en tu sitio.</p>
+
+        <div class="demo-card">
+            <h3>📋 Código de Integración</h3>
+            <p>Copia y pega este código antes del cierre &lt;/body&gt; de tu sitio web:</p>
+            
+            <div class="code-block">
+                <code>
+<span class="comment">&lt;!-- Elisa IA Chat Widget --&gt;</span>
+<span class="tag">&lt;script</span> <span class="attr">src</span>=<span class="string">"https://cdn.elisa-ia.com/widget.js"</span><span class="tag">&gt;&lt;/script&gt;</span>
+<span class="tag">&lt;script&gt;</span>
+  ElisaWidget.init({
+    <span class="attr">apiKey</span>: <span class="string">'tu-api-key-aqui'</span>,
+    <span class="attr">assistantId</span>: <span class="string">'ast_xxxxxxxxxxxxx'</span>,
+    <span class="attr">primaryColor</span>: <span class="string">'#6366f1'</span>,
+    <span class="attr">position</span>: <span class="string">'bottom-right'</span>,
+    <span class="attr">welcomeMessage</span>: <span class="string">'¡Hola! 👋 ¿En qué puedo ayudarte?'</span>
+  });
+<span class="tag">&lt;/script&gt;</span>
+                </code>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================
+         WIDGET HTML - EMBED THIS
+         ======================================== -->
+    <div class="elisa-widget-container" id="elisaWidget">
+        <!-- Chat Button -->
+        <button class="elisa-chat-button" id="elisaChatButton" onclick="toggleChat()">
+            <svg class="chat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <svg class="close-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            <span class="elisa-notification-badge" id="notificationBadge">1</span>
+        </button>
+
+        <!-- Chat Window -->
+        <div class="elisa-chat-window" id="elisaChatWindow">
+            <div class="elisa-chat-header">
+                <div class="elisa-avatar">🤖</div>
+                <div class="elisa-header-info">
+                    <h4>Elisa - TechStore</h4>
+                    <span class="status">En línea</span>
+                </div>
+                <button class="elisa-header-close" onclick="toggleChat()">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="elisa-chat-messages" id="chatMessages">
+                <div class="elisa-message bot">
+                    <div class="elisa-message-content">
+                        ¡Hola! 👋 Soy Elisa, tu asistente virtual de TechStore. Estoy aquí para ayudarte con información sobre nuestros productos, precios, envíos y más. ¿En qué puedo ayudarte hoy?
+                    </div>
+                    <div class="elisa-message-time">Hace un momento</div>
+                </div>
+            </div>
+
+            <div class="elisa-quick-replies" id="quickReplies">
+                <button class="elisa-quick-reply" onclick="sendQuickReply('¿Qué productos tienen?')">📱 Ver productos</button>
+                <button class="elisa-quick-reply" onclick="sendQuickReply('¿Cuánto cuesta el envío?')">🚚 Envíos</button>
+                <button class="elisa-quick-reply" onclick="sendQuickReply('¿Qué métodos de pago aceptan?')">💳 Pagos</button>
+                <button class="elisa-quick-reply" onclick="sendQuickReply('Quiero hablar con un humano')">👤 Soporte</button>
+            </div>
+
+            <div class="elisa-chat-input">
+                <input 
+                    type="text" 
+                    id="chatInput" 
+                    placeholder="Escribe tu mensaje..."
+                    onkeypress="handleKeyPress(event)"
+                >
+                <button class="elisa-send-button" onclick="sendMessage()" id="sendButton">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="elisa-powered">
+                Powered by <a href="#">Elisa IA</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isOpen = false;
+
+        function toggleChat() {
+            isOpen = !isOpen;
+            const chatWindow = document.getElementById('elisaChatWindow');
+            const chatButton = document.getElementById('elisaChatButton');
+            const notificationBadge = document.getElementById('notificationBadge');
+
+            if (isOpen) {
+                chatWindow.classList.add('open');
+                chatButton.classList.add('open');
+                notificationBadge.style.display = 'none';
+            } else {
+                chatWindow.classList.remove('open');
+                chatButton.classList.remove('open');
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+
+            addMessage(message, 'user');
+            input.value = '';
+            
+            // Hide quick replies after first message
+            document.getElementById('quickReplies').style.display = 'none';
+
+            // Show typing indicator
+            showTyping();
+
+            // Simulate bot response
+            setTimeout(() => {
+                hideTyping();
+                const response = getBotResponse(message);
+                addMessage(response, 'bot');
+            }, 1500);
+        }
+
+        function sendQuickReply(message) {
+            document.getElementById('chatInput').value = message;
+            sendMessage();
+        }
+
+        function addMessage(content, type) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `elisa-message ${type}`;
+            messageDiv.innerHTML = `
+                <div class="elisa-message-content">${content}</div>
+                <div class="elisa-message-time">Ahora</div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function showTyping() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'elisa-message bot';
+            typingDiv.id = 'typingIndicator';
+            typingDiv.innerHTML = `
+                <div class="elisa-typing">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            `;
+            messagesContainer.appendChild(typingDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function hideTyping() {
+            const typing = document.getElementById('typingIndicator');
+            if (typing) typing.remove();
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function getBotResponse(message) {
+            const lowerMessage = message.toLowerCase();
+            
+            if (lowerMessage.includes('producto') || lowerMessage.includes('tienen')) {
+                return '¡Tenemos una gran variedad! 📱 Nuestros productos más populares son:<br><br>• iPhone 15 Pro - $1,299 USD<br>• MacBook Air M3 - $1,099 USD<br>• AirPods Pro 2 - $249 USD<br><br>¿Te gustaría más información sobre alguno?';
+            }
+            
+            if (lowerMessage.includes('envío') || lowerMessage.includes('envio')) {
+                return '🚚 ¡Hacemos envíos a toda Colombia!<br><br>• Bogotá: 1-2 días hábiles<br>• Otras ciudades: 3-5 días hábiles<br>• Envío GRATIS en compras mayores a $100 USD<br><br>¿Necesitas más información?';
+            }
+            
+            if (lowerMessage.includes('pago') || lowerMessage.includes('pagar')) {
+                return '💳 Aceptamos múltiples métodos de pago:<br><br>• Tarjetas de crédito/débito<br>• PSE<br>• Nequi y Daviplata<br>• Efectivo contra entrega (solo Bogotá)<br><br>¿Quieres realizar una compra?';
+            }
+            
+            if (lowerMessage.includes('humano') || lowerMessage.includes('soporte') || lowerMessage.includes('asesor')) {
+                return '👤 ¡Por supuesto! Puedo conectarte con un asesor.<br><br>Por favor déjame tu nombre y número de WhatsApp, y un miembro de nuestro equipo te contactará en breve.<br><br>También puedes escribirnos directamente a: +57 310 123 4567';
+            }
+            
+            if (lowerMessage.includes('hola') || lowerMessage.includes('buenos')) {
+                return '¡Hola! 👋 ¿En qué puedo ayudarte hoy? Puedo darte información sobre nuestros productos, precios, envíos y más.';
+            }
+            
+            if (lowerMessage.includes('precio') || lowerMessage.includes('cuesta')) {
+                return '💰 Con gusto te ayudo con precios. ¿Qué producto te interesa? Tenemos desde accesorios desde $20 USD hasta equipos premium.';
+            }
+            
+            if (lowerMessage.includes('gracias')) {
+                return '¡Con mucho gusto! 😊 Si necesitas algo más, aquí estoy para ayudarte. ¡Que tengas un excelente día!';
+            }
+
+            return 'Entiendo tu consulta. Para darte la mejor información, ¿podrías ser más específico sobre qué necesitas? Puedo ayudarte con:<br><br>• Información de productos<br>• Precios y disponibilidad<br>• Envíos y entregas<br>• Métodos de pago';
+        }
+    </script>
+</body>
+</html>

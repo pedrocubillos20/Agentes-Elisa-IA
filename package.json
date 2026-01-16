@@ -1,0 +1,38 @@
+{
+  "name": "elisa-ia-platform",
+  "version": "1.0.0",
+  "description": "Plataforma SaaS para agentes de IA personalizados - Modelo BYOK",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "whatsapp-bot"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "start": "cd backend && npm start",
+    "db:migrate": "cd backend && npm run db:migrate",
+    "db:seed": "cd backend && npm run db:seed",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "whatsapp:start": "cd whatsapp-bot && npm start"
+  },
+  "keywords": [
+    "ai",
+    "chatbot",
+    "whatsapp",
+    "saas",
+    "openai",
+    "gpt"
+  ],
+  "author": "Elisa IA Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

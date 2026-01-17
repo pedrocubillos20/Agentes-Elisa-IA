@@ -1,114 +1,166 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
-import { processWhatsAppMessage } from '../services/whatsapp.service';
-import { processWompiWebhook, verifyWebhookSignature } from '../services/wompi.service';
+import crypto from 'crypto';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// ==========================================
-// WEBHOOK DE WHATSAPP - VERIFICACIÓN
-// ==========================================
-router.get('/whatsapp', (req, res) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
+// Mapeo de planes
+const PLAN_MAPPING: Record<string, { plan: string; planType: string }> = {
+  'STARTER_MONTHLY': { plan: 'STARTER', planType: 'MONTHLY' },
+  'PRO_MONTHLY': { plan: 'PRO', planType: 'MONTHLY' },
+  'BUSINESS_MONTHLY': { plan: 'BUSINESS', planType: 'MONTHLY' },
+  'STARTER_LIFETIME': { plan: 'STARTER', planType: 'LIFETIME' },
+  'PRO_LIFETIME': { plan: 'PRO', planType: 'LIFETIME' },
+  'AGENCY_LIFETIME': { plan: 'AGENCY', planType: 'LIFETIME' },
+};
 
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-    logger.info('Webhook de WhatsApp verificado');
-    res.status(200).send(challenge);
-  } else {
-    logger.warn('Verificación de webhook fallida');
-    res.sendStatus(403);
+// Verificar firma de Wompi
+const verifyWompiSignature = (payload: any, signature: string): boolean => {
+  const eventSecret = process.env.WOMPI_EVENT_SECRET;
+  if (!eventSecret) {
+    console.warn('⚠️ WOMPI_EVENT_SECRET no configurado');
+    return false;
   }
-});
 
-// ==========================================
-// WEBHOOK DE WHATSAPP - MENSAJES ENTRANTES
-// ==========================================
-router.post('/whatsapp', async (req, res) => {
+  const properties = payload.data?.transaction || {};
+  const stringToSign = `${properties.id}${properties.status}${properties.reference}${eventSecret}`;
+  const expectedSignature = crypto.createHash('sha256').update(stringToSign).digest('hex');
+  
+  return signature === expectedSignature;
+};
+
+// Webhook de Wompi
+router.post('/wompi', async (req: Request, res: Response) => {
   try {
-    const body = req.body;
+    const signature = req.headers['x-event-checksum'] as string;
+    const event = req.body;
 
-    // Log del webhook
+    console.log('📥 Webhook Wompi recibido:', JSON.stringify(event, null, 2));
+
+    // Registrar el webhook
     await prisma.webhookLog.create({
       data: {
-        source: 'whatsapp',
-        event: body?.entry?.[0]?.changes?.[0]?.field || 'unknown',
-        payload: body,
-      },
+        source: 'wompi',
+        event: event.event || 'unknown',
+        payload: event,
+        status: 'received',
+      }
     });
 
-    // Verificar que es un mensaje
-    if (body.object === 'whatsapp_business_account') {
-      const entry = body.entry?.[0];
-      const changes = entry?.changes?.[0];
-      const value = changes?.value;
-
-      if (value?.messages) {
-        for (const message of value.messages) {
-          // Procesar cada mensaje
-          await processWhatsAppMessage({
-            from: message.from,
-            messageId: message.id,
-            timestamp: message.timestamp,
-            type: message.type,
-            text: message.text?.body,
-            phoneNumberId: value.metadata?.phone_number_id,
-          });
-        }
+    // Verificar firma (opcional en sandbox)
+    if (process.env.NODE_ENV === 'production') {
+      if (!verifyWompiSignature(event, signature)) {
+        console.error('❌ Firma de webhook inválida');
+        return res.status(401).json({ error: 'Firma inválida' });
       }
     }
 
-    // Siempre responder 200 a WhatsApp
-    res.sendStatus(200);
-  } catch (error) {
-    logger.error('Error procesando webhook de WhatsApp:', error);
-    res.sendStatus(200); // Aún así respondemos 200 para evitar reintentos
-  }
-});
-
-// ==========================================
-// WEBHOOK DE WOMPI
-// ==========================================
-router.post('/wompi', async (req, res) => {
-  try {
-    const event = req.body;
-
-    // Log del webhook
-    await prisma.webhookLog.create({
-      data: {
-        source: 'wompi',
-        event: event?.event || 'unknown',
-        payload: event,
-        status: 'received',
-      },
-    });
-
-    // Procesar el evento
+    // Procesar evento de transacción
     if (event.event === 'transaction.updated') {
-      await processWompiWebhook(event);
+      const transaction = event.data?.transaction;
+      
+      if (!transaction) {
+        return res.status(400).json({ error: 'Datos de transacción faltantes' });
+      }
+
+      const { reference, status, id: wompiId, payment_method_type } = transaction;
+
+      console.log(`💳 Transacción ${reference}: ${status}`);
+
+      // Buscar el pago en nuestra base de datos
+      const payment = await prisma.payment.findUnique({
+        where: { reference }
+      });
+
+      if (!payment) {
+        console.error(`❌ Pago no encontrado: ${reference}`);
+        return res.status(404).json({ error: 'Pago no encontrado' });
+      }
+
+      // Actualizar estado del pago
+      await prisma.payment.update({
+        where: { reference },
+        data: {
+          status,
+          wompiId,
+          paymentMethod: payment_method_type,
+        }
+      });
+
+      // Si el pago fue aprobado, actualizar el plan del usuario
+      if (status === 'APPROVED') {
+        const planInfo = PLAN_MAPPING[payment.plan] || PLAN_MAPPING['STARTER_MONTHLY'];
+        
+        await prisma.user.update({
+          where: { id: payment.userId },
+          data: {
+            plan: planInfo.plan as any,
+            planType: planInfo.planType as any,
+            subscriptionStatus: 'ACTIVE',
+            subscriptionId: wompiId,
+          }
+        });
+
+        console.log(`✅ Plan actualizado para usuario ${payment.userId}: ${planInfo.plan} (${planInfo.planType})`);
+
+        // Actualizar log del webhook
+        await prisma.webhookLog.updateMany({
+          where: { 
+            payload: { path: ['data', 'transaction', 'reference'], equals: reference }
+          },
+          data: { status: 'processed' }
+        });
+      }
     }
 
     res.json({ received: true });
-  } catch (error: any) {
-    logger.error('Error procesando webhook de Wompi:', error);
+  } catch (error) {
+    console.error('Error procesando webhook Wompi:', error);
     
-    // Actualizar log con error
-    await prisma.webhookLog.updateMany({
-      where: {
-        source: 'wompi',
-        status: 'received',
-      },
+    // Registrar error
+    await prisma.webhookLog.create({
       data: {
+        source: 'wompi',
+        event: 'error',
+        payload: req.body,
         status: 'error',
-        error: error.message,
-      },
+        error: error instanceof Error ? error.message : 'Error desconocido',
+      }
     });
 
-    // Aún así respondemos 200 para evitar reintentos innecesarios
-    res.status(200).json({ received: true, error: error.message });
+    res.status(500).json({ error: 'Error procesando webhook' });
+  }
+});
+
+// Webhook de prueba (para verificar que funciona)
+router.post('/test', async (req: Request, res: Response) => {
+  console.log('🧪 Webhook de prueba recibido:', req.body);
+  
+  await prisma.webhookLog.create({
+    data: {
+      source: 'test',
+      event: 'test',
+      payload: req.body,
+      status: 'received',
+    }
+  });
+
+  res.json({ received: true, timestamp: new Date().toISOString() });
+});
+
+// Obtener logs de webhooks (para debugging)
+router.get('/logs', async (req: Request, res: Response) => {
+  try {
+    const logs = await prisma.webhookLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    res.json({ logs });
+  } catch (error) {
+    console.error('Error obteniendo logs:', error);
+    res.status(500).json({ error: 'Error al obtener logs' });
   }
 });
 

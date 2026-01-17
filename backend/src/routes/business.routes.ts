@@ -1,49 +1,47 @@
-import { Router } from 'express';
-import { body, param } from 'express-validator';
-import { authenticate } from '../middleware/auth';
-import { validate } from '../middleware/validate';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Todas las rutas requieren autenticación
-router.use(authenticate);
-
-// ==========================================
-// OBTENER NEGOCIOS DEL USUARIO
-// ==========================================
-router.get('/', async (req, res, next) => {
+// Obtener negocios del usuario
+router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
     const businesses = await prisma.business.findMany({
       where: { userId: req.userId },
       include: {
-        products: { take: 5 },
-        faqs: { take: 5 },
-        assistants: {
-          select: { id: true, name: true, status: true, isActive: true },
-        },
+        products: true,
+        faqs: true,
+        _count: {
+          select: { assistants: true }
+        }
       },
+      orderBy: { createdAt: 'desc' },
     });
-    res.json(businesses);
+
+    res.json({ businesses });
   } catch (error) {
-    next(error);
+    console.error('Error obteniendo negocios:', error);
+    res.status(500).json({ error: 'Error al obtener negocios' });
   }
 });
 
-// ==========================================
-// OBTENER UN NEGOCIO POR ID
-// ==========================================
-router.get('/:id', async (req, res, next) => {
+// Obtener un negocio específico
+router.get('/:id', authenticate, async (req: Request, res: Response) => {
   try {
+    const { id } = req.params;
+
     const business = await prisma.business.findFirst({
-      where: {
-        id: req.params.id,
-        userId: req.userId,
+      where: { 
+        id,
+        userId: req.userId 
       },
       include: {
         products: true,
-        faqs: true,
+        faqs: {
+          orderBy: { order: 'asc' }
+        },
         assistants: true,
       },
     });
@@ -52,160 +50,346 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Negocio no encontrado' });
     }
 
-    res.json(business);
+    res.json({ business });
   } catch (error) {
-    next(error);
+    console.error('Error obteniendo negocio:', error);
+    res.status(500).json({ error: 'Error al obtener negocio' });
   }
 });
 
-// ==========================================
-// ACTUALIZAR INFORMACIÓN DEL NEGOCIO
-// ==========================================
-router.put('/:id',
-  [
-    param('id').isUUID(),
-    body('name').optional().trim().notEmpty(),
-    body('industry').optional().trim(),
-    body('description').optional().trim(),
-    body('website').optional().trim(),
-    body('whatsapp').optional().trim(),
-    body('instagram').optional().trim(),
-    body('email').optional().isEmail(),
-    body('phone').optional().trim(),
-    body('address').optional().trim(),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const business = await prisma.business.updateMany({
-        where: {
-          id: req.params.id,
-          userId: req.userId,
-        },
-        data: req.body,
-      });
+// Crear negocio
+router.post('/', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { name, industry, description, contactEmail, contactPhone, address } = req.body;
 
-      if (business.count === 0) {
-        return res.status(404).json({ error: 'Negocio no encontrado' });
-      }
-
-      const updated = await prisma.business.findUnique({
-        where: { id: req.params.id },
-      });
-
-      res.json(updated);
-    } catch (error) {
-      next(error);
+    if (!name) {
+      return res.status(400).json({ error: 'El nombre del negocio es requerido' });
     }
+
+    const business = await prisma.business.create({
+      data: {
+        userId: req.userId!,
+        name,
+        industry,
+        description,
+        contactEmail,
+        contactPhone,
+        address,
+      },
+    });
+
+    console.log(`✅ Negocio creado: ${business.name}`);
+
+    res.status(201).json({ 
+      message: 'Negocio creado exitosamente',
+      business 
+    });
+  } catch (error) {
+    console.error('Error creando negocio:', error);
+    res.status(500).json({ error: 'Error al crear negocio' });
   }
-);
+});
 
-// ==========================================
-// AGREGAR PRODUCTO
-// ==========================================
-router.post('/:id/products',
-  [
-    param('id').isUUID(),
-    body('name').notEmpty().trim(),
-    body('price').optional().isDecimal(),
-    body('description').optional().trim(),
-    body('category').optional().trim(),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      // Verificar que el negocio pertenece al usuario
-      const business = await prisma.business.findFirst({
-        where: { id: req.params.id, userId: req.userId },
-      });
+// Actualizar negocio
+router.put('/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, industry, description, contactEmail, contactPhone, address, businessHours } = req.body;
 
-      if (!business) {
-        return res.status(404).json({ error: 'Negocio no encontrado' });
-      }
+    // Verificar que el negocio pertenece al usuario
+    const existingBusiness = await prisma.business.findFirst({
+      where: { id, userId: req.userId },
+    });
 
-      const product = await prisma.product.create({
-        data: {
-          businessId: req.params.id,
-          ...req.body,
-        },
-      });
-
-      res.status(201).json(product);
-    } catch (error) {
-      next(error);
+    if (!existingBusiness) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
     }
+
+    const business = await prisma.business.update({
+      where: { id },
+      data: {
+        name,
+        industry,
+        description,
+        contactEmail,
+        contactPhone,
+        address,
+        businessHours,
+      },
+    });
+
+    res.json({ 
+      message: 'Negocio actualizado',
+      business 
+    });
+  } catch (error) {
+    console.error('Error actualizando negocio:', error);
+    res.status(500).json({ error: 'Error al actualizar negocio' });
   }
-);
+});
 
-// ==========================================
-// AGREGAR FAQ
-// ==========================================
-router.post('/:id/faqs',
-  [
-    param('id').isUUID(),
-    body('question').notEmpty().trim(),
-    body('answer').notEmpty().trim(),
-    body('category').optional().trim(),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const business = await prisma.business.findFirst({
-        where: { id: req.params.id, userId: req.userId },
-      });
+// Eliminar negocio
+router.delete('/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
 
-      if (!business) {
-        return res.status(404).json({ error: 'Negocio no encontrado' });
-      }
+    const existingBusiness = await prisma.business.findFirst({
+      where: { id, userId: req.userId },
+    });
 
-      const faq = await prisma.faq.create({
-        data: {
-          businessId: req.params.id,
-          ...req.body,
-        },
-      });
-
-      res.status(201).json(faq);
-    } catch (error) {
-      next(error);
+    if (!existingBusiness) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
     }
+
+    await prisma.business.delete({
+      where: { id },
+    });
+
+    res.json({ message: 'Negocio eliminado' });
+  } catch (error) {
+    console.error('Error eliminando negocio:', error);
+    res.status(500).json({ error: 'Error al eliminar negocio' });
   }
-);
+});
 
-// ==========================================
-// ACTUALIZAR ESTADO DE ONBOARDING
-// ==========================================
-router.patch('/:id/onboarding',
-  [
-    param('id').isUUID(),
-    body('step').optional().isInt({ min: 1, max: 5 }),
-    body('status').optional().isIn(['PENDING', 'IN_PROGRESS', 'COMPLETED']),
-  ],
-  validate,
-  async (req, res, next) => {
-    try {
-      const { step, status } = req.body;
+// ============ PRODUCTOS ============
 
-      const business = await prisma.business.updateMany({
-        where: {
-          id: req.params.id,
-          userId: req.userId,
-        },
-        data: {
-          ...(step && { onboardingStep: step }),
-          ...(status && { onboardingStatus: status }),
-        },
-      });
+// Agregar producto a un negocio
+router.post('/:id/products', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, price, description, features } = req.body;
 
-      if (business.count === 0) {
-        return res.status(404).json({ error: 'Negocio no encontrado' });
-      }
+    // Verificar que el negocio pertenece al usuario
+    const business = await prisma.business.findFirst({
+      where: { id, userId: req.userId },
+    });
 
-      res.json({ message: 'Onboarding actualizado' });
-    } catch (error) {
-      next(error);
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
     }
+
+    const product = await prisma.product.create({
+      data: {
+        businessId: id,
+        name,
+        price: price ? parseFloat(price) : null,
+        description,
+        features,
+      },
+    });
+
+    res.status(201).json({ 
+      message: 'Producto agregado',
+      product 
+    });
+  } catch (error) {
+    console.error('Error agregando producto:', error);
+    res.status(500).json({ error: 'Error al agregar producto' });
   }
-);
+});
+
+// Obtener productos de un negocio
+router.get('/:id/products', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const business = await prisma.business.findFirst({
+      where: { id, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    const products = await prisma.product.findMany({
+      where: { businessId: id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ products });
+  } catch (error) {
+    console.error('Error obteniendo productos:', error);
+    res.status(500).json({ error: 'Error al obtener productos' });
+  }
+});
+
+// Actualizar producto
+router.put('/:businessId/products/:productId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { businessId, productId } = req.params;
+    const { name, price, description, features, isActive } = req.body;
+
+    const business = await prisma.business.findFirst({
+      where: { id: businessId, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    const product = await prisma.product.update({
+      where: { id: productId },
+      data: {
+        name,
+        price: price ? parseFloat(price) : null,
+        description,
+        features,
+        isActive,
+      },
+    });
+
+    res.json({ message: 'Producto actualizado', product });
+  } catch (error) {
+    console.error('Error actualizando producto:', error);
+    res.status(500).json({ error: 'Error al actualizar producto' });
+  }
+});
+
+// Eliminar producto
+router.delete('/:businessId/products/:productId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { businessId, productId } = req.params;
+
+    const business = await prisma.business.findFirst({
+      where: { id: businessId, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    await prisma.product.delete({
+      where: { id: productId },
+    });
+
+    res.json({ message: 'Producto eliminado' });
+  } catch (error) {
+    console.error('Error eliminando producto:', error);
+    res.status(500).json({ error: 'Error al eliminar producto' });
+  }
+});
+
+// ============ FAQs ============
+
+// Agregar FAQ a un negocio
+router.post('/:id/faqs', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { question, answer, category } = req.body;
+
+    const business = await prisma.business.findFirst({
+      where: { id, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    // Obtener el orden máximo actual
+    const maxOrder = await prisma.fAQ.findFirst({
+      where: { businessId: id },
+      orderBy: { order: 'desc' },
+    });
+
+    const faq = await prisma.fAQ.create({
+      data: {
+        businessId: id,
+        question,
+        answer,
+        category,
+        order: (maxOrder?.order || 0) + 1,
+      },
+    });
+
+    res.status(201).json({ 
+      message: 'FAQ agregada',
+      faq 
+    });
+  } catch (error) {
+    console.error('Error agregando FAQ:', error);
+    res.status(500).json({ error: 'Error al agregar FAQ' });
+  }
+});
+
+// Obtener FAQs de un negocio
+router.get('/:id/faqs', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const business = await prisma.business.findFirst({
+      where: { id, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    const faqs = await prisma.fAQ.findMany({
+      where: { businessId: id },
+      orderBy: { order: 'asc' },
+    });
+
+    res.json({ faqs });
+  } catch (error) {
+    console.error('Error obteniendo FAQs:', error);
+    res.status(500).json({ error: 'Error al obtener FAQs' });
+  }
+});
+
+// Actualizar FAQ
+router.put('/:businessId/faqs/:faqId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { businessId, faqId } = req.params;
+    const { question, answer, category, order } = req.body;
+
+    const business = await prisma.business.findFirst({
+      where: { id: businessId, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    const faq = await prisma.fAQ.update({
+      where: { id: faqId },
+      data: {
+        question,
+        answer,
+        category,
+        order,
+      },
+    });
+
+    res.json({ message: 'FAQ actualizada', faq });
+  } catch (error) {
+    console.error('Error actualizando FAQ:', error);
+    res.status(500).json({ error: 'Error al actualizar FAQ' });
+  }
+});
+
+// Eliminar FAQ
+router.delete('/:businessId/faqs/:faqId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { businessId, faqId } = req.params;
+
+    const business = await prisma.business.findFirst({
+      where: { id: businessId, userId: req.userId },
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Negocio no encontrado' });
+    }
+
+    await prisma.fAQ.delete({
+      where: { id: faqId },
+    });
+
+    res.json({ message: 'FAQ eliminada' });
+  } catch (error) {
+    console.error('Error eliminando FAQ:', error);
+    res.status(500).json({ error: 'Error al eliminar FAQ' });
+  }
+});
 
 export default router;

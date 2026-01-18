@@ -1,9 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
+import CryptoJS from 'crypto-js';
 
 const router = Router();
 const prisma = new PrismaClient();
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'clave-encriptacion-32-caracteres!';
+
+// Desencriptar API Key
+const decryptApiKey = (encrypted: string): string => {
+  const bytes = CryptoJS.AES.decrypt(encrypted, ENCRYPTION_KEY);
+  return bytes.toString(CryptoJS.enc.Utf8);
+};
 
 // Ruta pública de chat (usada por el widget)
 router.post('/', async (req: Request, res: Response) => {
@@ -19,7 +27,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Mensaje requerido' });
     }
 
-    // Buscar asistente por API key
+    // Buscar asistente
     const assistant = await prisma.assistant.findUnique({
       where: { publicApiKey: apiKey },
       include: {
@@ -34,11 +42,18 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
+      return res.status(404).json({ error: 'Chatbot no encontrado' });
     }
 
     if (!assistant.isActive) {
-      return res.status(403).json({ error: 'Asistente inactivo' });
+      return res.status(403).json({ error: 'Chatbot inactivo' });
+    }
+
+    // Verificar que el usuario tenga API Key de OpenAI
+    if (!assistant.user.openaiApiKey) {
+      return res.status(403).json({ 
+        error: 'El propietario del chatbot no ha configurado su API Key de OpenAI' 
+      });
     }
 
     // Obtener o crear conversación
@@ -52,28 +67,18 @@ router.post('/', async (req: Request, res: Response) => {
 
     if (!conversation) {
       conversation = await prisma.conversation.create({
-        data: {
-          assistantId: assistant.id,
-          channel: 'WEB',
-          status: 'ACTIVE',
-        },
+        data: { assistantId: assistant.id, channel: 'WEB', status: 'ACTIVE' },
         include: { messages: true }
       });
     }
 
     // Guardar mensaje del usuario
     await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: 'USER',
-        content: message,
-      }
+      data: { conversationId: conversation.id, role: 'USER', content: message }
     });
 
-    // Construir contexto del negocio
+    // Construir contexto
     const businessContext = buildBusinessContext(assistant.business);
-    
-    // Construir historial de mensajes
     const messageHistory = conversation.messages.map(m => ({
       role: m.role.toLowerCase() as 'user' | 'assistant',
       content: m.content
@@ -85,37 +90,32 @@ router.post('/', async (req: Request, res: Response) => {
     let tokensUsed = 0;
 
     try {
-      const openaiApiKey = assistant.user.openaiApiKey || process.env.OPENAI_API_KEY;
-      
-      if (!openaiApiKey) {
-        reply = generateFallbackResponse(message, assistant.business);
-      } else {
-        const openai = new OpenAI({ apiKey: openaiApiKey });
-        
-        const systemPrompt = assistant.systemPrompt || buildSystemPrompt(assistant, businessContext);
+      const userApiKey = decryptApiKey(assistant.user.openaiApiKey);
+      const openai = new OpenAI({ apiKey: userApiKey });
 
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messageHistory,
-            { role: 'user', content: message }
-          ],
-          max_tokens: 500,
-          temperature: 0.7,
-        });
+      const systemPrompt = assistant.systemPrompt || buildSystemPrompt(assistant, businessContext);
 
-        reply = completion.choices[0]?.message?.content || 'Lo siento, no pude procesar tu mensaje.';
-        tokensUsed = completion.usage?.total_tokens || 0;
-      }
-    } catch (aiError) {
-      console.error('Error con OpenAI:', aiError);
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messageHistory,
+          { role: 'user', content: message }
+        ],
+        max_tokens: 500,
+        temperature: 0.7,
+      });
+
+      reply = completion.choices[0]?.message?.content || 'Lo siento, no pude procesar tu mensaje.';
+      tokensUsed = completion.usage?.total_tokens || 0;
+    } catch (aiError: any) {
+      console.error('Error OpenAI:', aiError?.message);
       reply = generateFallbackResponse(message, assistant.business);
     }
 
     const responseTime = Date.now() - startTime;
 
-    // Guardar respuesta del asistente
+    // Guardar respuesta
     await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -129,64 +129,50 @@ router.post('/', async (req: Request, res: Response) => {
     // Actualizar conversación
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: {
-        messageCount: { increment: 2 },
-        lastMessageAt: new Date(),
-      }
+      data: { messageCount: { increment: 2 }, lastMessageAt: new Date() }
     });
 
-    res.json({
-      reply,
-      conversationId: conversation.id,
-    });
+    res.json({ reply, conversationId: conversation.id });
   } catch (error) {
-    console.error('Error en chat:', error);
+    console.error('Error chat:', error);
     res.status(500).json({ error: 'Error al procesar mensaje' });
   }
 });
 
-// Construir contexto del negocio
 function buildBusinessContext(business: any): string {
-  let context = `Negocio: ${business.name}\n`;
-  
-  if (business.industry) context += `Industria: ${business.industry}\n`;
-  if (business.description) context += `Descripción: ${business.description}\n`;
-  if (business.contactEmail) context += `Email: ${business.contactEmail}\n`;
-  if (business.contactPhone) context += `Teléfono: ${business.contactPhone}\n`;
-  if (business.address) context += `Dirección: ${business.address}\n`;
-  if (business.businessHours) context += `Horario: ${business.businessHours}\n`;
+  let ctx = `Negocio: ${business.name}\n`;
+  if (business.industry) ctx += `Industria: ${business.industry}\n`;
+  if (business.description) ctx += `Descripción: ${business.description}\n`;
+  if (business.contactEmail) ctx += `Email: ${business.contactEmail}\n`;
+  if (business.contactPhone) ctx += `Teléfono: ${business.contactPhone}\n`;
+  if (business.businessHours) ctx += `Horario: ${business.businessHours}\n`;
 
-  if (business.products && business.products.length > 0) {
-    context += '\nProductos/Servicios:\n';
+  if (business.products?.length > 0) {
+    ctx += '\nProductos:\n';
     business.products.forEach((p: any) => {
-      context += `- ${p.name}`;
-      if (p.price) context += ` ($${p.price})`;
-      if (p.description) context += `: ${p.description}`;
-      context += '\n';
+      ctx += `- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.description ? `: ${p.description}` : ''}\n`;
     });
   }
 
-  if (business.faqs && business.faqs.length > 0) {
-    context += '\nPreguntas Frecuentes:\n';
+  if (business.faqs?.length > 0) {
+    ctx += '\nPreguntas Frecuentes:\n';
     business.faqs.forEach((f: any) => {
-      context += `P: ${f.question}\nR: ${f.answer}\n\n`;
+      ctx += `P: ${f.question}\nR: ${f.answer}\n\n`;
     });
   }
 
-  return context;
+  return ctx;
 }
 
-// Construir prompt del sistema
 function buildSystemPrompt(assistant: any, businessContext: string): string {
-  const toneInstructions: Record<string, string> = {
-    'PROFESSIONAL': 'Mantén un tono profesional y formal. Sé cortés y preciso.',
-    'FRIENDLY': 'Sé amigable y cercano. Usa un tono cálido y accesible.',
-    'CASUAL': 'Sé casual y relajado. Puedes usar expresiones coloquiales.',
+  const tones: Record<string, string> = {
+    'PROFESSIONAL': 'Mantén un tono profesional y formal.',
+    'FRIENDLY': 'Sé amigable y cercano.',
+    'CASUAL': 'Sé casual y relajado.',
   };
 
   return `Eres ${assistant.name}, un asistente virtual de atención al cliente.
-
-${toneInstructions[assistant.tone] || toneInstructions['PROFESSIONAL']}
+${tones[assistant.tone] || tones['PROFESSIONAL']}
 
 INFORMACIÓN DEL NEGOCIO:
 ${businessContext}
@@ -194,46 +180,31 @@ ${businessContext}
 INSTRUCCIONES:
 - Responde siempre en español
 - Sé conciso pero informativo
-- Si no conoces la respuesta, ofrece contactar al equipo humano
-- No inventes información que no esté en el contexto
-- Si preguntan por precios o productos, usa la información proporcionada
-- Mantén las respuestas breves (máximo 2-3 párrafos)`;
+- Si no conoces la respuesta, ofrece contactar al equipo
+- No inventes información
+- Mantén respuestas breves (máximo 2-3 párrafos)`;
 }
 
-// Respuesta de fallback cuando no hay API de OpenAI
 function generateFallbackResponse(message: string, business: any): string {
-  const lowerMessage = message.toLowerCase();
+  const lower = message.toLowerCase();
 
-  if (lowerMessage.includes('precio') || lowerMessage.includes('costo') || lowerMessage.includes('valor')) {
-    if (business.products && business.products.length > 0) {
-      const productList = business.products
-        .map((p: any) => `• ${p.name}${p.price ? ` - $${p.price}` : ''}`)
-        .join('\n');
-      return `¡Claro! Estos son nuestros productos y precios:\n\n${productList}\n\n¿Te interesa alguno en particular?`;
+  if (lower.includes('precio') || lower.includes('costo')) {
+    if (business.products?.length > 0) {
+      const list = business.products.map((p: any) => `• ${p.name}${p.price ? ` - $${p.price}` : ''}`).join('\n');
+      return `Nuestros productos:\n\n${list}\n\n¿Te interesa alguno?`;
     }
-    return 'Para información sobre precios, por favor contáctanos directamente.';
+    return 'Para precios, contáctanos directamente.';
   }
 
-  if (lowerMessage.includes('horario') || lowerMessage.includes('hora') || lowerMessage.includes('abierto')) {
-    if (business.businessHours) {
-      return `Nuestro horario de atención es: ${business.businessHours}`;
-    }
-    return 'Para conocer nuestros horarios, por favor contáctanos.';
+  if (lower.includes('horario')) {
+    return business.businessHours ? `Horario: ${business.businessHours}` : 'Contáctanos para horarios.';
   }
 
-  if (lowerMessage.includes('contacto') || lowerMessage.includes('teléfono') || lowerMessage.includes('email')) {
-    let response = 'Puedes contactarnos a través de:\n';
-    if (business.contactPhone) response += `📞 ${business.contactPhone}\n`;
-    if (business.contactEmail) response += `✉️ ${business.contactEmail}\n`;
-    if (business.address) response += `📍 ${business.address}`;
-    return response || 'Para información de contacto, visita nuestra página web.';
+  if (lower.includes('hola') || lower.includes('buenas')) {
+    return `¡Hola! 👋 Bienvenido a ${business.name}. ¿En qué puedo ayudarte?`;
   }
 
-  if (lowerMessage.includes('hola') || lowerMessage.includes('buenas') || lowerMessage.includes('hi')) {
-    return `¡Hola! 👋 Bienvenido a ${business.name}. ¿En qué puedo ayudarte hoy?`;
-  }
-
-  return `Gracias por tu mensaje. Un miembro de nuestro equipo en ${business.name} te responderá pronto. ¿Hay algo específico en lo que pueda ayudarte mientras tanto?`;
+  return `Gracias por tu mensaje. Un miembro de ${business.name} te responderá pronto.`;
 }
 
 export default router;

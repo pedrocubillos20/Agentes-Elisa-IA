@@ -1,69 +1,69 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
-import { authenticate } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
+const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
-// Obtener todos los asistentes del usuario
+// Límites por plan
+const PLAN_LIMITS: Record<string, number> = {
+  FREE: 0,
+  EMPRENDEDORES: 1,
+  NEGOCIOS: 3,
+  BUSINESS: 5,
+  MARCA_BLANCA: 999,
+};
+
+const authenticate = async (req: Request, res: Response, next: Function) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token no proporcionado' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+    (req as any).userId = decoded.userId;
+    (req as any).user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Token inválido' });
+  }
+};
+
+// Listar asistentes
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
     const assistants = await prisma.assistant.findMany({
-      where: { userId: req.userId },
+      where: { userId: (req as any).userId },
       include: {
-        business: {
-          select: {
-            id: true,
-            name: true,
-          }
-        },
-        _count: {
-          select: { conversations: true }
-        }
+        business: true,
+        _count: { select: { conversations: true } }
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc' }
     });
-
     res.json({ assistants });
   } catch (error) {
-    console.error('Error obteniendo asistentes:', error);
     res.status(500).json({ error: 'Error al obtener asistentes' });
   }
 });
 
-// Obtener un asistente específico
+// Obtener un asistente
 router.get('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
     const assistant = await prisma.assistant.findFirst({
-      where: { 
-        id,
-        userId: req.userId 
-      },
+      where: { id: req.params.id, userId: (req as any).userId },
       include: {
-        business: true,
-        conversations: {
-          take: 10,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            messages: {
-              take: 5,
-              orderBy: { createdAt: 'desc' }
-            }
-          }
-        }
-      },
+        business: { include: { products: true, faqs: true } },
+        conversations: { take: 10, orderBy: { createdAt: 'desc' } }
+      }
     });
-
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-
+    if (!assistant) return res.status(404).json({ error: 'Asistente no encontrado' });
     res.json({ assistant });
   } catch (error) {
-    console.error('Error obteniendo asistente:', error);
     res.status(500).json({ error: 'Error al obtener asistente' });
   }
 });
@@ -71,257 +71,134 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
 // Crear asistente
 router.post('/', authenticate, async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
     const { name, welcomeMessage, tone, businessId } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ error: 'El nombre del asistente es requerido' });
-    }
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
 
-    // Verificar límites del plan
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId },
-      include: {
-        assistants: true,
-        businesses: true,
-      }
-    });
+    // Verificar límite del plan
+    const currentCount = await prisma.assistant.count({ where: { userId: user.id } });
+    const limit = PLAN_LIMITS[user.plan] || 0;
 
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    // Límites por plan
-    const planLimits: Record<string, number> = {
-      FREE: 1,
-      STARTER: 1,
-      PRO: 3,
-      BUSINESS: 10,
-      AGENCY: 999,
-    };
-
-    const maxAssistants = planLimits[user.plan] || 1;
-
-    if (user.assistants.length >= maxAssistants) {
+    if (currentCount >= limit) {
       return res.status(403).json({ 
-        error: `Has alcanzado el límite de asistentes para tu plan (${maxAssistants}). Actualiza tu plan para crear más.`,
-        code: 'ASSISTANT_LIMIT_REACHED'
+        error: `Has alcanzado el límite de ${limit} chatbot(s) para tu plan ${user.plan}. Actualiza tu plan para crear más.` 
       });
     }
 
-    // Si no se especifica businessId, usar el primero o crear uno
-    let targetBusinessId = businessId;
-    
-    if (!targetBusinessId) {
-      if (user.businesses.length > 0) {
-        targetBusinessId = user.businesses[0].id;
-      } else {
-        // Crear negocio por defecto
-        const newBusiness = await prisma.business.create({
-          data: {
-            userId: req.userId!,
-            name: 'Mi Negocio',
-          }
-        });
-        targetBusinessId = newBusiness.id;
-      }
+    // Obtener o crear negocio
+    let business;
+    if (businessId) {
+      business = await prisma.business.findFirst({ where: { id: businessId, userId: user.id } });
+    }
+    if (!business) {
+      business = await prisma.business.create({
+        data: { userId: user.id, name: 'Mi Negocio' }
+      });
     }
 
-    // Generar API key única
+    // Generar API Key única
     const publicApiKey = `elisa_${uuidv4().replace(/-/g, '')}`;
 
     const assistant = await prisma.assistant.create({
       data: {
-        userId: req.userId!,
-        businessId: targetBusinessId,
+        userId: user.id,
+        businessId: business.id,
         name,
-        welcomeMessage: welcomeMessage || '¡Hola! ¿En qué puedo ayudarte hoy?',
+        welcomeMessage: welcomeMessage || '¡Hola! ¿En qué puedo ayudarte?',
         tone: tone || 'PROFESSIONAL',
         publicApiKey,
         isActive: true,
         status: 'ACTIVE',
       },
+      include: { business: true }
     });
 
-    console.log(`✅ Asistente creado: ${assistant.name} (${assistant.publicApiKey})`);
-
-    res.status(201).json({ 
-      message: 'Asistente creado exitosamente',
-      assistant 
-    });
+    res.status(201).json({ message: 'Chatbot creado', assistant });
   } catch (error) {
     console.error('Error creando asistente:', error);
-    res.status(500).json({ error: 'Error al crear asistente' });
+    res.status(500).json({ error: 'Error al crear chatbot' });
   }
 });
 
 // Actualizar asistente
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { name, welcomeMessage, tone, primaryColor, systemPrompt } = req.body;
-
-    const existingAssistant = await prisma.assistant.findFirst({
-      where: { id, userId: req.userId },
+    const { name, welcomeMessage, tone, systemPrompt, primaryColor } = req.body;
+    const assistant = await prisma.assistant.updateMany({
+      where: { id: req.params.id, userId: (req as any).userId },
+      data: { name, welcomeMessage, tone, systemPrompt, primaryColor }
     });
-
-    if (!existingAssistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-
-    const assistant = await prisma.assistant.update({
-      where: { id },
-      data: {
-        name,
-        welcomeMessage,
-        tone,
-        primaryColor,
-        systemPrompt,
-      },
-    });
-
-    res.json({ 
-      message: 'Asistente actualizado',
-      assistant 
-    });
+    if (assistant.count === 0) return res.status(404).json({ error: 'Asistente no encontrado' });
+    res.json({ message: 'Asistente actualizado' });
   } catch (error) {
-    console.error('Error actualizando asistente:', error);
-    res.status(500).json({ error: 'Error al actualizar asistente' });
+    res.status(500).json({ error: 'Error al actualizar' });
   }
 });
 
-// Toggle activar/desactivar asistente
+// Activar/Desactivar
 router.patch('/:id/toggle', authenticate, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const assistant = await prisma.assistant.findFirst({
+      where: { id: req.params.id, userId: (req as any).userId }
+    });
+    if (!assistant) return res.status(404).json({ error: 'Asistente no encontrado' });
 
-    const existingAssistant = await prisma.assistant.findFirst({
-      where: { id, userId: req.userId },
+    await prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { 
+        isActive: !assistant.isActive,
+        status: !assistant.isActive ? 'ACTIVE' : 'INACTIVE'
+      }
     });
 
-    if (!existingAssistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-
-    const assistant = await prisma.assistant.update({
-      where: { id },
-      data: {
-        isActive: !existingAssistant.isActive,
-        status: !existingAssistant.isActive ? 'ACTIVE' : 'INACTIVE',
-      },
-    });
-
-    res.json({ 
-      message: `Asistente ${assistant.isActive ? 'activado' : 'desactivado'}`,
-      assistant 
-    });
+    res.json({ message: assistant.isActive ? 'Desactivado' : 'Activado' });
   } catch (error) {
-    console.error('Error toggling asistente:', error);
-    res.status(500).json({ error: 'Error al cambiar estado del asistente' });
+    res.status(500).json({ error: 'Error al cambiar estado' });
   }
 });
 
-// Eliminar asistente
+// Eliminar
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
-    const existingAssistant = await prisma.assistant.findFirst({
-      where: { id, userId: req.userId },
-    });
-
-    if (!existingAssistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-
-    await prisma.assistant.delete({
-      where: { id },
-    });
-
-    console.log(`🗑️ Asistente eliminado: ${existingAssistant.name}`);
-
+    await prisma.assistant.deleteMany({ where: { id: req.params.id, userId: (req as any).userId } });
     res.json({ message: 'Asistente eliminado' });
   } catch (error) {
-    console.error('Error eliminando asistente:', error);
-    res.status(500).json({ error: 'Error al eliminar asistente' });
+    res.status(500).json({ error: 'Error al eliminar' });
   }
 });
 
-// Regenerar API key
+// Regenerar API Key
 router.post('/:id/regenerate-key', authenticate, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
-    const existingAssistant = await prisma.assistant.findFirst({
-      where: { id, userId: req.userId },
+    const newKey = `elisa_${uuidv4().replace(/-/g, '')}`;
+    await prisma.assistant.updateMany({
+      where: { id: req.params.id, userId: (req as any).userId },
+      data: { publicApiKey: newKey }
     });
-
-    if (!existingAssistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-
-    const newApiKey = `elisa_${uuidv4().replace(/-/g, '')}`;
-
-    const assistant = await prisma.assistant.update({
-      where: { id },
-      data: { publicApiKey: newApiKey },
-    });
-
-    res.json({ 
-      message: 'API Key regenerada',
-      publicApiKey: assistant.publicApiKey 
-    });
+    res.json({ publicApiKey: newKey });
   } catch (error) {
-    console.error('Error regenerando API key:', error);
-    res.status(500).json({ error: 'Error al regenerar API key' });
+    res.status(500).json({ error: 'Error al regenerar' });
   }
 });
 
-// Obtener estadísticas del asistente
+// Estadísticas
 router.get('/:id/stats', authenticate, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
-    const existingAssistant = await prisma.assistant.findFirst({
-      where: { id, userId: req.userId },
+    const assistant = await prisma.assistant.findFirst({
+      where: { id: req.params.id, userId: (req as any).userId }
     });
+    if (!assistant) return res.status(404).json({ error: 'No encontrado' });
 
-    if (!existingAssistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
+    const [totalConversations, totalMessages, activeConversations, leads] = await Promise.all([
+      prisma.conversation.count({ where: { assistantId: assistant.id } }),
+      prisma.message.count({ where: { conversation: { assistantId: assistant.id } } }),
+      prisma.conversation.count({ where: { assistantId: assistant.id, status: 'ACTIVE' } }),
+      prisma.conversation.count({ where: { assistantId: assistant.id, isLead: true } }),
+    ]);
 
-    // Estadísticas básicas
-    const totalConversations = await prisma.conversation.count({
-      where: { assistantId: id }
-    });
-
-    const totalMessages = await prisma.message.count({
-      where: { conversation: { assistantId: id } }
-    });
-
-    const activeConversations = await prisma.conversation.count({
-      where: { 
-        assistantId: id,
-        status: 'ACTIVE'
-      }
-    });
-
-    const leads = await prisma.conversation.count({
-      where: { 
-        assistantId: id,
-        isLead: true
-      }
-    });
-
-    res.json({
-      stats: {
-        totalConversations,
-        totalMessages,
-        activeConversations,
-        leads,
-      }
-    });
+    res.json({ stats: { totalConversations, totalMessages, activeConversations, leads } });
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
     res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 });

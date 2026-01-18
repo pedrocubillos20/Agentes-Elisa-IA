@@ -2,58 +2,53 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import CryptoJS from 'crypto-js';
 
 const router = Router();
 const prisma = new PrismaClient();
+const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'clave-encriptacion-32-caracteres!';
 
-// Registro de usuario
+// Encriptar API Key
+const encryptApiKey = (apiKey: string): string => {
+  return CryptoJS.AES.encrypt(apiKey, ENCRYPTION_KEY).toString();
+};
+
+// Desencriptar API Key
+const decryptApiKey = (encrypted: string): string => {
+  const bytes = CryptoJS.AES.decrypt(encrypted, ENCRYPTION_KEY);
+  return bytes.toString(CryptoJS.enc.Utf8);
+};
+
+// REGISTRO
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const { email, password, firstName, lastName, phone } = req.body;
 
-    // Validaciones básicas
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+      return res.status(400).json({ error: 'Email y contraseña requeridos' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
-    }
-
-    // Verificar si el usuario ya existe
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
-
-    if (existingUser) {
+    const exists = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    if (exists) {
       return res.status(400).json({ error: 'El email ya está registrado' });
     }
 
-    // Encriptar contraseña
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Crear usuario
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase().trim(),
         password: hashedPassword,
-        firstName: firstName || null,
-        lastName: lastName || null,
-        phone: phone || null,
+        firstName,
+        lastName,
+        phone,
       },
     });
 
-    // Generar token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || 'elisa-ia-secret-key-change-in-production',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-    );
-
-    console.log(`✅ Usuario registrado: ${user.email}`);
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.status(201).json({
-      message: 'Usuario creado exitosamente',
+      message: 'Usuario creado',
       token,
       user: {
         id: user.id,
@@ -62,54 +57,41 @@ router.post('/register', async (req: Request, res: Response) => {
         lastName: user.lastName,
         plan: user.plan,
         planType: user.planType,
-        subscriptionStatus: user.subscriptionStatus,
+        apiKeyConnected: user.apiKeyConnected,
+        whatsappConnected: user.whatsappConnected,
       },
     });
   } catch (error) {
-    console.error('Error en registro:', error);
+    console.error('Error registro:', error);
     res.status(500).json({ error: 'Error al crear usuario' });
   }
 });
 
-// Login de usuario
+// LOGIN
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+      return res.status(400).json({ error: 'Email y contraseña requeridos' });
     }
 
-    // Buscar usuario
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() },
-    });
-
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (!user) {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    // Verificar contraseña
-    const isValidPassword = await bcrypt.compare(password, user.password);
-
-    if (!isValidPassword) {
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    // Actualizar último login
     await prisma.user.update({
       where: { id: user.id },
       data: { lastLogin: new Date() },
     });
 
-    // Generar token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || 'elisa-ia-secret-key-change-in-production',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-    );
-
-    console.log(`✅ Usuario logueado: ${user.email}`);
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       message: 'Login exitoso',
@@ -121,98 +103,139 @@ router.post('/login', async (req: Request, res: Response) => {
         lastName: user.lastName,
         plan: user.plan,
         planType: user.planType,
-        subscriptionStatus: user.subscriptionStatus,
+        apiKeyConnected: user.apiKeyConnected,
+        whatsappConnected: user.whatsappConnected,
+        apiKeyLast4: user.openaiApiKey ? decryptApiKey(user.openaiApiKey).slice(-4) : null,
       },
     });
   } catch (error) {
-    console.error('Error en login:', error);
+    console.error('Error login:', error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
 
-// Obtener perfil del usuario actual
+// OBTENER PERFIL
 router.get('/me', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Token no proporcionado' });
     }
 
     const token = authHeader.split(' ')[1];
-    
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'elisa-ia-secret-key-change-in-production'
-    ) as { userId: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        plan: true,
-        planType: true,
-        subscriptionStatus: true,
-        apiKeyConnected: true,
-        createdAt: true,
-      },
-    });
-
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    res.json({ user });
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        plan: user.plan,
+        planType: user.planType,
+        subscriptionStatus: user.subscriptionStatus,
+        apiKeyConnected: user.apiKeyConnected,
+        whatsappConnected: user.whatsappConnected,
+        whatsappPhone: user.whatsappPhone,
+        apiKeyLast4: user.openaiApiKey ? decryptApiKey(user.openaiApiKey).slice(-4) : null,
+        isAdmin: user.isAdmin,
+      },
+    });
   } catch (error) {
-    console.error('Error obteniendo perfil:', error);
     res.status(401).json({ error: 'Token inválido' });
   }
 });
 
-// Actualizar perfil
+// ACTUALIZAR PERFIL
 router.put('/profile', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader?.startsWith('Bearer ')) {
       return res.status(401).json({ error: 'Token no proporcionado' });
     }
 
     const token = authHeader.split(' ')[1];
-    
-    const decoded = jwt.verify(
-      token,
-      process.env.JWT_SECRET || 'elisa-ia-secret-key-change-in-production'
-    ) as { userId: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
 
     const { firstName, lastName, phone } = req.body;
 
     const user = await prisma.user.update({
       where: { id: decoded.userId },
-      data: {
-        firstName,
-        lastName,
-        phone,
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        plan: true,
-        planType: true,
-      },
+      data: { firstName, lastName, phone },
     });
 
     res.json({ message: 'Perfil actualizado', user });
   } catch (error) {
-    console.error('Error actualizando perfil:', error);
     res.status(500).json({ error: 'Error al actualizar perfil' });
+  }
+});
+
+// ========== API KEY DE OPENAI ==========
+
+// GUARDAR API KEY
+router.post('/api-key', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token no proporcionado' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+
+    const { apiKey } = req.body;
+
+    if (!apiKey || !apiKey.startsWith('sk-')) {
+      return res.status(400).json({ error: 'API Key inválida. Debe comenzar con sk-' });
+    }
+
+    const encryptedKey = encryptApiKey(apiKey);
+
+    await prisma.user.update({
+      where: { id: decoded.userId },
+      data: {
+        openaiApiKey: encryptedKey,
+        apiKeyConnected: true,
+      },
+    });
+
+    console.log(`✅ API Key guardada para usuario ${decoded.userId}`);
+    res.json({ message: 'API Key guardada exitosamente' });
+  } catch (error) {
+    console.error('Error guardando API Key:', error);
+    res.status(500).json({ error: 'Error al guardar API Key' });
+  }
+});
+
+// ELIMINAR API KEY
+router.delete('/api-key', async (req: Request, res: Response) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token no proporcionado' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+
+    await prisma.user.update({
+      where: { id: decoded.userId },
+      data: {
+        openaiApiKey: null,
+        apiKeyConnected: false,
+      },
+    });
+
+    console.log(`🗑️ API Key eliminada para usuario ${decoded.userId}`);
+    res.json({ message: 'API Key eliminada' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar API Key' });
   }
 });
 

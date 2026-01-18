@@ -26,10 +26,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Ruta raíz
+// Root
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Elisa IA Backend API', 
+    message: 'Elisa IA Backend API',
     version: '1.0.0',
     endpoints: {
       auth: '/api/auth',
@@ -42,7 +42,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Importar rutas
+// Routes
 import authRoutes from './routes/auth.routes';
 import businessRoutes from './routes/business.routes';
 import assistantRoutes from './routes/assistant.routes';
@@ -50,7 +50,6 @@ import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
 import chatRoutes from './routes/chat.routes';
 
-// Usar rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/assistants', assistantRoutes);
@@ -69,9 +68,8 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-// Iniciar
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+  console.log(`🚀 Servidor Elisa IA corriendo en puerto ${PORT}`);
 });
 
 export default app;

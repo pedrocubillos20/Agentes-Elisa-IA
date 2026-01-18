@@ -1,9 +1,9 @@
-import type { Metadata } from 'next'
 import './globals.css'
+import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Elisa IA - Asistentes Inteligentes para tu Negocio',
-  description: 'Plataforma de asistentes de IA para automatizar la atención al cliente de tu negocio',
+  title: 'Elisa IA - Chatbots de WhatsApp con IA',
+  description: 'Crea chatbots inteligentes para WhatsApp Business',
 }
 
 export default function RootLayout({

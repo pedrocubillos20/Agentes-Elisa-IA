@@ -49,6 +49,7 @@ import assistantRoutes from './routes/assistant.routes';
 import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
 import chatRoutes from './routes/chat.routes';
+import whatsappRoutes from './routes/whatsapp.routes';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
@@ -56,6 +57,7 @@ app.use('/api/assistants', assistantRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -67,6 +67,7 @@ model User {
   plan               Plan               @default(FREE)
   planType           PlanType           @default(MONTHLY)
   subscriptionStatus SubscriptionStatus @default(INACTIVE)
+  trialEndsAt        DateTime?
   openaiApiKey       String?
   apiKeyConnected    Boolean            @default(false)
   whatsappConnected  Boolean            @default(false)
@@ -136,6 +137,7 @@ model Assistant {
   welcomeMessage String          @default("¡Hola! ¿En qué puedo ayudarte?")
   tone           AssistantTone   @default(PROFESSIONAL)
   systemPrompt   String?
+  contextJson    String?         @db.Text
   primaryColor   String          @default("#6366f1")
   publicApiKey   String          @unique
   status         AssistantStatus @default(INACTIVE)

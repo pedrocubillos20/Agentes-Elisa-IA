@@ -56,6 +56,16 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    // Verificar trial expirado
+    if (assistant.user.plan === 'FREE' && assistant.user.trialEndsAt) {
+      const trialEnd = new Date(assistant.user.trialEndsAt);
+      if (trialEnd < new Date()) {
+        return res.status(403).json({ 
+          error: 'La prueba gratuita ha expirado. El propietario debe actualizar su plan.' 
+        });
+      }
+    }
+
     // Obtener o crear conversación
     let conversation;
     if (conversationId) {
@@ -78,7 +88,7 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     // Construir contexto
-    const businessContext = buildBusinessContext(assistant.business);
+    const businessContext = buildBusinessContext(assistant.business, assistant.contextJson || undefined);
     const messageHistory = conversation.messages.map(m => ({
       role: m.role.toLowerCase() as 'user' | 'assistant',
       content: m.content
@@ -139,26 +149,43 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-function buildBusinessContext(business: any): string {
-  let ctx = `Negocio: ${business.name}\n`;
-  if (business.industry) ctx += `Industria: ${business.industry}\n`;
-  if (business.description) ctx += `Descripción: ${business.description}\n`;
-  if (business.contactEmail) ctx += `Email: ${business.contactEmail}\n`;
-  if (business.contactPhone) ctx += `Teléfono: ${business.contactPhone}\n`;
-  if (business.businessHours) ctx += `Horario: ${business.businessHours}\n`;
-
-  if (business.products?.length > 0) {
-    ctx += '\nProductos:\n';
-    business.products.forEach((p: any) => {
-      ctx += `- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.description ? `: ${p.description}` : ''}\n`;
-    });
+function buildBusinessContext(business: any, contextJson?: string): string {
+  let ctx = '';
+  
+  // Si hay contextJson definido, usarlo como fuente principal
+  if (contextJson) {
+    try {
+      const parsed = JSON.parse(contextJson);
+      ctx += '=== INFORMACIÓN DEL NEGOCIO ===\n';
+      ctx += JSON.stringify(parsed, null, 2);
+      ctx += '\n\n';
+    } catch {
+      console.error('Error parsing contextJson');
+    }
   }
+  
+  // Agregar información del business si existe
+  if (business) {
+    ctx += `Negocio: ${business.name}\n`;
+    if (business.industry) ctx += `Industria: ${business.industry}\n`;
+    if (business.description) ctx += `Descripción: ${business.description}\n`;
+    if (business.contactEmail) ctx += `Email: ${business.contactEmail}\n`;
+    if (business.contactPhone) ctx += `Teléfono: ${business.contactPhone}\n`;
+    if (business.businessHours) ctx += `Horario: ${business.businessHours}\n`;
 
-  if (business.faqs?.length > 0) {
-    ctx += '\nPreguntas Frecuentes:\n';
-    business.faqs.forEach((f: any) => {
-      ctx += `P: ${f.question}\nR: ${f.answer}\n\n`;
-    });
+    if (business.products?.length > 0) {
+      ctx += '\nProductos:\n';
+      business.products.forEach((p: any) => {
+        ctx += `- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.description ? `: ${p.description}` : ''}\n`;
+      });
+    }
+
+    if (business.faqs?.length > 0) {
+      ctx += '\nPreguntas Frecuentes:\n';
+      business.faqs.forEach((f: any) => {
+        ctx += `P: ${f.question}\nR: ${f.answer}\n\n`;
+      });
+    }
   }
 
   return ctx;

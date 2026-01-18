@@ -34,6 +34,10 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'El email ya está registrado' });
     }
 
+    // Calcular fecha de fin de trial (5 días)
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 5);
+
     const hashedPassword = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
       data: {
@@ -42,6 +46,7 @@ router.post('/register', async (req: Request, res: Response) => {
         firstName,
         lastName,
         phone,
+        trialEndsAt,
       },
     });
 
@@ -59,6 +64,7 @@ router.post('/register', async (req: Request, res: Response) => {
         planType: user.planType,
         apiKeyConnected: user.apiKeyConnected,
         whatsappConnected: user.whatsappConnected,
+        trialEndsAt: user.trialEndsAt,
       },
     });
   } catch (error) {
@@ -105,6 +111,7 @@ router.post('/login', async (req: Request, res: Response) => {
         planType: user.planType,
         apiKeyConnected: user.apiKeyConnected,
         whatsappConnected: user.whatsappConnected,
+        trialEndsAt: user.trialEndsAt,
         apiKeyLast4: user.openaiApiKey ? decryptApiKey(user.openaiApiKey).slice(-4) : null,
       },
     });
@@ -143,6 +150,7 @@ router.get('/me', async (req: Request, res: Response) => {
         apiKeyConnected: user.apiKeyConnected,
         whatsappConnected: user.whatsappConnected,
         whatsappPhone: user.whatsappPhone,
+        trialEndsAt: user.trialEndsAt,
         apiKeyLast4: user.openaiApiKey ? decryptApiKey(user.openaiApiKey).slice(-4) : null,
         isAdmin: user.isAdmin,
       },

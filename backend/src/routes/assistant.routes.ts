@@ -203,4 +203,35 @@ router.get('/:id/stats', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// Guardar contexto JSON
+router.put('/:id/context', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { contextJson } = req.body;
+    
+    // Validar que es JSON válido si no está vacío
+    if (contextJson && contextJson.trim()) {
+      try {
+        JSON.parse(contextJson);
+      } catch {
+        return res.status(400).json({ error: 'JSON inválido' });
+      }
+    }
+    
+    const assistant = await prisma.assistant.updateMany({
+      where: { id: req.params.id, userId: (req as any).userId },
+      data: { contextJson: contextJson || null }
+    });
+    
+    if (assistant.count === 0) {
+      return res.status(404).json({ error: 'Asistente no encontrado' });
+    }
+    
+    console.log(`🧠 Contexto actualizado para asistente ${req.params.id}`);
+    res.json({ message: 'Contexto guardado exitosamente' });
+  } catch (error) {
+    console.error('Error guardando contexto:', error);
+    res.status(500).json({ error: 'Error al guardar contexto' });
+  }
+});
+
 export default router;

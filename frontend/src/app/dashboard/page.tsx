@@ -6,13 +6,26 @@ import { useRouter } from 'next/navigation'
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [daysLeft, setDaysLeft] = useState<number | null>(null)
   const router = useRouter()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
     const userData = localStorage.getItem('user')
     if (!token) { router.push('/'); return }
-    if (userData) setUser(JSON.parse(userData))
+    if (userData) {
+      const u = JSON.parse(userData)
+      setUser(u)
+      
+      // Calcular días restantes del trial
+      if (u.plan === 'FREE' && u.trialEndsAt) {
+        const endDate = new Date(u.trialEndsAt)
+        const today = new Date()
+        const diffTime = endDate.getTime() - today.getTime()
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+        setDaysLeft(diffDays > 0 ? diffDays : 0)
+      }
+    }
     setLoading(false)
   }, [router])
 
@@ -30,6 +43,8 @@ export default function Dashboard() {
       </svg>
     </div>
   )
+
+  const trialExpired = daysLeft !== null && daysLeft <= 0
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -62,6 +77,46 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold mb-2">¡Bienvenido{user?.firstName ? `, ${user.firstName}` : ''}! 👋</h1>
           <p className="text-indigo-100">Panel de control de tus chatbots de WhatsApp con IA</p>
         </div>
+
+        {/* ALERTA TRIAL EXPIRADO */}
+        {trialExpired && (
+          <div className="bg-red-600 text-white p-6 mb-6 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-4xl mr-4">⏰</span>
+                <div>
+                  <h3 className="font-bold text-xl">¡Tu prueba gratuita ha expirado!</h3>
+                  <p>Actualiza a un plan para seguir usando tus chatbots</p>
+                </div>
+              </div>
+              <a href="/planes" className="bg-white text-red-600 px-6 py-3 rounded-lg font-bold hover:bg-gray-100">
+                Ver Planes
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* ALERTA TRIAL ACTIVO */}
+        {daysLeft !== null && daysLeft > 0 && daysLeft <= 5 && (
+          <div className={`p-4 mb-6 rounded-xl ${daysLeft <= 2 ? 'bg-orange-100 border-2 border-orange-400' : 'bg-blue-50 border border-blue-200'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-3xl mr-3">⏳</span>
+                <div>
+                  <h3 className={`font-bold ${daysLeft <= 2 ? 'text-orange-800' : 'text-blue-800'}`}>
+                    Prueba Gratuita: {daysLeft} día{daysLeft !== 1 ? 's' : ''} restante{daysLeft !== 1 ? 's' : ''}
+                  </h3>
+                  <p className={daysLeft <= 2 ? 'text-orange-700 text-sm' : 'text-blue-700 text-sm'}>
+                    Actualiza antes de que expire para no perder acceso
+                  </p>
+                </div>
+              </div>
+              <a href="/planes" className={`px-4 py-2 rounded-lg font-medium ${daysLeft <= 2 ? 'bg-orange-600 text-white' : 'bg-blue-600 text-white'}`}>
+                Ver Planes
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* ALERTA API KEY */}
         {!user?.apiKeyConnected && (
@@ -97,14 +152,19 @@ export default function Dashboard() {
             </div>
             <h3 className="text-gray-500 text-sm">Plan Actual</h3>
             <p className="text-lg font-bold text-gray-800">{user?.plan || 'FREE'}</p>
+            {daysLeft !== null && daysLeft > 0 && (
+              <p className="text-xs text-orange-600">{daysLeft} días restantes</p>
+            )}
           </div>
 
           <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
-              <span className="text-2xl">🤖</span>
+            <div className={`w-12 h-12 rounded-lg flex items-center justify-center mb-4 ${user?.whatsappConnected ? 'bg-green-100' : 'bg-yellow-100'}`}>
+              <span className="text-2xl">📱</span>
             </div>
-            <h3 className="text-gray-500 text-sm">Chatbots</h3>
-            <p className="text-lg font-bold text-gray-800">0</p>
+            <h3 className="text-gray-500 text-sm">WhatsApp</h3>
+            <p className={`text-lg font-bold ${user?.whatsappConnected ? 'text-green-600' : 'text-yellow-600'}`}>
+              {user?.whatsappConnected ? 'Conectado ✓' : 'No conectado'}
+            </p>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm p-6">
@@ -133,14 +193,16 @@ export default function Dashboard() {
             </div>
           </a>
 
-          <a href="/whatsapp" className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition border-2 border-yellow-300">
+          <a href="/whatsapp" className={`bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition border-2 ${user?.whatsappConnected ? 'border-green-300' : 'border-yellow-300'}`}>
             <div className="flex items-center">
-              <div className="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center mr-4">
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center mr-4 ${user?.whatsappConnected ? 'bg-green-100' : 'bg-green-100'}`}>
                 <span className="text-3xl">📱</span>
               </div>
               <div>
                 <h3 className="font-semibold text-gray-800 text-lg">Conectar WhatsApp</h3>
-                <p className="text-sm text-yellow-600">Escanea el QR para vincular</p>
+                <p className={`text-sm ${user?.whatsappConnected ? 'text-green-600' : 'text-yellow-600'}`}>
+                  {user?.whatsappConnected ? '✅ Conectado' : 'Escanea el QR para vincular'}
+                </p>
               </div>
             </div>
           </a>
@@ -154,7 +216,7 @@ export default function Dashboard() {
               <span className="text-3xl">🤖</span>
             </div>
             <h3 className="font-semibold text-gray-800 mb-2">Mis Chatbots</h3>
-            <p className="text-gray-600 text-sm">Gestiona tus chatbots</p>
+            <p className="text-gray-600 text-sm">Gestiona y configura tus chatbots</p>
           </a>
 
           <a href="/negocio" className="bg-white rounded-xl shadow-sm p-6 hover:shadow-md transition">

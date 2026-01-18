@@ -9,19 +9,19 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middlewares básicos
+// Middlewares
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
 
-// CORS - Configuración permisiva para desarrollo
+// CORS
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
 }));
 
-// Ruta de health check
+// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -36,7 +36,8 @@ app.get('/', (req, res) => {
       business: '/api/business',
       assistants: '/api/assistants',
       payments: '/api/payments',
-      webhooks: '/api/webhooks'
+      webhooks: '/api/webhooks',
+      chat: '/api/chat'
     }
   });
 });
@@ -47,6 +48,7 @@ import businessRoutes from './routes/business.routes';
 import assistantRoutes from './routes/assistant.routes';
 import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
+import chatRoutes from './routes/chat.routes';
 
 // Usar rutas
 app.use('/api/auth', authRoutes);
@@ -54,22 +56,22 @@ app.use('/api/business', businessRoutes);
 app.use('/api/assistants', assistantRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/chat', chatRoutes);
 
-// Manejo de errores global
+// Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-// Ruta no encontrada
+// 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-// Iniciar servidor
+// Iniciar
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-  console.log(`📍 Health check: http://localhost:${PORT}/health`);
 });
 
 export default app;

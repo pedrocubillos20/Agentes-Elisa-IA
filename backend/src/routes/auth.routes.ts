@@ -25,7 +25,11 @@ const authenticate = async (req: Request, res: Response, next: Function) => {
 
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, firstName, lastName } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+    }
     
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
@@ -34,25 +38,31 @@ router.post('/register', async (req: Request, res: Response) => {
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // Construir nombre completo
+    const fullName = name || (firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName || null);
+    
+    // Usar el enum Plan.FREE
     const user = await prisma.user.create({
       data: {
         email,
         password: hashedPassword,
-        name,
-        plan: 'FREE',
+        name: fullName,
+        plan: 'FREE', // Prisma maneja esto como enum
         trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
     
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
     
+    console.log(`✅ Usuario registrado: ${user.email}`);
+    
     res.json({
       token,
       user: { id: user.id, email: user.email, name: user.name, plan: user.plan }
     });
-  } catch (error) {
-    console.error('Error registro:', error);
-    res.status(500).json({ error: 'Error al registrar' });
+  } catch (error: any) {
+    console.error('Error registro:', error?.message || error);
+    res.status(500).json({ error: 'Error al registrar usuario' });
   }
 });
 
@@ -60,24 +70,44 @@ router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     
-    const user = await prisma.user.findUnique({ where: { email } });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+    }
+    
+    console.log(`🔐 Intento de login: ${email}`);
+    
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        name: true,
+        plan: true,
+      }
+    });
+    
     if (!user) {
+      console.log(`❌ Usuario no encontrado: ${email}`);
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
     
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
+      console.log(`❌ Contraseña incorrecta para: ${email}`);
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
     
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
     
+    console.log(`✅ Login exitoso: ${email}`);
+    
     res.json({
       token,
       user: { id: user.id, email: user.email, name: user.name, plan: user.plan }
     });
-  } catch (error) {
-    console.error('Error login:', error);
+  } catch (error: any) {
+    console.error('Error login:', error?.message || error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
@@ -110,8 +140,9 @@ router.get('/me', authenticate, async (req: Request, res: Response) => {
       hasApiKey: !!user.openaiApiKey,
       openaiApiKey: undefined,
     });
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+  } catch (error: any) {
+    console.error('Error /me:', error?.message || error);
+    res.status(500).json({ error: 'Error al obtener usuario' });
   }
 });
 
@@ -124,6 +155,11 @@ router.post('/api-key', authenticate, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'API Key requerida' });
     }
     
+    // Validar formato básico de API Key de OpenAI
+    if (!apiKey.startsWith('sk-')) {
+      return res.status(400).json({ error: 'API Key inválida. Debe comenzar con sk-' });
+    }
+    
     const encryptedKey = CryptoJS.AES.encrypt(apiKey, ENCRYPTION_KEY).toString();
     
     await prisma.user.update({
@@ -131,9 +167,12 @@ router.post('/api-key', authenticate, async (req: Request, res: Response) => {
       data: { openaiApiKey: encryptedKey }
     });
     
-    res.json({ message: 'API Key guardada' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+    console.log(`✅ API Key guardada para usuario: ${userId}`);
+    
+    res.json({ message: 'API Key guardada correctamente' });
+  } catch (error: any) {
+    console.error('Error guardando API Key:', error?.message || error);
+    res.status(500).json({ error: 'Error al guardar API Key' });
   }
 });
 
@@ -146,9 +185,35 @@ router.delete('/api-key', authenticate, async (req: Request, res: Response) => {
       data: { openaiApiKey: null }
     });
     
+    console.log(`✅ API Key eliminada para usuario: ${userId}`);
+    
     res.json({ message: 'API Key eliminada' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+  } catch (error: any) {
+    console.error('Error eliminando API Key:', error?.message || error);
+    res.status(500).json({ error: 'Error al eliminar API Key' });
+  }
+});
+
+// Ruta para actualizar plan (admin)
+router.put('/plan', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { plan } = req.body;
+    
+    const validPlans = ['FREE', 'EMPRENDEDORES', 'NEGOCIOS', 'BUSINESS', 'MARCA_BLANCA'];
+    if (!validPlans.includes(plan)) {
+      return res.status(400).json({ error: 'Plan inválido' });
+    }
+    
+    await prisma.user.update({
+      where: { id: userId },
+      data: { plan }
+    });
+    
+    res.json({ message: 'Plan actualizado', plan });
+  } catch (error: any) {
+    console.error('Error actualizando plan:', error?.message || error);
+    res.status(500).json({ error: 'Error al actualizar plan' });
   }
 });
 

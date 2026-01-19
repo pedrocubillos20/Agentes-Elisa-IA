@@ -3,6 +3,7 @@ FROM node:18-slim
 RUN apt-get update && apt-get install -y \
     openssl \
     ca-certificates \
+    curl \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,4 +25,5 @@ ENV NODE_ENV=production
 
 EXPOSE 3001
 
-CMD npx prisma db push --accept-data-loss && npm start
+# Ejecutar migraciones y luego iniciar
+CMD npx prisma migrate deploy || npx prisma db push --accept-data-loss; npm start

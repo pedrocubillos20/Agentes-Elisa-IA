@@ -8,24 +8,33 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// Enum para los planes - CRÍTICO para evitar el error de conversión
+enum Plan {
+  FREE
+  EMPRENDEDORES
+  NEGOCIOS
+  BUSINESS
+  MARCA_BLANCA
+}
+
 model User {
-  id               String    @id @default(cuid())
-  email            String    @unique
-  password         String
-  name             String?
-  plan             String    @default("FREE")
-  openaiApiKey     String?
-  whatsappConnected Boolean  @default(false)
-  whatsappPhone    String?
-  trialEndsAt      DateTime?
-  referralCode     String?   @unique
-  referredBy       String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String
+  name              String?
+  plan              Plan      @default(FREE)
+  openaiApiKey      String?
+  whatsappConnected Boolean   @default(false)
+  whatsappPhone     String?
+  trialEndsAt       DateTime?
+  referralCode      String?   @unique
+  referredBy        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   
-  assistants       Assistant[]
-  business         Business?
-  configRequests   ConfigRequest[]
+  assistants        Assistant[]
+  business          Business?
+  configRequests    ConfigRequest[]
 }
 
 model Assistant {

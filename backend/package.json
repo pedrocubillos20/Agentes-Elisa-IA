@@ -23,7 +23,9 @@
     "morgan": "^1.10.0",
     "openai": "^4.20.0",
     "qrcode": "^1.5.3",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "whatsapp-web.js": "^1.23.0",
+    "puppeteer": "^21.6.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

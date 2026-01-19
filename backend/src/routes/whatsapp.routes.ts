@@ -2,12 +2,10 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
+import whatsappService from '../services/whatsappService';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
-
-// Almacén temporal de sesiones WhatsApp (en producción usar Redis)
-const whatsappSessions: Map<string, { qrCode: string; connected: boolean; phoneNumber?: string; createdAt: Date }> = new Map();
 
 const authenticate = async (req: Request, res: Response, next: Function) => {
   try {
@@ -29,20 +27,35 @@ router.post('/generate-qr', authenticate, async (req: Request, res: Response) =>
   try {
     const userId = (req as any).userId;
     
-    // Generar un token único para la sesión
-    const sessionToken = `wa_${userId}_${Date.now()}`;
+    console.log(`📱 Iniciando conexión WhatsApp para usuario ${userId}`);
     
-    // En producción, aquí se integraría con la API de WhatsApp Business
-    // Por ahora, generamos un QR de ejemplo que representa el token de sesión
-    const qrData = JSON.stringify({
-      type: 'elisa-ia-whatsapp',
-      userId,
-      sessionToken,
-      timestamp: Date.now()
-    });
+    // Verificar si ya está conectado
+    const status = whatsappService.getSessionStatus(userId);
+    if (status.connected) {
+      return res.json({ 
+        connected: true, 
+        phoneNumber: status.phoneNumber,
+        message: 'Ya estás conectado a WhatsApp' 
+      });
+    }
+
+    // Inicializar cliente y obtener QR
+    const qrString = await whatsappService.initializeClient(userId);
     
-    // Generar imagen QR en base64
-    const qrCodeImage = await QRCode.toDataURL(qrData, {
+    if (!qrString) {
+      // Si no hay QR, verificar estado nuevamente
+      const newStatus = whatsappService.getSessionStatus(userId);
+      if (newStatus.connected) {
+        return res.json({ 
+          connected: true, 
+          phoneNumber: newStatus.phoneNumber 
+        });
+      }
+      return res.status(500).json({ error: 'No se pudo generar el código QR. Intenta de nuevo.' });
+    }
+
+    // Convertir QR string a imagen base64
+    const qrCodeImage = await QRCode.toDataURL(qrString, {
       width: 256,
       margin: 2,
       color: {
@@ -50,38 +63,13 @@ router.post('/generate-qr', authenticate, async (req: Request, res: Response) =>
         light: '#ffffff'
       }
     });
+
+    console.log(`✅ QR generado para usuario ${userId}`);
+    res.json({ qrCode: qrCodeImage, connected: false });
     
-    // Guardar sesión temporal
-    whatsappSessions.set(userId, {
-      qrCode: qrCodeImage,
-      connected: false,
-      createdAt: new Date()
-    });
-    
-    // Simular conexión después de 10 segundos (para demo)
-    // En producción, esto se manejaría con webhooks de WhatsApp
-    setTimeout(async () => {
-      const session = whatsappSessions.get(userId);
-      if (session && !session.connected) {
-        session.connected = true;
-        session.phoneNumber = '+57 300 *** **' + Math.floor(Math.random() * 100).toString().padStart(2, '0');
-        
-        // Actualizar en base de datos
-        await prisma.user.update({
-          where: { id: userId },
-          data: {
-            whatsappConnected: true,
-            whatsappPhone: session.phoneNumber
-          }
-        });
-      }
-    }, 15000); // 15 segundos para demo
-    
-    console.log(`📱 QR generado para usuario ${userId}`);
-    res.json({ qrCode: qrCodeImage, sessionToken });
   } catch (error) {
     console.error('Error generando QR:', error);
-    res.status(500).json({ error: 'Error al generar código QR' });
+    res.status(500).json({ error: 'Error al generar código QR. Intenta de nuevo.' });
   }
 });
 
@@ -90,29 +78,35 @@ router.get('/status', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     
-    // Primero verificar en base de datos
+    // Verificar en el servicio de WhatsApp
+    const status = whatsappService.getSessionStatus(userId);
+    
+    if (status.connected) {
+      return res.json({
+        connected: true,
+        phoneNumber: status.phoneNumber
+      });
+    }
+    
+    // Si no está en el servicio, verificar en base de datos
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { whatsappConnected: true, whatsappPhone: true }
     });
     
-    if (user?.whatsappConnected) {
-      return res.json({
-        connected: true,
-        phoneNumber: user.whatsappPhone
+    // Si la BD dice conectado pero el servicio no, sincronizar
+    if (user?.whatsappConnected && !status.connected) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { whatsappConnected: false, whatsappPhone: null }
       });
     }
     
-    // Verificar sesión temporal
-    const session = whatsappSessions.get(userId);
-    if (session?.connected) {
-      return res.json({
-        connected: true,
-        phoneNumber: session.phoneNumber
-      });
-    }
+    res.json({ 
+      connected: false,
+      qrCode: status.qrCode ? await QRCode.toDataURL(status.qrCode) : null
+    });
     
-    res.json({ connected: false });
   } catch (error) {
     console.error('Error verificando estado:', error);
     res.status(500).json({ error: 'Error al verificar estado' });
@@ -124,34 +118,64 @@ router.post('/disconnect', authenticate, async (req: Request, res: Response) => 
   try {
     const userId = (req as any).userId;
     
-    // Eliminar sesión temporal
-    whatsappSessions.delete(userId);
-    
-    // Actualizar en base de datos
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        whatsappConnected: false,
-        whatsappPhone: null
-      }
-    });
+    await whatsappService.disconnectSession(userId);
     
     console.log(`📴 WhatsApp desconectado para usuario ${userId}`);
-    res.json({ message: 'WhatsApp desconectado' });
+    res.json({ message: 'WhatsApp desconectado exitosamente' });
+    
   } catch (error) {
     console.error('Error desconectando:', error);
     res.status(500).json({ error: 'Error al desconectar' });
   }
 });
 
-// Webhook para recibir mensajes de WhatsApp (para integración futura)
+// Enviar mensaje (para pruebas)
+router.post('/send', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { to, message } = req.body;
+
+    if (!to || !message) {
+      return res.status(400).json({ error: 'Número de destino y mensaje requeridos' });
+    }
+
+    const success = await whatsappService.sendMessage(userId, to, message);
+    
+    if (success) {
+      res.json({ message: 'Mensaje enviado' });
+    } else {
+      res.status(400).json({ error: 'No se pudo enviar el mensaje. Verifica que WhatsApp esté conectado.' });
+    }
+    
+  } catch (error) {
+    console.error('Error enviando mensaje:', error);
+    res.status(500).json({ error: 'Error al enviar mensaje' });
+  }
+});
+
+// Webhook para recibir mensajes de WhatsApp (para integración con API oficial)
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     console.log('📨 Webhook WhatsApp:', req.body);
-    // Aquí se procesarían los mensajes entrantes
     res.json({ received: true });
   } catch (error) {
     res.status(500).json({ error: 'Error procesando webhook' });
+  }
+});
+
+// Verificación de webhook (requerido por WhatsApp Business API)
+router.get('/webhook', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'elisa-ia-verify';
+
+  if (mode === 'subscribe' && token === verifyToken) {
+    console.log('✅ Webhook verificado');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
   }
 });
 

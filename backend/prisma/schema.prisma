@@ -8,7 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// Enum para los planes - CRÍTICO para evitar el error de conversión
 enum Plan {
   FREE
   EMPRENDEDORES

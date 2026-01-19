@@ -2,37 +2,103 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
-// PLANES CON PRECIOS CORRECTOS
-const PLAN_PRICES: Record<string, { amountCOP: number; name: string; planType: 'MONTHLY' | 'LIFETIME'; plan: string }> = {
-  // Mensuales (Admin configura)
+// PLANES ACTUALIZADOS
+const PLANS: Record<string, {
+  id: string;
+  name: string;
+  description: string;
+  amountCOP: number;
+  chatbots: number;
+  planType: 'MONTHLY' | 'LIFETIME';
+  plan: string;
+  features: string[];
+  canEditContext: boolean;
+  supportIncluded: boolean;
+}> = {
+  // Plan mensual - Emprendedores
   'EMPRENDEDORES_MONTHLY': {
-    amountCOP: 180000,
+    id: 'EMPRENDEDORES_MONTHLY',
     name: 'Emprendedores',
+    description: '1 chatbot, soporte incluido, nosotros configuramos',
+    amountCOP: 100000,
+    chatbots: 1,
     planType: 'MONTHLY',
-    plan: 'EMPRENDEDORES'
+    plan: 'EMPRENDEDORES',
+    features: [
+      '1 Chatbot de WhatsApp',
+      'Mensajes ilimitados (según tu API Key)',
+      'Nosotros configuramos tu negocio',
+      'Soporte incluido',
+      'Subir PDF con información'
+    ],
+    canEditContext: false,
+    supportIncluded: true,
   },
+  // Plan mensual - Negocios en Crecimiento
   'NEGOCIOS_MONTHLY': {
-    amountCOP: 360000,
+    id: 'NEGOCIOS_MONTHLY',
     name: 'Negocios en Crecimiento',
+    description: '3 chatbots, soporte incluido, nosotros configuramos',
+    amountCOP: 150000,
+    chatbots: 3,
     planType: 'MONTHLY',
-    plan: 'NEGOCIOS'
+    plan: 'NEGOCIOS',
+    features: [
+      '3 Chatbots de WhatsApp',
+      'Mensajes ilimitados (según tu API Key)',
+      'Nosotros configuramos tus negocios',
+      'Soporte prioritario',
+      'Subir PDF con información'
+    ],
+    canEditContext: false,
+    supportIncluded: true,
   },
-  // Vitalicios (Usuario configura)
+  // Plan vitalicio - Business
   'BUSINESS_LIFETIME': {
-    amountCOP: 1440000,
+    id: 'BUSINESS_LIFETIME',
     name: 'Business',
+    description: '5 chatbots, configura tú mismo, pago único',
+    amountCOP: 100000,
+    chatbots: 5,
     planType: 'LIFETIME',
-    plan: 'BUSINESS'
+    plan: 'BUSINESS',
+    features: [
+      '5 Chatbots de WhatsApp',
+      'Mensajes ilimitados (según tu API Key)',
+      'Configura el contexto tú mismo (JSON)',
+      'Soporte incluido',
+      'Pago único - Sin mensualidades',
+      'Actualizaciones de por vida'
+    ],
+    canEditContext: true,
+    supportIncluded: true,
   },
+  // Plan vitalicio - Marca Blanca
   'MARCA_BLANCA_LIFETIME': {
-    amountCOP: 2520000,
+    id: 'MARCA_BLANCA_LIFETIME',
     name: 'Marca Blanca',
+    description: 'Chatbots ilimitados, personaliza tu marca, revende',
+    amountCOP: 300000,
+    chatbots: 999,
     planType: 'LIFETIME',
-    plan: 'MARCA_BLANCA'
+    plan: 'MARCA_BLANCA',
+    features: [
+      'Chatbots ILIMITADOS',
+      'Mensajes ilimitados (según tu API Key)',
+      'Configura el contexto tú mismo (JSON)',
+      'Personaliza logo y marca',
+      'Link de reventa exclusivo',
+      'Soporte VIP',
+      'Pago único - Sin mensualidades',
+      'Actualizaciones de por vida'
+    ],
+    canEditContext: true,
+    supportIncluded: true,
   },
 };
 
@@ -58,13 +124,27 @@ const generateWompiSignature = (reference: string, amountInCents: number, curren
   return crypto.createHash('sha256').update(dataToSign).digest('hex');
 };
 
+// Obtener planes disponibles
+router.get('/plans', (req: Request, res: Response) => {
+  const plans = Object.values(PLANS).map(plan => ({
+    ...plan,
+    formattedPrice: new Intl.NumberFormat('es-CO', {
+      style: 'currency',
+      currency: 'COP',
+      minimumFractionDigits: 0,
+    }).format(plan.amountCOP),
+  }));
+  
+  res.json({ plans });
+});
+
 // Crear pago
 router.post('/create-payment', authenticate, async (req: Request, res: Response) => {
   try {
-    const { plan } = req.body;
+    const { planId } = req.body;
     const userId = (req as any).userId;
 
-    const planData = PLAN_PRICES[plan];
+    const planData = PLANS[planId];
     if (!planData) {
       return res.status(400).json({ error: 'Plan no válido' });
     }
@@ -135,13 +215,81 @@ router.get('/history', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// Obtener planes disponibles
-router.get('/plans', (req: Request, res: Response) => {
-  const plans = Object.entries(PLAN_PRICES).map(([id, data]) => ({
-    id,
-    ...data,
-  }));
-  res.json({ plans });
+// ========== MARCA BLANCA ==========
+
+// Generar código de referido
+router.post('/generate-referral', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user || user.plan !== 'MARCA_BLANCA') {
+      return res.status(403).json({ error: 'Solo disponible para plan Marca Blanca' });
+    }
+    
+    // Generar código único si no tiene
+    if (!user.referralCode) {
+      const code = `REF-${uuidv4().slice(0, 8).toUpperCase()}`;
+      await prisma.user.update({
+        where: { id: userId },
+        data: { referralCode: code }
+      });
+      return res.json({ referralCode: code });
+    }
+    
+    res.json({ referralCode: user.referralCode });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al generar código' });
+  }
+});
+
+// Actualizar marca (logo, nombre)
+router.put('/brand', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { customLogo, customBrandName } = req.body;
+    
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user || user.plan !== 'MARCA_BLANCA') {
+      return res.status(403).json({ error: 'Solo disponible para plan Marca Blanca' });
+    }
+    
+    await prisma.user.update({
+      where: { id: userId },
+      data: { customLogo, customBrandName }
+    });
+    
+    res.json({ message: 'Marca actualizada' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar marca' });
+  }
+});
+
+// Estadísticas de referidos
+router.get('/referral-stats', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    if (!user || user.plan !== 'MARCA_BLANCA' || !user.referralCode) {
+      return res.status(403).json({ error: 'No disponible' });
+    }
+    
+    const referrals = await prisma.user.count({
+      where: { referredBy: user.referralCode }
+    });
+    
+    res.json({ 
+      referralCode: user.referralCode,
+      totalReferrals: referrals,
+      referralLink: `${process.env.FRONTEND_URL}?ref=${user.referralCode}`
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener estadísticas' });
+  }
 });
 
 export default router;

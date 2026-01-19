@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Plan {
@@ -76,10 +77,17 @@ model User {
   lastLogin          DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
-
+  
+  // Marca Blanca
+  customLogo         String?
+  customBrandName    String?
+  referralCode       String?            @unique
+  referredBy         String?
+  
   businesses Business[]
   assistants Assistant[]
   payments   Payment[]
+  configRequests ConfigRequest[]
 }
 
 model Business {
@@ -205,4 +213,22 @@ model WebhookLog {
   status    String   @default("received")
   error     String?
   createdAt DateTime @default(now())
+}
+
+// Solicitudes de configuración (para planes Emprendedores y Negocios)
+model ConfigRequest {
+  id           String   @id @default(uuid())
+  userId       String
+  assistantId  String?
+  businessName String
+  pdfUrl       String?
+  pdfFileName  String?
+  notes        String?
+  status       String   @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  adminNotes   String?
+  configJson   String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config();
 
@@ -13,6 +14,9 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
+
+// Servir archivos estáticos (para PDFs)
+app.use('/uploads', express.static(path.join('/app', 'uploads')));
 
 // CORS
 app.use(cors({
@@ -37,7 +41,8 @@ app.get('/', (req, res) => {
       assistants: '/api/assistants',
       payments: '/api/payments',
       webhooks: '/api/webhooks',
-      chat: '/api/chat'
+      chat: '/api/chat',
+      config: '/api/config'
     }
   });
 });
@@ -50,6 +55,7 @@ import paymentRoutes from './routes/payment.routes';
 import webhookRoutes from './routes/webhook.routes';
 import chatRoutes from './routes/chat.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
+import configRoutes from './routes/config.routes';
 
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
@@ -58,6 +64,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/config', configRoutes);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

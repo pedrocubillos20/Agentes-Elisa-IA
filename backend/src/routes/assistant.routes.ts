@@ -6,14 +6,20 @@ import { v4 as uuidv4 } from 'uuid';
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
-// Límites por plan
+// Límites por plan ACTUALIZADOS
 const PLAN_LIMITS: Record<string, number> = {
-  FREE: 0,
-  EMPRENDEDORES: 1,
-  NEGOCIOS: 3,
-  BUSINESS: 5,
-  MARCA_BLANCA: 999,
+  FREE: 1,           // 1 chatbot por 5 días de prueba
+  EMPRENDEDORES: 1,  // 1 chatbot
+  NEGOCIOS: 3,       // 3 chatbots
+  BUSINESS: 5,       // 5 chatbots
+  MARCA_BLANCA: 999, // Ilimitados
 };
+
+// Planes que pueden editar contexto directamente (JSON)
+const PLANS_WITH_CONTEXT_EDIT = ['FREE', 'BUSINESS', 'MARCA_BLANCA'];
+
+// Planes que pueden subir PDF (nosotros configuramos)
+const PLANS_WITH_PDF_UPLOAD = ['FREE', 'EMPRENDEDORES', 'NEGOCIOS'];
 
 const authenticate = async (req: Request, res: Response, next: Function) => {
   try {
@@ -33,18 +39,67 @@ const authenticate = async (req: Request, res: Response, next: Function) => {
   }
 };
 
+// Verificar si el trial ha expirado
+const checkTrialExpired = (user: any): boolean => {
+  if (user.plan === 'FREE' && user.trialEndsAt) {
+    return new Date(user.trialEndsAt) < new Date();
+  }
+  return false;
+};
+
+// Obtener información del plan
+router.get('/plan-info', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const currentCount = await prisma.assistant.count({ where: { userId: user.id } });
+    const limit = PLAN_LIMITS[user.plan] || 0;
+    
+    res.json({
+      plan: user.plan,
+      planType: user.planType,
+      chatbotsUsed: currentCount,
+      chatbotsLimit: limit,
+      canEditContext: PLANS_WITH_CONTEXT_EDIT.includes(user.plan),
+      mustUploadPdf: PLANS_WITH_PDF_UPLOAD.includes(user.plan),
+      trialEndsAt: user.trialEndsAt,
+      trialExpired: checkTrialExpired(user),
+      // Marca Blanca
+      isMarcaBlanca: user.plan === 'MARCA_BLANCA',
+      customLogo: user.customLogo,
+      customBrandName: user.customBrandName,
+      referralCode: user.referralCode,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener información del plan' });
+  }
+});
+
 // Listar asistentes
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    
     const assistants = await prisma.assistant.findMany({
-      where: { userId: (req as any).userId },
+      where: { userId: user.id },
       include: {
         business: true,
         _count: { select: { conversations: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json({ assistants });
+    
+    // Agregar información de permisos
+    const canEditContext = PLANS_WITH_CONTEXT_EDIT.includes(user.plan);
+    const mustUploadPdf = PLANS_WITH_PDF_UPLOAD.includes(user.plan);
+    
+    res.json({ 
+      assistants,
+      planInfo: {
+        canEditContext,
+        mustUploadPdf,
+        plan: user.plan,
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener asistentes' });
   }
@@ -53,15 +108,30 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 // Obtener un asistente
 router.get('/:id', authenticate, async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    
     const assistant = await prisma.assistant.findFirst({
-      where: { id: req.params.id, userId: (req as any).userId },
+      where: { id: req.params.id, userId: user.id },
       include: {
         business: { include: { products: true, faqs: true } },
         conversations: { take: 10, orderBy: { createdAt: 'desc' } }
       }
     });
+    
     if (!assistant) return res.status(404).json({ error: 'Asistente no encontrado' });
-    res.json({ assistant });
+    
+    // Obtener solicitud de configuración si existe
+    const configRequest = await prisma.configRequest.findFirst({
+      where: { assistantId: assistant.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    res.json({ 
+      assistant,
+      configRequest,
+      canEditContext: PLANS_WITH_CONTEXT_EDIT.includes(user.plan),
+      mustUploadPdf: PLANS_WITH_PDF_UPLOAD.includes(user.plan),
+    });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener asistente' });
   }
@@ -71,9 +141,16 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
 router.post('/', authenticate, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { name, welcomeMessage, tone, businessId } = req.body;
+    const { name, tone, contextJson, businessName } = req.body;
 
     if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+
+    // Verificar trial expirado
+    if (checkTrialExpired(user)) {
+      return res.status(403).json({ 
+        error: 'Tu periodo de prueba ha expirado. Actualiza tu plan para continuar.' 
+      });
+    }
 
     // Verificar límite del plan
     const currentCount = await prisma.assistant.count({ where: { userId: user.id } });
@@ -85,35 +162,40 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
       });
     }
 
-    // Obtener o crear negocio
-    let business;
-    if (businessId) {
-      business = await prisma.business.findFirst({ where: { id: businessId, userId: user.id } });
-    }
-    if (!business) {
-      business = await prisma.business.create({
-        data: { userId: user.id, name: 'Mi Negocio' }
-      });
-    }
+    // Crear negocio
+    const business = await prisma.business.create({
+      data: { 
+        userId: user.id, 
+        name: businessName || name 
+      }
+    });
 
     // Generar API Key única
     const publicApiKey = `elisa_${uuidv4().replace(/-/g, '')}`;
 
+    // Crear asistente
     const assistant = await prisma.assistant.create({
       data: {
         userId: user.id,
         businessId: business.id,
         name,
-        welcomeMessage: welcomeMessage || '¡Hola! ¿En qué puedo ayudarte?',
+        welcomeMessage: '¡Hola! ¿En qué puedo ayudarte?',
         tone: tone || 'PROFESSIONAL',
         publicApiKey,
-        isActive: true,
-        status: 'ACTIVE',
+        isActive: false, // Inactivo hasta que tenga contexto
+        status: 'PENDING',
+        // Solo guardar contexto si el plan lo permite
+        contextJson: PLANS_WITH_CONTEXT_EDIT.includes(user.plan) ? contextJson : null,
       },
       include: { business: true }
     });
 
-    res.status(201).json({ message: 'Chatbot creado', assistant });
+    res.status(201).json({ 
+      message: 'Chatbot creado', 
+      assistant,
+      canEditContext: PLANS_WITH_CONTEXT_EDIT.includes(user.plan),
+      mustUploadPdf: PLANS_WITH_PDF_UPLOAD.includes(user.plan),
+    });
   } catch (error) {
     console.error('Error creando asistente:', error);
     res.status(500).json({ error: 'Error al crear chatbot' });
@@ -123,11 +205,14 @@ router.post('/', authenticate, async (req: Request, res: Response) => {
 // Actualizar asistente
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const { name, welcomeMessage, tone, systemPrompt, primaryColor } = req.body;
+    const user = (req as any).user;
+    const { name, tone, systemPrompt, primaryColor } = req.body;
+    
     const assistant = await prisma.assistant.updateMany({
-      where: { id: req.params.id, userId: (req as any).userId },
-      data: { name, welcomeMessage, tone, systemPrompt, primaryColor }
+      where: { id: req.params.id, userId: user.id },
+      data: { name, tone, systemPrompt, primaryColor }
     });
+    
     if (assistant.count === 0) return res.status(404).json({ error: 'Asistente no encontrado' });
     res.json({ message: 'Asistente actualizado' });
   } catch (error) {
@@ -135,13 +220,66 @@ router.put('/:id', authenticate, async (req: Request, res: Response) => {
   }
 });
 
+// Guardar contexto JSON (para planes FREE, Business y Marca Blanca)
+router.put('/:id/context', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { contextJson } = req.body;
+    
+    // Verificar que el plan permita editar contexto
+    if (!PLANS_WITH_CONTEXT_EDIT.includes(user.plan)) {
+      return res.status(403).json({ 
+        error: 'Tu plan no permite editar el contexto directamente. Sube un PDF con la información de tu negocio.' 
+      });
+    }
+    
+    // Validar que es JSON válido si no está vacío
+    if (contextJson && contextJson.trim()) {
+      try {
+        JSON.parse(contextJson);
+      } catch {
+        return res.status(400).json({ error: 'JSON inválido' });
+      }
+    }
+    
+    const assistant = await prisma.assistant.updateMany({
+      where: { id: req.params.id, userId: user.id },
+      data: { 
+        contextJson: contextJson || null,
+        isActive: contextJson ? true : false,
+        status: contextJson ? 'ACTIVE' : 'PENDING',
+      }
+    });
+    
+    if (assistant.count === 0) {
+      return res.status(404).json({ error: 'Asistente no encontrado' });
+    }
+    
+    console.log(`🧠 Contexto actualizado para asistente ${req.params.id}`);
+    res.json({ message: 'Contexto guardado exitosamente' });
+  } catch (error) {
+    console.error('Error guardando contexto:', error);
+    res.status(500).json({ error: 'Error al guardar contexto' });
+  }
+});
+
 // Activar/Desactivar
 router.patch('/:id/toggle', authenticate, async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    
     const assistant = await prisma.assistant.findFirst({
-      where: { id: req.params.id, userId: (req as any).userId }
+      where: { id: req.params.id, userId: user.id }
     });
+    
     if (!assistant) return res.status(404).json({ error: 'Asistente no encontrado' });
+    
+    // Verificar que tenga contexto antes de activar
+    if (!assistant.isActive && !assistant.contextJson) {
+      return res.status(400).json({ 
+        error: 'No puedes activar el chatbot sin configurar el contexto primero.' 
+      });
+    }
 
     await prisma.assistant.update({
       where: { id: assistant.id },
@@ -160,7 +298,9 @@ router.patch('/:id/toggle', authenticate, async (req: Request, res: Response) =>
 // Eliminar
 router.delete('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    await prisma.assistant.deleteMany({ where: { id: req.params.id, userId: (req as any).userId } });
+    await prisma.assistant.deleteMany({ 
+      where: { id: req.params.id, userId: (req as any).userId } 
+    });
     res.json({ message: 'Asistente eliminado' });
   } catch (error) {
     res.status(500).json({ error: 'Error al eliminar' });
@@ -199,37 +339,6 @@ router.get('/:id/stats', authenticate, async (req: Request, res: Response) => {
     res.json({ stats: { totalConversations, totalMessages, activeConversations, leads } });
   } catch (error) {
     res.status(500).json({ error: 'Error al obtener estadísticas' });
-  }
-});
-
-// Guardar contexto JSON
-router.put('/:id/context', authenticate, async (req: Request, res: Response) => {
-  try {
-    const { contextJson } = req.body;
-    
-    // Validar que es JSON válido si no está vacío
-    if (contextJson && contextJson.trim()) {
-      try {
-        JSON.parse(contextJson);
-      } catch {
-        return res.status(400).json({ error: 'JSON inválido' });
-      }
-    }
-    
-    const assistant = await prisma.assistant.updateMany({
-      where: { id: req.params.id, userId: (req as any).userId },
-      data: { contextJson: contextJson || null }
-    });
-    
-    if (assistant.count === 0) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-    
-    console.log(`🧠 Contexto actualizado para asistente ${req.params.id}`);
-    res.json({ message: 'Contexto guardado exitosamente' });
-  } catch (error) {
-    console.error('Error guardando contexto:', error);
-    res.status(500).json({ error: 'Error al guardar contexto' });
   }
 });
 

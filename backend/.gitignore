@@ -6,3 +6,7 @@ dist/
 auth_sessions/
 uploads/
 package-lock.json
+.idea/
+.vscode/
+*.swp
+*.swo

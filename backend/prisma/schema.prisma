@@ -56,7 +56,7 @@ model Business {
   id          String   @id @default(cuid())
   userId      String   @unique
   name        String
-  description String?
+  description String?  @db.Text
   address     String?
   phone       String?
   email       String?
@@ -74,10 +74,11 @@ model Product {
   id          String   @id @default(cuid())
   businessId  String
   name        String
-  description String?
+  description String?  @db.Text
   price       Float?
   category    String?
   imageUrl    String?
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
@@ -87,8 +88,8 @@ model Product {
 model FAQ {
   id         String   @id @default(cuid())
   businessId String
-  question   String
-  answer     String
+  question   String   @db.Text
+  answer     String   @db.Text
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   
@@ -96,16 +97,16 @@ model FAQ {
 }
 
 model Conversation {
-  id           String   @id @default(cuid())
-  assistantId  String
-  clientPhone  String
-  clientName   String?
-  channel      String   @default("WHATSAPP")
-  status       String   @default("ACTIVE")
-  messageCount Int      @default(0)
+  id            String    @id @default(cuid())
+  assistantId   String
+  clientPhone   String
+  clientName    String?
+  channel       String    @default("WHATSAPP")
+  status        String    @default("ACTIVE")
+  messageCount  Int       @default(0)
   lastMessageAt DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   
   assistant Assistant @relation(fields: [assistantId], references: [id], onDelete: Cascade)
   messages  Message[]

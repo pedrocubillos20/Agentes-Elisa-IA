@@ -1,47 +1,107 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import prisma from '../lib/prisma';
-import jwt from 'jsonwebtoken';
+import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
-const authenticate = async (req: Request, res: Response, next: Function) => {
+// Obtener solicitudes de configuración del usuario
+router.get('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Token no proporcionado' });
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    (req as any).userId = decoded.userId;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Token inválido' });
-  }
-};
-
-router.get('/requests', authenticate, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).userId;
+    const userId = req.userId;
+    
     const requests = await prisma.configRequest.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      include: { assistant: { select: { name: true } } }
+      include: { 
+        assistant: { 
+          select: { name: true } 
+        } 
+      }
     });
+    
     res.json(requests);
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+  } catch (error: any) {
+    console.error('Error obteniendo solicitudes:', error);
+    res.status(500).json({ error: 'Error al obtener solicitudes' });
   }
 });
 
-router.post('/requests', authenticate, async (req: Request, res: Response) => {
+// Crear nueva solicitud de configuración
+router.post('/requests', authenticate, async (req: AuthRequest, res: Response) => {
   try {
-    const userId = (req as any).userId;
-    const { assistantId, notes } = req.body;
+    const userId = req.userId;
+    const { assistantId, notes, pdfPath } = req.body;
+    
     const request = await prisma.configRequest.create({
-      data: { userId, assistantId, notes, status: 'PENDING' }
+      data: { 
+        userId: userId!, 
+        assistantId, 
+        notes, 
+        pdfPath,
+        status: 'PENDING' 
+      },
+      include: {
+        assistant: { select: { name: true } }
+      }
     });
+    
+    console.log(`✅ Solicitud de configuración creada`);
+    
+    res.status(201).json(request);
+  } catch (error: any) {
+    console.error('Error creando solicitud:', error);
+    res.status(500).json({ error: 'Error al crear solicitud' });
+  }
+});
+
+// Obtener una solicitud específica
+router.get('/requests/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId;
+    const { id } = req.params;
+    
+    const request = await prisma.configRequest.findFirst({
+      where: { id, userId },
+      include: { 
+        assistant: { select: { name: true } } 
+      }
+    });
+    
+    if (!request) {
+      return res.status(404).json({ error: 'Solicitud no encontrada' });
+    }
+    
     res.json(request);
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+  } catch (error: any) {
+    console.error('Error obteniendo solicitud:', error);
+    res.status(500).json({ error: 'Error al obtener solicitud' });
+  }
+});
+
+// Cancelar solicitud
+router.delete('/requests/:id', authenticate, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.userId;
+    const { id } = req.params;
+    
+    const request = await prisma.configRequest.findFirst({
+      where: { id, userId }
+    });
+    
+    if (!request) {
+      return res.status(404).json({ error: 'Solicitud no encontrada' });
+    }
+    
+    if (request.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Solo se pueden cancelar solicitudes pendientes' });
+    }
+    
+    await prisma.configRequest.delete({ where: { id } });
+    
+    res.json({ message: 'Solicitud cancelada' });
+  } catch (error: any) {
+    console.error('Error cancelando solicitud:', error);
+    res.status(500).json({ error: 'Error al cancelar solicitud' });
   }
 });
 

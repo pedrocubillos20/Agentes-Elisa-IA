@@ -10,7 +10,7 @@
   "dependencies": {
     "@hapi/boom": "10.0.1",
     "@prisma/client": "5.7.0",
-    "@whiskeysockets/baileys": "6.7.9",
+    "@whiskeysockets/baileys": "6.6.0",
     "axios": "1.6.2",
     "bcryptjs": "2.4.3",
     "cors": "2.8.5",
@@ -23,8 +23,7 @@
     "multer": "1.4.5-lts.1",
     "openai": "4.20.0",
     "pino": "8.16.2",
-    "qrcode": "1.5.3",
-    "uuid": "9.0.0"
+    "qrcode": "1.5.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "2.4.6",
@@ -36,7 +35,6 @@
     "@types/multer": "1.4.11",
     "@types/node": "20.10.0",
     "@types/qrcode": "1.5.5",
-    "@types/uuid": "9.0.7",
     "prisma": "5.7.0",
     "typescript": "5.3.2"
   }

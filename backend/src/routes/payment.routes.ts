@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
 const router = Router();
-const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
 // PLANES CON PRECIOS CORRECTOS

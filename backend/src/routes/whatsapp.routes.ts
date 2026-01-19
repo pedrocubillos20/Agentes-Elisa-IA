@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
 import QRCode from 'qrcode';
 
 const router = Router();
-const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
 // Almacén temporal de sesiones WhatsApp (en producción usar Redis)

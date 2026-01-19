@@ -1,9 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../lib/prisma';
 import crypto from 'crypto';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Mapeo de planes
 const PLAN_MAPPING: Record<string, { plan: string; planType: string }> = {

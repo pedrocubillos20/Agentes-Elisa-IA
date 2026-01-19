@@ -15,4 +15,5 @@ RUN npm run build
 
 EXPOSE 3001
 
-CMD ["npm", "start"]
+# Script de inicio que ejecuta migraciones y luego inicia el servidor
+CMD npx prisma db push --accept-data-loss && npm start

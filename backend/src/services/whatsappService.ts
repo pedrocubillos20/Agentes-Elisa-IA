@@ -1,9 +1,7 @@
 import makeWASocket, { 
   DisconnectReason, 
   useMultiFileAuthState,
-  WASocket,
-  proto,
-  downloadMediaMessage
+  WASocket
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import { EventEmitter } from 'events';
@@ -18,7 +16,7 @@ import CryptoJS from 'crypto-js';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'clave-encriptacion-32-caracteres!';
 const AUTH_DIR = process.env.AUTH_DIR || '/app/auth_sessions';
 
-// Logger silencioso para Baileys - usar any para evitar errores de tipos
+// Logger silencioso para Baileys
 const logger = pino({ level: 'silent' }) as any;
 
 // Desencriptar API Key
@@ -55,15 +53,22 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  // Crear o obtener sesión para un usuario
-  async getOrCreateSession(userId: string): Promise<WhatsAppSession> {
-    let session = this.sessions.get(userId);
-    
-    if (session) {
-      return session;
+  // Limpiar sesión
+  private cleanSession(userId: string): void {
+    const authPath = path.join(AUTH_DIR, userId);
+    try {
+      if (fs.existsSync(authPath)) {
+        fs.rmSync(authPath, { recursive: true, force: true });
+        console.log(`🧹 Sesión limpiada para ${userId}`);
+      }
+    } catch (e) {
+      console.error('Error limpiando sesión:', e);
     }
+  }
 
-    session = {
+  // Crear sesión
+  private createSession(userId: string): WhatsAppSession {
+    const session: WhatsAppSession = {
       socket: null,
       qrCode: null,
       connected: false,
@@ -72,50 +77,42 @@ class WhatsAppService extends EventEmitter {
       ready: false,
       connecting: false,
     };
-
     this.sessions.set(userId, session);
     return session;
   }
 
   // Inicializar conexión de WhatsApp
   async initializeClient(userId: string): Promise<string | null> {
-    const session = await this.getOrCreateSession(userId);
+    console.log(`🚀 Iniciando conexión WhatsApp para ${userId}`);
     
-    // Si ya está conectado, no hacer nada
-    if (session.connected && session.ready) {
-      console.log(`✅ Usuario ${userId} ya está conectado`);
-      return null;
+    // Cerrar sesión existente si hay
+    const existingSession = this.sessions.get(userId);
+    if (existingSession?.socket) {
+      console.log(`🔄 Cerrando sesión existente para ${userId}`);
+      try {
+        existingSession.socket.end(undefined);
+      } catch (e) {
+        // Ignorar
+      }
     }
-
-    // Si está conectando, esperar
-    if (session.connecting) {
-      console.log(`⏳ Usuario ${userId} ya está conectando, esperando QR...`);
-      return new Promise((resolve) => {
-        const checkQR = setInterval(() => {
-          if (session.qrCode || session.connected) {
-            clearInterval(checkQR);
-            resolve(session.qrCode);
-          }
-        }, 1000);
-        
-        setTimeout(() => {
-          clearInterval(checkQR);
-          resolve(session.qrCode);
-        }, 30000);
-      });
-    }
-
+    
+    // Limpiar sesión anterior SIEMPRE para generar nuevo QR
+    this.sessions.delete(userId);
+    this.cleanSession(userId);
+    
+    // Crear nueva sesión
+    const session = this.createSession(userId);
     session.connecting = true;
 
+    const authPath = path.join(AUTH_DIR, userId);
+
     try {
-      const authPath = path.join(AUTH_DIR, userId);
-      
-      // Asegurar que el directorio existe
-      if (!fs.existsSync(authPath)) {
-        fs.mkdirSync(authPath, { recursive: true });
-      }
+      // Crear directorio
+      fs.mkdirSync(authPath, { recursive: true });
 
       const { state, saveCreds } = await useMultiFileAuthState(authPath);
+
+      console.log(`📱 Creando socket WhatsApp para ${userId}`);
 
       const socket = makeWASocket({
         auth: state,
@@ -131,133 +128,143 @@ class WhatsAppService extends EventEmitter {
 
       session.socket = socket;
 
-      // Evento: Actualización de conexión
-      socket.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+      // Promesa para esperar el QR
+      return new Promise((resolve, reject) => {
+        let resolved = false;
 
-        if (qr) {
-          console.log(`📱 QR generado para usuario ${userId}`);
-          try {
-            // Convertir QR a base64 para mostrar en frontend
-            session.qrCode = await QRCode.toDataURL(qr);
-            this.emit('qr', { userId, qr: session.qrCode });
-          } catch (err) {
-            console.error('Error generando QR:', err);
-            session.qrCode = qr; // Usar el string original como fallback
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            session.connecting = false;
+            console.log(`⏰ Timeout esperando QR para ${userId}`);
+            resolve(session.qrCode);
           }
-        }
+        }, 60000);
 
-        if (connection === 'close') {
-          const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-          
-          console.log(`📴 Conexión cerrada para ${userId}. Reconectar: ${shouldReconnect}`);
-          
-          session.connected = false;
-          session.ready = false;
-          session.connecting = false;
+        // Evento: Actualización de conexión
+        socket.ev.on('connection.update', async (update) => {
+          const { connection, lastDisconnect, qr } = update;
 
-          if ((lastDisconnect?.error as Boom)?.output?.statusCode === DisconnectReason.loggedOut) {
-            // Eliminar sesión guardada
+          console.log(`📡 Estado ${userId}: connection=${connection}, qr=${qr ? 'SÍ' : 'NO'}`);
+
+          // QR recibido
+          if (qr) {
+            console.log(`📱 QR generado para ${userId}`);
             try {
-              fs.rmSync(authPath, { recursive: true, force: true });
-            } catch (e) {
-              console.error('Error eliminando sesión:', e);
+              session.qrCode = await QRCode.toDataURL(qr);
+              this.emit('qr', { userId, qr: session.qrCode });
+              
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(timeout);
+                resolve(session.qrCode);
+              }
+            } catch (err) {
+              console.error('Error generando QR imagen:', err);
+              session.qrCode = qr;
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(timeout);
+                resolve(qr);
+              }
             }
           }
 
-          // Actualizar BD
-          try {
-            await prisma.user.update({
-              where: { id: userId },
-              data: { whatsappConnected: false, whatsappPhone: null },
-            });
-          } catch (e) {
-            console.error('Error actualizando BD:', e);
+          // Conexión cerrada
+          if (connection === 'close') {
+            const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+            console.log(`📴 Conexión cerrada para ${userId}. Código: ${statusCode}`);
+            
+            session.connected = false;
+            session.ready = false;
+            session.connecting = false;
+
+            // Actualizar BD
+            try {
+              await prisma.user.update({
+                where: { id: userId },
+                data: { whatsappConnected: false, whatsappPhone: null },
+              });
+            } catch (e) {
+              console.error('Error actualizando BD:', e);
+            }
+
+            this.emit('disconnected', { userId });
+
+            // NO reconectar automáticamente - evita bucle infinito
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              resolve(null);
+            }
           }
 
-          this.emit('disconnected', { userId });
+          // Conexión abierta
+          if (connection === 'open') {
+            console.log(`✅ Usuario ${userId} conectado a WhatsApp!`);
+            session.connected = true;
+            session.ready = true;
+            session.connecting = false;
+            session.qrCode = null;
 
-          if (shouldReconnect) {
-            console.log(`🔄 Reintentando conexión para ${userId}...`);
-            setTimeout(() => this.initializeClient(userId), 5000);
+            // Obtener número de teléfono
+            const phoneNumber = socket.user?.id?.split(':')[0] || socket.user?.id?.split('@')[0];
+            session.phoneNumber = phoneNumber ? `+${phoneNumber}` : null;
+
+            console.log(`📱 Número conectado: ${session.phoneNumber}`);
+
+            // Actualizar BD
+            try {
+              await prisma.user.update({
+                where: { id: userId },
+                data: {
+                  whatsappConnected: true,
+                  whatsappPhone: session.phoneNumber,
+                },
+              });
+            } catch (e) {
+              console.error('Error actualizando BD:', e);
+            }
+
+            this.emit('ready', { userId });
+
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              resolve(null);
+            }
           }
-        }
+        });
 
-        if (connection === 'open') {
-          console.log(`✅ Usuario ${userId} conectado a WhatsApp`);
-          session.connected = true;
-          session.ready = true;
-          session.connecting = false;
-          session.qrCode = null;
+        // Guardar credenciales cuando cambien
+        socket.ev.on('creds.update', saveCreds);
 
-          // Obtener número de teléfono
-          const phoneNumber = socket.user?.id?.split(':')[0] || socket.user?.id?.split('@')[0];
-          session.phoneNumber = phoneNumber ? `+${phoneNumber}` : null;
+        // Evento: Mensajes recibidos
+        socket.ev.on('messages.upsert', async (m) => {
+          if (m.type !== 'notify') return;
 
-          console.log(`📱 Número conectado: ${session.phoneNumber}`);
+          for (const msg of m.messages) {
+            if (msg.key.fromMe) continue;
+            if (msg.key.remoteJid?.endsWith('@g.us')) continue;
 
-          // Actualizar BD
-          try {
-            await prisma.user.update({
-              where: { id: userId },
-              data: {
-                whatsappConnected: true,
-                whatsappPhone: session.phoneNumber,
-              },
-            });
-          } catch (e) {
-            console.error('Error actualizando BD:', e);
+            const messageContent = msg.message?.conversation || 
+                                  msg.message?.extendedTextMessage?.text ||
+                                  '';
+
+            if (!messageContent.trim()) continue;
+
+            console.log(`📨 Mensaje de ${msg.key.remoteJid}: ${messageContent.substring(0, 50)}...`);
+
+            await this.handleIncomingMessage(userId, msg.key.remoteJid!, messageContent, socket);
           }
-
-          this.emit('ready', { userId });
-        }
+        });
       });
 
-      // Guardar credenciales cuando cambien
-      socket.ev.on('creds.update', saveCreds);
-
-      // Evento: Mensajes recibidos
-      socket.ev.on('messages.upsert', async (m) => {
-        if (m.type !== 'notify') return;
-
-        for (const msg of m.messages) {
-          // Ignorar mensajes propios
-          if (msg.key.fromMe) continue;
-          
-          // Ignorar mensajes de grupos
-          if (msg.key.remoteJid?.endsWith('@g.us')) continue;
-
-          // Obtener contenido del mensaje
-          const messageContent = msg.message?.conversation || 
-                                msg.message?.extendedTextMessage?.text ||
-                                '';
-
-          if (!messageContent.trim()) continue;
-
-          console.log(`📨 Mensaje recibido de ${msg.key.remoteJid}: ${messageContent.substring(0, 50)}...`);
-
-          await this.handleIncomingMessage(userId, msg.key.remoteJid!, messageContent, socket);
-        }
-      });
-
-      // Esperar a que se genere el QR o se conecte
-      return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve(session.qrCode);
-        }, 30000);
-
-        const checkInterval = setInterval(() => {
-          if (session.qrCode || session.connected) {
-            clearInterval(checkInterval);
-            clearTimeout(timeout);
-            resolve(session.qrCode);
-          }
-        }, 500);
-      });
-
-    } catch (error) {
-      console.error(`❌ Error inicializando WhatsApp para ${userId}:`, error);
+    } catch (error: any) {
+      console.error(`❌ Error inicializando WhatsApp para ${userId}:`, error?.message || error);
       session.connecting = false;
+      this.cleanSession(userId);
+      this.sessions.delete(userId);
       throw error;
     }
   }
@@ -270,9 +277,8 @@ class WhatsAppService extends EventEmitter {
     socket: WASocket
   ) {
     try {
-      console.log(`📨 Procesando mensaje de ${remoteJid}: ${messageContent}`);
+      console.log(`📨 Procesando mensaje de ${remoteJid}`);
 
-      // Obtener usuario y su asistente activo
       const user = await prisma.user.findUnique({
         where: { id: userId },
         include: {
@@ -296,24 +302,20 @@ class WhatsAppService extends EventEmitter {
       const assistant = user.assistants[0];
       console.log(`🤖 Usando asistente: ${assistant.name}`);
 
-      // Verificar contexto
       if (!assistant.contextJson) {
         console.log('❌ Sin contexto configurado');
-        await this.sendMessage(socket, remoteJid, '⚠️ El asistente aún no está configurado. Por favor contacta al administrador.');
+        await this.sendMessage(socket, remoteJid, '⚠️ El asistente aún no está configurado.');
         return;
       }
 
-      // Verificar API Key
       if (!user.openaiApiKey) {
         console.log('❌ Sin API Key');
-        await this.sendMessage(socket, remoteJid, '⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.');
+        await this.sendMessage(socket, remoteJid, '⚠️ El chatbot no está configurado correctamente.');
         return;
       }
 
-      // Extraer número de teléfono (sin @s.whatsapp.net o @lid)
       const clientPhone = remoteJid.replace(/@.*$/, '');
 
-      // Obtener o crear conversación
       let conversation = await prisma.conversation.findFirst({
         where: {
           assistantId: assistant.id,
@@ -336,7 +338,6 @@ class WhatsAppService extends EventEmitter {
         });
       }
 
-      // Guardar mensaje del usuario
       await prisma.message.create({
         data: {
           conversationId: conversation.id,
@@ -347,12 +348,10 @@ class WhatsAppService extends EventEmitter {
 
       console.log('🧠 Generando respuesta con IA...');
       
-      // Generar respuesta
       const reply = await this.generateAIResponse(user, assistant, conversation, messageContent);
 
       console.log(`💬 Respuesta: ${reply.substring(0, 100)}...`);
 
-      // Guardar respuesta
       await prisma.message.create({
         data: {
           conversationId: conversation.id,
@@ -361,7 +360,6 @@ class WhatsAppService extends EventEmitter {
         },
       });
 
-      // Actualizar conversación
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: {
@@ -370,7 +368,6 @@ class WhatsAppService extends EventEmitter {
         },
       });
 
-      // Enviar respuesta
       console.log('📤 Enviando respuesta...');
       const sent = await this.sendMessage(socket, remoteJid, reply);
       
@@ -391,13 +388,9 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  // Enviar mensaje
   private async sendMessage(socket: WASocket, jid: string, text: string): Promise<boolean> {
     try {
-      console.log(`📱 Enviando mensaje a: ${jid}`);
-      
       await socket.sendMessage(jid, { text });
-      
       return true;
     } catch (error: any) {
       console.error('❌ Error enviando mensaje:', error?.message || error);
@@ -405,7 +398,6 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  // Generar respuesta con OpenAI
   private async generateAIResponse(
     user: any,
     assistant: any,
@@ -416,13 +408,11 @@ class WhatsAppService extends EventEmitter {
       const userApiKey = decryptApiKey(user.openaiApiKey);
       
       if (!userApiKey) {
-        console.error('❌ No se pudo desencriptar la API Key');
         return 'Lo siento, hay un problema con la configuración.';
       }
 
       const openai = new OpenAI({ apiKey: userApiKey });
 
-      // Construir contexto
       let businessContext = '';
       if (assistant.contextJson) {
         try {
@@ -433,13 +423,11 @@ class WhatsAppService extends EventEmitter {
         }
       }
 
-      // Historial de mensajes
       const messageHistory = (conversation.messages || []).map((m: any) => ({
         role: m.role.toLowerCase() as 'user' | 'assistant',
         content: m.content,
       }));
 
-      // System prompt
       const systemPrompt = this.buildSystemPrompt(assistant, businessContext);
 
       const completion = await openai.chat.completions.create({
@@ -469,7 +457,6 @@ class WhatsAppService extends EventEmitter {
     }
   }
 
-  // Formatear contexto para IA
   private formatContextForAI(contextData: any): string {
     let formatted = '\n=== INFORMACIÓN DEL NEGOCIO/BOT ===\n';
     
@@ -518,7 +505,6 @@ class WhatsAppService extends EventEmitter {
       });
     }
 
-    // Agregar campos adicionales
     Object.keys(contextData).forEach(key => {
       if (!['negocio', 'bot', 'business', 'productos', 'products', 'catalogo', 'preguntas_frecuentes', 'faqs'].includes(key)) {
         formatted += `\n\n=== ${key.toUpperCase()} ===\n`;
@@ -550,7 +536,6 @@ REGLAS:
 - Si no sabes algo, ofrece contactar al equipo`;
   }
 
-  // Obtener estado de la sesión
   getSessionStatus(userId: string): { connected: boolean; phoneNumber: string | null; qrCode: string | null } {
     const session = this.sessions.get(userId);
     return {
@@ -560,32 +545,20 @@ REGLAS:
     };
   }
 
-  // Desconectar sesión
   async disconnectSession(userId: string): Promise<void> {
     const session = this.sessions.get(userId);
     if (session?.socket) {
       try {
         await session.socket.logout();
-      } catch (e) {
-        console.error('Error desconectando:', e);
-      }
-      session.socket = null;
-      session.connected = false;
-      session.ready = false;
+      } catch (e) {}
+      try {
+        session.socket.end(undefined);
+      } catch (e) {}
     }
+    
+    this.cleanSession(userId);
     this.sessions.delete(userId);
 
-    // Eliminar archivos de sesión
-    try {
-      const authPath = path.join(AUTH_DIR, userId);
-      if (fs.existsSync(authPath)) {
-        fs.rmSync(authPath, { recursive: true, force: true });
-      }
-    } catch (e) {
-      console.error('Error eliminando sesión:', e);
-    }
-
-    // Actualizar BD
     try {
       await prisma.user.update({
         where: { id: userId },
@@ -599,20 +572,17 @@ REGLAS:
     }
   }
 
-  // Enviar mensaje público
   async sendMessagePublic(userId: string, to: string, message: string): Promise<boolean> {
     const session = this.sessions.get(userId);
     if (!session?.socket || !session.connected) {
       return false;
     }
 
-    // Formatear número
     const jid = to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`;
     
     return this.sendMessage(session.socket, jid, message);
   }
 }
 
-// Singleton
 export const whatsappService = new WhatsAppService();
 export default whatsappService;

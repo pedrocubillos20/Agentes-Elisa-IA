@@ -21,70 +21,47 @@ const authenticate = async (req: Request, res: Response, next: Function) => {
   }
 };
 
-// Generar código QR para WhatsApp
 router.post('/generate-qr', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
+    console.log(`📱 Iniciando WhatsApp para ${userId}`);
     
-    console.log(`📱 Iniciando conexión WhatsApp para usuario ${userId}`);
-    
-    // Verificar si ya está conectado
     const status = whatsappService.getSessionStatus(userId);
     if (status.connected) {
-      return res.json({ 
-        connected: true, 
-        phoneNumber: status.phoneNumber,
-        message: 'Ya estás conectado a WhatsApp' 
-      });
+      return res.json({ connected: true, phoneNumber: status.phoneNumber });
     }
 
-    // Inicializar cliente y obtener QR
     const qrString = await whatsappService.initializeClient(userId);
     
     if (!qrString) {
-      // Si no hay QR, verificar estado nuevamente
       const newStatus = whatsappService.getSessionStatus(userId);
       if (newStatus.connected) {
-        return res.json({ 
-          connected: true, 
-          phoneNumber: newStatus.phoneNumber 
-        });
+        return res.json({ connected: true, phoneNumber: newStatus.phoneNumber });
       }
-      return res.status(500).json({ error: 'No se pudo generar el código QR. Intenta de nuevo.' });
+      return res.status(500).json({ error: 'No se pudo generar QR' });
     }
 
-    // El QR de Baileys ya viene en base64 (data:image/png;base64,...)
-    console.log(`✅ QR generado para usuario ${userId}`);
     res.json({ qrCode: qrString, connected: false });
-    
   } catch (error) {
-    console.error('Error generando QR:', error);
-    res.status(500).json({ error: 'Error al generar código QR. Intenta de nuevo.' });
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error al generar QR' });
   }
 });
 
-// Verificar estado de conexión WhatsApp
 router.get('/status', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    
-    // Verificar en el servicio de WhatsApp
     const status = whatsappService.getSessionStatus(userId);
     
     if (status.connected) {
-      return res.json({
-        connected: true,
-        phoneNumber: status.phoneNumber
-      });
+      return res.json({ connected: true, phoneNumber: status.phoneNumber });
     }
     
-    // Si no está en el servicio, verificar en base de datos
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { whatsappConnected: true, whatsappPhone: true }
     });
     
-    // Si la BD dice conectado pero el servicio no, sincronizar
     if (user?.whatsappConnected && !status.connected) {
       await prisma.user.update({
         where: { id: userId },
@@ -92,81 +69,47 @@ router.get('/status', authenticate, async (req: Request, res: Response) => {
       });
     }
     
-    res.json({ 
-      connected: false,
-      qrCode: status.qrCode || null
-    });
-    
+    res.json({ connected: false, qrCode: status.qrCode });
   } catch (error) {
-    console.error('Error verificando estado:', error);
-    res.status(500).json({ error: 'Error al verificar estado' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-// Desconectar WhatsApp
 router.post('/disconnect', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
-    
     await whatsappService.disconnectSession(userId);
-    
-    console.log(`📴 WhatsApp desconectado para usuario ${userId}`);
-    res.json({ message: 'WhatsApp desconectado exitosamente' });
-    
+    res.json({ message: 'Desconectado' });
   } catch (error) {
-    console.error('Error desconectando:', error);
-    res.status(500).json({ error: 'Error al desconectar' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-// Enviar mensaje (para pruebas)
 router.post('/send', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
     const { to, message } = req.body;
-
-    if (!to || !message) {
-      return res.status(400).json({ error: 'Número de destino y mensaje requeridos' });
-    }
-
+    if (!to || !message) return res.status(400).json({ error: 'Faltan datos' });
+    
     const success = await whatsappService.sendMessagePublic(userId, to, message);
-    
     if (success) {
-      res.json({ message: 'Mensaje enviado' });
+      res.json({ message: 'Enviado' });
     } else {
-      res.status(400).json({ error: 'No se pudo enviar el mensaje. Verifica que WhatsApp esté conectado.' });
+      res.status(400).json({ error: 'No se pudo enviar' });
     }
-    
   } catch (error) {
-    console.error('Error enviando mensaje:', error);
-    res.status(500).json({ error: 'Error al enviar mensaje' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-// Webhook para recibir mensajes de WhatsApp (para integración con API oficial)
 router.post('/webhook', async (req: Request, res: Response) => {
-  try {
-    console.log('📨 Webhook WhatsApp:', req.body);
-    res.json({ received: true });
-  } catch (error) {
-    res.status(500).json({ error: 'Error procesando webhook' });
-  }
+  res.json({ received: true });
 });
 
-// Verificación de webhook (requerido por WhatsApp Business API)
 router.get('/webhook', (req: Request, res: Response) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'elisa-ia-verify';
-
-  if (mode === 'subscribe' && token === verifyToken) {
-    console.log('✅ Webhook verificado');
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
+  if (challenge) res.send(challenge);
+  else res.sendStatus(403);
 });
 
 export default router;

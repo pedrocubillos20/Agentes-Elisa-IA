@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
-// Middleware de autenticación
 const authenticate = async (req: Request, res: Response, next: Function) => {
   try {
     const authHeader = req.headers.authorization;
@@ -21,186 +20,107 @@ const authenticate = async (req: Request, res: Response, next: Function) => {
   }
 };
 
-// Listar negocios
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const businesses = await prisma.business.findMany({
-      where: { userId: (req as any).userId },
-      include: {
-        products: true,
-        faqs: { orderBy: { order: 'asc' } },
-        _count: { select: { assistants: true } }
-      }
-    });
-    res.json({ businesses });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener negocios' });
-  }
-});
-
-// Obtener un negocio
-router.get('/:id', authenticate, async (req: Request, res: Response) => {
-  try {
+    const userId = (req as any).userId;
+    
     const business = await prisma.business.findFirst({
-      where: { id: req.params.id, userId: (req as any).userId },
-      include: { products: true, faqs: { orderBy: { order: 'asc' } } }
+      where: { userId },
+      include: { products: true, faqs: true }
     });
-    if (!business) return res.status(404).json({ error: 'Negocio no encontrado' });
-    res.json({ business });
+    
+    res.json(business);
   } catch (error) {
-    res.status(500).json({ error: 'Error al obtener negocio' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-// Crear negocio
 router.post('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { name, industry, description, contactEmail, contactPhone, address, businessHours } = req.body;
-    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
-
-    const business = await prisma.business.create({
-      data: {
-        userId: (req as any).userId,
-        name,
-        industry,
-        description,
-        contactEmail,
-        contactPhone,
-        address,
-        businessHours,
-      }
-    });
-    res.status(201).json({ message: 'Negocio creado', business });
+    const userId = (req as any).userId;
+    const data = req.body;
+    
+    const existing = await prisma.business.findFirst({ where: { userId } });
+    
+    let business;
+    if (existing) {
+      business = await prisma.business.update({
+        where: { id: existing.id },
+        data
+      });
+    } else {
+      business = await prisma.business.create({
+        data: { ...data, userId }
+      });
+    }
+    
+    res.json(business);
   } catch (error) {
-    res.status(500).json({ error: 'Error al crear negocio' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-// Actualizar negocio
-router.put('/:id', authenticate, async (req: Request, res: Response) => {
+router.post('/products', authenticate, async (req: Request, res: Response) => {
   try {
-    const { name, industry, description, contactEmail, contactPhone, address, businessHours } = req.body;
-    const business = await prisma.business.updateMany({
-      where: { id: req.params.id, userId: (req as any).userId },
-      data: { name, industry, description, contactEmail, contactPhone, address, businessHours }
-    });
-    if (business.count === 0) return res.status(404).json({ error: 'Negocio no encontrado' });
-    res.json({ message: 'Negocio actualizado' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al actualizar' });
-  }
-});
-
-// Eliminar negocio
-router.delete('/:id', authenticate, async (req: Request, res: Response) => {
-  try {
-    await prisma.business.deleteMany({ where: { id: req.params.id, userId: (req as any).userId } });
-    res.json({ message: 'Negocio eliminado' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al eliminar' });
-  }
-});
-
-// ========== PRODUCTOS ==========
-
-router.get('/:id/products', authenticate, async (req: Request, res: Response) => {
-  try {
-    const products = await prisma.product.findMany({ where: { businessId: req.params.id } });
-    res.json({ products });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener productos' });
-  }
-});
-
-router.post('/:id/products', authenticate, async (req: Request, res: Response) => {
-  try {
-    const { name, price, description, features } = req.body;
+    const userId = (req as any).userId;
+    const { name, description, price, category } = req.body;
+    
+    let business = await prisma.business.findFirst({ where: { userId } });
+    if (!business) {
+      business = await prisma.business.create({
+        data: { userId, name: 'Mi Negocio' }
+      });
+    }
+    
     const product = await prisma.product.create({
-      data: { businessId: req.params.id, name, price, description, features }
+      data: { businessId: business.id, name, description, price, category }
     });
-    res.status(201).json({ product });
+    
+    res.json(product);
   } catch (error) {
-    res.status(500).json({ error: 'Error al crear producto' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-router.put('/:businessId/products/:productId', authenticate, async (req: Request, res: Response) => {
+router.delete('/products/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const { name, price, description, features, isActive } = req.body;
-    const product = await prisma.product.update({
-      where: { id: req.params.productId },
-      data: { name, price, description, features, isActive }
-    });
-    res.json({ product });
+    const { id } = req.params;
+    await prisma.product.delete({ where: { id } });
+    res.json({ message: 'Eliminado' });
   } catch (error) {
-    res.status(500).json({ error: 'Error al actualizar producto' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-router.delete('/:businessId/products/:productId', authenticate, async (req: Request, res: Response) => {
+router.post('/faqs', authenticate, async (req: Request, res: Response) => {
   try {
-    await prisma.product.delete({ where: { id: req.params.productId } });
-    res.json({ message: 'Producto eliminado' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al eliminar producto' });
-  }
-});
-
-// ========== FAQS ==========
-
-router.get('/:id/faqs', authenticate, async (req: Request, res: Response) => {
-  try {
-    const faqs = await prisma.fAQ.findMany({
-      where: { businessId: req.params.id },
-      orderBy: { order: 'asc' }
-    });
-    res.json({ faqs });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener FAQs' });
-  }
-});
-
-router.post('/:id/faqs', authenticate, async (req: Request, res: Response) => {
-  try {
-    const { question, answer, category } = req.body;
-    const lastFaq = await prisma.fAQ.findFirst({
-      where: { businessId: req.params.id },
-      orderBy: { order: 'desc' }
-    });
+    const userId = (req as any).userId;
+    const { question, answer } = req.body;
+    
+    let business = await prisma.business.findFirst({ where: { userId } });
+    if (!business) {
+      business = await prisma.business.create({
+        data: { userId, name: 'Mi Negocio' }
+      });
+    }
+    
     const faq = await prisma.fAQ.create({
-      data: {
-        businessId: req.params.id,
-        question,
-        answer,
-        category,
-        order: (lastFaq?.order || 0) + 1
-      }
+      data: { businessId: business.id, question, answer }
     });
-    res.status(201).json({ faq });
+    
+    res.json(faq);
   } catch (error) {
-    res.status(500).json({ error: 'Error al crear FAQ' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-router.put('/:businessId/faqs/:faqId', authenticate, async (req: Request, res: Response) => {
+router.delete('/faqs/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const { question, answer, category } = req.body;
-    const faq = await prisma.fAQ.update({
-      where: { id: req.params.faqId },
-      data: { question, answer, category }
-    });
-    res.json({ faq });
+    const { id } = req.params;
+    await prisma.fAQ.delete({ where: { id } });
+    res.json({ message: 'Eliminado' });
   } catch (error) {
-    res.status(500).json({ error: 'Error al actualizar FAQ' });
-  }
-});
-
-router.delete('/:businessId/faqs/:faqId', authenticate, async (req: Request, res: Response) => {
-  try {
-    await prisma.fAQ.delete({ where: { id: req.params.faqId } });
-    res.json({ message: 'FAQ eliminada' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al eliminar FAQ' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 

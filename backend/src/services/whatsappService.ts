@@ -188,7 +188,6 @@ class WhatsAppService extends EventEmitter {
           console.log(`📊 Estado de WhatsApp: ${state}`);
         } catch (stateError: any) {
           console.log(`⚠️ No se pudo obtener estado: ${stateError?.message}`);
-          // Continuar de todas formas, el envío podría funcionar
         }
         
         if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNLAUNCHED') {
@@ -200,9 +199,36 @@ class WhatsAppService extends EventEmitter {
           return false;
         }
 
-        // Formatear el número correctamente
-        const chatId = to.includes('@c.us') ? to : `${to.replace(/\D/g, '')}@c.us`;
-        console.log(`📱 Enviando a chatId: ${chatId}`);
+        // Extraer solo el número (sin @c.us o @lid)
+        const phoneNumber = to.replace(/@c\.us$/, '').replace(/@lid$/, '').replace(/@s\.whatsapp\.net$/, '').replace(/\D/g, '');
+        console.log(`📱 Número extraído: ${phoneNumber}`);
+        
+        // Intentar obtener el ID correcto del número
+        let chatId = to; // Usar el original como fallback
+        
+        try {
+          // Si el mensaje original venía con @lid o @c.us, usarlo directamente
+          if (to.includes('@')) {
+            chatId = to;
+            console.log(`📱 Usando ID original: ${chatId}`);
+          } else {
+            // Intentar obtener el ID registrado del número
+            const numberId = await session.client.getNumberId(phoneNumber);
+            if (numberId) {
+              chatId = numberId._serialized;
+              console.log(`📱 ID obtenido de getNumberId: ${chatId}`);
+            } else {
+              chatId = `${phoneNumber}@c.us`;
+              console.log(`📱 Usando formato @c.us: ${chatId}`);
+            }
+          }
+        } catch (idError: any) {
+          console.log(`⚠️ Error obteniendo ID: ${idError?.message}, usando original`);
+          // Si falla, intentar con el formato original
+          chatId = to.includes('@') ? to : `${phoneNumber}@c.us`;
+        }
+
+        console.log(`📱 Enviando a chatId final: ${chatId}`);
         
         // Enviar mensaje con timeout
         const sendPromise = session.client.sendMessage(chatId, text);
@@ -217,6 +243,29 @@ class WhatsAppService extends EventEmitter {
       } catch (error: any) {
         console.error(`❌ Error en intento ${attempt}:`, error?.message || error);
         
+        // Si es un error de LID, intentar con formato diferente
+        if (error?.message?.includes('No LID for user') || error?.message?.includes('LID')) {
+          console.log('⚠️ Error de LID detectado - intentando formato alternativo');
+          
+          // Extraer número y probar con @s.whatsapp.net
+          const phoneNumber = to.replace(/@.*$/, '').replace(/\D/g, '');
+          const altFormats = [
+            `${phoneNumber}@s.whatsapp.net`,
+            `${phoneNumber}@c.us`,
+          ];
+          
+          for (const altChatId of altFormats) {
+            try {
+              console.log(`📱 Probando formato alternativo: ${altChatId}`);
+              await session.client.sendMessage(altChatId, text);
+              console.log(`✅ Mensaje enviado con formato alternativo: ${altChatId}`);
+              return true;
+            } catch (altError: any) {
+              console.log(`❌ Formato ${altChatId} falló: ${altError?.message}`);
+            }
+          }
+        }
+        
         // Si es un error de protocolo, puede que necesitemos reconectar
         if (error?.message?.includes('Protocol error') || error?.message?.includes('Target closed')) {
           console.log('⚠️ Error de protocolo detectado - la sesión puede haber expirado');
@@ -225,7 +274,7 @@ class WhatsAppService extends EventEmitter {
         }
         
         if (attempt < retries) {
-          const waitTime = attempt * 2000; // Espera incremental
+          const waitTime = attempt * 2000;
           console.log(`⏳ Esperando ${waitTime/1000} segundos antes de reintentar...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
@@ -287,19 +336,29 @@ class WhatsAppService extends EventEmitter {
       // Verificar que el asistente tenga contexto
       if (!assistant.contextJson) {
         console.log('❌ El asistente no tiene contexto configurado');
-        await this.sendMessageSafe(userId, message.from, '⚠️ El asistente aún no está configurado. Por favor contacta al administrador.', 1);
+        try {
+          const chat = await message.getChat();
+          await chat.sendMessage('⚠️ El asistente aún no está configurado. Por favor contacta al administrador.');
+        } catch (e) {
+          console.error('Error enviando mensaje de config:', e);
+        }
         return;
       }
 
       // Verificar que el usuario tenga API Key
       if (!user.openaiApiKey) {
         console.log('❌ Usuario sin API Key de OpenAI');
-        await this.sendMessageSafe(userId, message.from, '⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.', 1);
+        try {
+          const chat = await message.getChat();
+          await chat.sendMessage('⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.');
+        } catch (e) {
+          console.error('Error enviando mensaje de API:', e);
+        }
         return;
       }
 
-      // Obtener o crear conversación
-      const clientPhone = message.from.replace('@c.us', '');
+      // Obtener o crear conversación - limpiar cualquier sufijo (@c.us, @lid, @s.whatsapp.net)
+      const clientPhone = message.from.replace(/@.*$/, '');
       let conversation = await prisma.conversation.findFirst({
         where: {
           assistantId: assistant.id,
@@ -356,9 +415,30 @@ class WhatsAppService extends EventEmitter {
         },
       });
 
-      // Enviar respuesta usando el método seguro con reintentos
+      // Enviar respuesta usando getChat() para obtener el chat correcto
       console.log('📤 Enviando respuesta...');
-      const sent = await this.sendMessageSafe(userId, message.from, reply);
+      
+      let sent = false;
+      
+      // Método 1: Usar getChat() del mensaje (más confiable)
+      try {
+        console.log('📱 Método 1: Usando message.getChat()...');
+        const chat = await message.getChat();
+        console.log(`📱 Chat obtenido: ${chat.id._serialized}`);
+        await chat.sendMessage(reply);
+        sent = true;
+        console.log(`✅ Respuesta enviada usando getChat()`);
+      } catch (chatError: any) {
+        console.error(`❌ Error con getChat(): ${chatError?.message}`);
+        
+        // Método 2: Intentar con sendMessageSafe como fallback
+        try {
+          console.log('📱 Método 2: Usando sendMessageSafe...');
+          sent = await this.sendMessageSafe(userId, message.from, reply);
+        } catch (sendError: any) {
+          console.error(`❌ Error con sendMessageSafe: ${sendError?.message}`);
+        }
+      }
       
       if (sent) {
         console.log(`✅ Respuesta enviada a ${message.from}`);
@@ -372,7 +452,8 @@ class WhatsAppService extends EventEmitter {
       
       // Intentar enviar mensaje de error al usuario
       try {
-        await this.sendMessageSafe(userId, message.from, 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.', 1);
+        const chat = await message.getChat();
+        await chat.sendMessage('Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.');
       } catch (replyError) {
         console.error('Error enviando mensaje de error:', replyError);
       }

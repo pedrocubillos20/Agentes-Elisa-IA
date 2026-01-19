@@ -163,6 +163,79 @@ class WhatsAppService extends EventEmitter {
     });
   }
 
+  // Enviar mensaje de forma robusta con reintentos
+  private async sendMessageSafe(userId: string, to: string, text: string, retries = 3): Promise<boolean> {
+    const session = this.sessions.get(userId);
+    
+    if (!session) {
+      console.log('❌ No hay sesión para el usuario');
+      return false;
+    }
+    
+    if (!session.connected || !session.ready) {
+      console.log(`❌ Sesión no lista - connected: ${session.connected}, ready: ${session.ready}`);
+      return false;
+    }
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        console.log(`📤 Intento ${attempt}/${retries} de enviar mensaje a ${to}`);
+        
+        // Verificar que el cliente esté listo
+        let state = 'UNKNOWN';
+        try {
+          state = await session.client.getState() || 'NULL';
+          console.log(`📊 Estado de WhatsApp: ${state}`);
+        } catch (stateError: any) {
+          console.log(`⚠️ No se pudo obtener estado: ${stateError?.message}`);
+          // Continuar de todas formas, el envío podría funcionar
+        }
+        
+        if (state === 'CONFLICT' || state === 'UNPAIRED' || state === 'UNLAUNCHED') {
+          console.log(`⚠️ Estado inválido de WhatsApp: ${state}`);
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            continue;
+          }
+          return false;
+        }
+
+        // Formatear el número correctamente
+        const chatId = to.includes('@c.us') ? to : `${to.replace(/\D/g, '')}@c.us`;
+        console.log(`📱 Enviando a chatId: ${chatId}`);
+        
+        // Enviar mensaje con timeout
+        const sendPromise = session.client.sendMessage(chatId, text);
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout enviando mensaje')), 30000)
+        );
+        
+        await Promise.race([sendPromise, timeoutPromise]);
+        console.log(`✅ Mensaje enviado exitosamente a ${to}`);
+        return true;
+        
+      } catch (error: any) {
+        console.error(`❌ Error en intento ${attempt}:`, error?.message || error);
+        
+        // Si es un error de protocolo, puede que necesitemos reconectar
+        if (error?.message?.includes('Protocol error') || error?.message?.includes('Target closed')) {
+          console.log('⚠️ Error de protocolo detectado - la sesión puede haber expirado');
+          session.connected = false;
+          session.ready = false;
+        }
+        
+        if (attempt < retries) {
+          const waitTime = attempt * 2000; // Espera incremental
+          console.log(`⏳ Esperando ${waitTime/1000} segundos antes de reintentar...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    console.error(`❌ Falló después de ${retries} intentos`);
+    return false;
+  }
+
   // Manejar mensajes entrantes
   private async handleIncomingMessage(userId: string, message: Message) {
     try {
@@ -214,22 +287,14 @@ class WhatsAppService extends EventEmitter {
       // Verificar que el asistente tenga contexto
       if (!assistant.contextJson) {
         console.log('❌ El asistente no tiene contexto configurado');
-        try {
-          await session.client.sendMessage(message.from, '⚠️ El asistente aún no está configurado. Por favor contacta al administrador.');
-        } catch (e) {
-          console.error('Error enviando mensaje de error:', e);
-        }
+        await this.sendMessageSafe(userId, message.from, '⚠️ El asistente aún no está configurado. Por favor contacta al administrador.', 1);
         return;
       }
 
       // Verificar que el usuario tenga API Key
       if (!user.openaiApiKey) {
         console.log('❌ Usuario sin API Key de OpenAI');
-        try {
-          await session.client.sendMessage(message.from, '⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.');
-        } catch (e) {
-          console.error('Error enviando mensaje de error:', e);
-        }
+        await this.sendMessageSafe(userId, message.from, '⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.', 1);
         return;
       }
 
@@ -291,10 +356,15 @@ class WhatsAppService extends EventEmitter {
         },
       });
 
-      // Enviar respuesta usando el cliente directamente
+      // Enviar respuesta usando el método seguro con reintentos
       console.log('📤 Enviando respuesta...');
-      await session.client.sendMessage(message.from, reply);
-      console.log(`✅ Respuesta enviada a ${message.from}`);
+      const sent = await this.sendMessageSafe(userId, message.from, reply);
+      
+      if (sent) {
+        console.log(`✅ Respuesta enviada a ${message.from}`);
+      } else {
+        console.log(`❌ No se pudo enviar respuesta a ${message.from}`);
+      }
 
     } catch (error: any) {
       console.error('❌ Error procesando mensaje:', error?.message || error);
@@ -302,10 +372,7 @@ class WhatsAppService extends EventEmitter {
       
       // Intentar enviar mensaje de error al usuario
       try {
-        const session = this.sessions.get(userId);
-        if (session && session.connected) {
-          await session.client.sendMessage(message.from, 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.');
-        }
+        await this.sendMessageSafe(userId, message.from, 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.', 1);
       } catch (replyError) {
         console.error('Error enviando mensaje de error:', replyError);
       }
@@ -320,6 +387,7 @@ class WhatsAppService extends EventEmitter {
     userMessage: string
   ): Promise<string> {
     try {
+      console.log('🔐 Desencriptando API Key...');
       const userApiKey = decryptApiKey(user.openaiApiKey);
       
       if (!userApiKey) {
@@ -327,7 +395,7 @@ class WhatsAppService extends EventEmitter {
         return 'Lo siento, hay un problema con la configuración. Por favor contacta al administrador.';
       }
 
-      console.log('🔑 API Key desencriptada correctamente');
+      console.log(`🔑 API Key desencriptada (últimos 4 chars): ...${userApiKey.slice(-4)}`);
       
       const openai = new OpenAI({ apiKey: userApiKey });
 
@@ -335,18 +403,17 @@ class WhatsAppService extends EventEmitter {
       let businessContext = '';
       if (assistant.contextJson) {
         try {
+          console.log('📋 Parseando contexto JSON...');
           const contextData = JSON.parse(assistant.contextJson);
+          console.log('📋 Contexto parseado, keys:', Object.keys(contextData));
           businessContext = this.formatContextForAI(contextData);
-          console.log('📋 Contexto del negocio cargado');
-        } catch (parseError) {
-          console.error('Error parseando contextJson:', parseError);
+          console.log(`📋 Contexto formateado (${businessContext.length} chars)`);
+        } catch (parseError: any) {
+          console.error('Error parseando contextJson:', parseError?.message);
           businessContext = assistant.contextJson; // Usar como texto plano si no es JSON válido
         }
-      }
-
-      // Agregar contexto del negocio desde la relación business si existe
-      if (assistant.business) {
-        businessContext += this.buildBusinessContext(assistant.business);
+      } else {
+        console.log('⚠️ No hay contextJson en el asistente');
       }
 
       // Construir historial de mensajes
@@ -354,9 +421,11 @@ class WhatsAppService extends EventEmitter {
         role: m.role.toLowerCase() as 'user' | 'assistant',
         content: m.content,
       }));
+      console.log(`📝 Historial: ${messageHistory.length} mensajes`);
 
       // System prompt
       const systemPrompt = this.buildSystemPrompt(assistant, businessContext);
+      console.log(`📝 System prompt generado (${systemPrompt.length} chars)`);
 
       console.log('🚀 Llamando a OpenAI...');
       
@@ -378,21 +447,25 @@ class WhatsAppService extends EventEmitter {
         return 'Lo siento, no pude procesar tu mensaje. Por favor intenta de nuevo.';
       }
 
-      console.log('✅ Respuesta de OpenAI recibida');
+      console.log(`✅ Respuesta de OpenAI recibida (${response.length} chars)`);
       return response;
       
     } catch (error: any) {
       console.error('❌ Error OpenAI:', error?.message || error);
+      console.error('Error completo:', JSON.stringify(error, null, 2));
       
       // Manejar errores específicos de OpenAI
-      if (error?.status === 401) {
-        return 'Error de configuración: La API Key de OpenAI no es válida.';
+      if (error?.status === 401 || error?.code === 'invalid_api_key') {
+        return 'Error de configuración: La API Key de OpenAI no es válida. Por favor verifica tu configuración.';
       }
       if (error?.status === 429) {
         return 'El servicio está temporalmente saturado. Por favor intenta en unos minutos.';
       }
-      if (error?.status === 500) {
+      if (error?.status === 500 || error?.status === 503) {
         return 'Hay un problema temporal con el servicio de IA. Por favor intenta más tarde.';
+      }
+      if (error?.code === 'insufficient_quota') {
+        return 'Tu cuenta de OpenAI no tiene créditos suficientes. Por favor recarga tu cuenta.';
       }
       
       return 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.';
@@ -401,55 +474,124 @@ class WhatsAppService extends EventEmitter {
 
   // Formatear el contexto JSON para que la IA lo entienda mejor
   private formatContextForAI(contextData: any): string {
-    let formatted = '\n=== INFORMACIÓN DEL NEGOCIO ===\n';
+    let formatted = '\n=== INFORMACIÓN DEL NEGOCIO/BOT ===\n';
     
-    if (contextData.negocio) {
-      const n = contextData.negocio;
-      formatted += `\nNombre: ${n.nombre || 'No especificado'}`;
-      if (n.descripcion) formatted += `\nDescripción: ${n.descripcion}`;
-      if (n.horario) formatted += `\nHorario: ${n.horario}`;
-      if (n.direccion) formatted += `\nDirección: ${n.direccion}`;
-      if (n.telefono) formatted += `\nTeléfono: ${n.telefono}`;
+    // Soportar estructura "negocio" o "bot"
+    const businessInfo = contextData.negocio || contextData.bot || contextData.business || contextData.empresa;
+    
+    if (businessInfo) {
+      const n = businessInfo;
+      formatted += `\nNombre: ${n.nombre || n.name || 'No especificado'}`;
+      if (n.empresa || n.company) formatted += `\nEmpresa: ${n.empresa || n.company}`;
+      if (n.descripcion || n.description) formatted += `\nDescripción: ${n.descripcion || n.description}`;
+      if (n.horario || n.hours) formatted += `\nHorario: ${n.horario || n.hours}`;
+      if (n.direccion || n.address) formatted += `\nDirección: ${n.direccion || n.address}`;
+      if (n.telefono || n.phone) formatted += `\nTeléfono: ${n.telefono || n.phone}`;
       if (n.whatsapp) formatted += `\nWhatsApp: ${n.whatsapp}`;
       if (n.email) formatted += `\nEmail: ${n.email}`;
+      if (n.objetivo || n.goal) formatted += `\nObjetivo: ${n.objetivo || n.goal}`;
+      
+      // Personalidad del bot
+      if (n.personalidad || n.personality) {
+        const p = n.personalidad || n.personality;
+        formatted += '\n\n=== PERSONALIDAD ===';
+        if (p.tipo || p.type) formatted += `\nTipo: ${p.tipo || p.type}`;
+        if (p.tono || p.tone) formatted += `\nTono: ${p.tono || p.tone}`;
+        if (p.orientacion || p.orientation) formatted += `\nOrientación: ${p.orientacion || p.orientation}`;
+        if (p.formato_respuestas) formatted += `\nFormato: ${p.formato_respuestas}`;
+        if (p.usa_emojis !== undefined) formatted += `\nUsa emojis: ${p.usa_emojis ? 'Sí' : 'No'}`;
+        if (p.ofrece_opciones !== undefined) formatted += `\nOfrece opciones: ${p.ofrece_opciones ? 'Sí' : 'No'}`;
+      }
     }
     
-    if (contextData.productos && contextData.productos.length > 0) {
-      formatted += '\n\n=== PRODUCTOS/SERVICIOS ===\n';
-      contextData.productos.forEach((p: any, i: number) => {
-        formatted += `\n${i + 1}. ${p.nombre}`;
-        if (p.precio) formatted += ` - Precio: $${p.precio.toLocaleString('es-CO')}`;
-        if (p.descripcion) formatted += `\n   ${p.descripcion}`;
+    // Productos
+    const products = contextData.productos || contextData.products || contextData.catalogo || contextData.catalog;
+    if (products && Array.isArray(products) && products.length > 0) {
+      formatted += '\n\n=== PRODUCTOS/CATÁLOGO ===\n';
+      products.forEach((p: any, i: number) => {
+        const name = p.nombre || p.name || p.producto || 'Producto';
+        const price = p.precio || p.price;
+        const desc = p.descripcion || p.description;
+        const sizes = p.tallas || p.sizes;
+        const colors = p.colores || p.colors;
+        
+        formatted += `\n${i + 1}. ${name}`;
+        if (price) formatted += ` - Precio: $${typeof price === 'number' ? price.toLocaleString('es-CO') : price}`;
+        if (desc) formatted += `\n   ${desc}`;
+        if (sizes) formatted += `\n   Tallas: ${Array.isArray(sizes) ? sizes.join(', ') : sizes}`;
+        if (colors) formatted += `\n   Colores: ${Array.isArray(colors) ? colors.join(', ') : colors}`;
       });
     }
     
-    if (contextData.servicios && contextData.servicios.length > 0) {
+    // Servicios
+    const services = contextData.servicios || contextData.services;
+    if (services && Array.isArray(services) && services.length > 0) {
       formatted += '\n\n=== SERVICIOS ===\n';
-      contextData.servicios.forEach((s: any) => {
-        formatted += `\n- ${typeof s === 'string' ? s : s.nombre || s}`;
+      services.forEach((s: any) => {
+        formatted += `\n- ${typeof s === 'string' ? s : s.nombre || s.name || s}`;
       });
     }
     
-    if (contextData.preguntas_frecuentes && contextData.preguntas_frecuentes.length > 0) {
+    // FAQs / Preguntas frecuentes
+    const faqs = contextData.preguntas_frecuentes || contextData.faqs || contextData.faq;
+    if (faqs && Array.isArray(faqs) && faqs.length > 0) {
       formatted += '\n\n=== PREGUNTAS FRECUENTES ===\n';
-      contextData.preguntas_frecuentes.forEach((faq: any) => {
-        formatted += `\nP: ${faq.pregunta}`;
-        formatted += `\nR: ${faq.respuesta}\n`;
+      faqs.forEach((faq: any) => {
+        const question = faq.pregunta || faq.question || faq.q;
+        const answer = faq.respuesta || faq.answer || faq.a;
+        if (question && answer) {
+          formatted += `\nP: ${question}`;
+          formatted += `\nR: ${answer}\n`;
+        }
       });
     }
     
-    if (contextData.instrucciones) {
-      formatted += `\n\n=== INSTRUCCIONES ESPECIALES ===\n${contextData.instrucciones}`;
+    // Instrucciones
+    const instructions = contextData.instrucciones || contextData.instructions || contextData.reglas || contextData.rules;
+    if (instructions) {
+      formatted += `\n\n=== INSTRUCCIONES ESPECIALES ===\n`;
+      if (typeof instructions === 'string') {
+        formatted += instructions;
+      } else if (Array.isArray(instructions)) {
+        instructions.forEach((inst: any) => {
+          formatted += `\n- ${typeof inst === 'string' ? inst : JSON.stringify(inst)}`;
+        });
+      }
     }
 
-    // Agregar cualquier otro campo que exista
-    const knownFields = ['negocio', 'productos', 'servicios', 'preguntas_frecuentes', 'instrucciones'];
+    // Proceso de venta / Flujo
+    const salesProcess = contextData.proceso_venta || contextData.flujo || contextData.sales_process || contextData.flow;
+    if (salesProcess) {
+      formatted += '\n\n=== PROCESO DE VENTA/FLUJO ===\n';
+      if (typeof salesProcess === 'object') {
+        Object.keys(salesProcess).forEach(step => {
+          formatted += `\n${step}: ${JSON.stringify(salesProcess[step])}`;
+        });
+      } else {
+        formatted += salesProcess;
+      }
+    }
+
+    // Agregar cualquier otro campo que exista al final
+    const knownFields = ['negocio', 'bot', 'business', 'empresa', 'productos', 'products', 'catalogo', 'catalog', 
+                         'servicios', 'services', 'preguntas_frecuentes', 'faqs', 'faq', 'instrucciones', 
+                         'instructions', 'reglas', 'rules', 'proceso_venta', 'flujo', 'sales_process', 'flow'];
+    
     Object.keys(contextData).forEach(key => {
       if (!knownFields.includes(key)) {
-        formatted += `\n\n=== ${key.toUpperCase()} ===\n`;
-        formatted += typeof contextData[key] === 'string' 
-          ? contextData[key] 
-          : JSON.stringify(contextData[key], null, 2);
+        formatted += `\n\n=== ${key.toUpperCase().replace(/_/g, ' ')} ===\n`;
+        const value = contextData[key];
+        if (typeof value === 'string') {
+          formatted += value;
+        } else if (Array.isArray(value)) {
+          value.forEach((item: any) => {
+            formatted += `\n- ${typeof item === 'string' ? item : JSON.stringify(item)}`;
+          });
+        } else if (typeof value === 'object') {
+          formatted += JSON.stringify(value, null, 2);
+        } else {
+          formatted += String(value);
+        }
       }
     });
     

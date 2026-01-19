@@ -8,8 +8,13 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'clave-encriptacion-32-cara
 
 // Desencriptar API Key
 const decryptApiKey = (encrypted: string): string => {
-  const bytes = CryptoJS.AES.decrypt(encrypted, ENCRYPTION_KEY);
-  return bytes.toString(CryptoJS.enc.Utf8);
+  try {
+    const bytes = CryptoJS.AES.decrypt(encrypted, ENCRYPTION_KEY);
+    return bytes.toString(CryptoJS.enc.Utf8);
+  } catch (error) {
+    console.error('Error desencriptando API Key:', error);
+    return '';
+  }
 };
 
 interface WhatsAppSession {
@@ -121,6 +126,7 @@ class WhatsAppService extends EventEmitter {
 
     // Evento: Mensaje recibido
     client.on('message', async (message: Message) => {
+      console.log(`📨 Mensaje recibido de ${message.from}: ${message.body?.substring(0, 50)}...`);
       await this.handleIncomingMessage(userId, message);
     });
 
@@ -162,10 +168,24 @@ class WhatsAppService extends EventEmitter {
     try {
       // Ignorar mensajes propios y de grupos
       if (message.fromMe || message.from.includes('@g.us')) {
+        console.log('Mensaje ignorado (propio o de grupo)');
         return;
       }
 
-      console.log(`📨 Mensaje recibido de ${message.from}: ${message.body}`);
+      // Ignorar mensajes vacíos
+      if (!message.body || message.body.trim() === '') {
+        console.log('Mensaje ignorado (vacío)');
+        return;
+      }
+
+      console.log(`📨 Procesando mensaje de ${message.from}: ${message.body}`);
+
+      // Obtener la sesión para enviar mensajes
+      const session = this.sessions.get(userId);
+      if (!session || !session.connected || !session.ready) {
+        console.log('❌ Sesión no disponible para responder');
+        return;
+      }
 
       // Obtener usuario y su asistente activo
       const user = await prisma.user.findUnique({
@@ -173,29 +193,43 @@ class WhatsAppService extends EventEmitter {
         include: {
           assistants: {
             where: { isActive: true },
-            include: {
-              business: {
-                include: {
-                  products: { where: { isActive: true } },
-                  faqs: { orderBy: { order: 'asc' } },
-                },
-              },
-            },
             take: 1,
           },
         },
       });
 
-      if (!user || user.assistants.length === 0) {
-        console.log('No hay asistente activo para responder');
+      if (!user) {
+        console.log('❌ Usuario no encontrado');
+        return;
+      }
+
+      if (user.assistants.length === 0) {
+        console.log('❌ No hay asistente activo para responder');
         return;
       }
 
       const assistant = user.assistants[0];
+      console.log(`🤖 Usando asistente: ${assistant.name}`);
+
+      // Verificar que el asistente tenga contexto
+      if (!assistant.contextJson) {
+        console.log('❌ El asistente no tiene contexto configurado');
+        try {
+          await session.client.sendMessage(message.from, '⚠️ El asistente aún no está configurado. Por favor contacta al administrador.');
+        } catch (e) {
+          console.error('Error enviando mensaje de error:', e);
+        }
+        return;
+      }
 
       // Verificar que el usuario tenga API Key
       if (!user.openaiApiKey) {
-        await message.reply('⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.');
+        console.log('❌ Usuario sin API Key de OpenAI');
+        try {
+          await session.client.sendMessage(message.from, '⚠️ El chatbot no está configurado correctamente. Por favor contacta al administrador.');
+        } catch (e) {
+          console.error('Error enviando mensaje de error:', e);
+        }
         return;
       }
 
@@ -211,6 +245,7 @@ class WhatsAppService extends EventEmitter {
       });
 
       if (!conversation) {
+        console.log('📝 Creando nueva conversación');
         conversation = await prisma.conversation.create({
           data: {
             assistantId: assistant.id,
@@ -231,8 +266,12 @@ class WhatsAppService extends EventEmitter {
         },
       });
 
+      console.log('🧠 Generando respuesta con IA...');
+      
       // Generar respuesta con OpenAI
       const reply = await this.generateAIResponse(user, assistant, conversation, message.body);
+
+      console.log(`💬 Respuesta generada: ${reply.substring(0, 100)}...`);
 
       // Guardar respuesta del asistente
       await prisma.message.create({
@@ -252,12 +291,24 @@ class WhatsAppService extends EventEmitter {
         },
       });
 
-      // Enviar respuesta
-      await message.reply(reply);
-      console.log(`📤 Respuesta enviada a ${message.from}`);
+      // Enviar respuesta usando el cliente directamente
+      console.log('📤 Enviando respuesta...');
+      await session.client.sendMessage(message.from, reply);
+      console.log(`✅ Respuesta enviada a ${message.from}`);
 
-    } catch (error) {
-      console.error('Error procesando mensaje:', error);
+    } catch (error: any) {
+      console.error('❌ Error procesando mensaje:', error?.message || error);
+      console.error('Stack:', error?.stack);
+      
+      // Intentar enviar mensaje de error al usuario
+      try {
+        const session = this.sessions.get(userId);
+        if (session && session.connected) {
+          await session.client.sendMessage(message.from, 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.');
+        }
+      } catch (replyError) {
+        console.error('Error enviando mensaje de error:', replyError);
+      }
     }
   }
 
@@ -270,69 +321,161 @@ class WhatsAppService extends EventEmitter {
   ): Promise<string> {
     try {
       const userApiKey = decryptApiKey(user.openaiApiKey);
+      
+      if (!userApiKey) {
+        console.error('❌ No se pudo desencriptar la API Key');
+        return 'Lo siento, hay un problema con la configuración. Por favor contacta al administrador.';
+      }
+
+      console.log('🔑 API Key desencriptada correctamente');
+      
       const openai = new OpenAI({ apiKey: userApiKey });
 
-      // Construir contexto del negocio
-      const businessContext = this.buildBusinessContext(assistant.business, assistant.contextJson);
+      // Construir contexto del negocio desde el JSON
+      let businessContext = '';
+      if (assistant.contextJson) {
+        try {
+          const contextData = JSON.parse(assistant.contextJson);
+          businessContext = this.formatContextForAI(contextData);
+          console.log('📋 Contexto del negocio cargado');
+        } catch (parseError) {
+          console.error('Error parseando contextJson:', parseError);
+          businessContext = assistant.contextJson; // Usar como texto plano si no es JSON válido
+        }
+      }
+
+      // Agregar contexto del negocio desde la relación business si existe
+      if (assistant.business) {
+        businessContext += this.buildBusinessContext(assistant.business);
+      }
 
       // Construir historial de mensajes
-      const messageHistory = conversation.messages.map((m: any) => ({
+      const messageHistory = (conversation.messages || []).map((m: any) => ({
         role: m.role.toLowerCase() as 'user' | 'assistant',
         content: m.content,
       }));
 
       // System prompt
-      const systemPrompt = assistant.systemPrompt || this.buildSystemPrompt(assistant, businessContext);
+      const systemPrompt = this.buildSystemPrompt(assistant, businessContext);
 
+      console.log('🚀 Llamando a OpenAI...');
+      
       const completion = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         messages: [
           { role: 'system', content: systemPrompt },
-          ...messageHistory,
+          ...messageHistory.slice(-10), // Últimos 10 mensajes para contexto
           { role: 'user', content: userMessage },
         ],
         max_tokens: 500,
         temperature: 0.7,
       });
 
-      return completion.choices[0]?.message?.content || 'Lo siento, no pude procesar tu mensaje.';
+      const response = completion.choices[0]?.message?.content;
+      
+      if (!response) {
+        console.error('❌ OpenAI no devolvió respuesta');
+        return 'Lo siento, no pude procesar tu mensaje. Por favor intenta de nuevo.';
+      }
+
+      console.log('✅ Respuesta de OpenAI recibida');
+      return response;
+      
     } catch (error: any) {
-      console.error('Error OpenAI:', error?.message);
+      console.error('❌ Error OpenAI:', error?.message || error);
+      
+      // Manejar errores específicos de OpenAI
+      if (error?.status === 401) {
+        return 'Error de configuración: La API Key de OpenAI no es válida.';
+      }
+      if (error?.status === 429) {
+        return 'El servicio está temporalmente saturado. Por favor intenta en unos minutos.';
+      }
+      if (error?.status === 500) {
+        return 'Hay un problema temporal con el servicio de IA. Por favor intenta más tarde.';
+      }
+      
       return 'Lo siento, hubo un error procesando tu mensaje. Por favor intenta de nuevo.';
     }
   }
 
-  private buildBusinessContext(business: any, contextJson?: string): string {
-    let ctx = '';
+  // Formatear el contexto JSON para que la IA lo entienda mejor
+  private formatContextForAI(contextData: any): string {
+    let formatted = '\n=== INFORMACIÓN DEL NEGOCIO ===\n';
     
-    if (contextJson) {
-      try {
-        const parsed = JSON.parse(contextJson);
-        ctx += '=== INFORMACIÓN DEL NEGOCIO ===\n';
-        ctx += JSON.stringify(parsed, null, 2);
-        ctx += '\n\n';
-      } catch {
-        // Ignorar error de JSON
-      }
+    if (contextData.negocio) {
+      const n = contextData.negocio;
+      formatted += `\nNombre: ${n.nombre || 'No especificado'}`;
+      if (n.descripcion) formatted += `\nDescripción: ${n.descripcion}`;
+      if (n.horario) formatted += `\nHorario: ${n.horario}`;
+      if (n.direccion) formatted += `\nDirección: ${n.direccion}`;
+      if (n.telefono) formatted += `\nTeléfono: ${n.telefono}`;
+      if (n.whatsapp) formatted += `\nWhatsApp: ${n.whatsapp}`;
+      if (n.email) formatted += `\nEmail: ${n.email}`;
     }
     
+    if (contextData.productos && contextData.productos.length > 0) {
+      formatted += '\n\n=== PRODUCTOS/SERVICIOS ===\n';
+      contextData.productos.forEach((p: any, i: number) => {
+        formatted += `\n${i + 1}. ${p.nombre}`;
+        if (p.precio) formatted += ` - Precio: $${p.precio.toLocaleString('es-CO')}`;
+        if (p.descripcion) formatted += `\n   ${p.descripcion}`;
+      });
+    }
+    
+    if (contextData.servicios && contextData.servicios.length > 0) {
+      formatted += '\n\n=== SERVICIOS ===\n';
+      contextData.servicios.forEach((s: any) => {
+        formatted += `\n- ${typeof s === 'string' ? s : s.nombre || s}`;
+      });
+    }
+    
+    if (contextData.preguntas_frecuentes && contextData.preguntas_frecuentes.length > 0) {
+      formatted += '\n\n=== PREGUNTAS FRECUENTES ===\n';
+      contextData.preguntas_frecuentes.forEach((faq: any) => {
+        formatted += `\nP: ${faq.pregunta}`;
+        formatted += `\nR: ${faq.respuesta}\n`;
+      });
+    }
+    
+    if (contextData.instrucciones) {
+      formatted += `\n\n=== INSTRUCCIONES ESPECIALES ===\n${contextData.instrucciones}`;
+    }
+
+    // Agregar cualquier otro campo que exista
+    const knownFields = ['negocio', 'productos', 'servicios', 'preguntas_frecuentes', 'instrucciones'];
+    Object.keys(contextData).forEach(key => {
+      if (!knownFields.includes(key)) {
+        formatted += `\n\n=== ${key.toUpperCase()} ===\n`;
+        formatted += typeof contextData[key] === 'string' 
+          ? contextData[key] 
+          : JSON.stringify(contextData[key], null, 2);
+      }
+    });
+    
+    return formatted;
+  }
+
+  private buildBusinessContext(business: any): string {
+    let ctx = '';
+    
     if (business) {
-      ctx += `Negocio: ${business.name}\n`;
-      if (business.industry) ctx += `Industria: ${business.industry}\n`;
-      if (business.description) ctx += `Descripción: ${business.description}\n`;
-      if (business.contactEmail) ctx += `Email: ${business.contactEmail}\n`;
-      if (business.contactPhone) ctx += `Teléfono: ${business.contactPhone}\n`;
-      if (business.businessHours) ctx += `Horario: ${business.businessHours}\n`;
+      if (business.name) ctx += `\nNegocio: ${business.name}`;
+      if (business.industry) ctx += `\nIndustria: ${business.industry}`;
+      if (business.description) ctx += `\nDescripción: ${business.description}`;
+      if (business.contactEmail) ctx += `\nEmail: ${business.contactEmail}`;
+      if (business.contactPhone) ctx += `\nTeléfono: ${business.contactPhone}`;
+      if (business.businessHours) ctx += `\nHorario: ${business.businessHours}`;
 
       if (business.products?.length > 0) {
-        ctx += '\nProductos:\n';
+        ctx += '\n\nProductos adicionales:\n';
         business.products.forEach((p: any) => {
           ctx += `- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.description ? `: ${p.description}` : ''}\n`;
         });
       }
 
       if (business.faqs?.length > 0) {
-        ctx += '\nPreguntas Frecuentes:\n';
+        ctx += '\nFAQs adicionales:\n';
         business.faqs.forEach((f: any) => {
           ctx += `P: ${f.question}\nR: ${f.answer}\n\n`;
         });
@@ -345,23 +488,24 @@ class WhatsAppService extends EventEmitter {
   private buildSystemPrompt(assistant: any, businessContext: string): string {
     const tones: Record<string, string> = {
       'PROFESSIONAL': 'Mantén un tono profesional y formal.',
-      'FRIENDLY': 'Sé amigable y cercano.',
-      'CASUAL': 'Sé casual y relajado.',
+      'FRIENDLY': 'Sé amigable, cercano y usa un tono cálido.',
+      'CASUAL': 'Sé casual, relajado y usa un lenguaje informal.',
     };
 
     return `Eres ${assistant.name}, un asistente virtual de atención al cliente por WhatsApp.
 ${tones[assistant.tone] || tones['PROFESSIONAL']}
 
-INFORMACIÓN DEL NEGOCIO:
 ${businessContext}
 
-INSTRUCCIONES:
+REGLAS IMPORTANTES:
 - Responde siempre en español
-- Sé conciso pero informativo (mensajes cortos para WhatsApp)
-- Si no conoces la respuesta, ofrece contactar al equipo
-- No inventes información
-- Usa emojis ocasionalmente para ser más amigable
-- Mantén respuestas breves (máximo 2-3 párrafos)`;
+- Sé conciso pero informativo (los mensajes de WhatsApp deben ser cortos)
+- Si no conoces la respuesta exacta, ofrece alternativas o contactar al equipo
+- No inventes información que no esté en el contexto
+- Usa emojis ocasionalmente para ser más amigable 😊
+- Mantén respuestas breves (máximo 2-3 párrafos cortos)
+- Si te preguntan algo fuera del contexto del negocio, indica amablemente que solo puedes ayudar con temas relacionados al negocio
+- Siempre saluda de forma amigable si es el primer mensaje`;
   }
 
   // Inicializar cliente y generar QR

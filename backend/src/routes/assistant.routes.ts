@@ -1,373 +1,343 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import jwt from 'jsonwebtoken';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
 
-// Límites por plan
+// Límites por plan ACTUALIZADOS
 const PLAN_LIMITS: Record<string, number> = {
-  FREE: 1,
-  EMPRENDEDORES: 1,
-  NEGOCIOS: 3,
-  BUSINESS: 5,
-  MARCA_BLANCA: 999,
+  FREE: 1,           // 1 chatbot por 5 días de prueba
+  EMPRENDEDORES: 1,  // 1 chatbot
+  NEGOCIOS: 3,       // 3 chatbots
+  BUSINESS: 5,       // 5 chatbots
+  MARCA_BLANCA: 999, // Ilimitados
 };
 
-// Obtener todos los asistentes del usuario
-router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
+// Planes que pueden editar contexto directamente (JSON)
+const PLANS_WITH_CONTEXT_EDIT = ['FREE', 'BUSINESS', 'MARCA_BLANCA'];
+
+// Planes que pueden subir PDF (nosotros configuramos)
+const PLANS_WITH_PDF_UPLOAD = ['FREE', 'EMPRENDEDORES', 'NEGOCIOS'];
+
+const authenticate = async (req: Request, res: Response, next: Function) => {
   try {
-    const userId = req.userId;
-    
-    const assistants = await prisma.assistant.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: {
-          select: { conversations: true }
-        }
-      }
-    });
-    
-    res.json(assistants);
-  } catch (error: any) {
-    console.error('Error obteniendo asistentes:', error);
-    res.status(500).json({ error: 'Error al obtener asistentes' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token no proporcionado' });
+    }
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+    (req as any).userId = decoded.userId;
+    (req as any).user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Token inválido' });
   }
-});
+};
+
+// Verificar si el trial ha expirado
+const checkTrialExpired = (user: any): boolean => {
+  if (user.plan === 'FREE' && user.trialEndsAt) {
+    return new Date(user.trialEndsAt) < new Date();
+  }
+  return false;
+};
 
 // Obtener información del plan
-router.get('/plan-info', authenticate, async (req: AuthRequest, res: Response) => {
+router.get('/plan-info', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId;
-    
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { 
-        assistants: true,
-        business: true
-      }
-    });
-    
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-    
-    const plan = user.plan || 'FREE';
-    const maxAssistants = PLAN_LIMITS[plan] || 1;
-    const trialExpired = user.trialEndsAt ? new Date() > new Date(user.trialEndsAt) : false;
+    const user = (req as any).user;
+    const currentCount = await prisma.assistant.count({ where: { userId: user.id } });
+    const limit = PLAN_LIMITS[user.plan] || 0;
     
     res.json({
-      plan,
-      currentAssistants: user.assistants.length,
-      maxAssistants,
-      canCreate: user.assistants.length < maxAssistants,
-      hasApiKey: !!user.openaiApiKey,
-      whatsappConnected: user.whatsappConnected,
-      whatsappPhone: user.whatsappPhone,
+      plan: user.plan,
+      planType: user.planType,
+      chatbotsUsed: currentCount,
+      chatbotsLimit: limit,
+      canEditContext: PLANS_WITH_CONTEXT_EDIT.includes(user.plan),
+      mustUploadPdf: PLANS_WITH_PDF_UPLOAD.includes(user.plan),
       trialEndsAt: user.trialEndsAt,
-      trialExpired,
-      hasBusiness: !!user.business,
+      trialExpired: checkTrialExpired(user),
+      // Marca Blanca
+      isMarcaBlanca: user.plan === 'MARCA_BLANCA',
+      customLogo: user.customLogo,
+      customBrandName: user.customBrandName,
+      referralCode: user.referralCode,
     });
-  } catch (error: any) {
-    console.error('Error obteniendo plan-info:', error);
+  } catch (error) {
     res.status(500).json({ error: 'Error al obtener información del plan' });
   }
 });
 
-// Obtener un asistente específico
-router.get('/:id', authenticate, async (req: AuthRequest, res: Response) => {
+// Listar asistentes
+router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId;
-    const { id } = req.params;
+    const user = (req as any).user;
+    
+    const assistants = await prisma.assistant.findMany({
+      where: { userId: user.id },
+      include: {
+        business: true,
+        _count: { select: { conversations: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    // Agregar información de permisos
+    const canEditContext = PLANS_WITH_CONTEXT_EDIT.includes(user.plan);
+    const mustUploadPdf = PLANS_WITH_PDF_UPLOAD.includes(user.plan);
+    
+    res.json({ 
+      assistants,
+      planInfo: {
+        canEditContext,
+        mustUploadPdf,
+        plan: user.plan,
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener asistentes' });
+  }
+});
+
+// Obtener un asistente
+router.get('/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
     
     const assistant = await prisma.assistant.findFirst({
-      where: { id, userId },
+      where: { id: req.params.id, userId: user.id },
       include: {
-        conversations: {
-          orderBy: { updatedAt: 'desc' },
-          take: 10,
-          include: {
-            messages: {
-              orderBy: { createdAt: 'desc' },
-              take: 1
-            }
-          }
-        },
-        _count: {
-          select: { conversations: true }
-        }
+        business: { include: { products: true, faqs: true } },
+        conversations: { take: 10, orderBy: { createdAt: 'desc' } }
       }
     });
     
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
+    if (!assistant) return res.status(404).json({ error: 'Asistente no encontrado' });
     
-    res.json(assistant);
-  } catch (error: any) {
-    console.error('Error obteniendo asistente:', error);
+    // Obtener solicitud de configuración si existe
+    const configRequest = await prisma.configRequest.findFirst({
+      where: { assistantId: assistant.id },
+      orderBy: { createdAt: 'desc' }
+    });
+    
+    res.json({ 
+      assistant,
+      configRequest,
+      canEditContext: PLANS_WITH_CONTEXT_EDIT.includes(user.plan),
+      mustUploadPdf: PLANS_WITH_PDF_UPLOAD.includes(user.plan),
+    });
+  } catch (error) {
     res.status(500).json({ error: 'Error al obtener asistente' });
   }
 });
 
-// Crear nuevo asistente
-router.post('/', authenticate, async (req: AuthRequest, res: Response) => {
+// Crear asistente
+router.post('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId;
-    const { name, description, tone } = req.body;
-    
-    if (!name || name.trim().length === 0) {
-      return res.status(400).json({ error: 'El nombre del asistente es requerido' });
-    }
-    
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: { assistants: true }
-    });
-    
-    if (!user) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-    
-    const plan = user.plan || 'FREE';
-    const maxAssistants = PLAN_LIMITS[plan] || 1;
-    
-    if (user.assistants.length >= maxAssistants) {
-      return res.status(400).json({ 
-        error: `Tu plan ${plan} permite máximo ${maxAssistants} chatbot(s). Actualiza tu plan para crear más.` 
+    const user = (req as any).user;
+    const { name, tone, contextJson, businessName } = req.body;
+
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+
+    // Verificar trial expirado
+    if (checkTrialExpired(user)) {
+      return res.status(403).json({ 
+        error: 'Tu periodo de prueba ha expirado. Actualiza tu plan para continuar.' 
       });
     }
-    
-    // Desactivar otros asistentes (solo uno activo a la vez)
-    await prisma.assistant.updateMany({
-      where: { userId },
-      data: { isActive: false }
-    });
-    
-    const assistant = await prisma.assistant.create({
-      data: {
-        userId,
-        name: name.trim(),
-        description: description || '',
-        tone: tone || 'FRIENDLY',
-        isActive: true,
+
+    // Verificar límite del plan
+    const currentCount = await prisma.assistant.count({ where: { userId: user.id } });
+    const limit = PLAN_LIMITS[user.plan] || 0;
+
+    if (currentCount >= limit) {
+      return res.status(403).json({ 
+        error: `Has alcanzado el límite de ${limit} chatbot(s) para tu plan ${user.plan}. Actualiza tu plan para crear más.` 
+      });
+    }
+
+    // Crear negocio
+    const business = await prisma.business.create({
+      data: { 
+        userId: user.id, 
+        name: businessName || name 
       }
     });
-    
-    console.log(`✅ Asistente creado: ${assistant.name} para usuario ${userId}`);
-    
-    res.status(201).json(assistant);
-  } catch (error: any) {
+
+    // Generar API Key única
+    const publicApiKey = `elisa_${uuidv4().replace(/-/g, '')}`;
+
+    // Crear asistente
+    const assistant = await prisma.assistant.create({
+      data: {
+        userId: user.id,
+        businessId: business.id,
+        name,
+        welcomeMessage: '¡Hola! ¿En qué puedo ayudarte?',
+        tone: tone || 'PROFESSIONAL',
+        publicApiKey,
+        isActive: false, // Inactivo hasta que tenga contexto
+        status: 'PENDING',
+        // Solo guardar contexto si el plan lo permite
+        contextJson: PLANS_WITH_CONTEXT_EDIT.includes(user.plan) ? contextJson : null,
+      },
+      include: { business: true }
+    });
+
+    res.status(201).json({ 
+      message: 'Chatbot creado', 
+      assistant,
+      canEditContext: PLANS_WITH_CONTEXT_EDIT.includes(user.plan),
+      mustUploadPdf: PLANS_WITH_PDF_UPLOAD.includes(user.plan),
+    });
+  } catch (error) {
     console.error('Error creando asistente:', error);
-    res.status(500).json({ error: 'Error al crear asistente' });
+    res.status(500).json({ error: 'Error al crear chatbot' });
   }
 });
 
 // Actualizar asistente
-router.put('/:id', authenticate, async (req: AuthRequest, res: Response) => {
+router.put('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId;
-    const { id } = req.params;
-    const { name, description, tone, contextJson, isActive } = req.body;
+    const user = (req as any).user;
+    const { name, tone, systemPrompt, primaryColor } = req.body;
     
-    const assistant = await prisma.assistant.findFirst({
-      where: { id, userId }
+    const assistant = await prisma.assistant.updateMany({
+      where: { id: req.params.id, userId: user.id },
+      data: { name, tone, systemPrompt, primaryColor }
     });
     
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
+    if (assistant.count === 0) return res.status(404).json({ error: 'Asistente no encontrado' });
+    res.json({ message: 'Asistente actualizado' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar' });
+  }
+});
+
+// Guardar contexto JSON (para planes FREE, Business y Marca Blanca)
+router.put('/:id/context', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { contextJson } = req.body;
     
-    // Si se activa este asistente, desactivar los demás
-    if (isActive === true) {
-      await prisma.assistant.updateMany({
-        where: { userId, id: { not: id } },
-        data: { isActive: false }
+    // Verificar que el plan permita editar contexto
+    if (!PLANS_WITH_CONTEXT_EDIT.includes(user.plan)) {
+      return res.status(403).json({ 
+        error: 'Tu plan no permite editar el contexto directamente. Sube un PDF con la información de tu negocio.' 
       });
     }
     
-    const updateData: any = {};
-    if (name !== undefined) updateData.name = name.trim();
-    if (description !== undefined) updateData.description = description;
-    if (tone !== undefined) updateData.tone = tone;
-    if (contextJson !== undefined) updateData.contextJson = contextJson;
-    if (isActive !== undefined) updateData.isActive = isActive;
-    
-    const updated = await prisma.assistant.update({
-      where: { id },
-      data: updateData
-    });
-    
-    console.log(`✅ Asistente actualizado: ${updated.name}`);
-    
-    res.json(updated);
-  } catch (error: any) {
-    console.error('Error actualizando asistente:', error);
-    res.status(500).json({ error: 'Error al actualizar asistente' });
-  }
-});
-
-// Eliminar asistente
-router.delete('/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
-    const assistant = await prisma.assistant.findFirst({
-      where: { id, userId }
-    });
-    
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-    
-    await prisma.assistant.delete({ where: { id } });
-    
-    console.log(`✅ Asistente eliminado: ${assistant.name}`);
-    
-    res.json({ message: 'Asistente eliminado correctamente' });
-  } catch (error: any) {
-    console.error('Error eliminando asistente:', error);
-    res.status(500).json({ error: 'Error al eliminar asistente' });
-  }
-});
-
-// Actualizar contexto del asistente
-router.post('/:id/context', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    const { contextJson } = req.body;
-    
-    const assistant = await prisma.assistant.findFirst({
-      where: { id, userId }
-    });
-    
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-    
-    // Validar que sea JSON válido
-    if (contextJson) {
+    // Validar que es JSON válido si no está vacío
+    if (contextJson && contextJson.trim()) {
       try {
         JSON.parse(contextJson);
-      } catch (e) {
-        return res.status(400).json({ error: 'El contexto debe ser un JSON válido' });
+      } catch {
+        return res.status(400).json({ error: 'JSON inválido' });
       }
     }
     
-    const updated = await prisma.assistant.update({
-      where: { id },
-      data: { contextJson }
+    const assistant = await prisma.assistant.updateMany({
+      where: { id: req.params.id, userId: user.id },
+      data: { 
+        contextJson: contextJson || null,
+        isActive: contextJson ? true : false,
+        status: contextJson ? 'ACTIVE' : 'PENDING',
+      }
     });
     
-    console.log(`✅ Contexto actualizado para asistente: ${updated.name}`);
-    
-    res.json(updated);
-  } catch (error: any) {
-    console.error('Error actualizando contexto:', error);
-    res.status(500).json({ error: 'Error al actualizar contexto' });
-  }
-});
-
-// Activar asistente
-router.post('/:id/activate', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
-    const assistant = await prisma.assistant.findFirst({
-      where: { id, userId }
-    });
-    
-    if (!assistant) {
+    if (assistant.count === 0) {
       return res.status(404).json({ error: 'Asistente no encontrado' });
     }
     
-    // Desactivar todos los demás
+    console.log(`🧠 Contexto actualizado para asistente ${req.params.id}`);
+    res.json({ message: 'Contexto guardado exitosamente' });
+  } catch (error) {
+    console.error('Error guardando contexto:', error);
+    res.status(500).json({ error: 'Error al guardar contexto' });
+  }
+});
+
+// Activar/Desactivar
+router.patch('/:id/toggle', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    
+    const assistant = await prisma.assistant.findFirst({
+      where: { id: req.params.id, userId: user.id }
+    });
+    
+    if (!assistant) return res.status(404).json({ error: 'Asistente no encontrado' });
+    
+    // Verificar que tenga contexto antes de activar
+    if (!assistant.isActive && !assistant.contextJson) {
+      return res.status(400).json({ 
+        error: 'No puedes activar el chatbot sin configurar el contexto primero.' 
+      });
+    }
+
+    await prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { 
+        isActive: !assistant.isActive,
+        status: !assistant.isActive ? 'ACTIVE' : 'INACTIVE'
+      }
+    });
+
+    res.json({ message: assistant.isActive ? 'Desactivado' : 'Activado' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al cambiar estado' });
+  }
+});
+
+// Eliminar
+router.delete('/:id', authenticate, async (req: Request, res: Response) => {
+  try {
+    await prisma.assistant.deleteMany({ 
+      where: { id: req.params.id, userId: (req as any).userId } 
+    });
+    res.json({ message: 'Asistente eliminado' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al eliminar' });
+  }
+});
+
+// Regenerar API Key
+router.post('/:id/regenerate-key', authenticate, async (req: Request, res: Response) => {
+  try {
+    const newKey = `elisa_${uuidv4().replace(/-/g, '')}`;
     await prisma.assistant.updateMany({
-      where: { userId },
-      data: { isActive: false }
+      where: { id: req.params.id, userId: (req as any).userId },
+      data: { publicApiKey: newKey }
     });
-    
-    // Activar este
-    const updated = await prisma.assistant.update({
-      where: { id },
-      data: { isActive: true }
-    });
-    
-    console.log(`✅ Asistente activado: ${updated.name}`);
-    
-    res.json(updated);
-  } catch (error: any) {
-    console.error('Error activando asistente:', error);
-    res.status(500).json({ error: 'Error al activar asistente' });
+    res.json({ publicApiKey: newKey });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al regenerar' });
   }
 });
 
-// Obtener conversaciones del asistente
-router.get('/:id/conversations', authenticate, async (req: AuthRequest, res: Response) => {
+// Estadísticas
+router.get('/:id/stats', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
     const assistant = await prisma.assistant.findFirst({
-      where: { id, userId }
+      where: { id: req.params.id, userId: (req as any).userId }
     });
-    
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-    
-    const conversations = await prisma.conversation.findMany({
-      where: { assistantId: id },
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        messages: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-        _count: {
-          select: { messages: true }
-        }
-      }
-    });
-    
-    res.json(conversations);
-  } catch (error: any) {
-    console.error('Error obteniendo conversaciones:', error);
-    res.status(500).json({ error: 'Error al obtener conversaciones' });
-  }
-});
+    if (!assistant) return res.status(404).json({ error: 'No encontrado' });
 
-// Obtener estadísticas del asistente
-router.get('/:id/stats', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
-    const assistant = await prisma.assistant.findFirst({
-      where: { id, userId }
-    });
-    
-    if (!assistant) {
-      return res.status(404).json({ error: 'Asistente no encontrado' });
-    }
-    
-    const [totalConversations, totalMessages, activeConversations] = await Promise.all([
-      prisma.conversation.count({ where: { assistantId: id } }),
-      prisma.message.count({ where: { conversation: { assistantId: id } } }),
-      prisma.conversation.count({ where: { assistantId: id, status: 'ACTIVE' } })
+    const [totalConversations, totalMessages, activeConversations, leads] = await Promise.all([
+      prisma.conversation.count({ where: { assistantId: assistant.id } }),
+      prisma.message.count({ where: { conversation: { assistantId: assistant.id } } }),
+      prisma.conversation.count({ where: { assistantId: assistant.id, status: 'ACTIVE' } }),
+      prisma.conversation.count({ where: { assistantId: assistant.id, isLead: true } }),
     ]);
-    
-    res.json({
-      totalConversations,
-      totalMessages,
-      activeConversations,
-      averageMessagesPerConversation: totalConversations > 0 ? Math.round(totalMessages / totalConversations) : 0
-    });
-  } catch (error: any) {
-    console.error('Error obteniendo estadísticas:', error);
+
+    res.json({ stats: { totalConversations, totalMessages, activeConversations, leads } });
+  } catch (error) {
     res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 });

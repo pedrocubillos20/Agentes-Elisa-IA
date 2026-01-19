@@ -1,168 +1,236 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authenticate, AuthRequest } from '../middleware/auth';
+import OpenAI from 'openai';
+import CryptoJS from 'crypto-js';
 
 const router = Router();
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'clave-encriptacion-32-caracteres!';
 
-// Obtener todas las conversaciones del usuario
-router.get('/conversations', authenticate, async (req: AuthRequest, res: Response) => {
+// Desencriptar API Key
+const decryptApiKey = (encrypted: string): string => {
+  const bytes = CryptoJS.AES.decrypt(encrypted, ENCRYPTION_KEY);
+  return bytes.toString(CryptoJS.enc.Utf8);
+};
+
+// Ruta pública de chat (usada por el widget)
+router.post('/', async (req: Request, res: Response) => {
   try {
-    const userId = req.userId;
-    
-    const conversations = await prisma.conversation.findMany({
-      where: { 
-        assistant: { userId } 
-      },
-      orderBy: { updatedAt: 'desc' },
-      include: { 
-        messages: { 
-          orderBy: { createdAt: 'desc' }, 
-          take: 1 
-        }, 
-        assistant: { 
-          select: { name: true } 
+    const apiKey = req.headers['x-api-key'] as string;
+    const { message, conversationId } = req.body;
+
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API Key requerida' });
+    }
+
+    if (!message) {
+      return res.status(400).json({ error: 'Mensaje requerido' });
+    }
+
+    // Buscar asistente
+    const assistant = await prisma.assistant.findUnique({
+      where: { publicApiKey: apiKey },
+      include: {
+        business: {
+          include: {
+            products: { where: { isActive: true } },
+            faqs: { orderBy: { order: 'asc' } },
+          }
         },
-        _count: {
-          select: { messages: true }
-        }
+        user: true,
       }
     });
-    
-    res.json(conversations);
-  } catch (error: any) {
-    console.error('Error obteniendo conversaciones:', error);
-    res.status(500).json({ error: 'Error al obtener conversaciones' });
-  }
-});
 
-// Obtener una conversación específica con todos sus mensajes
-router.get('/conversations/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
-    const conversation = await prisma.conversation.findFirst({
-      where: { 
-        id,
-        assistant: { userId }
-      },
-      include: { 
-        messages: { 
-          orderBy: { createdAt: 'asc' } 
-        }, 
-        assistant: { 
-          select: { id: true, name: true } 
-        } 
-      }
-    });
-    
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversación no encontrada' });
+    if (!assistant) {
+      return res.status(404).json({ error: 'Chatbot no encontrado' });
     }
-    
-    res.json(conversation);
-  } catch (error: any) {
-    console.error('Error obteniendo conversación:', error);
-    res.status(500).json({ error: 'Error al obtener conversación' });
-  }
-});
 
-// Cerrar/archivar conversación
-router.put('/conversations/:id/close', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
-    const conversation = await prisma.conversation.findFirst({
-      where: { 
-        id,
-        assistant: { userId }
-      }
-    });
-    
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversación no encontrada' });
+    if (!assistant.isActive) {
+      return res.status(403).json({ error: 'Chatbot inactivo' });
     }
-    
-    const updated = await prisma.conversation.update({
-      where: { id },
-      data: { status: 'CLOSED' }
-    });
-    
-    res.json(updated);
-  } catch (error: any) {
-    console.error('Error cerrando conversación:', error);
-    res.status(500).json({ error: 'Error al cerrar conversación' });
-  }
-});
 
-// Eliminar conversación
-router.delete('/conversations/:id', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    const { id } = req.params;
-    
-    const conversation = await prisma.conversation.findFirst({
-      where: { 
-        id,
-        assistant: { userId }
-      }
-    });
-    
-    if (!conversation) {
-      return res.status(404).json({ error: 'Conversación no encontrada' });
+    // Verificar que el usuario tenga API Key de OpenAI
+    if (!assistant.user.openaiApiKey) {
+      return res.status(403).json({ 
+        error: 'El propietario del chatbot no ha configurado su API Key de OpenAI' 
+      });
     }
-    
-    await prisma.conversation.delete({ where: { id } });
-    
-    res.json({ message: 'Conversación eliminada' });
-  } catch (error: any) {
-    console.error('Error eliminando conversación:', error);
-    res.status(500).json({ error: 'Error al eliminar conversación' });
+
+    // Verificar trial expirado
+    if (assistant.user.plan === 'FREE' && assistant.user.trialEndsAt) {
+      const trialEnd = new Date(assistant.user.trialEndsAt);
+      if (trialEnd < new Date()) {
+        return res.status(403).json({ 
+          error: 'La prueba gratuita ha expirado. El propietario debe actualizar su plan.' 
+        });
+      }
+    }
+
+    // Obtener o crear conversación
+    let conversation;
+    if (conversationId) {
+      conversation = await prisma.conversation.findFirst({
+        where: { id: conversationId, assistantId: assistant.id },
+        include: { messages: { orderBy: { createdAt: 'asc' }, take: 20 } }
+      });
+    }
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: { assistantId: assistant.id, channel: 'WEB', status: 'ACTIVE' },
+        include: { messages: true }
+      });
+    }
+
+    // Guardar mensaje del usuario
+    await prisma.message.create({
+      data: { conversationId: conversation.id, role: 'USER', content: message }
+    });
+
+    // Construir contexto
+    const businessContext = buildBusinessContext(assistant.business, assistant.contextJson || undefined);
+    const messageHistory = conversation.messages.map(m => ({
+      role: m.role.toLowerCase() as 'user' | 'assistant',
+      content: m.content
+    }));
+
+    // Generar respuesta con OpenAI
+    const startTime = Date.now();
+    let reply: string;
+    let tokensUsed = 0;
+
+    try {
+      const userApiKey = decryptApiKey(assistant.user.openaiApiKey);
+      const openai = new OpenAI({ apiKey: userApiKey });
+
+      const systemPrompt = assistant.systemPrompt || buildSystemPrompt(assistant, businessContext);
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messageHistory,
+          { role: 'user', content: message }
+        ],
+        max_tokens: 500,
+        temperature: 0.7,
+      });
+
+      reply = completion.choices[0]?.message?.content || 'Lo siento, no pude procesar tu mensaje.';
+      tokensUsed = completion.usage?.total_tokens || 0;
+    } catch (aiError: any) {
+      console.error('Error OpenAI:', aiError?.message);
+      reply = generateFallbackResponse(message, assistant.business);
+    }
+
+    const responseTime = Date.now() - startTime;
+
+    // Guardar respuesta
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: 'ASSISTANT',
+        content: reply,
+        tokensUsed,
+        responseTime,
+      }
+    });
+
+    // Actualizar conversación
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { messageCount: { increment: 2 }, lastMessageAt: new Date() }
+    });
+
+    res.json({ reply, conversationId: conversation.id });
+  } catch (error) {
+    console.error('Error chat:', error);
+    res.status(500).json({ error: 'Error al procesar mensaje' });
   }
 });
 
-// Obtener estadísticas de chat
-router.get('/stats', authenticate, async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.userId;
-    
-    const [totalConversations, totalMessages, activeConversations] = await Promise.all([
-      prisma.conversation.count({
-        where: { assistant: { userId } }
-      }),
-      prisma.message.count({
-        where: { conversation: { assistant: { userId } } }
-      }),
-      prisma.conversation.count({
-        where: { assistant: { userId }, status: 'ACTIVE' }
-      })
-    ]);
-    
-    // Conversaciones de hoy
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const conversationsToday = await prisma.conversation.count({
-      where: {
-        assistant: { userId },
-        createdAt: { gte: today }
-      }
-    });
-    
-    res.json({
-      totalConversations,
-      totalMessages,
-      activeConversations,
-      conversationsToday,
-      averageMessagesPerConversation: totalConversations > 0 
-        ? Math.round(totalMessages / totalConversations) 
-        : 0
-    });
-  } catch (error: any) {
-    console.error('Error obteniendo estadísticas:', error);
-    res.status(500).json({ error: 'Error al obtener estadísticas' });
+function buildBusinessContext(business: any, contextJson?: string): string {
+  let ctx = '';
+  
+  // Si hay contextJson definido, usarlo como fuente principal
+  if (contextJson) {
+    try {
+      const parsed = JSON.parse(contextJson);
+      ctx += '=== INFORMACIÓN DEL NEGOCIO ===\n';
+      ctx += JSON.stringify(parsed, null, 2);
+      ctx += '\n\n';
+    } catch {
+      console.error('Error parsing contextJson');
+    }
   }
-});
+  
+  // Agregar información del business si existe
+  if (business) {
+    ctx += `Negocio: ${business.name}\n`;
+    if (business.industry) ctx += `Industria: ${business.industry}\n`;
+    if (business.description) ctx += `Descripción: ${business.description}\n`;
+    if (business.contactEmail) ctx += `Email: ${business.contactEmail}\n`;
+    if (business.contactPhone) ctx += `Teléfono: ${business.contactPhone}\n`;
+    if (business.businessHours) ctx += `Horario: ${business.businessHours}\n`;
+
+    if (business.products?.length > 0) {
+      ctx += '\nProductos:\n';
+      business.products.forEach((p: any) => {
+        ctx += `- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.description ? `: ${p.description}` : ''}\n`;
+      });
+    }
+
+    if (business.faqs?.length > 0) {
+      ctx += '\nPreguntas Frecuentes:\n';
+      business.faqs.forEach((f: any) => {
+        ctx += `P: ${f.question}\nR: ${f.answer}\n\n`;
+      });
+    }
+  }
+
+  return ctx;
+}
+
+function buildSystemPrompt(assistant: any, businessContext: string): string {
+  const tones: Record<string, string> = {
+    'PROFESSIONAL': 'Mantén un tono profesional y formal.',
+    'FRIENDLY': 'Sé amigable y cercano.',
+    'CASUAL': 'Sé casual y relajado.',
+  };
+
+  return `Eres ${assistant.name}, un asistente virtual de atención al cliente.
+${tones[assistant.tone] || tones['PROFESSIONAL']}
+
+INFORMACIÓN DEL NEGOCIO:
+${businessContext}
+
+INSTRUCCIONES:
+- Responde siempre en español
+- Sé conciso pero informativo
+- Si no conoces la respuesta, ofrece contactar al equipo
+- No inventes información
+- Mantén respuestas breves (máximo 2-3 párrafos)`;
+}
+
+function generateFallbackResponse(message: string, business: any): string {
+  const lower = message.toLowerCase();
+
+  if (lower.includes('precio') || lower.includes('costo')) {
+    if (business.products?.length > 0) {
+      const list = business.products.map((p: any) => `• ${p.name}${p.price ? ` - $${p.price}` : ''}`).join('\n');
+      return `Nuestros productos:\n\n${list}\n\n¿Te interesa alguno?`;
+    }
+    return 'Para precios, contáctanos directamente.';
+  }
+
+  if (lower.includes('horario')) {
+    return business.businessHours ? `Horario: ${business.businessHours}` : 'Contáctanos para horarios.';
+  }
+
+  if (lower.includes('hola') || lower.includes('buenas')) {
+    return `¡Hola! 👋 Bienvenido a ${business.name}. ¿En qué puedo ayudarte?`;
+  }
+
+  return `Gracias por tu mensaje. Un miembro de ${business.name} te responderá pronto.`;
+}
 
 export default router;

@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import jwt from 'jsonwebtoken';
-import QRCode from 'qrcode';
 import whatsappService from '../services/whatsappService';
 
 const router = Router();
@@ -54,18 +53,9 @@ router.post('/generate-qr', authenticate, async (req: Request, res: Response) =>
       return res.status(500).json({ error: 'No se pudo generar el código QR. Intenta de nuevo.' });
     }
 
-    // Convertir QR string a imagen base64
-    const qrCodeImage = await QRCode.toDataURL(qrString, {
-      width: 256,
-      margin: 2,
-      color: {
-        dark: '#000000',
-        light: '#ffffff'
-      }
-    });
-
+    // El QR de Baileys ya viene en base64 (data:image/png;base64,...)
     console.log(`✅ QR generado para usuario ${userId}`);
-    res.json({ qrCode: qrCodeImage, connected: false });
+    res.json({ qrCode: qrString, connected: false });
     
   } catch (error) {
     console.error('Error generando QR:', error);
@@ -104,7 +94,7 @@ router.get('/status', authenticate, async (req: Request, res: Response) => {
     
     res.json({ 
       connected: false,
-      qrCode: status.qrCode ? await QRCode.toDataURL(status.qrCode) : null
+      qrCode: status.qrCode || null
     });
     
   } catch (error) {
@@ -139,7 +129,7 @@ router.post('/send', authenticate, async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Número de destino y mensaje requeridos' });
     }
 
-    const success = await whatsappService.sendMessage(userId, to, message);
+    const success = await whatsappService.sendMessagePublic(userId, to, message);
     
     if (success) {
       res.json({ message: 'Mensaje enviado' });

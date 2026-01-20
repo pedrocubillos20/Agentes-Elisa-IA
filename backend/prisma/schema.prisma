@@ -71,9 +71,11 @@ model User {
   trialEndsAt        DateTime?
   openaiApiKey       String?
   apiKeyConnected    Boolean            @default(false)
-  whatsappConnected  Boolean            @default(false)
-  whatsappPhone      String?
-  isAdmin            Boolean            @default(false)
+  whatsappConnected      Boolean            @default(false)
+  whatsappPhone          String?
+  whatsappAccessToken    String?            @db.Text
+  whatsappPhoneNumberId  String?
+  isAdmin                Boolean            @default(false)
   lastLogin          DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt

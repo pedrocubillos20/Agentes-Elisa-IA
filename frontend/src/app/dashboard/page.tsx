@@ -438,7 +438,7 @@ export default function Dashboard() {
               <div>
                 <h3 className="font-semibold text-gray-800 text-lg">Conectar WhatsApp</h3>
                 <p className={`text-sm ${user?.whatsappConnected ? 'text-green-600' : 'text-yellow-600'}`}>
-                  {user?.whatsappConnected ? '✅ Conectado' : 'Escanea el QR para vincular'}
+                  {user?.whatsappConnected ? '✅ Conectado' : 'Configura WhatsApp Cloud API'}
                 </p>
               </div>
             </div>

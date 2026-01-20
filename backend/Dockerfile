@@ -3,7 +3,6 @@ FROM node:18-slim
 RUN apt-get update && apt-get install -y \
     openssl \
     ca-certificates \
-    git \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,9 +17,8 @@ RUN npx prisma generate
 COPY . .
 RUN npm run build
 
-RUN mkdir -p /app/auth_sessions /app/uploads/pdfs && chmod -R 777 /app/auth_sessions /app/uploads
+RUN mkdir -p /app/uploads/pdfs && chmod -R 777 /app/uploads
 
-ENV AUTH_DIR=/app/auth_sessions
 ENV NODE_ENV=production
 
 EXPOSE 3001

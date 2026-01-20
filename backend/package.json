@@ -1,18 +1,16 @@
 {
-  "name": "elisa-ia-backend",
-  "version": "2.0.0",
-  "description": "Backend para Elisa IA - Chatbots de WhatsApp (Cloud API)",
+  "name": "elisa-ia-evolution",
+  "version": "3.0.0",
+  "description": "Backend para Elisa IA - Chatbots de WhatsApp con Evolution API",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn src/server.ts",
-    "build": "tsc",
+    "build": "npx prisma generate && tsc",
     "start": "node dist/server.js",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy",
-    "postinstall": "prisma generate || true"
+    "dev": "ts-node src/server.ts",
+    "postinstall": "npx prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^5.7.0",
+    "@prisma/client": "^5.22.0",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -20,11 +18,10 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "helmet": "^7.1.0",
-    "morgan": "^1.10.0",
-    "multer": "^1.4.5-lts.1",
-    "openai": "^4.20.0",
-    "uuid": "^9.0.0"
+    "openai": "^4.20.1",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -32,12 +29,10 @@
     "@types/crypto-js": "^4.2.1",
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.5",
-    "@types/morgan": "^1.9.9",
-    "@types/multer": "^1.4.11",
     "@types/node": "^20.10.0",
+    "@types/qrcode": "^1.5.5",
     "@types/uuid": "^9.0.7",
-    "prisma": "^5.7.0",
-    "ts-node-dev": "^2.0.0",
+    "prisma": "^5.22.0",
     "typescript": "^5.3.2"
   }
 }

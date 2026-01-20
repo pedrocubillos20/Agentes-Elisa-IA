@@ -1,26 +1,19 @@
-FROM node:18-slim
-
-RUN apt-get update && apt-get install -y \
-    openssl \
-    ca-certificates \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+FROM node:18-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm install --legacy-peer-deps
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
 
+COPY package*.json ./
 COPY prisma ./prisma/
-RUN npx prisma generate
+
+RUN npm install
 
 COPY . .
+
 RUN npm run build
 
-RUN mkdir -p /app/uploads/pdfs && chmod -R 777 /app/uploads
+EXPOSE 3000
 
-ENV NODE_ENV=production
-
-EXPOSE 3001
-
-CMD npx prisma db push --accept-data-loss && npm start
+CMD ["npm", "start"]

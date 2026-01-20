@@ -1,176 +1,430 @@
 import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import whatsappService from '../services/whatsappService';
+import prisma from '../lib/prisma';
+import { evolutionService } from '../services/evolutionService';
+import { openaiService } from '../services/openaiService';
+import { authMiddleware } from './auth.routes';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key';
-const WEBHOOK_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || 'elisa-ia-webhook-token';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN 
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api/whatsapp/webhook`
+  : 'http://localhost:3000/api/whatsapp/webhook';
 
-// Middleware de autenticación
-const authenticate = async (req: Request, res: Response, next: Function) => {
+// Obtener estado de WhatsApp
+router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token no proporcionado' });
-    }
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    (req as any).userId = decoded.userId;
-    next();
-  } catch (error) {
-    res.status(401).json({ error: 'Token inválido' });
-  }
-};
+    const user = (req as any).user;
 
-// Configurar WhatsApp Cloud API
-router.post('/configure', authenticate, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).userId;
-    const { accessToken, phoneNumberId } = req.body;
-    
-    if (!accessToken || !phoneNumberId) {
-      return res.status(400).json({ 
-        error: 'Se requiere accessToken y phoneNumberId' 
+    // Si tiene instancia, verificar estado actual
+    if (user.evolutionInstanceName) {
+      const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+      
+      // Obtener usuario actualizado
+      const updatedUser = await prisma.user.findUnique({ where: { id: user.id } });
+      
+      return res.json({
+        connected: updatedUser?.whatsappConnected || false,
+        status: updatedUser?.whatsappStatus || 'disconnected',
+        phone: updatedUser?.whatsappPhone,
+        instanceName: updatedUser?.evolutionInstanceName,
+        qrCode: updatedUser?.whatsappQrCode
       });
     }
 
-    console.log(`⚙️ Configurando WhatsApp para usuario ${userId}`);
-    
-    const result = await whatsappService.configure(userId, accessToken, phoneNumberId);
-    
-    if (result.success) {
-      res.json({ 
-        success: true,
-        connected: true, 
-        phoneNumber: result.phoneNumber,
-        verifiedName: result.verifiedName,
-        message: '¡WhatsApp conectado exitosamente!' 
-      });
-    } else {
-      res.status(400).json({ 
-        success: false,
-        error: result.error || 'Error al configurar WhatsApp' 
-      });
-    }
-    
+    res.json({
+      connected: false,
+      status: 'disconnected',
+      phone: null,
+      instanceName: null,
+      qrCode: null
+    });
   } catch (error: any) {
-    console.error('Error configurando:', error);
-    res.status(500).json({ error: 'Error al configurar WhatsApp' });
+    console.error('Error obteniendo estado:', error);
+    res.status(500).json({ error: 'Error al obtener estado' });
   }
 });
 
-// Verificar estado de conexión
-router.get('/status', authenticate, async (req: Request, res: Response) => {
+// Iniciar conexión (crear instancia y obtener QR)
+router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
-    const status = await whatsappService.getStatus(userId);
-    res.json(status);
-  } catch (error) {
-    console.error('Error verificando estado:', error);
-    res.status(500).json({ error: 'Error al verificar estado' });
+    const user = (req as any).user;
+
+    console.log(`📱 Iniciando conexión WhatsApp para: ${user.email}`);
+
+    // Si ya tiene instancia, intentar reconectar
+    if (user.evolutionInstanceName) {
+      // Verificar si ya está conectado
+      const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+      
+      if (status.connected) {
+        return res.json({
+          success: true,
+          connected: true,
+          status: 'connected',
+          phone: status.phone,
+          message: 'Ya estás conectado'
+        });
+      }
+
+      // Obtener nuevo QR
+      const qrResult = await evolutionService.getQRCode(user.evolutionInstanceName);
+      
+      if (qrResult.success && qrResult.qrcode) {
+        return res.json({
+          success: true,
+          connected: false,
+          status: 'waiting_qr',
+          qrCode: qrResult.qrcode,
+          instanceName: user.evolutionInstanceName
+        });
+      }
+
+      // Si no pudo obtener QR, eliminar y crear nueva instancia
+      await evolutionService.deleteInstance(user.evolutionInstanceName);
+    }
+
+    // Crear nueva instancia
+    const result = await evolutionService.createInstance(user.id);
+    
+    if (!result.success) {
+      return res.status(500).json({ 
+        error: result.error || 'Error al crear conexión' 
+      });
+    }
+
+    // Configurar webhook
+    if (result.instanceName) {
+      await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
+    }
+
+    res.json({
+      success: true,
+      connected: false,
+      status: 'waiting_qr',
+      qrCode: result.qrcode,
+      instanceName: result.instanceName
+    });
+  } catch (error: any) {
+    console.error('Error conectando:', error);
+    res.status(500).json({ error: 'Error al conectar WhatsApp' });
+  }
+});
+
+// Obtener QR Code actualizado
+router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+
+    if (!user.evolutionInstanceName) {
+      return res.status(400).json({ error: 'No hay conexión iniciada' });
+    }
+
+    // Primero verificar si ya está conectado
+    const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+    
+    if (status.connected) {
+      return res.json({
+        connected: true,
+        status: 'connected',
+        phone: status.phone,
+        qrCode: null
+      });
+    }
+
+    // Obtener nuevo QR
+    const result = await evolutionService.getQRCode(user.evolutionInstanceName);
+
+    res.json({
+      connected: false,
+      status: 'waiting_qr',
+      qrCode: result.qrcode || user.whatsappQrCode
+    });
+  } catch (error: any) {
+    console.error('Error obteniendo QR:', error);
+    res.status(500).json({ error: 'Error al obtener QR' });
   }
 });
 
 // Desconectar WhatsApp
-router.post('/disconnect', authenticate, async (req: Request, res: Response) => {
+router.post('/disconnect', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
-    await whatsappService.disconnect(userId);
-    res.json({ message: 'WhatsApp desconectado exitosamente' });
-  } catch (error) {
+    const user = (req as any).user;
+
+    if (!user.evolutionInstanceName) {
+      return res.json({ success: true, message: 'No hay conexión activa' });
+    }
+
+    console.log(`🔌 Desconectando WhatsApp para: ${user.email}`);
+
+    await evolutionService.disconnectInstance(user.evolutionInstanceName);
+
+    res.json({ success: true, message: 'WhatsApp desconectado' });
+  } catch (error: any) {
     console.error('Error desconectando:', error);
     res.status(500).json({ error: 'Error al desconectar' });
   }
 });
 
-// Enviar mensaje de prueba
-router.post('/send', authenticate, async (req: Request, res: Response) => {
+// Eliminar instancia completamente
+router.delete('/instance', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).userId;
+    const user = (req as any).user;
+
+    if (!user.evolutionInstanceName) {
+      return res.json({ success: true, message: 'No hay instancia' });
+    }
+
+    console.log(`🗑️ Eliminando instancia para: ${user.email}`);
+
+    await evolutionService.deleteInstance(user.evolutionInstanceName);
+
+    res.json({ success: true, message: 'Instancia eliminada' });
+  } catch (error: any) {
+    console.error('Error eliminando instancia:', error);
+    res.status(500).json({ error: 'Error al eliminar instancia' });
+  }
+});
+
+// Enviar mensaje de prueba
+router.post('/send', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
     const { to, message } = req.body;
 
-    if (!to || !message) {
-      return res.status(400).json({ error: 'Se requiere número de destino y mensaje' });
+    if (!user.evolutionInstanceName || !user.whatsappConnected) {
+      return res.status(400).json({ error: 'WhatsApp no conectado' });
     }
 
-    const success = await whatsappService.sendMessage(userId, to, message);
-    
-    if (success) {
-      res.json({ success: true, message: 'Mensaje enviado' });
-    } else {
-      res.status(400).json({ error: 'No se pudo enviar el mensaje' });
+    if (!to || !message) {
+      return res.status(400).json({ error: 'Número y mensaje son requeridos' });
     }
-  } catch (error) {
+
+    const result = await evolutionService.sendTextMessage(
+      user.evolutionInstanceName,
+      to,
+      message
+    );
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error });
+    }
+
+    res.json({ success: true, messageId: result.messageId });
+  } catch (error: any) {
     console.error('Error enviando mensaje:', error);
     res.status(500).json({ error: 'Error al enviar mensaje' });
   }
 });
 
-// ============ WEBHOOK DE META ============
-
-// Verificación del webhook (GET) - Meta envía esto para verificar
-router.get('/webhook', (req: Request, res: Response) => {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  console.log('📥 Verificación de webhook:', { mode, token, challenge: challenge?.toString().substring(0, 20) });
-
-  if (mode === 'subscribe' && token === WEBHOOK_VERIFY_TOKEN) {
-    console.log('✅ Webhook verificado correctamente');
-    res.status(200).send(challenge);
-  } else {
-    console.log('❌ Verificación fallida');
-    res.sendStatus(403);
-  }
-});
-
-// Recibir mensajes (POST) - Meta envía mensajes aquí
+// Webhook para recibir mensajes de Evolution API
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
-    console.log('📨 Webhook recibido');
+    const data = req.body;
     
-    // Siempre responder 200 rápidamente a Meta
-    res.sendStatus(200);
-    
-    // Procesar el mensaje de forma asíncrona
-    await whatsappService.handleWebhook(req.body);
-    
-  } catch (error) {
-    console.error('Error en webhook:', error);
-    // Ya enviamos 200, no hacer nada más
+    console.log('📨 Webhook recibido:', JSON.stringify(data).substring(0, 500));
+
+    // Evolution API envía diferentes tipos de eventos
+    const event = data.event || data.type;
+    const instanceName = data.instance || data.instanceName;
+
+    // Evento de actualización de conexión
+    if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
+      const state = data.data?.state || data.state;
+      console.log(`📱 Estado de conexión ${instanceName}: ${state}`);
+      
+      if (instanceName) {
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+        
+        if (user) {
+          const connected = state === 'open';
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              whatsappConnected: connected,
+              whatsappStatus: connected ? 'connected' : state,
+              whatsappQrCode: connected ? null : user.whatsappQrCode
+            }
+          });
+        }
+      }
+      
+      return res.json({ received: true });
+    }
+
+    // Evento de QR actualizado
+    if (event === 'QRCODE_UPDATED' || event === 'qrcode.updated') {
+      const qrcode = data.data?.qrcode?.base64 || data.qrcode?.base64 || data.data?.base64;
+      console.log(`📷 QR actualizado para ${instanceName}`);
+      
+      if (instanceName && qrcode) {
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+        
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { whatsappQrCode: qrcode }
+          });
+        }
+      }
+      
+      return res.json({ received: true });
+    }
+
+    // Evento de mensaje recibido
+    if (event === 'MESSAGES_UPSERT' || event === 'messages.upsert') {
+      const messageData = data.data || data;
+      const messages = messageData.messages || [messageData];
+      
+      for (const msg of messages) {
+        // Ignorar mensajes propios
+        if (msg.key?.fromMe) continue;
+        
+        const remoteJid = msg.key?.remoteJid || msg.from;
+        if (!remoteJid) continue;
+
+        // Extraer número de teléfono
+        const phoneNumber = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '');
+        
+        // Extraer contenido del mensaje
+        const messageContent = msg.message?.conversation || 
+                              msg.message?.extendedTextMessage?.text ||
+                              msg.message?.text ||
+                              msg.text ||
+                              '';
+        
+        if (!messageContent) continue;
+
+        console.log(`📨 Mensaje de ${phoneNumber}: ${messageContent}`);
+
+        // Buscar usuario por instancia
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+
+        if (!user) {
+          console.log(`❌ Usuario no encontrado para instancia: ${instanceName}`);
+          continue;
+        }
+
+        if (!user.apiKeyConnected) {
+          console.log(`❌ Usuario ${user.email} no tiene API Key configurada`);
+          // Enviar mensaje de error
+          await evolutionService.sendTextMessage(
+            instanceName,
+            phoneNumber,
+            '⚠️ El asistente no está configurado correctamente. Por favor contacta al administrador.'
+          );
+          continue;
+        }
+
+        // Buscar o crear conversación
+        let conversation = await prisma.conversation.findFirst({
+          where: {
+            userId: user.id,
+            recipientId: phoneNumber
+          }
+        });
+
+        if (!conversation) {
+          conversation = await prisma.conversation.create({
+            data: {
+              userId: user.id,
+              recipientId: phoneNumber,
+              recipientName: msg.pushName || phoneNumber,
+              lastMessage: messageContent,
+              lastMessageAt: new Date()
+            }
+          });
+        } else {
+          await prisma.conversation.update({
+            where: { id: conversation.id },
+            data: {
+              lastMessage: messageContent,
+              lastMessageAt: new Date(),
+              recipientName: msg.pushName || conversation.recipientName
+            }
+          });
+        }
+
+        // Guardar mensaje del usuario
+        await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            userId: user.id,
+            role: 'user',
+            content: messageContent,
+            fromMe: false
+          }
+        });
+
+        // Obtener historial reciente
+        const recentMessages = await prisma.message.findMany({
+          where: { conversationId: conversation.id },
+          orderBy: { timestamp: 'asc' },
+          take: 20
+        });
+
+        const history = recentMessages.map(m => ({
+          role: m.role,
+          content: m.content
+        }));
+
+        // Generar respuesta con OpenAI
+        const aiResponse = await openaiService.generateResponse(
+          user.id,
+          messageContent,
+          history.slice(0, -1) // Excluir el mensaje actual
+        );
+
+        if (aiResponse.success && aiResponse.response) {
+          // Enviar respuesta
+          const sendResult = await evolutionService.sendTextMessage(
+            instanceName,
+            phoneNumber,
+            aiResponse.response
+          );
+
+          if (sendResult.success) {
+            // Guardar respuesta del bot
+            await prisma.message.create({
+              data: {
+                conversationId: conversation.id,
+                userId: user.id,
+                role: 'assistant',
+                content: aiResponse.response,
+                fromMe: true
+              }
+            });
+
+            console.log(`✅ Respuesta enviada a ${phoneNumber}`);
+          }
+        } else {
+          console.error('❌ Error generando respuesta:', aiResponse.error);
+          
+          // Enviar mensaje de error amigable
+          await evolutionService.sendTextMessage(
+            instanceName,
+            phoneNumber,
+            'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo.'
+          );
+        }
+      }
+    }
+
+    res.json({ received: true });
+  } catch (error: any) {
+    console.error('❌ Error en webhook:', error);
+    res.status(500).json({ error: 'Error procesando webhook' });
   }
 });
 
-// ============ LEGACY - Compatibilidad con frontend actual ============
-
-// Endpoint legacy para generar QR (ahora redirige a configure)
-router.post('/generate-qr', authenticate, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).userId;
-    
-    // Verificar si ya está conectado
-    const status = await whatsappService.getStatus(userId);
-    
-    if (status.connected) {
-      return res.json({ 
-        connected: true, 
-        phoneNumber: status.phoneNumber,
-        message: 'Ya estás conectado a WhatsApp' 
-      });
-    }
-
-    // Si no está conectado, indicar que debe configurar
-    res.json({ 
-      connected: false,
-      requiresSetup: true,
-      message: 'Debes configurar WhatsApp Cloud API. Ve a Configuración > WhatsApp.'
-    });
-    
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Error al verificar estado' });
-  }
+// Webhook GET para verificación
+router.get('/webhook', (req: Request, res: Response) => {
+  console.log('🔍 Verificación de webhook');
+  res.send('Webhook activo');
 });
 
 export default router;

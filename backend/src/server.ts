@@ -1,84 +1,115 @@
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
+import { createServer } from 'http';
+import { Server as SocketServer } from 'socket.io';
 import dotenv from 'dotenv';
-import path from 'path';
 
 dotenv.config();
 
+import authRoutes from './routes/auth.routes';
+import whatsappRoutes from './routes/whatsapp.routes';
+import assistantsRoutes from './routes/assistants.routes';
+import conversationsRoutes from './routes/conversations.routes';
+
 const app = express();
-const PORT = process.env.PORT || 3001;
+const httpServer = createServer(app);
+
+// Socket.io para actualizaciones en tiempo real
+const io = new SocketServer(httpServer, {
+  cors: {
+    origin: process.env.FRONTEND_URL || '*',
+    methods: ['GET', 'POST']
+  }
+});
 
 // Middlewares
-app.use(helmet());
-app.use(morgan('dev'));
-app.use(express.json());
-
-// Servir archivos estáticos (para PDFs)
-app.use('/uploads', express.static(path.join('/app', 'uploads')));
-
-// CORS
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
 }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
 
 // Health check
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Elisa IA API',
+    version: '3.0.0',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    features: [
+      'Evolution API WhatsApp',
+      'OpenAI Integration',
+      'Multi-user Support',
+      'Real-time Messaging'
+    ]
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Root
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Elisa IA Backend API',
-    version: '1.0.0',
-    endpoints: {
-      auth: '/api/auth',
-      business: '/api/business',
-      assistants: '/api/assistants',
-      payments: '/api/payments',
-      webhooks: '/api/webhooks',
-      chat: '/api/chat',
-      config: '/api/config'
-    }
+// Rutas de la API
+app.use('/api/auth', authRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/assistants', assistantsRoutes);
+app.use('/api/conversations', conversationsRoutes);
+
+// Socket.io events
+io.on('connection', (socket) => {
+  console.log(`🔌 Cliente conectado: ${socket.id}`);
+
+  socket.on('join-user', (userId: string) => {
+    socket.join(`user-${userId}`);
+    console.log(`👤 Usuario ${userId} unido a su sala`);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Cliente desconectado: ${socket.id}`);
   });
 });
 
-// Routes
-import authRoutes from './routes/auth.routes';
-import businessRoutes from './routes/business.routes';
-import assistantRoutes from './routes/assistant.routes';
-import paymentRoutes from './routes/payment.routes';
-import webhookRoutes from './routes/webhook.routes';
-import chatRoutes from './routes/chat.routes';
-import whatsappRoutes from './routes/whatsapp.routes';
-import configRoutes from './routes/config.routes';
-
-app.use('/api/auth', authRoutes);
-app.use('/api/business', businessRoutes);
-app.use('/api/assistants', assistantRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/webhooks', webhookRoutes);
-app.use('/api/chat', chatRoutes);
-app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/config', configRoutes);
+// Exportar io para usar en otras partes
+export { io };
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(500).json({ error: 'Error interno del servidor' });
+  console.error('❌ Error:', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Error interno del servidor'
+  });
 });
 
-// 404
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor Elisa IA corriendo en puerto ${PORT}`);
+const PORT = process.env.PORT || 3000;
+
+httpServer.listen(PORT, () => {
+  console.log(`
+╔═══════════════════════════════════════════════════════╗
+║                                                       ║
+║   🤖 ELISA IA - Backend v3.0.0                       ║
+║                                                       ║
+║   🚀 Servidor corriendo en puerto ${PORT}              ║
+║   📱 Evolution API: ${process.env.EVOLUTION_API_URL || 'No configurada'}
+║   🔗 Frontend: ${process.env.FRONTEND_URL || '*'}
+║                                                       ║
+╚═══════════════════════════════════════════════════════╝
+  `);
 });
 
 export default app;

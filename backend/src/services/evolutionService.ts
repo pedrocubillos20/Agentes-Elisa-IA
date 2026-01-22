@@ -322,10 +322,41 @@ class EvolutionService {
     }
   }
 
+  // Obtener número real de un contacto LID
+  async getRealPhoneNumber(instanceName: string, lidJid: string): Promise<string | null> {
+    try {
+      console.log(`🔍 Buscando número real para LID: ${lidJid}`);
+      
+      // Intentar obtener info del contacto
+      const response = await axios.post(
+        `${this.apiUrl}/chat/fetchProfile/${instanceName}`,
+        { number: lidJid },
+        { headers: this.getHeaders() }
+      );
+      
+      console.log('📋 Perfil del contacto:', JSON.stringify(response.data).substring(0, 300));
+      
+      // El número real puede estar en diferentes campos
+      const realNumber = response.data?.wid?.user || 
+                        response.data?.id?.user ||
+                        response.data?.jid?.replace(/@.*/, '') ||
+                        response.data?.number;
+      
+      if (realNumber && !realNumber.includes('@lid')) {
+        console.log(`✅ Número real encontrado: ${realNumber}`);
+        return realNumber;
+      }
+      
+      return null;
+    } catch (error: any) {
+      console.log('⚠️ No se pudo obtener número real:', error.message);
+      return null;
+    }
+  }
+
   // Enviar mensaje de texto - Evolution API v1.8.2
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      // Detectar el formato del destinatario
       const isLidJid = to.includes('@lid');
       const isWhatsAppJid = to.includes('@s.whatsapp.net');
       
@@ -333,91 +364,59 @@ class EvolutionService {
       console.log(`📤 Destinatario original: ${to}`);
       console.log(`📝 Texto: ${text.substring(0, 100)}...`);
       
-      // Para LID, necesitamos probar diferentes enfoques
-      const payloadsToTry: any[] = [];
+      let numberToUse: string;
       
       if (isLidJid) {
-        console.log(`📱 Contacto LID detectado`);
+        // Primero intentar obtener el número real del LID
+        const realNumber = await this.getRealPhoneNumber(instanceName, to);
         
-        // Enfoque 1: Usar remoteJid directamente (algunos forks de Evolution API)
-        payloadsToTry.push({
-          remoteJid: to,
-          message: { text: text }
-        });
-        
-        // Enfoque 2: Usar number con JID completo
-        payloadsToTry.push({
-          number: to,
-          textMessage: { text: text }
-        });
-        
-        // Enfoque 3: Usar number con JID completo y options
-        payloadsToTry.push({
-          number: to,
-          options: { delay: 1200, presence: "composing" },
-          textMessage: { text: text }
-        });
-        
-      } else {
-        // Para números normales
-        let cleanNumber: string;
-        if (isWhatsAppJid) {
-          cleanNumber = to.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-        } else if (to.includes('@')) {
-          cleanNumber = to.split('@')[0].replace(/\D/g, '');
+        if (realNumber) {
+          numberToUse = realNumber;
+          console.log(`📱 Usando número real obtenido: ${numberToUse}`);
         } else {
-          cleanNumber = to.replace(/\D/g, '');
+          // Si no se puede obtener, usar el LID directamente
+          numberToUse = to;
+          console.log(`📱 Usando LID directamente: ${numberToUse}`);
         }
-        
-        console.log(`📤 Número limpio: ${cleanNumber}`);
-        
-        payloadsToTry.push({
-          number: cleanNumber,
-          options: { delay: 1200, presence: "composing" },
-          textMessage: { text: text }
-        });
+      } else if (isWhatsAppJid) {
+        numberToUse = to.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      } else if (to.includes('@')) {
+        numberToUse = to.split('@')[0].replace(/\D/g, '');
+      } else {
+        numberToUse = to.replace(/\D/g, '');
       }
       
-      let lastError: any = null;
+      console.log(`📤 Número final a usar: ${numberToUse}`);
       
-      for (let i = 0; i < payloadsToTry.length; i++) {
-        try {
-          console.log(`🔄 Intento ${i + 1}:`, JSON.stringify(payloadsToTry[i]).substring(0, 200));
-          
-          const response = await axios.post(
-            `${this.apiUrl}/message/sendText/${instanceName}`,
-            payloadsToTry[i],
-            { headers: this.getHeaders() }
-          );
+      // Preparar payload
+      const payload = {
+        number: numberToUse,
+        options: { delay: 1200, presence: "composing" },
+        textMessage: { text: text }
+      };
+      
+      console.log(`🔄 Payload:`, JSON.stringify(payload).substring(0, 200));
+      
+      const response = await axios.post(
+        `${this.apiUrl}/message/sendText/${instanceName}`,
+        payload,
+        { headers: this.getHeaders() }
+      );
 
-          console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 200));
+      console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 200));
 
-          return {
-            success: true,
-            messageId: response.data?.key?.id || response.data?.messageId
-          };
-        } catch (err: any) {
-          lastError = err;
-          console.log(`⚠️ Intento ${i + 1} falló:`, JSON.stringify(err.response?.data || err.message).substring(0, 200));
-        }
-      }
-      
-      // Si es LID y todos los intentos fallaron, el contacto puede no ser contactable directamente
-      if (isLidJid) {
-        console.log('⚠️ No se pudo enviar mensaje a contacto LID. Este tipo de contacto puede requerir que el usuario inicie la conversación primero.');
-      }
-      
-      const errorData = lastError?.response?.data;
       return {
-        success: false,
-        error: JSON.stringify(errorData?.message || errorData || lastError?.message)
+        success: true,
+        messageId: response.data?.key?.id || response.data?.messageId
       };
       
     } catch (error: any) {
-      console.error('❌ Error general:', error.message);
+      const errorData = error.response?.data;
+      console.error('❌ Error enviando mensaje:', JSON.stringify(errorData || error.message));
+      
       return {
         success: false,
-        error: error.message
+        error: JSON.stringify(errorData?.message || errorData || error.message)
       };
     }
   }

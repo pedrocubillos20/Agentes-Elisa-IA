@@ -359,12 +359,30 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const messageData = data.data || data;
       const messages = messageData.messages || [messageData];
       
+      // LOG DETALLADO para debugging
+      console.log('📋 ========== WEBHOOK DATA COMPLETA ==========');
+      console.log('📋 Data completa:', JSON.stringify(data).substring(0, 1000));
+      console.log('📋 ============================================');
+      
       for (const msg of messages) {
+        // LOG del mensaje completo
+        console.log('📋 Mensaje completo:', JSON.stringify(msg).substring(0, 800));
+        
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
         const remoteJid = msg.key?.remoteJid || msg.from;
         if (!remoteJid) continue;
+
+        // Buscar el número real del contacto (puede estar en diferentes lugares)
+        const pushName = msg.pushName;
+        const participant = msg.key?.participant; // Para grupos o LID
+        const sender = msg.sender || msg.participant;
+        
+        console.log(`📋 remoteJid: ${remoteJid}`);
+        console.log(`📋 pushName: ${pushName}`);
+        console.log(`📋 participant: ${participant}`);
+        console.log(`📋 sender: ${sender}`);
 
         // Determinar si es un número LID (WhatsApp Business interno)
         const isLid = remoteJid.includes('@lid');
@@ -379,6 +397,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
           replyTo = remoteJid;
           displayNumber = remoteJid.replace('@lid', '');
           console.log(`📱 Mensaje de número LID: ${remoteJid}`);
+          
+          // Si hay un participant diferente, puede ser el número real
+          if (participant && participant !== remoteJid) {
+            console.log(`📱 Participant encontrado (posible número real): ${participant}`);
+            replyTo = participant;
+          }
         } else if (isGroup) {
           // Para grupos, no responder automáticamente (por ahora)
           console.log(`📱 Mensaje de grupo ignorado: ${remoteJid}`);

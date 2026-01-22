@@ -1,9 +1,9 @@
 import axios from 'axios';
 import prisma from '../lib/prisma';
-import { v4 as uuidv4 } from 'uuid';
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://localhost:8080';
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || '';
+// Configuración para Evolution API v1.8.2 en VPS Hostinger
+const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://31.97.142.127:8080';
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA2026SecureKey';
 
 interface EvolutionInstance {
   instanceName: string;
@@ -19,6 +19,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
+    console.log(`🔧 Evolution API v1.8.2 configurada: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -28,34 +29,43 @@ class EvolutionService {
     };
   }
 
-  // Crear instancia de WhatsApp para un usuario
+  // Crear instancia de WhatsApp para un usuario - Evolution API v1.8.2
   async createInstance(userId: string): Promise<{ success: boolean; instanceName?: string; qrcode?: string; error?: string }> {
     try {
       const instanceName = `elisa_${userId.substring(0, 8)}_${Date.now()}`;
       
-      console.log(`📱 Creando instancia Evolution: ${instanceName}`);
+      console.log(`📱 Creando instancia Evolution v1.8.2: ${instanceName}`);
+      console.log(`📡 URL: ${this.apiUrl}/instance/create`);
       
+      // Evolution API v1.8.2 - payload simple
       const response = await axios.post(
         `${this.apiUrl}/instance/create`,
         {
           instanceName,
-          qrcode: true,
-          integration: 'WHATSAPP-BAILEYS'
+          qrcode: true
         },
         { headers: this.getHeaders() }
       );
 
-      console.log('✅ Instancia creada:', response.data);
+      console.log('✅ Instancia creada:', JSON.stringify(response.data).substring(0, 500));
+
+      // Evolution API v1.8.2 devuelve { instance: { instanceName, status }, hash }
+      const instanceKey = typeof response.data?.hash === 'string' 
+        ? response.data.hash 
+        : instanceName;
 
       // Guardar en base de datos
       await prisma.user.update({
         where: { id: userId },
         data: {
           evolutionInstanceName: instanceName,
-          evolutionInstanceKey: response.data?.hash || response.data?.instance?.instanceId || instanceName,
+          evolutionInstanceKey: instanceKey,
           whatsappStatus: 'connecting'
         }
       });
+
+      // Esperar para que la instancia se inicialice
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       // Obtener QR Code
       const qrResponse = await this.getQRCode(instanceName);
@@ -74,7 +84,7 @@ class EvolutionService {
     }
   }
 
-  // Obtener QR Code
+  // Obtener QR Code - Evolution API v1.8.2
   async getQRCode(instanceName: string): Promise<{ success: boolean; qrcode?: string; error?: string }> {
     try {
       console.log(`📷 Obteniendo QR para: ${instanceName}`);
@@ -84,10 +94,15 @@ class EvolutionService {
         { headers: this.getHeaders() }
       );
 
-      const qrcode = response.data?.base64 || response.data?.qrcode?.base64 || response.data?.code;
+      console.log('📷 Respuesta QR:', JSON.stringify(response.data).substring(0, 300));
+
+      // Evolution API v1.8.2 - el QR viene en base64
+      const qrcode = response.data?.base64 || 
+                     response.data?.qrcode?.base64 || 
+                     response.data?.qrcode ||
+                     response.data?.code;
       
       if (qrcode) {
-        // Actualizar en DB
         const user = await prisma.user.findFirst({
           where: { evolutionInstanceName: instanceName }
         });
@@ -113,7 +128,7 @@ class EvolutionService {
     }
   }
 
-  // Verificar estado de conexión
+  // Verificar estado de conexión - Evolution API v1.8.2
   async checkConnectionStatus(instanceName: string): Promise<{ connected: boolean; status: string; phone?: string }> {
     try {
       const response = await axios.get(
@@ -121,10 +136,11 @@ class EvolutionService {
         { headers: this.getHeaders() }
       );
 
+      console.log('📊 Estado conexión:', JSON.stringify(response.data));
+
       const state = response.data?.instance?.state || response.data?.state || 'close';
       const connected = state === 'open';
       
-      // Obtener número si está conectado
       let phone = null;
       if (connected) {
         try {
@@ -133,14 +149,18 @@ class EvolutionService {
             { headers: this.getHeaders() }
           );
           
-          const instance = infoResponse.data?.find((i: any) => i.name === instanceName || i.instanceName === instanceName);
-          phone = instance?.owner || instance?.profilePictureUrl?.split('@')[0];
+          const instances = infoResponse.data || [];
+          const instance = instances.find((i: any) => 
+            i.instance?.instanceName === instanceName || 
+            i.name === instanceName || 
+            i.instanceName === instanceName
+          );
+          phone = instance?.instance?.owner?.split('@')[0] || instance?.owner?.split('@')[0];
         } catch (e) {
-          // Ignorar error
+          console.log('No se pudo obtener el número de teléfono');
         }
       }
 
-      // Actualizar en DB
       const user = await prisma.user.findFirst({
         where: { evolutionInstanceName: instanceName }
       });
@@ -152,7 +172,7 @@ class EvolutionService {
             whatsappConnected: connected,
             whatsappStatus: connected ? 'connected' : state,
             whatsappPhone: phone || user.whatsappPhone,
-            whatsappQrCode: connected ? null : user.whatsappQrCode // Limpiar QR si está conectado
+            whatsappQrCode: connected ? null : user.whatsappQrCode
           }
         });
       }
@@ -181,7 +201,6 @@ class EvolutionService {
         { headers: this.getHeaders() }
       );
 
-      // Actualizar en DB
       const user = await prisma.user.findFirst({
         where: { evolutionInstanceName: instanceName }
       });
@@ -217,7 +236,6 @@ class EvolutionService {
         { headers: this.getHeaders() }
       );
 
-      // Actualizar en DB
       const user = await prisma.user.findFirst({
         where: { evolutionInstanceName: instanceName }
       });
@@ -246,19 +264,21 @@ class EvolutionService {
     }
   }
 
-  // Enviar mensaje de texto
+  // Enviar mensaje de texto - Evolution API v1.8.2
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      // Formatear número (asegurar que tenga formato correcto)
       const formattedNumber = to.replace(/\D/g, '');
       
       console.log(`📤 Enviando mensaje a ${formattedNumber} desde ${instanceName}`);
       
+      // Evolution API v1.8.2 usa textMessage.text
       const response = await axios.post(
         `${this.apiUrl}/message/sendText/${instanceName}`,
         {
           number: formattedNumber,
-          text: text
+          textMessage: {
+            text: text
+          }
         },
         { headers: this.getHeaders() }
       );
@@ -278,7 +298,7 @@ class EvolutionService {
     }
   }
 
-  // Configurar webhook para recibir mensajes
+  // Configurar webhook - Evolution API v1.8.2
   async setWebhook(instanceName: string, webhookUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`🔗 Configurando webhook para ${instanceName}: ${webhookUrl}`);
@@ -286,17 +306,15 @@ class EvolutionService {
       const response = await axios.post(
         `${this.apiUrl}/webhook/set/${instanceName}`,
         {
-          webhook: {
-            enabled: true,
-            url: webhookUrl,
-            webhookByEvents: false,
-            events: [
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'CONNECTION_UPDATE',
-              'QRCODE_UPDATED'
-            ]
-          }
+          enabled: true,
+          url: webhookUrl,
+          webhookByEvents: false,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'CONNECTION_UPDATE',
+            'QRCODE_UPDATED'
+          ]
         },
         { headers: this.getHeaders() }
       );

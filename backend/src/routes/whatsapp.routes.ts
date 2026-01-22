@@ -368,24 +368,25 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
         // Determinar si es un número LID (WhatsApp Business interno)
         const isLid = remoteJid.includes('@lid');
+        const isGroup = remoteJid.includes('@g.us');
         
-        // Para LID, usar el remoteJid completo; para otros, extraer el número
-        let phoneNumber: string;
-        let displayNumber: string;
+        // Para responder, necesitamos mantener el formato correcto
+        let replyTo: string;      // ID para enviar respuesta
+        let displayNumber: string; // Número para mostrar en UI
         
         if (isLid) {
-          // Para LID, guardamos el JID completo para responder
-          phoneNumber = remoteJid; // Mantener formato completo para envío
-          displayNumber = remoteJid.replace('@lid', ''); // Solo para mostrar
-          console.log(`📱 Número LID detectado: ${remoteJid}`);
+          // Para LID, mantener el remoteJid completo para responder
+          replyTo = remoteJid;
+          displayNumber = remoteJid.replace('@lid', '');
+          console.log(`📱 Mensaje de número LID: ${remoteJid}`);
+        } else if (isGroup) {
+          // Para grupos, no responder automáticamente (por ahora)
+          console.log(`📱 Mensaje de grupo ignorado: ${remoteJid}`);
+          continue;
         } else {
-          // Formato normal - extraer número limpio
-          phoneNumber = remoteJid
-            .replace('@s.whatsapp.net', '')
-            .replace('@g.us', '')
-            .replace(/@.*$/, '');
-          phoneNumber = phoneNumber.replace(/\D/g, '');
-          displayNumber = phoneNumber;
+          // Formato normal @s.whatsapp.net - extraer número limpio
+          replyTo = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+          displayNumber = replyTo;
         }
         
         // Extraer contenido del mensaje
@@ -398,6 +399,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (!messageContent) continue;
 
         console.log(`📨 Mensaje de ${displayNumber}: ${messageContent}`);
+        console.log(`📨 ReplyTo: ${replyTo}`);
 
         // Buscar usuario por instancia
         const user = await prisma.user.findFirst({
@@ -414,17 +416,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
           // Enviar mensaje de error
           await evolutionService.sendTextMessage(
             instanceName,
-            phoneNumber,
+            replyTo,
             '⚠️ El asistente no está configurado correctamente. Por favor contacta al administrador.'
           );
           continue;
         }
 
-        // Buscar o crear conversación (usar phoneNumber como ID para envío)
+        // Buscar o crear conversación (usar displayNumber para UI, replyTo para envío)
         let conversation = await prisma.conversation.findFirst({
           where: {
             userId: user.id,
-            recipientId: phoneNumber
+            recipientId: displayNumber // Usar número limpio para buscar
           }
         });
 
@@ -432,8 +434,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           conversation = await prisma.conversation.create({
             data: {
               userId: user.id,
-              recipientId: phoneNumber, // JID completo para envío
-              recipientName: msg.pushName || displayNumber, // Nombre limpio para mostrar
+              recipientId: displayNumber, // Número limpio para mostrar
+              recipientName: msg.pushName || displayNumber,
               lastMessage: messageContent,
               lastMessageAt: new Date()
             }
@@ -480,10 +482,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
         );
 
         if (aiResponse.success && aiResponse.response) {
-          // Enviar respuesta
+          // Enviar respuesta usando replyTo (que tiene el formato correcto para LID o número normal)
           const sendResult = await evolutionService.sendTextMessage(
             instanceName,
-            phoneNumber,
+            replyTo,
             aiResponse.response
           );
 
@@ -499,7 +501,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
               }
             });
 
-            console.log(`✅ Respuesta enviada a ${phoneNumber}`);
+            console.log(`✅ Respuesta enviada a ${displayNumber}`);
+          } else {
+            console.error(`❌ Error enviando respuesta: ${sendResult.error}`);
           }
         } else {
           console.error('❌ Error generando respuesta:', aiResponse.error);
@@ -507,7 +511,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           // Enviar mensaje de error amigable
           await evolutionService.sendTextMessage(
             instanceName,
-            phoneNumber,
+            replyTo,
             'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo.'
           );
         }

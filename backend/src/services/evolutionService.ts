@@ -28,7 +28,6 @@ class EvolutionService {
     error?: string 
   }> {
     try {
-      // Generar nombre único para la instancia
       const instanceName = `elisa_${userId.substring(0, 8)}_${Date.now()}`;
       
       console.log(`🔧 Creando instancia: ${instanceName}`);
@@ -43,11 +42,8 @@ class EvolutionService {
         { headers: this.getHeaders() }
       );
 
-      console.log('✅ Instancia creada:', JSON.stringify(response.data).substring(0, 300));
-
       const qrcode = response.data?.qrcode?.base64 || response.data?.base64;
 
-      // Actualizar usuario con el nombre de instancia
       await prisma.user.update({
         where: { id: userId },
         data: {
@@ -87,8 +83,6 @@ class EvolutionService {
 
       const state = response.data?.instance?.state || response.data?.state;
       const phone = response.data?.instance?.owner || response.data?.owner;
-      
-      console.log(`📊 Estado de ${instanceName}: ${state}`);
 
       return {
         connected: state === 'open',
@@ -96,11 +90,7 @@ class EvolutionService {
         phone: phone?.replace('@s.whatsapp.net', '').replace(/\D/g, '')
       };
     } catch (error: any) {
-      // Si es 404, la instancia no existe
       if (error.response?.status === 404) {
-        console.log(`⚠️ Instancia ${instanceName} no existe en Evolution API`);
-        
-        // Limpiar datos del usuario
         const user = await prisma.user.findFirst({
           where: { evolutionInstanceName: instanceName }
         });
@@ -126,7 +116,6 @@ class EvolutionService {
         };
       }
       
-      console.error('❌ Error verificando estado:', error.response?.data || error.message);
       return {
         connected: false,
         error: error.response?.data?.message || error.message
@@ -157,14 +146,12 @@ class EvolutionService {
       };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        console.log(`⚠️ Instancia no encontrada (404): ${instanceName}`);
         return {
           success: false,
           instanceNotFound: true,
           error: 'Instance not found'
         };
       }
-      console.error('❌ Error obteniendo QR:', error.response?.data || error.message);
       return {
         success: false,
         error: error.response?.data?.message || error.message
@@ -172,99 +159,151 @@ class EvolutionService {
     }
   }
 
-  // Obtener número real de un LID
-  async getRealPhoneNumber(instanceName: string, lidJid: string): Promise<string | null> {
+  // ============================================
+  // BUSCAR NÚMERO REAL DE UN CONTACTO LID
+  // ============================================
+  async findRealPhoneNumber(instanceName: string, lidJid: string): Promise<string | null> {
+    console.log(`\n🔍 ========== BUSCANDO NÚMERO REAL ==========`);
+    console.log(`🔍 LID JID: ${lidJid}`);
+    
     try {
-      console.log(`🔍 Buscando número real para LID: ${lidJid}`);
-      
-      const response = await axios.get(
-        `${this.apiUrl}/chat/findContacts/${instanceName}`,
-        { 
-          headers: this.getHeaders(),
-          params: { where: { id: lidJid } }
+      // Método 1: Buscar en contactos por LID
+      console.log(`🔍 Método 1: Buscando en contactos...`);
+      try {
+        const contactsResponse = await axios.get(
+          `${this.apiUrl}/chat/findContacts/${instanceName}`,
+          { 
+            headers: this.getHeaders(),
+            params: { where: { id: lidJid } }
+          }
+        );
+        
+        console.log(`🔍 Contactos encontrados:`, JSON.stringify(contactsResponse.data).substring(0, 500));
+        
+        if (contactsResponse.data && contactsResponse.data.length > 0) {
+          const contact = contactsResponse.data[0];
+          // Buscar número en diferentes campos
+          const possibleNumber = contact.id?.replace('@s.whatsapp.net', '') ||
+                                contact.number ||
+                                contact.jid?.replace('@s.whatsapp.net', '') ||
+                                contact.phone;
+          
+          if (possibleNumber && !possibleNumber.includes('@lid') && possibleNumber.length >= 10) {
+            console.log(`✅ Número real encontrado en contactos: ${possibleNumber}`);
+            return possibleNumber.replace(/\D/g, '');
+          }
         }
-      );
-      
-      const contact = response.data?.[0];
-      const realNumber = contact?.id?.replace('@s.whatsapp.net', '').replace(/@.*$/, '') ||
-                        contact?.number;
-      
-      if (realNumber && !realNumber.includes('@lid')) {
-        console.log(`✅ Número real encontrado: ${realNumber}`);
-        return realNumber;
+      } catch (e: any) {
+        console.log(`⚠️ Método 1 falló:`, e.message);
       }
-      
+
+      // Método 2: Buscar en chats
+      console.log(`🔍 Método 2: Buscando en chats...`);
+      try {
+        const chatsResponse = await axios.get(
+          `${this.apiUrl}/chat/findChats/${instanceName}`,
+          { headers: this.getHeaders() }
+        );
+        
+        const chats = chatsResponse.data || [];
+        for (const chat of chats) {
+          if (chat.id === lidJid || chat.remoteJid === lidJid) {
+            console.log(`🔍 Chat encontrado:`, JSON.stringify(chat).substring(0, 300));
+            
+            const possibleNumber = chat.number || 
+                                  chat.phone ||
+                                  chat.contact?.number ||
+                                  chat.contact?.phone;
+            
+            if (possibleNumber && possibleNumber.length >= 10) {
+              console.log(`✅ Número real encontrado en chats: ${possibleNumber}`);
+              return possibleNumber.replace(/\D/g, '');
+            }
+          }
+        }
+      } catch (e: any) {
+        console.log(`⚠️ Método 2 falló:`, e.message);
+      }
+
+      // Método 3: Obtener perfil del contacto
+      console.log(`🔍 Método 3: Obteniendo perfil...`);
+      try {
+        const lidNumber = lidJid.replace('@lid', '');
+        const profileResponse = await axios.post(
+          `${this.apiUrl}/chat/fetchProfile/${instanceName}`,
+          { number: lidNumber },
+          { headers: this.getHeaders() }
+        );
+        
+        console.log(`🔍 Perfil:`, JSON.stringify(profileResponse.data).substring(0, 300));
+        
+        const profile = profileResponse.data;
+        const possibleNumber = profile?.number || profile?.wid?.user || profile?.jid?.replace('@s.whatsapp.net', '');
+        
+        if (possibleNumber && !possibleNumber.includes('lid') && possibleNumber.length >= 10) {
+          console.log(`✅ Número real encontrado en perfil: ${possibleNumber}`);
+          return possibleNumber.replace(/\D/g, '');
+        }
+      } catch (e: any) {
+        console.log(`⚠️ Método 3 falló:`, e.message);
+      }
+
+      console.log(`❌ No se pudo encontrar el número real`);
       return null;
+      
     } catch (error: any) {
-      console.log('⚠️ No se pudo obtener número real:', error.response?.status, error.message);
+      console.error('❌ Error buscando número real:', error.message);
       return null;
     }
   }
 
-  // Enviar mensaje de texto - Evolution API v1.8.2
+  // ============================================
+  // ENVIAR MENSAJE
+  // ============================================
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    try {
-      // ============================================
-      // PARSEO DEL NÚMERO DESTINATARIO
-      // ============================================
-      const isLidJid = to.includes('@lid');
-      const isWhatsAppJid = to.includes('@s.whatsapp.net');
-      const isGroupJid = to.includes('@g.us');
+    console.log(`\n📤 ========== ENVIANDO MENSAJE ==========`);
+    console.log(`📤 Destinatario: "${to}"`);
+    console.log(`📝 Texto: ${text.substring(0, 80)}...`);
+    
+    const isLid = to.includes('@lid');
+    const isGroup = to.includes('@g.us');
+    
+    if (isGroup) {
+      return { success: false, error: 'Groups not supported' };
+    }
+    
+    let numberToSend: string;
+    
+    if (isLid) {
+      // Intentar obtener número real
+      const realNumber = await this.findRealPhoneNumber(instanceName, to);
       
-      console.log(`📤 Enviando mensaje desde ${instanceName}`);
-      console.log(`📤 Destinatario original: "${to}"`);
-      console.log(`📝 Texto: ${text.substring(0, 100)}...`);
-      
-      let numberToUse: string;
-      
-      if (isLidJid) {
-        // Para LID, intentar obtener número real
-        const realNumber = await this.getRealPhoneNumber(instanceName, to);
-        
-        if (realNumber) {
-          numberToUse = realNumber.replace(/\D/g, '');
-          console.log(`📱 Usando número real obtenido: ${numberToUse}`);
-        } else {
-          // Extraer número del LID usando split
-          const parts = to.split('@');
-          numberToUse = parts[0].replace(/\D/g, '');
-          console.log(`📱 LID: "${to}" -> partes: ${JSON.stringify(parts)} -> número: "${numberToUse}"`);
-        }
-      } else if (isWhatsAppJid) {
-        // Formato normal @s.whatsapp.net
-        const parts = to.split('@');
-        numberToUse = parts[0].replace(/\D/g, '');
-        console.log(`📱 WhatsApp JID: "${to}" -> número: "${numberToUse}"`);
-      } else if (isGroupJid) {
-        console.log('⚠️ Destino es un grupo, no soportado');
-        return { success: false, error: 'Group messages not supported' };
-      } else if (to.includes('@')) {
-        // Otro formato con @
-        const parts = to.split('@');
-        numberToUse = parts[0].replace(/\D/g, '');
-        console.log(`📱 Otro formato: "${to}" -> número: "${numberToUse}"`);
+      if (realNumber) {
+        numberToSend = realNumber;
+        console.log(`📱 Usando número REAL encontrado: ${numberToSend}`);
       } else {
-        // Ya es un número limpio
-        numberToUse = to.replace(/\D/g, '');
-        console.log(`📱 Número limpio: "${numberToUse}"`);
+        // Si no encontramos el número real, usar el LID sin el @lid
+        numberToSend = to.split('@')[0];
+        console.log(`⚠️ No se encontró número real, usando LID: ${numberToSend}`);
       }
-      
-      console.log(`📤 Número final a enviar: "${numberToUse}"`);
-      
-      // Preparar payload para Evolution API v1.8.2
+    } else if (to.includes('@')) {
+      numberToSend = to.split('@')[0].replace(/\D/g, '');
+    } else {
+      numberToSend = to.replace(/\D/g, '');
+    }
+    
+    console.log(`📤 Número final: "${numberToSend}"`);
+    
+    // Enviar mensaje
+    try {
       const payload = {
-        number: numberToUse,
-        options: { 
-          delay: 1200, 
-          presence: "composing" 
-        },
-        textMessage: { 
-          text: text 
-        }
+        number: numberToSend,
+        options: { delay: 1200, presence: "composing" },
+        textMessage: { text }
       };
       
       console.log(`🔄 Payload:`, JSON.stringify(payload).substring(0, 300));
@@ -274,165 +313,85 @@ class EvolutionService {
         payload,
         { headers: this.getHeaders() }
       );
-
+      
       console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 200));
-
+      
       return {
         success: true,
         messageId: response.data?.key?.id || response.data?.messageId
       };
       
     } catch (error: any) {
-      const errorData = error.response?.data;
-      console.error('❌ Error enviando mensaje:', JSON.stringify(errorData || error.message));
-      console.error('❌ Status:', error.response?.status);
-      
+      console.error('❌ Error enviando:', error.response?.data || error.message);
       return {
         success: false,
-        error: JSON.stringify(errorData?.message || errorData || error.message)
+        error: JSON.stringify(error.response?.data || error.message)
       };
     }
   }
 
-  // Configurar webhook para recibir mensajes
-  async setWebhook(instanceName: string, webhookUrl: string): Promise<{ 
-    success: boolean; 
-    error?: string 
-  }> {
+  // Configurar webhook
+  async setWebhook(instanceName: string, webhookUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`🔗 Configurando webhook para ${instanceName}: ${webhookUrl}`);
-      
-      const response = await axios.post(
+      await axios.post(
         `${this.apiUrl}/webhook/set/${instanceName}`,
         {
           enabled: true,
           url: webhookUrl,
           webhookByEvents: false,
-          events: [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE', 
-            'CONNECTION_UPDATE',
-            'QRCODE_UPDATED',
-            'SEND_MESSAGE'
-          ]
+          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED', 'SEND_MESSAGE']
         },
         { headers: this.getHeaders() }
       );
-
-      console.log('✅ Webhook configurado:', response.data);
-
       return { success: true };
     } catch (error: any) {
-      console.error('❌ Error configurando webhook:', error.response?.data || error.message);
-      return {
-        success: false,
-        error: error.response?.data?.message || error.message
-      };
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 
-  // Desconectar instancia (logout)
-  async disconnectInstance(instanceName: string): Promise<{ 
-    success: boolean; 
-    error?: string 
-  }> {
+  // Desconectar
+  async disconnectInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`🔌 Desconectando instancia: ${instanceName}`);
+      await axios.delete(`${this.apiUrl}/instance/logout/${instanceName}`, { headers: this.getHeaders() });
       
-      await axios.delete(
-        `${this.apiUrl}/instance/logout/${instanceName}`,
-        { headers: this.getHeaders() }
-      );
-
-      // Actualizar estado del usuario
-      const user = await prisma.user.findFirst({
-        where: { evolutionInstanceName: instanceName }
-      });
-      
+      const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
       if (user) {
         await prisma.user.update({
           where: { id: user.id },
-          data: {
-            whatsappConnected: false,
-            whatsappStatus: 'disconnected',
-            whatsappQrCode: null
-          }
+          data: { whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null }
         });
       }
-
       return { success: true };
     } catch (error: any) {
-      console.error('❌ Error desconectando:', error.response?.data || error.message);
-      return {
-        success: false,
-        error: error.response?.data?.message || error.message
-      };
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 
-  // Eliminar instancia completamente
-  async deleteInstance(instanceName: string): Promise<{ 
-    success: boolean; 
-    error?: string 
-  }> {
+  // Eliminar instancia
+  async deleteInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`🗑️ Eliminando instancia: ${instanceName}`);
+      await axios.delete(`${this.apiUrl}/instance/delete/${instanceName}`, { headers: this.getHeaders() });
       
-      await axios.delete(
-        `${this.apiUrl}/instance/delete/${instanceName}`,
-        { headers: this.getHeaders() }
-      );
-
-      // Limpiar datos del usuario
-      const user = await prisma.user.findFirst({
-        where: { evolutionInstanceName: instanceName }
-      });
-      
+      const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
       if (user) {
         await prisma.user.update({
           where: { id: user.id },
-          data: {
-            evolutionInstanceName: null,
-            whatsappConnected: false,
-            whatsappStatus: 'disconnected',
-            whatsappQrCode: null,
-            whatsappPhone: null
-          }
+          data: { evolutionInstanceName: null, whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null, whatsappPhone: null }
         });
       }
-
       return { success: true };
     } catch (error: any) {
-      // Si ya no existe, considerarlo exitoso
       if (error.response?.status === 404) {
-        console.log(`⚠️ Instancia ${instanceName} ya no existe`);
-        
-        // Limpiar datos del usuario de todos modos
-        const user = await prisma.user.findFirst({
-          where: { evolutionInstanceName: instanceName }
-        });
-        
+        const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
           await prisma.user.update({
             where: { id: user.id },
-            data: {
-              evolutionInstanceName: null,
-              whatsappConnected: false,
-              whatsappStatus: 'disconnected',
-              whatsappQrCode: null,
-              whatsappPhone: null
-            }
+            data: { evolutionInstanceName: null, whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null, whatsappPhone: null }
           });
         }
-        
         return { success: true };
       }
-      
-      console.error('❌ Error eliminando instancia:', error.response?.data || error.message);
-      return {
-        success: false,
-        error: error.response?.data?.message || error.message
-      };
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 }

@@ -14,12 +14,31 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
 
+    // Recargar usuario para obtener datos actualizados
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
     // Si tiene instancia, verificar estado actual
-    if (user.evolutionInstanceName) {
-      const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+    if (currentUser.evolutionInstanceName) {
+      const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
       
-      // Obtener usuario actualizado
-      const updatedUser = await prisma.user.findUnique({ where: { id: user.id } });
+      // Si la instancia no existe, devolver estado desconectado
+      if (status.instanceNotFound) {
+        return res.json({
+          connected: false,
+          status: 'disconnected',
+          phone: null,
+          instanceName: null,
+          qrCode: null,
+          message: 'La instancia anterior fue eliminada. Por favor conecta de nuevo.'
+        });
+      }
+      
+      // Obtener usuario actualizado después de checkConnectionStatus
+      const updatedUser = await prisma.user.findUnique({ where: { id: currentUser.id } });
       
       return res.json({
         connected: updatedUser?.whatsappConnected || false,
@@ -50,12 +69,22 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
 
     console.log(`📱 Iniciando conexión WhatsApp para: ${user.email}`);
 
+    // Recargar usuario para obtener datos actualizados
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
     // Si ya tiene instancia, intentar reconectar
-    if (user.evolutionInstanceName) {
+    if (currentUser.evolutionInstanceName) {
       // Verificar si ya está conectado
-      const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+      const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
       
-      if (status.connected) {
+      // Si la instancia no existe, crear una nueva
+      if (status.instanceNotFound) {
+        console.log(`📱 Instancia anterior no existe, creando nueva para: ${currentUser.email}`);
+      } else if (status.connected) {
         return res.json({
           success: true,
           connected: true,
@@ -63,27 +92,30 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
           phone: status.phone,
           message: 'Ya estás conectado'
         });
-      }
+      } else {
+        // Obtener nuevo QR
+        const qrResult = await evolutionService.getQRCode(currentUser.evolutionInstanceName);
+        
+        if (qrResult.success && qrResult.qrcode) {
+          return res.json({
+            success: true,
+            connected: false,
+            status: 'waiting_qr',
+            qrCode: qrResult.qrcode,
+            instanceName: currentUser.evolutionInstanceName
+          });
+        }
 
-      // Obtener nuevo QR
-      const qrResult = await evolutionService.getQRCode(user.evolutionInstanceName);
-      
-      if (qrResult.success && qrResult.qrcode) {
-        return res.json({
-          success: true,
-          connected: false,
-          status: 'waiting_qr',
-          qrCode: qrResult.qrcode,
-          instanceName: user.evolutionInstanceName
-        });
+        // Si no pudo obtener QR y la instancia no fue encontrada, continuar a crear nueva
+        if (!qrResult.instanceNotFound) {
+          // Si la instancia existe pero no pudo obtener QR, eliminarla
+          await evolutionService.deleteInstance(currentUser.evolutionInstanceName);
+        }
       }
-
-      // Si no pudo obtener QR, eliminar y crear nueva instancia
-      await evolutionService.deleteInstance(user.evolutionInstanceName);
     }
 
     // Crear nueva instancia
-    const result = await evolutionService.createInstance(user.id);
+    const result = await evolutionService.createInstance(currentUser.id);
     
     if (!result.success) {
       return res.status(500).json({ 
@@ -114,12 +146,38 @@ router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
 
-    if (!user.evolutionInstanceName) {
-      return res.status(400).json({ error: 'No hay conexión iniciada' });
+    // Recargar usuario para obtener datos actualizados
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    if (!currentUser.evolutionInstanceName) {
+      // No hay instancia, crear una nueva automáticamente
+      console.log(`📱 No hay instancia, creando una nueva para: ${currentUser.email}`);
+      
+      const result = await evolutionService.createInstance(currentUser.id);
+      
+      if (!result.success) {
+        return res.status(500).json({ error: result.error || 'Error al crear instancia' });
+      }
+
+      // Configurar webhook
+      if (result.instanceName) {
+        await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
+      }
+
+      return res.json({
+        connected: false,
+        status: 'waiting_qr',
+        qrCode: result.qrcode,
+        instanceName: result.instanceName
+      });
     }
 
     // Primero verificar si ya está conectado
-    const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+    const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
     
     if (status.connected) {
       return res.json({
@@ -131,12 +189,35 @@ router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
     }
 
     // Obtener nuevo QR
-    const result = await evolutionService.getQRCode(user.evolutionInstanceName);
+    const result = await evolutionService.getQRCode(currentUser.evolutionInstanceName);
+
+    // Si la instancia no existe, crear una nueva
+    if (result.instanceNotFound) {
+      console.log(`📱 Instancia no encontrada, creando nueva para: ${currentUser.email}`);
+      
+      const newInstance = await evolutionService.createInstance(currentUser.id);
+      
+      if (!newInstance.success) {
+        return res.status(500).json({ error: newInstance.error || 'Error al crear instancia' });
+      }
+
+      // Configurar webhook
+      if (newInstance.instanceName) {
+        await evolutionService.setWebhook(newInstance.instanceName, WEBHOOK_URL);
+      }
+
+      return res.json({
+        connected: false,
+        status: 'waiting_qr',
+        qrCode: newInstance.qrcode,
+        instanceName: newInstance.instanceName
+      });
+    }
 
     res.json({
       connected: false,
       status: 'waiting_qr',
-      qrCode: result.qrcode || user.whatsappQrCode
+      qrCode: result.qrcode || currentUser.whatsappQrCode
     });
   } catch (error: any) {
     console.error('Error obteniendo QR:', error);
@@ -278,6 +359,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const messageData = data.data || data;
       const messages = messageData.messages || [messageData];
       
+      // LOG DETALLADO para debugging
+      console.log('📋 ========== WEBHOOK MESSAGES_UPSERT ==========');
+      console.log('📋 Raw Data:', JSON.stringify(data).substring(0, 2000));
+      console.log('📋 =============================================');
+      
       for (const msg of messages) {
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
@@ -285,8 +371,105 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const remoteJid = msg.key?.remoteJid || msg.from;
         if (!remoteJid) continue;
 
-        // Extraer número de teléfono
-        const phoneNumber = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '');
+        // ============================================
+        // PARSEO DEL NÚMERO - CRÍTICO
+        // ============================================
+        console.log(`📋 ========== PARSEANDO NÚMERO ==========`);
+        console.log(`📋 remoteJid ORIGINAL: "${remoteJid}"`);
+        console.log(`📋 Tipo: ${typeof remoteJid}`);
+        console.log(`📋 Longitud: ${remoteJid.length}`);
+        
+        // Detectar tipo de JID
+        const isLid = remoteJid.includes('@lid');
+        const isGroup = remoteJid.includes('@g.us');
+        const isNormal = remoteJid.includes('@s.whatsapp.net');
+        
+        console.log(`📋 Es LID: ${isLid}`);
+        console.log(`📋 Es Grupo: ${isGroup}`);
+        console.log(`📋 Es Normal: ${isNormal}`);
+        
+        // Ignorar grupos
+        if (isGroup) {
+          console.log(`📱 Mensaje de grupo ignorado: ${remoteJid}`);
+          continue;
+        }
+        
+        // Variables para el número
+        let replyTo: string;      // Número para ENVIAR respuesta
+        let displayNumber: string; // Número para MOSTRAR en UI
+        
+        // Campos adicionales que pueden contener el número real
+        const pushName = msg.pushName;
+        const participant = msg.key?.participant;
+        const sender = msg.sender;
+        
+        console.log(`📋 pushName: ${pushName}`);
+        console.log(`📋 participant: ${participant}`);
+        console.log(`📋 sender: ${sender}`);
+        
+        if (isLid) {
+          // ============================================
+          // MANEJO DE NÚMEROS LID
+          // ============================================
+          console.log(`📱 Procesando número LID...`);
+          
+          // Intentar encontrar el número real en otros campos
+          let realNumber: string | null = null;
+          
+          // Prioridad 1: participant con formato @s.whatsapp.net
+          if (participant && participant.includes('@s.whatsapp.net')) {
+            realNumber = participant.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+            console.log(`✅ Número real en participant: ${realNumber}`);
+          }
+          // Prioridad 2: sender sin @lid
+          else if (sender && !sender.includes('@lid')) {
+            realNumber = sender.replace(/@.*/, '').replace(/\D/g, '');
+            console.log(`✅ Número real en sender: ${realNumber}`);
+          }
+          
+          if (realNumber && realNumber.length >= 10) {
+            // Encontramos el número real
+            replyTo = realNumber;
+            displayNumber = realNumber;
+            console.log(`✅ Usando número real: ${replyTo}`);
+          } else {
+            // No encontramos número real, extraer del LID
+            // CRÍTICO: Usar split('@') para separar correctamente
+            const lidParts = remoteJid.split('@');
+            console.log(`📋 LID partes: ${JSON.stringify(lidParts)}`);
+            
+            // El número está en la primera parte (antes del @)
+            const lidNumber = lidParts[0].replace(/\D/g, '');
+            console.log(`📋 Número extraído del LID: ${lidNumber}`);
+            
+            replyTo = lidNumber;
+            displayNumber = lidNumber;
+            console.log(`⚠️ Usando número del LID: ${replyTo}`);
+          }
+          
+        } else if (isNormal) {
+          // ============================================
+          // MANEJO DE NÚMEROS NORMALES (@s.whatsapp.net)
+          // ============================================
+          const normalParts = remoteJid.split('@');
+          replyTo = normalParts[0].replace(/\D/g, '');
+          displayNumber = replyTo;
+          console.log(`📱 Número normal: ${replyTo}`);
+          
+        } else {
+          // ============================================
+          // OTRO FORMATO DESCONOCIDO
+          // ============================================
+          const otherParts = remoteJid.split('@');
+          replyTo = otherParts[0].replace(/\D/g, '');
+          displayNumber = replyTo;
+          console.log(`📱 Formato desconocido, número extraído: ${replyTo}`);
+        }
+        
+        console.log(`📋 ========== RESULTADO FINAL ==========`);
+        console.log(`📋 replyTo (para enviar): "${replyTo}"`);
+        console.log(`📋 displayNumber (para UI): "${displayNumber}"`);
+        console.log(`📋 =======================================`);
         
         // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
@@ -295,9 +478,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
                               msg.text ||
                               '';
         
-        if (!messageContent) continue;
+        if (!messageContent) {
+          console.log('⚠️ Mensaje sin contenido de texto, saltando...');
+          continue;
+        }
 
-        console.log(`📨 Mensaje de ${phoneNumber}: ${messageContent}`);
+        console.log(`📨 Mensaje de ${displayNumber}: ${messageContent}`);
 
         // Buscar usuario por instancia
         const user = await prisma.user.findFirst({
@@ -314,7 +500,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           // Enviar mensaje de error
           await evolutionService.sendTextMessage(
             instanceName,
-            phoneNumber,
+            replyTo,
             '⚠️ El asistente no está configurado correctamente. Por favor contacta al administrador.'
           );
           continue;
@@ -324,7 +510,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         let conversation = await prisma.conversation.findFirst({
           where: {
             userId: user.id,
-            recipientId: phoneNumber
+            recipientId: displayNumber
           }
         });
 
@@ -332,8 +518,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           conversation = await prisma.conversation.create({
             data: {
               userId: user.id,
-              recipientId: phoneNumber,
-              recipientName: msg.pushName || phoneNumber,
+              recipientId: displayNumber,
+              recipientName: pushName || displayNumber,
               lastMessage: messageContent,
               lastMessageAt: new Date()
             }
@@ -344,7 +530,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             data: {
               lastMessage: messageContent,
               lastMessageAt: new Date(),
-              recipientName: msg.pushName || conversation.recipientName
+              recipientName: pushName || conversation.recipientName
             }
           });
         }
@@ -376,14 +562,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const aiResponse = await openaiService.generateResponse(
           user.id,
           messageContent,
-          history.slice(0, -1) // Excluir el mensaje actual
+          history.slice(0, -1)
         );
 
         if (aiResponse.success && aiResponse.response) {
+          console.log(`📤 Enviando respuesta a: ${replyTo}`);
+          
           // Enviar respuesta
           const sendResult = await evolutionService.sendTextMessage(
             instanceName,
-            phoneNumber,
+            replyTo,
             aiResponse.response
           );
 
@@ -399,7 +587,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
               }
             });
 
-            console.log(`✅ Respuesta enviada a ${phoneNumber}`);
+            console.log(`✅ Respuesta enviada exitosamente a ${displayNumber}`);
+          } else {
+            console.error(`❌ Error enviando respuesta: ${sendResult.error}`);
           }
         } else {
           console.error('❌ Error generando respuesta:', aiResponse.error);
@@ -407,7 +597,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           // Enviar mensaje de error amigable
           await evolutionService.sendTextMessage(
             instanceName,
-            phoneNumber,
+            replyTo,
             'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo.'
           );
         }

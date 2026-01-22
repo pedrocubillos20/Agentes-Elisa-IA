@@ -360,9 +360,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const messages = messageData.messages || [messageData];
       
       // LOG DETALLADO para debugging
-      console.log('📋 ========== WEBHOOK DATA ==========');
-      console.log('📋 Data:', JSON.stringify(data).substring(0, 1500));
-      console.log('📋 ====================================');
+      console.log('📋 ========== WEBHOOK MESSAGES_UPSERT ==========');
+      console.log('📋 Raw Data:', JSON.stringify(data).substring(0, 2000));
+      console.log('📋 =============================================');
       
       for (const msg of messages) {
         // Ignorar mensajes propios
@@ -371,74 +371,105 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const remoteJid = msg.key?.remoteJid || msg.from;
         if (!remoteJid) continue;
 
-        // Buscar el número real en TODOS los campos posibles
+        // ============================================
+        // PARSEO DEL NÚMERO - CRÍTICO
+        // ============================================
+        console.log(`📋 ========== PARSEANDO NÚMERO ==========`);
+        console.log(`📋 remoteJid ORIGINAL: "${remoteJid}"`);
+        console.log(`📋 Tipo: ${typeof remoteJid}`);
+        console.log(`📋 Longitud: ${remoteJid.length}`);
+        
+        // Detectar tipo de JID
+        const isLid = remoteJid.includes('@lid');
+        const isGroup = remoteJid.includes('@g.us');
+        const isNormal = remoteJid.includes('@s.whatsapp.net');
+        
+        console.log(`📋 Es LID: ${isLid}`);
+        console.log(`📋 Es Grupo: ${isGroup}`);
+        console.log(`📋 Es Normal: ${isNormal}`);
+        
+        // Ignorar grupos
+        if (isGroup) {
+          console.log(`📱 Mensaje de grupo ignorado: ${remoteJid}`);
+          continue;
+        }
+        
+        // Variables para el número
+        let replyTo: string;      // Número para ENVIAR respuesta
+        let displayNumber: string; // Número para MOSTRAR en UI
+        
+        // Campos adicionales que pueden contener el número real
         const pushName = msg.pushName;
         const participant = msg.key?.participant;
         const sender = msg.sender;
-        const owner = data.owner || messageData.owner;
-        const from = msg.from;
         
-        // El número real puede estar en verifiedBizName, notify, o en el propio mensaje
-        const verifiedBizName = msg.verifiedBizName;
-        const notify = msg.notify;
-        
-        console.log(`📋 === Campos del mensaje ===`);
-        console.log(`📋 remoteJid: ${remoteJid}`);
         console.log(`📋 pushName: ${pushName}`);
         console.log(`📋 participant: ${participant}`);
         console.log(`📋 sender: ${sender}`);
-        console.log(`📋 owner: ${owner}`);
-        console.log(`📋 from: ${from}`);
-        console.log(`📋 verifiedBizName: ${verifiedBizName}`);
-        console.log(`📋 notify: ${notify}`);
-
-        // Determinar si es un número LID
-        const isLid = remoteJid.includes('@lid');
-        const isGroup = remoteJid.includes('@g.us');
-        
-        let replyTo: string;
-        let displayNumber: string;
         
         if (isLid) {
-          console.log(`📱 Mensaje de número LID detectado: ${remoteJid}`);
+          // ============================================
+          // MANEJO DE NÚMEROS LID
+          // ============================================
+          console.log(`📱 Procesando número LID...`);
           
-          // Buscar número real en otros campos
+          // Intentar encontrar el número real en otros campos
           let realNumber: string | null = null;
           
-          // Prioridad 1: participant (si es diferente al remoteJid)
-          if (participant && !participant.includes('@lid') && participant.includes('@s.whatsapp.net')) {
-            realNumber = participant.replace('@s.whatsapp.net', '');
-            console.log(`✅ Número real encontrado en participant: ${realNumber}`);
+          // Prioridad 1: participant con formato @s.whatsapp.net
+          if (participant && participant.includes('@s.whatsapp.net')) {
+            realNumber = participant.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+            console.log(`✅ Número real en participant: ${realNumber}`);
           }
-          // Prioridad 2: sender
+          // Prioridad 2: sender sin @lid
           else if (sender && !sender.includes('@lid')) {
             realNumber = sender.replace(/@.*/, '').replace(/\D/g, '');
-            console.log(`✅ Número real encontrado en sender: ${realNumber}`);
-          }
-          // Prioridad 3: from si es diferente
-          else if (from && from !== remoteJid && !from.includes('@lid')) {
-            realNumber = from.replace(/@.*/, '').replace(/\D/g, '');
-            console.log(`✅ Número real encontrado en from: ${realNumber}`);
+            console.log(`✅ Número real en sender: ${realNumber}`);
           }
           
           if (realNumber && realNumber.length >= 10) {
+            // Encontramos el número real
             replyTo = realNumber;
             displayNumber = realNumber;
+            console.log(`✅ Usando número real: ${replyTo}`);
           } else {
-            // Si no encontramos número real, usar el LID
-            replyTo = remoteJid;
-            displayNumber = remoteJid.replace('@lid', '');
-            console.log(`⚠️ No se encontró número real, usando LID: ${replyTo}`);
+            // No encontramos número real, extraer del LID
+            // CRÍTICO: Usar split('@') para separar correctamente
+            const lidParts = remoteJid.split('@');
+            console.log(`📋 LID partes: ${JSON.stringify(lidParts)}`);
+            
+            // El número está en la primera parte (antes del @)
+            const lidNumber = lidParts[0].replace(/\D/g, '');
+            console.log(`📋 Número extraído del LID: ${lidNumber}`);
+            
+            replyTo = lidNumber;
+            displayNumber = lidNumber;
+            console.log(`⚠️ Usando número del LID: ${replyTo}`);
           }
           
-        } else if (isGroup) {
-          console.log(`📱 Mensaje de grupo ignorado: ${remoteJid}`);
-          continue;
-        } else {
-          // Formato normal @s.whatsapp.net
-          replyTo = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+        } else if (isNormal) {
+          // ============================================
+          // MANEJO DE NÚMEROS NORMALES (@s.whatsapp.net)
+          // ============================================
+          const normalParts = remoteJid.split('@');
+          replyTo = normalParts[0].replace(/\D/g, '');
           displayNumber = replyTo;
+          console.log(`📱 Número normal: ${replyTo}`);
+          
+        } else {
+          // ============================================
+          // OTRO FORMATO DESCONOCIDO
+          // ============================================
+          const otherParts = remoteJid.split('@');
+          replyTo = otherParts[0].replace(/\D/g, '');
+          displayNumber = replyTo;
+          console.log(`📱 Formato desconocido, número extraído: ${replyTo}`);
         }
+        
+        console.log(`📋 ========== RESULTADO FINAL ==========`);
+        console.log(`📋 replyTo (para enviar): "${replyTo}"`);
+        console.log(`📋 displayNumber (para UI): "${displayNumber}"`);
+        console.log(`📋 =======================================`);
         
         // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
@@ -447,10 +478,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
                               msg.text ||
                               '';
         
-        if (!messageContent) continue;
+        if (!messageContent) {
+          console.log('⚠️ Mensaje sin contenido de texto, saltando...');
+          continue;
+        }
 
         console.log(`📨 Mensaje de ${displayNumber}: ${messageContent}`);
-        console.log(`📨 ReplyTo: ${replyTo}`);
 
         // Buscar usuario por instancia
         const user = await prisma.user.findFirst({
@@ -473,11 +506,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
           continue;
         }
 
-        // Buscar o crear conversación (usar displayNumber para UI, replyTo para envío)
+        // Buscar o crear conversación
         let conversation = await prisma.conversation.findFirst({
           where: {
             userId: user.id,
-            recipientId: displayNumber // Usar número limpio para buscar
+            recipientId: displayNumber
           }
         });
 
@@ -485,8 +518,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           conversation = await prisma.conversation.create({
             data: {
               userId: user.id,
-              recipientId: displayNumber, // Número limpio para mostrar
-              recipientName: msg.pushName || displayNumber,
+              recipientId: displayNumber,
+              recipientName: pushName || displayNumber,
               lastMessage: messageContent,
               lastMessageAt: new Date()
             }
@@ -497,7 +530,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             data: {
               lastMessage: messageContent,
               lastMessageAt: new Date(),
-              recipientName: msg.pushName || conversation.recipientName
+              recipientName: pushName || conversation.recipientName
             }
           });
         }
@@ -529,11 +562,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const aiResponse = await openaiService.generateResponse(
           user.id,
           messageContent,
-          history.slice(0, -1) // Excluir el mensaje actual
+          history.slice(0, -1)
         );
 
         if (aiResponse.success && aiResponse.response) {
-          // Enviar respuesta usando replyTo (que tiene el formato correcto para LID o número normal)
+          console.log(`📤 Enviando respuesta a: ${replyTo}`);
+          
+          // Enviar respuesta
           const sendResult = await evolutionService.sendTextMessage(
             instanceName,
             replyTo,
@@ -552,7 +587,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
               }
             });
 
-            console.log(`✅ Respuesta enviada a ${displayNumber}`);
+            console.log(`✅ Respuesta enviada exitosamente a ${displayNumber}`);
           } else {
             console.error(`❌ Error enviando respuesta: ${sendResult.error}`);
           }

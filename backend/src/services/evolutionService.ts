@@ -325,47 +325,63 @@ class EvolutionService {
   // Enviar mensaje de texto - Evolution API v1.8.2
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      // Detectar si es un número LID (WhatsApp Business interno)
-      const isLid = to.includes('@lid');
+      // Detectar el formato del destinatario
+      const isLidJid = to.includes('@lid');
+      const isWhatsAppJid = to.includes('@s.whatsapp.net');
       
-      let numberToSend: string;
-      
-      if (isLid) {
-        // Para LID, extraer solo el número sin el @lid
-        numberToSend = to.replace('@lid', '');
-        console.log(`📱 Enviando a número LID: ${numberToSend}`);
-      } else if (to.includes('@')) {
-        // Para otros formatos con @, extraer el número
-        numberToSend = to.split('@')[0];
-      } else {
-        numberToSend = to;
-      }
-      
-      // Limpiar caracteres no numéricos
-      numberToSend = numberToSend.replace(/\D/g, '');
-      
-      console.log(`📤 Enviando mensaje a ${numberToSend} desde ${instanceName}`);
+      console.log(`📤 Enviando mensaje desde ${instanceName}`);
+      console.log(`📤 Destinatario original: ${to}`);
       console.log(`📝 Texto: ${text.substring(0, 100)}...`);
       
-      // Lista de payloads a intentar (diferentes versiones de Evolution API)
-      const payloads = [
-        // Formato 1: Evolution API v1.8.x - text directo
-        { number: numberToSend, text: text },
-        // Formato 2: Evolution API - textMessage objeto
-        { number: numberToSend, textMessage: { text: text } },
-        // Formato 3: Con options
-        { number: numberToSend, text: text, options: { delay: 1000 } },
+      // Preparar número limpio
+      let cleanNumber: string;
+      if (isLidJid) {
+        cleanNumber = to.replace('@lid', '').replace(/\D/g, '');
+      } else if (isWhatsAppJid) {
+        cleanNumber = to.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      } else if (to.includes('@')) {
+        cleanNumber = to.split('@')[0].replace(/\D/g, '');
+      } else {
+        cleanNumber = to.replace(/\D/g, '');
+      }
+      
+      console.log(`📤 Número limpio: ${cleanNumber}`);
+      
+      // Intentar múltiples formatos de payload
+      const payloadsToTry = [
+        // Formato 1: Con número limpio (estándar)
+        {
+          number: cleanNumber,
+          options: { delay: 1200, presence: "composing" },
+          textMessage: { text: text }
+        },
+        // Formato 2: Con remoteJid completo (para LID)
+        {
+          number: to,
+          options: { delay: 1200, presence: "composing" },
+          textMessage: { text: text }
+        },
+        // Formato 3: Sin options
+        {
+          number: cleanNumber,
+          textMessage: { text: text }
+        },
+        // Formato 4: Solo text (algunas versiones)
+        {
+          number: cleanNumber,
+          text: text
+        }
       ];
       
       let lastError: any = null;
       
-      for (let i = 0; i < payloads.length; i++) {
+      for (let i = 0; i < payloadsToTry.length; i++) {
         try {
-          console.log(`🔄 Intento ${i + 1} con payload:`, JSON.stringify(payloads[i]).substring(0, 100));
+          console.log(`🔄 Intento ${i + 1}:`, JSON.stringify(payloadsToTry[i]).substring(0, 150));
           
           const response = await axios.post(
             `${this.apiUrl}/message/sendText/${instanceName}`,
-            payloads[i],
+            payloadsToTry[i],
             { headers: this.getHeaders() }
           );
 
@@ -377,18 +393,38 @@ class EvolutionService {
           };
         } catch (err: any) {
           lastError = err;
-          console.log(`⚠️ Intento ${i + 1} falló:`, err.response?.status, JSON.stringify(err.response?.data || err.message).substring(0, 100));
+          const errData = err.response?.data;
+          console.log(`⚠️ Intento ${i + 1} falló:`, JSON.stringify(errData || err.message).substring(0, 150));
+          
+          // Si el error es "exists: false", no tiene sentido seguir intentando con el mismo número
+          if (errData?.response?.message?.[0]?.exists === false) {
+            console.log('⚠️ Número no existe en WhatsApp, abortando intentos');
+            break;
+          }
         }
       }
       
-      // Si todos fallaron, lanzar el último error
-      throw lastError;
+      // Si llegamos aquí, todos fallaron
+      const errorData = lastError?.response?.data;
+      const notExists = errorData?.response?.message?.[0]?.exists === false;
       
-    } catch (error: any) {
-      console.error('❌ Error enviando mensaje:', JSON.stringify(error.response?.data || error.message));
+      if (notExists) {
+        return {
+          success: false,
+          error: 'El número no está registrado en WhatsApp'
+        };
+      }
+      
       return {
         success: false,
-        error: JSON.stringify(error.response?.data?.message || error.response?.data || error.message)
+        error: JSON.stringify(errorData?.message || errorData || lastError?.message)
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Error general:', error.message);
+      return {
+        success: false,
+        error: error.message
       };
     }
   }

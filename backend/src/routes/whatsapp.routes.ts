@@ -14,12 +14,31 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
 
+    // Recargar usuario para obtener datos actualizados
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
     // Si tiene instancia, verificar estado actual
-    if (user.evolutionInstanceName) {
-      const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+    if (currentUser.evolutionInstanceName) {
+      const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
       
-      // Obtener usuario actualizado
-      const updatedUser = await prisma.user.findUnique({ where: { id: user.id } });
+      // Si la instancia no existe, devolver estado desconectado
+      if (status.instanceNotFound) {
+        return res.json({
+          connected: false,
+          status: 'disconnected',
+          phone: null,
+          instanceName: null,
+          qrCode: null,
+          message: 'La instancia anterior fue eliminada. Por favor conecta de nuevo.'
+        });
+      }
+      
+      // Obtener usuario actualizado después de checkConnectionStatus
+      const updatedUser = await prisma.user.findUnique({ where: { id: currentUser.id } });
       
       return res.json({
         connected: updatedUser?.whatsappConnected || false,
@@ -50,12 +69,22 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
 
     console.log(`📱 Iniciando conexión WhatsApp para: ${user.email}`);
 
+    // Recargar usuario para obtener datos actualizados
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
     // Si ya tiene instancia, intentar reconectar
-    if (user.evolutionInstanceName) {
+    if (currentUser.evolutionInstanceName) {
       // Verificar si ya está conectado
-      const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+      const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
       
-      if (status.connected) {
+      // Si la instancia no existe, crear una nueva
+      if (status.instanceNotFound) {
+        console.log(`📱 Instancia anterior no existe, creando nueva para: ${currentUser.email}`);
+      } else if (status.connected) {
         return res.json({
           success: true,
           connected: true,
@@ -63,27 +92,30 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
           phone: status.phone,
           message: 'Ya estás conectado'
         });
-      }
+      } else {
+        // Obtener nuevo QR
+        const qrResult = await evolutionService.getQRCode(currentUser.evolutionInstanceName);
+        
+        if (qrResult.success && qrResult.qrcode) {
+          return res.json({
+            success: true,
+            connected: false,
+            status: 'waiting_qr',
+            qrCode: qrResult.qrcode,
+            instanceName: currentUser.evolutionInstanceName
+          });
+        }
 
-      // Obtener nuevo QR
-      const qrResult = await evolutionService.getQRCode(user.evolutionInstanceName);
-      
-      if (qrResult.success && qrResult.qrcode) {
-        return res.json({
-          success: true,
-          connected: false,
-          status: 'waiting_qr',
-          qrCode: qrResult.qrcode,
-          instanceName: user.evolutionInstanceName
-        });
+        // Si no pudo obtener QR y la instancia no fue encontrada, continuar a crear nueva
+        if (!qrResult.instanceNotFound) {
+          // Si la instancia existe pero no pudo obtener QR, eliminarla
+          await evolutionService.deleteInstance(currentUser.evolutionInstanceName);
+        }
       }
-
-      // Si no pudo obtener QR, eliminar y crear nueva instancia
-      await evolutionService.deleteInstance(user.evolutionInstanceName);
     }
 
     // Crear nueva instancia
-    const result = await evolutionService.createInstance(user.id);
+    const result = await evolutionService.createInstance(currentUser.id);
     
     if (!result.success) {
       return res.status(500).json({ 
@@ -114,12 +146,38 @@ router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
 
-    if (!user.evolutionInstanceName) {
-      return res.status(400).json({ error: 'No hay conexión iniciada' });
+    // Recargar usuario para obtener datos actualizados
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    if (!currentUser.evolutionInstanceName) {
+      // No hay instancia, crear una nueva automáticamente
+      console.log(`📱 No hay instancia, creando una nueva para: ${currentUser.email}`);
+      
+      const result = await evolutionService.createInstance(currentUser.id);
+      
+      if (!result.success) {
+        return res.status(500).json({ error: result.error || 'Error al crear instancia' });
+      }
+
+      // Configurar webhook
+      if (result.instanceName) {
+        await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
+      }
+
+      return res.json({
+        connected: false,
+        status: 'waiting_qr',
+        qrCode: result.qrcode,
+        instanceName: result.instanceName
+      });
     }
 
     // Primero verificar si ya está conectado
-    const status = await evolutionService.checkConnectionStatus(user.evolutionInstanceName);
+    const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
     
     if (status.connected) {
       return res.json({
@@ -131,12 +189,35 @@ router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
     }
 
     // Obtener nuevo QR
-    const result = await evolutionService.getQRCode(user.evolutionInstanceName);
+    const result = await evolutionService.getQRCode(currentUser.evolutionInstanceName);
+
+    // Si la instancia no existe, crear una nueva
+    if (result.instanceNotFound) {
+      console.log(`📱 Instancia no encontrada, creando nueva para: ${currentUser.email}`);
+      
+      const newInstance = await evolutionService.createInstance(currentUser.id);
+      
+      if (!newInstance.success) {
+        return res.status(500).json({ error: newInstance.error || 'Error al crear instancia' });
+      }
+
+      // Configurar webhook
+      if (newInstance.instanceName) {
+        await evolutionService.setWebhook(newInstance.instanceName, WEBHOOK_URL);
+      }
+
+      return res.json({
+        connected: false,
+        status: 'waiting_qr',
+        qrCode: newInstance.qrcode,
+        instanceName: newInstance.instanceName
+      });
+    }
 
     res.json({
       connected: false,
       status: 'waiting_qr',
-      qrCode: result.qrcode || user.whatsappQrCode
+      qrCode: result.qrcode || currentUser.whatsappQrCode
     });
   } catch (error: any) {
     console.error('Error obteniendo QR:', error);

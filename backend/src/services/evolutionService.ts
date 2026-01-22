@@ -333,51 +333,56 @@ class EvolutionService {
       console.log(`📤 Destinatario original: ${to}`);
       console.log(`📝 Texto: ${text.substring(0, 100)}...`);
       
-      // Preparar número limpio
-      let cleanNumber: string;
+      // Para LID, necesitamos probar diferentes enfoques
+      const payloadsToTry: any[] = [];
+      
       if (isLidJid) {
-        cleanNumber = to.replace('@lid', '').replace(/\D/g, '');
-      } else if (isWhatsAppJid) {
-        cleanNumber = to.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-      } else if (to.includes('@')) {
-        cleanNumber = to.split('@')[0].replace(/\D/g, '');
-      } else {
-        cleanNumber = to.replace(/\D/g, '');
-      }
-      
-      console.log(`📤 Número limpio: ${cleanNumber}`);
-      
-      // Intentar múltiples formatos de payload
-      const payloadsToTry = [
-        // Formato 1: Con número limpio (estándar)
-        {
-          number: cleanNumber,
-          options: { delay: 1200, presence: "composing" },
+        console.log(`📱 Contacto LID detectado`);
+        
+        // Enfoque 1: Usar remoteJid directamente (algunos forks de Evolution API)
+        payloadsToTry.push({
+          remoteJid: to,
+          message: { text: text }
+        });
+        
+        // Enfoque 2: Usar number con JID completo
+        payloadsToTry.push({
+          number: to,
           textMessage: { text: text }
-        },
-        // Formato 2: Con remoteJid completo (para LID)
-        {
+        });
+        
+        // Enfoque 3: Usar number con JID completo y options
+        payloadsToTry.push({
           number: to,
           options: { delay: 1200, presence: "composing" },
           textMessage: { text: text }
-        },
-        // Formato 3: Sin options
-        {
-          number: cleanNumber,
-          textMessage: { text: text }
-        },
-        // Formato 4: Solo text (algunas versiones)
-        {
-          number: cleanNumber,
-          text: text
+        });
+        
+      } else {
+        // Para números normales
+        let cleanNumber: string;
+        if (isWhatsAppJid) {
+          cleanNumber = to.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+        } else if (to.includes('@')) {
+          cleanNumber = to.split('@')[0].replace(/\D/g, '');
+        } else {
+          cleanNumber = to.replace(/\D/g, '');
         }
-      ];
+        
+        console.log(`📤 Número limpio: ${cleanNumber}`);
+        
+        payloadsToTry.push({
+          number: cleanNumber,
+          options: { delay: 1200, presence: "composing" },
+          textMessage: { text: text }
+        });
+      }
       
       let lastError: any = null;
       
       for (let i = 0; i < payloadsToTry.length; i++) {
         try {
-          console.log(`🔄 Intento ${i + 1}:`, JSON.stringify(payloadsToTry[i]).substring(0, 150));
+          console.log(`🔄 Intento ${i + 1}:`, JSON.stringify(payloadsToTry[i]).substring(0, 200));
           
           const response = await axios.post(
             `${this.apiUrl}/message/sendText/${instanceName}`,
@@ -393,28 +398,16 @@ class EvolutionService {
           };
         } catch (err: any) {
           lastError = err;
-          const errData = err.response?.data;
-          console.log(`⚠️ Intento ${i + 1} falló:`, JSON.stringify(errData || err.message).substring(0, 150));
-          
-          // Si el error es "exists: false", no tiene sentido seguir intentando con el mismo número
-          if (errData?.response?.message?.[0]?.exists === false) {
-            console.log('⚠️ Número no existe en WhatsApp, abortando intentos');
-            break;
-          }
+          console.log(`⚠️ Intento ${i + 1} falló:`, JSON.stringify(err.response?.data || err.message).substring(0, 200));
         }
       }
       
-      // Si llegamos aquí, todos fallaron
-      const errorData = lastError?.response?.data;
-      const notExists = errorData?.response?.message?.[0]?.exists === false;
-      
-      if (notExists) {
-        return {
-          success: false,
-          error: 'El número no está registrado en WhatsApp'
-        };
+      // Si es LID y todos los intentos fallaron, el contacto puede no ser contactable directamente
+      if (isLidJid) {
+        console.log('⚠️ No se pudo enviar mensaje a contacto LID. Este tipo de contacto puede requerir que el usuario inicie la conversación primero.');
       }
       
+      const errorData = lastError?.response?.data;
       return {
         success: false,
         error: JSON.stringify(errorData?.message || errorData || lastError?.message)

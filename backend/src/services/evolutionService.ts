@@ -325,33 +325,70 @@ class EvolutionService {
   // Enviar mensaje de texto - Evolution API v1.8.2
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ success: boolean; messageId?: string; error?: string }> {
     try {
-      const formattedNumber = to.replace(/\D/g, '');
+      // Detectar si es un número LID (WhatsApp Business interno)
+      const isLid = to.includes('@lid');
       
-      console.log(`📤 Enviando mensaje a ${formattedNumber} desde ${instanceName}`);
+      let numberToSend: string;
       
-      // Evolution API v1.8.2 usa textMessage.text
-      const response = await axios.post(
-        `${this.apiUrl}/message/sendText/${instanceName}`,
-        {
-          number: formattedNumber,
-          textMessage: {
-            text: text
-          }
-        },
-        { headers: this.getHeaders() }
-      );
+      if (isLid) {
+        // Para LID, extraer solo el número sin el @lid
+        numberToSend = to.replace('@lid', '');
+        console.log(`📱 Enviando a número LID: ${numberToSend}`);
+      } else if (to.includes('@')) {
+        // Para otros formatos con @, extraer el número
+        numberToSend = to.split('@')[0];
+      } else {
+        numberToSend = to;
+      }
+      
+      // Limpiar caracteres no numéricos
+      numberToSend = numberToSend.replace(/\D/g, '');
+      
+      console.log(`📤 Enviando mensaje a ${numberToSend} desde ${instanceName}`);
+      console.log(`📝 Texto: ${text.substring(0, 100)}...`);
+      
+      // Lista de payloads a intentar (diferentes versiones de Evolution API)
+      const payloads = [
+        // Formato 1: Evolution API v1.8.x - text directo
+        { number: numberToSend, text: text },
+        // Formato 2: Evolution API - textMessage objeto
+        { number: numberToSend, textMessage: { text: text } },
+        // Formato 3: Con options
+        { number: numberToSend, text: text, options: { delay: 1000 } },
+      ];
+      
+      let lastError: any = null;
+      
+      for (let i = 0; i < payloads.length; i++) {
+        try {
+          console.log(`🔄 Intento ${i + 1} con payload:`, JSON.stringify(payloads[i]).substring(0, 100));
+          
+          const response = await axios.post(
+            `${this.apiUrl}/message/sendText/${instanceName}`,
+            payloads[i],
+            { headers: this.getHeaders() }
+          );
 
-      console.log('✅ Mensaje enviado:', response.data);
+          console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 200));
 
-      return {
-        success: true,
-        messageId: response.data?.key?.id || response.data?.messageId
-      };
+          return {
+            success: true,
+            messageId: response.data?.key?.id || response.data?.messageId
+          };
+        } catch (err: any) {
+          lastError = err;
+          console.log(`⚠️ Intento ${i + 1} falló:`, err.response?.status, JSON.stringify(err.response?.data || err.message).substring(0, 100));
+        }
+      }
+      
+      // Si todos fallaron, lanzar el último error
+      throw lastError;
+      
     } catch (error: any) {
-      console.error('❌ Error enviando mensaje:', error.response?.data || error.message);
+      console.error('❌ Error enviando mensaje:', JSON.stringify(error.response?.data || error.message));
       return {
         success: false,
-        error: error.response?.data?.message || error.message
+        error: JSON.stringify(error.response?.data?.message || error.response?.data || error.message)
       };
     }
   }

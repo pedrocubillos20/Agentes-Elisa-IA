@@ -85,7 +85,7 @@ class EvolutionService {
   }
 
   // Obtener QR Code - Evolution API v1.8.2
-  async getQRCode(instanceName: string): Promise<{ success: boolean; qrcode?: string; error?: string }> {
+  async getQRCode(instanceName: string): Promise<{ success: boolean; qrcode?: string; error?: string; instanceNotFound?: boolean }> {
     try {
       console.log(`📷 Obteniendo QR para: ${instanceName}`);
       
@@ -121,15 +121,45 @@ class EvolutionService {
       };
     } catch (error: any) {
       console.error('❌ Error obteniendo QR:', error.response?.data || error.message);
+      
+      // Detectar si la instancia no existe (404)
+      const statusCode = error.response?.status;
+      const errorMessage = JSON.stringify(error.response?.data || error.message);
+      const instanceNotFound = statusCode === 404 || errorMessage.includes('does not exist') || errorMessage.includes('not found');
+      
+      if (instanceNotFound) {
+        console.log(`⚠️ Instancia ${instanceName} no existe en Evolution API - limpiando datos obsoletos`);
+        // Limpiar la instancia de la base de datos
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+        
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              evolutionInstanceName: null,
+              evolutionInstanceKey: null,
+              whatsappConnected: false,
+              whatsappStatus: 'disconnected',
+              whatsappPhone: null,
+              whatsappQrCode: null
+            }
+          });
+          console.log(`🗑️ Datos de instancia obsoleta limpiados para usuario ${user.email}`);
+        }
+      }
+      
       return {
         success: false,
-        error: error.response?.data?.message || error.message
+        error: error.response?.data?.message || error.message,
+        instanceNotFound
       };
     }
   }
 
   // Verificar estado de conexión - Evolution API v1.8.2
-  async checkConnectionStatus(instanceName: string): Promise<{ connected: boolean; status: string; phone?: string }> {
+  async checkConnectionStatus(instanceName: string): Promise<{ connected: boolean; status: string; phone?: string; instanceNotFound?: boolean }> {
     try {
       const response = await axios.get(
         `${this.apiUrl}/instance/connectionState/${instanceName}`,
@@ -184,9 +214,37 @@ class EvolutionService {
       };
     } catch (error: any) {
       console.error('❌ Error verificando estado:', error.response?.data || error.message);
+      
+      // Detectar si la instancia no existe (404)
+      const statusCode = error.response?.status;
+      const errorMessage = JSON.stringify(error.response?.data || error.message);
+      const instanceNotFound = statusCode === 404 || errorMessage.includes('does not exist') || errorMessage.includes('not found');
+      
+      if (instanceNotFound) {
+        console.log(`⚠️ Instancia ${instanceName} no existe - limpiando datos`);
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+        
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              evolutionInstanceName: null,
+              evolutionInstanceKey: null,
+              whatsappConnected: false,
+              whatsappStatus: 'disconnected',
+              whatsappPhone: null,
+              whatsappQrCode: null
+            }
+          });
+        }
+      }
+      
       return {
         connected: false,
-        status: 'error'
+        status: 'error',
+        instanceNotFound
       };
     }
   }

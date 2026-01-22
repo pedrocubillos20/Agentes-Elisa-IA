@@ -360,55 +360,82 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const messages = messageData.messages || [messageData];
       
       // LOG DETALLADO para debugging
-      console.log('📋 ========== WEBHOOK DATA COMPLETA ==========');
-      console.log('📋 Data completa:', JSON.stringify(data).substring(0, 1000));
-      console.log('📋 ============================================');
+      console.log('📋 ========== WEBHOOK DATA ==========');
+      console.log('📋 Data:', JSON.stringify(data).substring(0, 1500));
+      console.log('📋 ====================================');
       
       for (const msg of messages) {
-        // LOG del mensaje completo
-        console.log('📋 Mensaje completo:', JSON.stringify(msg).substring(0, 800));
-        
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
         const remoteJid = msg.key?.remoteJid || msg.from;
         if (!remoteJid) continue;
 
-        // Buscar el número real del contacto (puede estar en diferentes lugares)
+        // Buscar el número real en TODOS los campos posibles
         const pushName = msg.pushName;
-        const participant = msg.key?.participant; // Para grupos o LID
-        const sender = msg.sender || msg.participant;
+        const participant = msg.key?.participant;
+        const sender = msg.sender;
+        const owner = data.owner || messageData.owner;
+        const from = msg.from;
         
+        // El número real puede estar en verifiedBizName, notify, o en el propio mensaje
+        const verifiedBizName = msg.verifiedBizName;
+        const notify = msg.notify;
+        
+        console.log(`📋 === Campos del mensaje ===`);
         console.log(`📋 remoteJid: ${remoteJid}`);
         console.log(`📋 pushName: ${pushName}`);
         console.log(`📋 participant: ${participant}`);
         console.log(`📋 sender: ${sender}`);
+        console.log(`📋 owner: ${owner}`);
+        console.log(`📋 from: ${from}`);
+        console.log(`📋 verifiedBizName: ${verifiedBizName}`);
+        console.log(`📋 notify: ${notify}`);
 
-        // Determinar si es un número LID (WhatsApp Business interno)
+        // Determinar si es un número LID
         const isLid = remoteJid.includes('@lid');
         const isGroup = remoteJid.includes('@g.us');
         
-        // Para responder, necesitamos mantener el formato correcto
-        let replyTo: string;      // ID para enviar respuesta
-        let displayNumber: string; // Número para mostrar en UI
+        let replyTo: string;
+        let displayNumber: string;
         
         if (isLid) {
-          // Para LID, mantener el remoteJid completo para responder
-          replyTo = remoteJid;
-          displayNumber = remoteJid.replace('@lid', '');
-          console.log(`📱 Mensaje de número LID: ${remoteJid}`);
+          console.log(`📱 Mensaje de número LID detectado: ${remoteJid}`);
           
-          // Si hay un participant diferente, puede ser el número real
-          if (participant && participant !== remoteJid) {
-            console.log(`📱 Participant encontrado (posible número real): ${participant}`);
-            replyTo = participant;
+          // Buscar número real en otros campos
+          let realNumber: string | null = null;
+          
+          // Prioridad 1: participant (si es diferente al remoteJid)
+          if (participant && !participant.includes('@lid') && participant.includes('@s.whatsapp.net')) {
+            realNumber = participant.replace('@s.whatsapp.net', '');
+            console.log(`✅ Número real encontrado en participant: ${realNumber}`);
           }
+          // Prioridad 2: sender
+          else if (sender && !sender.includes('@lid')) {
+            realNumber = sender.replace(/@.*/, '').replace(/\D/g, '');
+            console.log(`✅ Número real encontrado en sender: ${realNumber}`);
+          }
+          // Prioridad 3: from si es diferente
+          else if (from && from !== remoteJid && !from.includes('@lid')) {
+            realNumber = from.replace(/@.*/, '').replace(/\D/g, '');
+            console.log(`✅ Número real encontrado en from: ${realNumber}`);
+          }
+          
+          if (realNumber && realNumber.length >= 10) {
+            replyTo = realNumber;
+            displayNumber = realNumber;
+          } else {
+            // Si no encontramos número real, usar el LID
+            replyTo = remoteJid;
+            displayNumber = remoteJid.replace('@lid', '');
+            console.log(`⚠️ No se encontró número real, usando LID: ${replyTo}`);
+          }
+          
         } else if (isGroup) {
-          // Para grupos, no responder automáticamente (por ahora)
           console.log(`📱 Mensaje de grupo ignorado: ${remoteJid}`);
           continue;
         } else {
-          // Formato normal @s.whatsapp.net - extraer número limpio
+          // Formato normal @s.whatsapp.net
           replyTo = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
           displayNumber = replyTo;
         }

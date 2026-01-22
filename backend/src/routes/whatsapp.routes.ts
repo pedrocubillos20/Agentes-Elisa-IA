@@ -366,8 +366,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const remoteJid = msg.key?.remoteJid || msg.from;
         if (!remoteJid) continue;
 
-        // Extraer número de teléfono
-        const phoneNumber = remoteJid.replace('@s.whatsapp.net', '').replace('@g.us', '');
+        // Determinar si es un número LID (WhatsApp Business interno)
+        const isLid = remoteJid.includes('@lid');
+        
+        // Para LID, usar el remoteJid completo; para otros, extraer el número
+        let phoneNumber: string;
+        let displayNumber: string;
+        
+        if (isLid) {
+          // Para LID, guardamos el JID completo para responder
+          phoneNumber = remoteJid; // Mantener formato completo para envío
+          displayNumber = remoteJid.replace('@lid', ''); // Solo para mostrar
+          console.log(`📱 Número LID detectado: ${remoteJid}`);
+        } else {
+          // Formato normal - extraer número limpio
+          phoneNumber = remoteJid
+            .replace('@s.whatsapp.net', '')
+            .replace('@g.us', '')
+            .replace(/@.*$/, '');
+          phoneNumber = phoneNumber.replace(/\D/g, '');
+          displayNumber = phoneNumber;
+        }
         
         // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
@@ -378,7 +397,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         
         if (!messageContent) continue;
 
-        console.log(`📨 Mensaje de ${phoneNumber}: ${messageContent}`);
+        console.log(`📨 Mensaje de ${displayNumber}: ${messageContent}`);
 
         // Buscar usuario por instancia
         const user = await prisma.user.findFirst({
@@ -401,7 +420,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           continue;
         }
 
-        // Buscar o crear conversación
+        // Buscar o crear conversación (usar phoneNumber como ID para envío)
         let conversation = await prisma.conversation.findFirst({
           where: {
             userId: user.id,
@@ -413,8 +432,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           conversation = await prisma.conversation.create({
             data: {
               userId: user.id,
-              recipientId: phoneNumber,
-              recipientName: msg.pushName || phoneNumber,
+              recipientId: phoneNumber, // JID completo para envío
+              recipientName: msg.pushName || displayNumber, // Nombre limpio para mostrar
               lastMessage: messageContent,
               lastMessageAt: new Date()
             }

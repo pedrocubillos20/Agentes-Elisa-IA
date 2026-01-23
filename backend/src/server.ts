@@ -6,30 +6,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// ============================================
-// VALIDACIÓN DE VARIABLES DE ENTORNO
-// ============================================
-const requiredEnvVars = [
-  'DATABASE_URL',
-  'JWT_SECRET',
-  'ENCRYPTION_KEY',
-  'EVOLUTION_API_URL',
-  'EVOLUTION_API_KEY',
-];
-
-const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingVars.length > 0) {
-  console.error('❌ Variables de entorno faltantes:');
-  missingVars.forEach(v => console.error(`   - ${v}`));
-  console.error('\n⚠️  El servidor puede no funcionar correctamente.');
-}
-
 import authRoutes from './routes/auth.routes';
 import whatsappRoutes from './routes/whatsapp.routes';
 import assistantsRoutes from './routes/assistants.routes';
 import conversationsRoutes from './routes/conversations.routes';
-import prisma from './lib/prisma';
 
 const app = express();
 const httpServer = createServer(app);
@@ -76,23 +56,8 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/health', async (req, res) => {
-  let dbStatus = 'unknown';
-  
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    dbStatus = 'connected';
-  } catch (error) {
-    dbStatus = 'disconnected';
-    console.error('❌ Database health check failed:', error);
-  }
-
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    database: dbStatus,
-    evolution_api: process.env.EVOLUTION_API_URL ? 'configured' : 'not_configured'
-  });
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Rutas de la API

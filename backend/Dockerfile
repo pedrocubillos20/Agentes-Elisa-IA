@@ -1,21 +1,19 @@
-FROM node:18-slim
+FROM node:18-alpine
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
 
 COPY package*.json ./
-
-RUN npm install --legacy-peer-deps
-
 COPY prisma ./prisma/
 
-RUN node node_modules/prisma/build/index.js generate
+RUN npm install
 
 COPY . .
 
-RUN node node_modules/typescript/bin/tsc
+RUN npm run build
 
-EXPOSE 3001
+EXPOSE 3000
 
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/server.js"]
+CMD ["npm", "start"]

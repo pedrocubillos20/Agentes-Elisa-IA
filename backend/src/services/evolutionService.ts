@@ -1,31 +1,31 @@
 import axios from 'axios';
 import prisma from '../lib/prisma';
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL;
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY;
+const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || 'http://31.97.142.127:8080';
+const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Key_2026_SecretKey';
 
-if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-  console.error('⚠️ EVOLUTION_API_URL y EVOLUTION_API_KEY deben estar configuradas en variables de entorno');
-}
-
+/**
+ * ============================================
+ * EVOLUTION SERVICE - v1.8.0 COMPATIBLE
+ * ============================================
+ * 
+ * En v1.8.0 el número real viene directamente en:
+ * - key.remoteJid: "573001234567@s.whatsapp.net"
+ * 
+ * NO hay problema de LID en esta versión.
+ * ============================================
+ */
 class EvolutionService {
   private apiUrl: string;
   private apiKey: string;
 
   constructor() {
-    this.apiUrl = EVOLUTION_API_URL || '';
-    this.apiKey = EVOLUTION_API_KEY || '';
-    if (this.apiUrl && this.apiKey) {
-      console.log(`🔧 Evolution Service v2.3.7 inicializado: ${this.apiUrl}`);
-    } else {
-      console.log('⚠️ Evolution Service: Variables de entorno no configuradas');
-    }
+    this.apiUrl = EVOLUTION_API_URL;
+    this.apiKey = EVOLUTION_API_KEY;
+    console.log(`🔧 Evolution Service v1.8.0 inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
-    if (!this.apiKey) {
-      throw new Error('EVOLUTION_API_KEY no está configurada');
-    }
     return {
       'Content-Type': 'application/json',
       'apikey': this.apiKey
@@ -33,7 +33,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // CREAR INSTANCIA - v2.3.7
+  // CREAR INSTANCIA - v1.8.0
   // ============================================
   async createInstance(userId: string): Promise<{ 
     success: boolean; 
@@ -44,8 +44,9 @@ class EvolutionService {
     try {
       const instanceName = `elisa_${userId.substring(0, 8)}_${Date.now()}`;
       
-      console.log(`🔧 Creando instancia: ${instanceName}`);
+      console.log(`🔧 [v1.8.0] Creando instancia: ${instanceName}`);
       
+      // Evolution API v1.8.0 endpoint
       const response = await axios.post(
         `${this.apiUrl}/instance/create`,
         {
@@ -61,16 +62,18 @@ class EvolutionService {
 
       console.log('📋 Respuesta crear instancia:', JSON.stringify(response.data).substring(0, 500));
 
+      // v1.8.0: QR puede venir en diferentes ubicaciones
       const qrcode = response.data?.qrcode?.base64 || 
                      response.data?.base64 ||
-                     response.data?.data?.qrcode?.base64;
+                     response.data?.qr ||
+                     null;
 
       await prisma.user.update({
         where: { id: userId },
         data: {
           evolutionInstanceName: instanceName,
           whatsappStatus: 'waiting_qr',
-          whatsappQrCode: qrcode || null,
+          whatsappQrCode: qrcode,
           whatsappConnected: false
         }
       });
@@ -84,13 +87,13 @@ class EvolutionService {
       console.error('❌ Error creando instancia:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.response?.data?.message || error.message
+        error: error.response?.data?.message || error.response?.data?.error || error.message
       };
     }
   }
 
   // ============================================
-  // VERIFICAR ESTADO DE CONEXIÓN - v2.3.7
+  // VERIFICAR ESTADO DE CONEXIÓN - v1.8.0
   // ============================================
   async checkConnectionStatus(instanceName: string): Promise<{ 
     connected: boolean; 
@@ -100,6 +103,7 @@ class EvolutionService {
     error?: string 
   }> {
     try {
+      // v1.8.0: Endpoint de estado de conexión
       const response = await axios.get(
         `${this.apiUrl}/instance/connectionState/${instanceName}`,
         { 
@@ -108,58 +112,63 @@ class EvolutionService {
         }
       );
 
-      console.log('📋 Estado conexión:', JSON.stringify(response.data).substring(0, 300));
+      console.log('📋 [v1.8.0] Estado conexión:', JSON.stringify(response.data).substring(0, 300));
 
+      // v1.8.0: Estado viene en instance.state o state
       const state = response.data?.instance?.state || 
-                   response.data?.state || 
-                   response.data?.connectionStatus;
+                   response.data?.state ||
+                   'disconnected';
       
+      // v1.8.0: Número viene en instance.owner
+      const owner = response.data?.instance?.owner || 
+                   response.data?.owner;
+
+      // Extraer número limpio (573001234567@s.whatsapp.net -> 573001234567)
+      const phone = owner ? owner.replace('@s.whatsapp.net', '').replace(/\D/g, '') : null;
       const connected = state === 'open' || state === 'connected';
 
-      if (connected) {
-        // Obtener info de la instancia para el número
-        try {
-          const infoResponse = await axios.get(
-            `${this.apiUrl}/instance/fetchInstances`,
-            { 
-              headers: this.getHeaders(),
-              params: { instanceName },
-              timeout: 10000
+      if (connected && phone) {
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+        
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              whatsappConnected: true,
+              whatsappStatus: 'connected',
+              whatsappPhone: phone,
+              whatsappQrCode: null
             }
-          );
-          
-          const instances = infoResponse.data || [];
-          const instance = instances.find((i: any) => i.name === instanceName);
-          const ownerJid = instance?.ownerJid || '';
-          const phone = ownerJid.replace('@s.whatsapp.net', '');
-          
-          if (phone) {
-            const user = await prisma.user.findFirst({
-              where: { evolutionInstanceName: instanceName }
-            });
-            
-            if (user) {
-              await prisma.user.update({
-                where: { id: user.id },
-                data: {
-                  whatsappConnected: true,
-                  whatsappStatus: 'connected',
-                  whatsappPhone: phone,
-                  whatsappQrCode: null
-                }
-              });
-            }
-          }
-          
-          return { connected: true, state: 'open', phone };
-        } catch (e) {
-          return { connected: true, state: 'open' };
+          });
         }
       }
 
-      return { connected: false, state: state };
+      return {
+        connected: connected,
+        state: state,
+        phone: phone || undefined
+      };
     } catch (error: any) {
       if (error.response?.status === 404) {
+        const user = await prisma.user.findFirst({
+          where: { evolutionInstanceName: instanceName }
+        });
+        
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              evolutionInstanceName: null,
+              whatsappConnected: false,
+              whatsappStatus: 'disconnected',
+              whatsappQrCode: null,
+              whatsappPhone: null
+            }
+          });
+        }
+        
         return {
           connected: false,
           state: 'not_found',
@@ -171,13 +180,13 @@ class EvolutionService {
       console.error('❌ Error verificando estado:', error.message);
       return {
         connected: false,
-        error: error.message
+        error: error.response?.data?.message || error.message
       };
     }
   }
 
   // ============================================
-  // OBTENER QR CODE - v2.3.7
+  // OBTENER QR CODE - v1.8.0
   // ============================================
   async getQRCode(instanceName: string): Promise<{ 
     success: boolean; 
@@ -186,6 +195,7 @@ class EvolutionService {
     error?: string 
   }> {
     try {
+      // v1.8.0: Endpoint para obtener QR
       const response = await axios.get(
         `${this.apiUrl}/instance/connect/${instanceName}`,
         { 
@@ -194,11 +204,12 @@ class EvolutionService {
         }
       );
 
-      console.log('📋 Respuesta QR:', JSON.stringify(response.data).substring(0, 300));
+      console.log('📋 [v1.8.0] Respuesta QR:', JSON.stringify(response.data).substring(0, 300));
 
       const qrcode = response.data?.qrcode?.base64 || 
-                     response.data?.base64 || 
-                     response.data?.code;
+                     response.data?.base64 ||
+                     response.data?.qr ||
+                     null;
 
       if (qrcode) {
         const user = await prisma.user.findFirst({
@@ -215,7 +226,7 @@ class EvolutionService {
 
       return {
         success: !!qrcode,
-        qrcode: qrcode
+        qrcode: qrcode || undefined
       };
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -228,24 +239,20 @@ class EvolutionService {
       console.error('❌ Error obteniendo QR:', error.message);
       return {
         success: false,
-        error: error.message
+        error: error.response?.data?.message || error.message
       };
     }
   }
 
   // ============================================
-  // ENVIAR MENSAJE DE TEXTO - v2.3.7
+  // ENVIAR MENSAJE DE TEXTO - v1.8.0
   // ============================================
-  async sendTextMessage(
-    instanceName: string, 
-    to: string, 
-    text: string
-  ): Promise<{ 
+  async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE v2.3.7 ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
     console.log(`📤 Destinatario: "${to}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
@@ -255,27 +262,31 @@ class EvolutionService {
       console.log('⚠️ Grupos no soportados');
       return { success: false, error: 'Groups not supported' };
     }
-
-    // Preparar el número - v2.3.7 acepta el remoteJid directamente
-    let numberToSend = to;
     
-    // Si no tiene @, agregarlo
-    if (!to.includes('@')) {
-      numberToSend = to.replace(/\D/g, '');
+    // Limpiar número (remover todo excepto dígitos)
+    let cleanNumber = to.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+    
+    // Asegurar que no tenga el sufijo
+    if (cleanNumber.length < 10) {
+      return { success: false, error: 'Invalid phone number' };
     }
-
-    console.log(`📤 Número a enviar: "${numberToSend}"`);
-
+    
+    console.log(`📱 Número limpio: ${cleanNumber}`);
+    
     try {
-      // Endpoint de v2.3.7: POST /message/sendText/{instanceName}
+      // v1.8.0: Payload para enviar mensaje
       const payload = {
-        number: numberToSend,
-        text: text,
-        delay: 1200
+        number: cleanNumber,
+        options: {
+          delay: 1200,
+          presence: "composing"
+        },
+        textMessage: {
+          text: text
+        }
       };
       
       console.log(`🔄 Enviando a: ${this.apiUrl}/message/sendText/${instanceName}`);
-      console.log(`🔄 Payload:`, JSON.stringify(payload));
       
       const response = await axios.post(
         `${this.apiUrl}/message/sendText/${instanceName}`,
@@ -286,7 +297,7 @@ class EvolutionService {
         }
       );
       
-      console.log('✅ Respuesta envío:', JSON.stringify(response.data).substring(0, 500));
+      console.log('✅ Respuesta envío:', JSON.stringify(response.data).substring(0, 300));
       
       const messageId = response.data?.key?.id || 
                        response.data?.messageId ||
@@ -298,12 +309,7 @@ class EvolutionService {
       };
       
     } catch (error: any) {
-      console.error('❌ Error enviando mensaje:', {
-        status: error.response?.status,
-        data: JSON.stringify(error.response?.data).substring(0, 500),
-        message: error.message
-      });
-      
+      console.error('❌ Error enviando mensaje:', error.response?.data || error.message);
       return {
         success: false,
         error: JSON.stringify(error.response?.data || error.message)
@@ -312,12 +318,13 @@ class EvolutionService {
   }
 
   // ============================================
-  // CONFIGURAR WEBHOOK - v2.3.7
+  // CONFIGURAR WEBHOOK - v1.8.0
   // ============================================
   async setWebhook(instanceName: string, webhookUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`🔗 Configurando webhook v2.3.7: ${webhookUrl}`);
+      console.log(`🔗 [v1.8.0] Configurando webhook: ${webhookUrl}`);
       
+      // v1.8.0: Endpoint y estructura de webhook
       const response = await axios.post(
         `${this.apiUrl}/webhook/set/${instanceName}`,
         {
@@ -328,6 +335,7 @@ class EvolutionService {
             webhookBase64: false,
             events: [
               'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
               'CONNECTION_UPDATE',
               'QRCODE_UPDATED'
             ]
@@ -345,19 +353,22 @@ class EvolutionService {
       console.error('❌ Error configurando webhook:', error.response?.data || error.message);
       return { 
         success: false, 
-        error: error.message 
+        error: error.response?.data?.message || error.message 
       };
     }
   }
 
   // ============================================
-  // DESCONECTAR INSTANCIA - v2.3.7
+  // DESCONECTAR INSTANCIA - v1.8.0
   // ============================================
   async disconnectInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await axios.delete(
         `${this.apiUrl}/instance/logout/${instanceName}`, 
-        { headers: this.getHeaders(), timeout: 10000 }
+        { 
+          headers: this.getHeaders(),
+          timeout: 10000
+        }
       );
       
       const user = await prisma.user.findFirst({ 
@@ -379,18 +390,24 @@ class EvolutionService {
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error desconectando:', error.message);
-      return { success: false, error: error.message };
+      return { 
+        success: false, 
+        error: error.response?.data?.message || error.message 
+      };
     }
   }
 
   // ============================================
-  // ELIMINAR INSTANCIA - v2.3.7
+  // ELIMINAR INSTANCIA - v1.8.0
   // ============================================
   async deleteInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await axios.delete(
         `${this.apiUrl}/instance/delete/${instanceName}`, 
-        { headers: this.getHeaders(), timeout: 10000 }
+        { 
+          headers: this.getHeaders(),
+          timeout: 10000
+        }
       );
       
       const user = await prisma.user.findFirst({ 
@@ -414,15 +431,35 @@ class EvolutionService {
       return { success: true };
     } catch (error: any) {
       if (error.response?.status === 404) {
+        const user = await prisma.user.findFirst({ 
+          where: { evolutionInstanceName: instanceName } 
+        });
+        
+        if (user) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { 
+              evolutionInstanceName: null, 
+              whatsappConnected: false, 
+              whatsappStatus: 'disconnected', 
+              whatsappQrCode: null, 
+              whatsappPhone: null 
+            }
+          });
+        }
         return { success: true };
       }
+      
       console.error('❌ Error eliminando instancia:', error.message);
-      return { success: false, error: error.message };
+      return { 
+        success: false, 
+        error: error.response?.data?.message || error.message 
+      };
     }
   }
 
   // ============================================
-  // OBTENER INFORMACIÓN DE LA INSTANCIA
+  // OBTENER INFORMACIÓN DE LA INSTANCIA - v1.8.0
   // ============================================
   async getInstanceInfo(instanceName: string): Promise<any> {
     try {

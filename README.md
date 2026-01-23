@@ -1,166 +1,259 @@
-# 🤖 ELISA IA - Plataforma SaaS de Chatbots WhatsApp
+# 🤖 ELISA IA - Plataforma de Chatbots WhatsApp
 
-<p align="center">
-  <img src="https://img.shields.io/badge/version-3.1.0-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg" alt="Node">
-  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
-</p>
+## Evolution API v1.8.0 (Versión Estable)
 
-## 📋 Descripción
-
-**Elisa IA** es una plataforma SaaS multi-tenant que permite a los usuarios crear chatbots de WhatsApp con Inteligencia Artificial. Cada usuario puede:
-
-- ✅ Registrarse y crear su cuenta
-- ✅ Conectar su WhatsApp escaneando un código QR
-- ✅ Configurar su propia API Key de OpenAI
-- ✅ Personalizar su asistente de IA (personalidad, contexto, instrucciones)
-- ✅ Agregar FAQs y productos/servicios
-- ✅ Ver conversaciones en tiempo real
-
-## 🏗️ Arquitectura
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   FRONTEND      │────▶│   BACKEND       │────▶│  EVOLUTION API  │
-│   (Vercel)      │     │   (Railway)     │     │  (VPS)          │
-│                 │     │                 │     │                 │
-│  Next.js 14     │     │  Node.js        │     │  WhatsApp QR    │
-│  Tailwind CSS   │     │  Express        │     │  v2.3.7         │
-└─────────────────┘     └────────┬────────┘     └─────────────────┘
-                                 │
-                                 ▼
-                        ┌─────────────────┐
-                        │   SUPABASE      │
-                        │   PostgreSQL    │
-                        └─────────────────┘
-```
-
-## 📦 Estructura del Proyecto
-
-```
-elisa-ia/
-├── backend/
-│   ├── prisma/
-│   │   └── schema.prisma       # Esquema de base de datos
-│   ├── src/
-│   │   ├── lib/
-│   │   │   └── prisma.ts       # Cliente Prisma
-│   │   ├── routes/
-│   │   │   ├── auth.routes.ts       # Autenticación
-│   │   │   ├── whatsapp.routes.ts   # WhatsApp + Webhook
-│   │   │   ├── assistants.routes.ts # Asistentes
-│   │   │   └── conversations.routes.ts # Conversaciones
-│   │   ├── services/
-│   │   │   ├── evolutionService.ts  # Evolution API
-│   │   │   └── openaiService.ts     # OpenAI
-│   │   └── server.ts           # Servidor principal
-│   ├── Dockerfile              # Docker para Railway
-│   ├── package.json
-│   └── .env.example
-├── frontend/
-│   ├── src/
-│   │   └── app/                # Páginas Next.js
-│   ├── package.json
-│   └── next.config.js
-├── docs/
-│   └── GUIA_CONFIGURACION.md   # Guía paso a paso
-└── docker-compose.evolution.yml # Docker para VPS
-```
-
-## 🚀 Inicio Rápido
-
-### Requisitos
-- Node.js 18+
-- Cuenta en [Supabase](https://supabase.com)
-- Cuenta en [Railway](https://railway.app)
-- Cuenta en [Vercel](https://vercel.com)
-- VPS con Docker (para Evolution API)
-
-### 1. Configurar Supabase
-1. Crea un proyecto en Supabase
-2. Copia las URLs de conexión (ver `docs/GUIA_CONFIGURACION.md`)
-
-### 2. Desplegar Backend en Railway
-1. Conecta tu repositorio de GitHub
-2. Configura las variables de entorno (ver `.env.example`)
-3. Railway desplegará automáticamente
-
-### 3. Desplegar Frontend en Vercel
-1. Importa el proyecto desde GitHub
-2. Configura `NEXT_PUBLIC_API_URL` con la URL de Railway
-
-### 4. Configurar Evolution API en VPS
-```bash
-# En tu VPS
-cd /opt
-git clone <tu-repo>
-cd elisa-ia
-docker-compose -f docker-compose.evolution.yml up -d
-```
-
-## ⚙️ Variables de Entorno
-
-### Backend (Railway)
-| Variable | Descripción |
-|----------|-------------|
-| `DATABASE_URL` | URL PostgreSQL con pooling (puerto 6543) |
-| `DIRECT_URL` | URL PostgreSQL directa (puerto 5432) |
-| `JWT_SECRET` | Clave secreta para JWT |
-| `ENCRYPTION_KEY` | Clave para encriptar API Keys |
-| `EVOLUTION_API_URL` | URL de Evolution API |
-| `EVOLUTION_API_KEY` | API Key de Evolution |
-| `FRONTEND_URL` | URL del frontend |
-
-### Frontend (Vercel)
-| Variable | Descripción |
-|----------|-------------|
-| `NEXT_PUBLIC_API_URL` | URL del backend |
-
-## 📱 Flujo de Conexión WhatsApp
-
-1. Usuario se registra/logea
-2. Va a **Configuración** → Agrega su API Key de OpenAI
-3. Va a **WhatsApp** → Click en "Conectar"
-4. El backend crea una instancia en Evolution API
-5. Se genera y muestra el código QR
-6. Usuario escanea con WhatsApp
-7. Evolution API notifica vía webhook cuando está conectado
-8. Los mensajes entrantes se procesan automáticamente con IA
-
-## 🔒 Seguridad
-
-- Las API Keys de OpenAI se almacenan **encriptadas** (AES-256)
-- Autenticación con JWT
-- Cada usuario tiene su propia instancia de WhatsApp aislada
-- CORS configurado para el frontend
-
-## 💰 Costos Estimados
-
-| Servicio | Plan | Costo/mes |
-|----------|------|-----------|
-| Vercel | Hobby | $0 |
-| Railway | Usage | ~$5-10 |
-| Supabase | Free | $0 |
-| VPS | Basic | ~$5-10 |
-| **Total** | | **~$10-20** |
-
-## 📖 Documentación
-
-- [Guía de Configuración Completa](docs/GUIA_CONFIGURACION.md)
-- [API Evolution v2.3.7](https://doc.evolution-api.com/v2/introduction)
-
-## 🤝 Contribuir
-
-1. Fork el repositorio
-2. Crea tu rama (`git checkout -b feature/nueva-funcionalidad`)
-3. Commit tus cambios (`git commit -am 'Agregar nueva funcionalidad'`)
-4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
-5. Abre un Pull Request
-
-## 📄 Licencia
-
-MIT License - ver [LICENSE](LICENSE)
+Esta versión está optimizada para **Evolution API v1.8.0**, la cual es más estable y **NO tiene problemas de LID**.
 
 ---
 
-**Desarrollado con ❤️ para automatizar la atención al cliente**
+## 📋 ¿Por qué v1.8.0?
+
+| Característica | v2.3.x | v1.8.0 |
+|----------------|--------|--------|
+| Estabilidad | ⚠️ Problemas de conexión | ✅ Muy estable |
+| LID (LinkedIn ID) | ⚠️ Requiere mapeo complejo | ✅ No tiene este problema |
+| Número real | Viene en `data.number` o `participant` | ✅ Viene en `key.remoteJid` |
+| Redis | ⚠️ Requerido | ✅ No requerido |
+| Complejidad | Alta | ✅ Simple |
+
+---
+
+## 🚀 Instalación en VPS
+
+### 1. Instalar Evolution API v1.8.0
+
+```bash
+# Ir a la carpeta de evolution
+cd /opt/evolution-api
+
+# Detener contenedores actuales
+docker-compose down
+
+# Copiar el nuevo docker-compose
+# (Usa el archivo docker-compose.evolution.yml de este repositorio)
+
+# Iniciar Evolution API v1.8.0
+docker-compose up -d
+
+# Verificar que esté corriendo
+docker ps
+docker logs evolution_api --tail 50
+```
+
+### 2. Verificar que funciona
+
+```bash
+# Test básico
+curl http://localhost:8080
+
+# Crear instancia de prueba
+curl -X POST "http://localhost:8080/instance/create" \
+  -H "apikey: ElisaIA_Evolution_Key_2026_SecretKey" \
+  -H "Content-Type: application/json" \
+  -d '{"instanceName":"test","qrcode":true,"integration":"WHATSAPP-BAILEYS"}'
+```
+
+---
+
+## 📱 Estructura del Webhook v1.8.0
+
+En v1.8.0, el número real viene **directamente** en `key.remoteJid`:
+
+```json
+{
+  "event": "messages.upsert",
+  "instance": "elisa_xxx",
+  "data": {
+    "key": {
+      "remoteJid": "573001234567@s.whatsapp.net",
+      "fromMe": false,
+      "id": "xxx"
+    },
+    "pushName": "Juan",
+    "message": {
+      "conversation": "Hola"
+    }
+  }
+}
+```
+
+**¡No hay LID!** El número `573001234567` está directamente disponible.
+
+---
+
+## 🔧 Configuración de Variables de Entorno
+
+### Backend (Vercel/Railway)
+
+```env
+NODE_ENV=production
+PORT=3000
+
+# Base de datos (Supabase)
+DATABASE_URL=postgresql://postgres.xxx:password@aws-1-sa-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+DIRECT_URL=postgresql://postgres.xxx:password@aws-1-sa-east-1.pooler.supabase.com:5432/postgres
+
+# JWT
+JWT_SECRET=tu-secreto-jwt-seguro
+
+# Evolution API v1.8.0
+EVOLUTION_API_URL=http://31.97.142.127:8080
+EVOLUTION_API_KEY=ElisaIA_Evolution_Key_2026_SecretKey
+
+# Webhook
+WEBHOOK_URL=https://tu-backend.vercel.app/api/whatsapp/webhook
+```
+
+### Frontend (Vercel)
+
+```env
+NEXT_PUBLIC_API_URL=https://tu-backend.vercel.app
+```
+
+---
+
+## 📂 Estructura del Proyecto
+
+```
+elisa-ia-v1.8.0/
+├── backend/
+│   ├── src/
+│   │   ├── services/
+│   │   │   ├── evolutionService.ts  # ✅ Optimizado para v1.8.0
+│   │   │   └── openaiService.ts
+│   │   ├── routes/
+│   │   │   ├── whatsapp.routes.ts   # ✅ Simplificado sin LID
+│   │   │   ├── auth.routes.ts
+│   │   │   ├── assistants.routes.ts
+│   │   │   └── conversations.routes.ts
+│   │   ├── lib/
+│   │   │   └── prisma.ts
+│   │   └── server.ts
+│   ├── prisma/
+│   │   └── schema.prisma
+│   ├── package.json
+│   └── Dockerfile
+├── frontend/
+│   └── ... (Next.js app)
+├── docker-compose.evolution.yml     # ✅ Para Evolution API v1.8.0
+└── README.md
+```
+
+---
+
+## 🔄 Flujo de Mensajes
+
+```
+1. Usuario envía mensaje a WhatsApp
+                ↓
+2. WhatsApp → Evolution API v1.8.0
+                ↓
+3. Evolution API → Webhook (tu backend)
+   {
+     "key": {
+       "remoteJid": "573001234567@s.whatsapp.net"  ← NÚMERO REAL
+     }
+   }
+                ↓
+4. Backend extrae número: "573001234567"
+                ↓
+5. Backend → OpenAI (genera respuesta)
+                ↓
+6. Backend → Evolution API → WhatsApp
+   Envía respuesta a: "573001234567"
+                ↓
+7. Usuario recibe respuesta ✅
+```
+
+---
+
+## 🛠️ Despliegue
+
+### Backend en Vercel
+
+1. Sube el código del backend a un repositorio de GitHub
+2. Conecta el repositorio a Vercel
+3. Configura las variables de entorno
+4. Despliega
+
+### Frontend en Vercel
+
+1. Sube el código del frontend a GitHub
+2. Conecta a Vercel
+3. Configura `NEXT_PUBLIC_API_URL`
+4. Despliega
+
+### Evolution API en VPS
+
+```bash
+# En tu VPS (Hostinger)
+cd /opt/evolution-api
+docker-compose down
+# Reemplaza docker-compose.yml con docker-compose.evolution.yml
+docker-compose up -d
+```
+
+---
+
+## 📝 Notas Importantes
+
+1. **v1.8.0 no necesita Redis** - Es más simple de configurar
+2. **El número siempre viene limpio** - No hay que buscar en múltiples campos
+3. **Sin mapeo LID** - El código es mucho más simple y confiable
+4. **Usa PostgreSQL local** - Más estable que Supabase para Evolution API
+
+---
+
+## 🆘 Solución de Problemas
+
+### Evolution API no responde
+
+```bash
+docker logs evolution_api --tail 100
+docker-compose restart
+```
+
+### Error de conexión a base de datos
+
+```bash
+docker logs evolution_postgres --tail 50
+docker-compose down
+docker-compose up -d
+```
+
+### El webhook no recibe mensajes
+
+1. Verifica que el webhook esté configurado:
+```bash
+curl -X GET "http://localhost:8080/webhook/find/tu_instancia" \
+  -H "apikey: ElisaIA_Evolution_Key_2026_SecretKey"
+```
+
+2. Configura el webhook manualmente:
+```bash
+curl -X POST "http://localhost:8080/webhook/set/tu_instancia" \
+  -H "apikey: ElisaIA_Evolution_Key_2026_SecretKey" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "webhook": {
+      "enabled": true,
+      "url": "https://tu-backend.vercel.app/api/whatsapp/webhook",
+      "events": ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"]
+    }
+  }'
+```
+
+---
+
+## 📞 Soporte
+
+Si tienes problemas:
+1. Revisa los logs de Docker
+2. Verifica las variables de entorno
+3. Asegúrate de que el puerto 8080 está abierto en el firewall
+
+---
+
+**Versión:** 3.1.0  
+**Evolution API:** v1.8.0  
+**Última actualización:** Enero 2026

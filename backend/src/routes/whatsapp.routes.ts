@@ -10,174 +10,15 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN
   : 'http://localhost:3000/api/whatsapp/webhook';
 
 // ============================================
-// CACHÉ EN MEMORIA PARA MAPEO LID → NÚMERO
-// Para respuestas rápidas sin consultar DB
-// ============================================
-const lidCache: Map<string, string> = new Map();
-
-// ============================================
-// FUNCIONES AUXILIARES PARA EXTRAER NÚMEROS
+// FUNCIONES AUXILIARES
 // ============================================
 
 /**
- * Extrae un número de teléfono válido de cualquier campo
- * Valida que tenga entre 10-15 dígitos
+ * Extrae un identificador para guardar conversaciones
+ * Usa el remoteJid limpio (sin @lid o @s.whatsapp.net)
  */
-function extractPhoneNumber(value: any): string | null {
-  if (!value) return null;
-  
-  const str = String(value);
-  
-  // Si contiene @s.whatsapp.net, extraer número
-  if (str.includes('@s.whatsapp.net')) {
-    const num = str.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-    if (num.length >= 10 && num.length <= 15) {
-      return num;
-    }
-  }
-  
-  // Si contiene @lid, NO es un número real
-  if (str.includes('@lid')) {
-    return null;
-  }
-  
-  // Limpiar y validar
-  const clean = str.replace(/\D/g, '');
-  if (clean.length >= 10 && clean.length <= 15) {
-    return clean;
-  }
-  
-  return null;
-}
-
-/**
- * Busca el número real en todos los campos posibles del mensaje
- */
-function findRealNumberInMessage(msg: any, messageData: any): string | null {
-  // Lista de campos donde puede estar el número real
-  const fieldsToCheck = [
-    // Campos del mensaje
-    msg.key?.participant,
-    msg.participant,
-    msg.sender,
-    msg.from,
-    msg.phone,
-    msg.number,
-    msg.contact?.id,
-    msg.contact?.number,
-    msg.contact?.phone,
-    
-    // Campos del messageData
-    messageData.sender,
-    messageData.participant,
-    messageData.from,
-    messageData.phone,
-    messageData.number,
-    
-    // Campos anidados
-    msg.key?.remoteJid,
-    messageData.key?.participant,
-  ];
-  
-  for (const field of fieldsToCheck) {
-    const number = extractPhoneNumber(field);
-    if (number) {
-      return number;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Guarda el mapeo LID → Número en la base de datos
- */
-async function saveLidMapping(
-  instanceName: string, 
-  lid: string, 
-  phoneNumber: string, 
-  pushName?: string
-): Promise<void> {
-  try {
-    // Normalizar el LID (quitar @lid si lo tiene)
-    const normalizedLid = lid.includes('@') ? lid : `${lid}@lid`;
-    
-    // Guardar en caché de memoria
-    lidCache.set(normalizedLid, phoneNumber);
-    lidCache.set(lid.replace('@lid', ''), phoneNumber);
-    
-    // Guardar en base de datos usando la tabla Conversation o crear una tabla dedicada
-    // Por ahora usamos el campo recipientId para guardar el número real
-    console.log(`💾 Mapeo guardado: ${lid} → ${phoneNumber}`);
-    
-  } catch (error) {
-    console.error('Error guardando mapeo LID:', error);
-  }
-}
-
-/**
- * Busca el número real para un LID
- * Primero en caché, luego en DB, luego consulta a Evolution API
- */
-async function resolvePhoneNumber(
-  instanceName: string, 
-  jid: string,
-  msg?: any,
-  messageData?: any
-): Promise<string> {
-  console.log(`\n🔍 ========== RESOLVIENDO NÚMERO ==========`);
-  console.log(`📋 JID recibido: ${jid}`);
-  
-  // Si ya es un número normal @s.whatsapp.net
-  if (jid.includes('@s.whatsapp.net')) {
-    const number = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-    console.log(`✅ Es número normal: ${number}`);
-    return number;
-  }
-  
-  // Si no es LID, extraer directamente
-  if (!jid.includes('@lid')) {
-    const number = jid.split('@')[0].replace(/\D/g, '');
-    console.log(`✅ Número extraído directamente: ${number}`);
-    return number;
-  }
-  
-  console.log('🔍 Es un LID, buscando número real...');
-  
-  // PASO 1: Buscar en caché de memoria
-  let cachedNumber = lidCache.get(jid);
-  if (!cachedNumber) {
-    cachedNumber = lidCache.get(jid.replace('@lid', ''));
-  }
-  
-  if (cachedNumber) {
-    console.log(`✅ Encontrado en caché: ${cachedNumber}`);
-    return cachedNumber;
-  }
-  
-  // PASO 2: Buscar en los campos del mensaje actual
-  if (msg || messageData) {
-    const numberFromMessage = findRealNumberInMessage(msg || {}, messageData || {});
-    if (numberFromMessage) {
-      console.log(`✅ Encontrado en campos del mensaje: ${numberFromMessage}`);
-      await saveLidMapping(instanceName, jid, numberFromMessage);
-      return numberFromMessage;
-    }
-  }
-  
-  // PASO 3: Consultar Evolution API
-  const numberFromApi = await evolutionService.getRealPhoneNumber(instanceName, jid);
-  if (numberFromApi) {
-    console.log(`✅ Encontrado via API: ${numberFromApi}`);
-    await saveLidMapping(instanceName, jid, numberFromApi);
-    return numberFromApi;
-  }
-  
-  // PASO 4: Último recurso - usar el número del LID
-  // Esto probablemente fallará, pero al menos intentamos
-  const fallbackNumber = jid.replace('@lid', '').replace(/\D/g, '');
-  console.log(`⚠️ Usando LID como fallback: ${fallbackNumber}`);
-  return fallbackNumber;
+function extractConversationId(remoteJid: string): string {
+  return remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
 }
 
 // ============================================
@@ -316,70 +157,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     console.log(`\n📨 Webhook: ${event}`);
 
     // ============================================
-    // EVENTOS DE CONTACTOS - Capturar mapeos LID
-    // ============================================
-    if (event === 'CONTACTS_UPSERT' || event === 'contacts.upsert' || 
-        event === 'CONTACTS_UPDATE' || event === 'contacts.update' ||
-        event === 'CONTACTS_SET' || event === 'contacts.set') {
-      
-      console.log('\n📇 ========== CONTACTOS RECIBIDOS ==========');
-      
-      const contacts = data.data || data.contacts || [data];
-      const contactsArray = Array.isArray(contacts) ? contacts : [contacts];
-      
-      for (const contact of contactsArray) {
-        // Buscar LID
-        const lidFields = [contact.lid, contact.id, contact.jid];
-        let lid: string | null = null;
-        for (const field of lidFields) {
-          if (field && String(field).includes('@lid')) {
-            lid = String(field);
-            break;
-          }
-        }
-        
-        // Buscar número real
-        const realNumber = extractPhoneNumber(contact.id) || 
-                          extractPhoneNumber(contact.number) ||
-                          extractPhoneNumber(contact.phone) ||
-                          extractPhoneNumber(contact.wid);
-        
-        if (lid && realNumber) {
-          await saveLidMapping(instanceName, lid, realNumber, contact.pushName || contact.name);
-          console.log(`✅ Contacto mapeado: ${lid} → ${realNumber}`);
-        }
-      }
-      
-      return res.json({ received: true });
-    }
-
-    // ============================================
-    // EVENTOS DE CHATS - Capturar más mapeos
-    // ============================================
-    if (event === 'CHATS_UPSERT' || event === 'chats.upsert' ||
-        event === 'CHATS_UPDATE' || event === 'chats.update') {
-      
-      console.log('\n💬 ========== CHATS RECIBIDOS ==========');
-      
-      const chats = data.data || data.chats || [data];
-      const chatsArray = Array.isArray(chats) ? chats : [chats];
-      
-      for (const chat of chatsArray) {
-        const jid = chat.id || chat.jid || chat.remoteJid;
-        if (jid && jid.includes('@lid')) {
-          const realNumber = extractPhoneNumber(chat.number) ||
-                            extractPhoneNumber(chat.phone) ||
-                            extractPhoneNumber(chat.contact?.id);
-          if (realNumber) {
-            await saveLidMapping(instanceName, jid, realNumber);
-          }
-        }
-      }
-      
-      return res.json({ received: true });
-    }
-
-    // ============================================
     // CONNECTION_UPDATE
     // ============================================
     if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
@@ -429,6 +206,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           continue;
         }
         
+        // Obtener el remoteJid ORIGINAL - esto es CRUCIAL
         const remoteJid = msg.key?.remoteJid || msg.from;
         if (!remoteJid) {
           console.log('⏭️ Sin remoteJid, ignorando');
@@ -444,14 +222,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
         console.log('\n╔══════════════════════════════════════════════════════════════╗');
         console.log('║                    MENSAJE RECIBIDO                          ║');
         console.log('╚══════════════════════════════════════════════════════════════╝');
-        console.log(`📋 remoteJid: ${remoteJid}`);
-        console.log(`📋 Datos completos del mensaje:`, JSON.stringify(msg).substring(0, 1000));
+        console.log(`📋 remoteJid ORIGINAL: ${remoteJid}`);
         
-        // Resolver el número real usando todas las fuentes
-        const phoneNumber = await resolvePhoneNumber(instanceName, remoteJid, msg, messageData);
+        // Para responder, USAR EL REMOTEJID ORIGINAL (incluyendo @lid si es LID)
+        const replyTo = remoteJid;
+        
+        // Para guardar en DB, usar un identificador limpio
+        const conversationId = extractConversationId(remoteJid);
         const pushName = msg.pushName || '';
         
-        console.log(`📱 Número resuelto: ${phoneNumber}`);
+        console.log(`📱 Responder a: ${replyTo}`);
+        console.log(`🆔 ID conversación: ${conversationId}`);
         console.log(`👤 Nombre: ${pushName}`);
 
         // Extraer contenido del mensaje
@@ -483,17 +264,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
           console.log('⚠️ Usuario sin API Key configurada');
           await evolutionService.sendTextMessage(
             instanceName, 
-            phoneNumber, 
+            replyTo, 
             '⚠️ El asistente no está configurado correctamente. Contacta al administrador.'
           );
           continue;
         }
 
-        // Buscar o crear conversación
+        // Buscar o crear conversación (usando el ID limpio)
         let conversation = await prisma.conversation.findFirst({
           where: { 
             userId: user.id, 
-            recipientId: phoneNumber 
+            recipientId: conversationId 
           }
         });
 
@@ -502,8 +283,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           conversation = await prisma.conversation.create({
             data: { 
               userId: user.id, 
-              recipientId: phoneNumber, 
-              recipientName: pushName || phoneNumber, 
+              recipientId: conversationId, 
+              recipientName: pushName || conversationId, 
               lastMessage: messageContent, 
               lastMessageAt: new Date() 
             }
@@ -548,22 +329,21 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const aiResponse = await openaiService.generateResponse(
           user.id, 
           messageContent, 
-          history.slice(0, -1) // Excluir el mensaje actual del historial
+          history.slice(0, -1)
         );
 
         if (aiResponse.success && aiResponse.response) {
           console.log(`📤 Respuesta generada: ${aiResponse.response.substring(0, 100)}...`);
-          console.log(`📤 Enviando a número: ${phoneNumber}`);
+          console.log(`📤 Enviando a: ${replyTo}`);
           
-          // Enviar respuesta
+          // ENVIAR USANDO EL REMOTEJID ORIGINAL
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            phoneNumber, 
+            replyTo,  // <-- Esto ahora incluye @lid si es necesario
             aiResponse.response
           );
 
           if (sendResult.success) {
-            // Guardar mensaje de respuesta
             await prisma.message.create({
               data: { 
                 conversationId: conversation.id, 
@@ -576,17 +356,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
             console.log('✅ ¡Mensaje enviado exitosamente!');
           } else {
             console.error('❌ Error enviando mensaje:', sendResult.error);
-            
-            // Intentar con formato alternativo si falló
-            if (sendResult.error?.includes('exists') && sendResult.error?.includes('false')) {
-              console.log('🔄 El número no existe, puede ser un problema de formato');
-            }
           }
         } else {
           console.error('❌ Error generando respuesta:', aiResponse.error);
           await evolutionService.sendTextMessage(
             instanceName, 
-            phoneNumber, 
+            replyTo, 
             'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo.'
           );
         }

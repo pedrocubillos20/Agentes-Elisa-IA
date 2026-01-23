@@ -33,7 +33,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // CREAR INSTANCIA - v1.8.0 Compatible
+  // CREAR INSTANCIA
   // ============================================
   async createInstance(userId: string): Promise<{ 
     success: boolean; 
@@ -245,159 +245,8 @@ class EvolutionService {
   }
 
   // ============================================
-  // OBTENER NÚMERO REAL DE UN CONTACTO/LID
-  // Busca en múltiples fuentes de Evolution API
-  // ============================================
-  async getRealPhoneNumber(instanceName: string, jid: string): Promise<string | null> {
-    console.log(`\n🔍 ========== BUSCANDO NÚMERO REAL ==========`);
-    console.log(`📋 JID recibido: ${jid}`);
-    
-    // Si ya es un número normal, extraerlo
-    if (jid.includes('@s.whatsapp.net')) {
-      const number = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-      console.log(`✅ Es número normal: ${number}`);
-      return number;
-    }
-    
-    // Si no es un LID, extraer el número directamente
-    if (!jid.includes('@lid')) {
-      const number = jid.split('@')[0].replace(/\D/g, '');
-      if (number.length >= 10 && number.length <= 15) {
-        console.log(`✅ Número extraído: ${number}`);
-        return number;
-      }
-    }
-    
-    console.log('🔍 Es un LID, buscando número real...');
-    
-    // MÉTODO 1: Buscar en fetchInstances (tiene info del owner conectado)
-    try {
-      const instanceResponse = await axios.get(
-        `${this.apiUrl}/instance/fetchInstances`,
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
-      );
-      
-      const instances = instanceResponse.data || [];
-      for (const inst of instances) {
-        if (inst.instanceName === instanceName || inst.instance?.instanceName === instanceName) {
-          const owner = inst.owner || inst.instance?.owner;
-          if (owner && owner.includes('@s.whatsapp.net')) {
-            // Este es el número del dueño de la instancia, no del contacto
-            console.log(`📋 Owner de instancia: ${owner}`);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.log(`⚠️ Error fetchInstances: ${e.message}`);
-    }
-    
-    // MÉTODO 2: Buscar perfil del contacto
-    try {
-      const profileResponse = await axios.post(
-        `${this.apiUrl}/chat/fetchProfile/${instanceName}`,
-        { number: jid },
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
-      );
-      
-      console.log('📋 Perfil encontrado:', JSON.stringify(profileResponse.data).substring(0, 500));
-      
-      const profile = profileResponse.data;
-      const possibleNumbers = [
-        profile.wid?.user,
-        profile.id?.user,
-        profile.jid,
-        profile.number,
-        profile.phone,
-        profile.wid?._serialized?.replace('@s.whatsapp.net', ''),
-      ];
-      
-      for (const num of possibleNumbers) {
-        if (num) {
-          const clean = String(num).replace(/\D/g, '');
-          if (clean.length >= 10 && clean.length <= 15) {
-            console.log(`✅ Número encontrado en perfil: ${clean}`);
-            return clean;
-          }
-        }
-      }
-    } catch (e: any) {
-      console.log(`⚠️ Error fetchProfile: ${e.message}`);
-    }
-    
-    // MÉTODO 3: Buscar en chats recientes
-    try {
-      const chatsResponse = await axios.get(
-        `${this.apiUrl}/chat/findChats/${instanceName}`,
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
-      );
-      
-      const chats = chatsResponse.data || [];
-      for (const chat of chats) {
-        // Buscar si algún chat tiene este LID asociado
-        const chatJid = chat.id || chat.jid || chat.remoteJid;
-        if (chatJid === jid || chat.lid === jid) {
-          const possibleNumber = chat.id?.replace('@s.whatsapp.net', '') ||
-                                chat.number ||
-                                chat.phone;
-          if (possibleNumber) {
-            const clean = String(possibleNumber).replace(/\D/g, '');
-            if (clean.length >= 10 && clean.length <= 15) {
-              console.log(`✅ Número encontrado en chats: ${clean}`);
-              return clean;
-            }
-          }
-        }
-      }
-    } catch (e: any) {
-      console.log(`⚠️ Error findChats: ${e.message}`);
-    }
-    
-    // MÉTODO 4: Buscar en contactos
-    try {
-      const contactsResponse = await axios.get(
-        `${this.apiUrl}/chat/findContacts/${instanceName}`,
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
-      );
-      
-      const contacts = contactsResponse.data || [];
-      for (const contact of contacts) {
-        const contactJid = contact.id || contact.jid;
-        if (contactJid === jid || contact.lid === jid) {
-          const possibleNumber = contact.id?.replace('@s.whatsapp.net', '') ||
-                                contact.number ||
-                                contact.phone;
-          if (possibleNumber) {
-            const clean = String(possibleNumber).replace(/\D/g, '');
-            if (clean.length >= 10 && clean.length <= 15) {
-              console.log(`✅ Número encontrado en contactos: ${clean}`);
-              return clean;
-            }
-          }
-        }
-      }
-    } catch (e: any) {
-      console.log(`⚠️ Error findContacts: ${e.message}`);
-    }
-    
-    console.log(`❌ No se encontró número real para: ${jid}`);
-    return null;
-  }
-
-  // ============================================
   // ENVIAR MENSAJE DE TEXTO
-  // Maneja tanto números normales como LIDs
+  // Soporta: números normales, JIDs completos, y LIDs
   // ============================================
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
     success: boolean; 
@@ -414,67 +263,100 @@ class EvolutionService {
       console.log('⚠️ Grupos no soportados');
       return { success: false, error: 'Groups not supported' };
     }
+
+    // ESTRATEGIA: Intentar múltiples formatos
+    const attemptsToTry: string[] = [];
     
-    // Limpiar el número
-    let numberToSend = to.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
-    
-    console.log(`📤 Número limpio para enviar: "${numberToSend}"`);
-    
-    // Intentar enviar con el número
-    try {
-      const payload = {
-        number: numberToSend,
-        options: {
-          delay: 1200,
-          presence: "composing",
-          linkPreview: false
-        },
-        textMessage: {
-          text: text
-        }
-      };
-      
-      console.log(`🔄 Enviando a: ${this.apiUrl}/message/sendText/${instanceName}`);
-      console.log(`🔄 Payload:`, JSON.stringify(payload));
-      
-      const response = await axios.post(
-        `${this.apiUrl}/message/sendText/${instanceName}`,
-        payload,
-        { 
-          headers: this.getHeaders(),
-          timeout: 30000
-        }
-      );
-      
-      console.log('✅ Respuesta envío:', JSON.stringify(response.data).substring(0, 300));
-      
-      const messageId = response.data?.key?.id || 
-                       response.data?.messageId ||
-                       response.data?.data?.key?.id;
-      
-      return {
-        success: true,
-        messageId: messageId
-      };
-      
-    } catch (error: any) {
-      console.error('❌ Error enviando mensaje:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message
-      });
-      
-      // Si el error es "exists: false", el número no está en WhatsApp
-      const errorData = error.response?.data;
-      if (errorData?.response?.[0]?.exists === false) {
-        console.log('⚠️ El número no existe en WhatsApp');
-      }
-      
-      return {
-        success: false,
-        error: JSON.stringify(error.response?.data || error.message)
-      };
+    // Si es un LID completo, usarlo directamente primero
+    if (to.includes('@lid')) {
+      attemptsToTry.push(to); // JID completo con @lid
     }
+    
+    // Si es un JID de WhatsApp normal
+    if (to.includes('@s.whatsapp.net')) {
+      attemptsToTry.push(to); // JID completo
+      attemptsToTry.push(to.replace('@s.whatsapp.net', '')); // Solo número
+    }
+    
+    // Si no tiene @, es solo un número
+    if (!to.includes('@')) {
+      attemptsToTry.push(to);
+      attemptsToTry.push(`${to}@s.whatsapp.net`);
+    }
+    
+    // Limpiar número como último recurso
+    const cleanNumber = to.replace(/@.*$/, '').replace(/\D/g, '');
+    if (cleanNumber && !attemptsToTry.includes(cleanNumber)) {
+      attemptsToTry.push(cleanNumber);
+    }
+
+    console.log(`📋 Intentos a probar: ${JSON.stringify(attemptsToTry)}`);
+
+    // Intentar cada formato
+    for (const numberFormat of attemptsToTry) {
+      console.log(`\n🔄 Intentando con: "${numberFormat}"`);
+      
+      try {
+        const payload = {
+          number: numberFormat,
+          options: {
+            delay: 1200,
+            presence: "composing",
+            linkPreview: false
+          },
+          textMessage: {
+            text: text
+          }
+        };
+        
+        const response = await axios.post(
+          `${this.apiUrl}/message/sendText/${instanceName}`,
+          payload,
+          { 
+            headers: this.getHeaders(),
+            timeout: 30000
+          }
+        );
+        
+        console.log('✅ Respuesta exitosa:', JSON.stringify(response.data).substring(0, 300));
+        
+        const messageId = response.data?.key?.id || 
+                         response.data?.messageId ||
+                         response.data?.data?.key?.id;
+        
+        return {
+          success: true,
+          messageId: messageId
+        };
+        
+      } catch (error: any) {
+        const errorData = error.response?.data;
+        console.log(`⚠️ Falló con "${numberFormat}":`, JSON.stringify(errorData || error.message).substring(0, 200));
+        
+        // Si el error NO es "number not exists", detenerse
+        const isNotExistsError = errorData?.response?.[0]?.exists === false ||
+                                 JSON.stringify(errorData).includes('exists') ||
+                                 JSON.stringify(errorData).includes('not registered');
+        
+        if (!isNotExistsError && error.response?.status !== 400) {
+          // Error diferente, reportarlo
+          return {
+            success: false,
+            error: JSON.stringify(errorData || error.message)
+          };
+        }
+        
+        // Continuar con el siguiente formato
+        continue;
+      }
+    }
+    
+    // Todos los intentos fallaron
+    console.error('❌ Todos los intentos de envío fallaron');
+    return {
+      success: false,
+      error: 'No se pudo enviar el mensaje. El número puede no estar registrado en WhatsApp.'
+    };
   }
 
   // ============================================

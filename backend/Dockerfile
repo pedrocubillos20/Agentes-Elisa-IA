@@ -1,8 +1,6 @@
-FROM node:18-alpine
+FROM node:18
 
 WORKDIR /app
-
-RUN apk add --no-cache openssl
 
 COPY package*.json ./
 
@@ -14,7 +12,7 @@ RUN npx prisma generate
 
 COPY . .
 
-RUN npx tsc
+RUN ./node_modules/.bin/tsc
 
 EXPOSE 3001
 

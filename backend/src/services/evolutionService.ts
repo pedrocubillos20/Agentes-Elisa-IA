@@ -16,7 +16,7 @@ class EvolutionService {
     this.apiUrl = EVOLUTION_API_URL || '';
     this.apiKey = EVOLUTION_API_KEY || '';
     if (this.apiUrl && this.apiKey) {
-      console.log(`🔧 Evolution Service inicializado: ${this.apiUrl}`);
+      console.log(`🔧 Evolution Service v2.3.7 inicializado: ${this.apiUrl}`);
     } else {
       console.log('⚠️ Evolution Service: Variables de entorno no configuradas');
     }
@@ -33,7 +33,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // CREAR INSTANCIA
+  // CREAR INSTANCIA - v2.3.7
   // ============================================
   async createInstance(userId: string): Promise<{ 
     success: boolean; 
@@ -51,13 +51,7 @@ class EvolutionService {
         {
           instanceName: instanceName,
           qrcode: true,
-          integration: "WHATSAPP-BAILEYS",
-          reject_call: true,
-          msg_call: "No puedo atender llamadas en este momento.",
-          groups_ignore: true,
-          always_online: true,
-          read_messages: true,
-          read_status: false
+          integration: "WHATSAPP-BAILEYS"
         },
         { 
           headers: this.getHeaders(),
@@ -69,8 +63,7 @@ class EvolutionService {
 
       const qrcode = response.data?.qrcode?.base64 || 
                      response.data?.base64 ||
-                     response.data?.data?.qrcode?.base64 ||
-                     response.data?.data?.base64;
+                     response.data?.data?.qrcode?.base64;
 
       await prisma.user.update({
         where: { id: userId },
@@ -91,13 +84,13 @@ class EvolutionService {
       console.error('❌ Error creando instancia:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.response?.data?.message || error.response?.data?.error || error.message
+        error: error.response?.data?.message || error.message
       };
     }
   }
 
   // ============================================
-  // VERIFICAR ESTADO DE CONEXIÓN
+  // VERIFICAR ESTADO DE CONEXIÓN - v2.3.7
   // ============================================
   async checkConnectionStatus(instanceName: string): Promise<{ 
     connected: boolean; 
@@ -119,57 +112,54 @@ class EvolutionService {
 
       const state = response.data?.instance?.state || 
                    response.data?.state || 
-                   response.data?.data?.state;
+                   response.data?.connectionStatus;
       
-      const owner = response.data?.instance?.owner || 
-                   response.data?.owner ||
-                   response.data?.data?.owner;
-
-      const phone = owner?.replace('@s.whatsapp.net', '').replace(/\D/g, '');
       const connected = state === 'open' || state === 'connected';
 
-      if (connected && phone) {
-        const user = await prisma.user.findFirst({
-          where: { evolutionInstanceName: instanceName }
-        });
-        
-        if (user) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              whatsappConnected: true,
-              whatsappStatus: 'connected',
-              whatsappPhone: phone,
-              whatsappQrCode: null
+      if (connected) {
+        // Obtener info de la instancia para el número
+        try {
+          const infoResponse = await axios.get(
+            `${this.apiUrl}/instance/fetchInstances`,
+            { 
+              headers: this.getHeaders(),
+              params: { instanceName },
+              timeout: 10000
             }
-          });
+          );
+          
+          const instances = infoResponse.data || [];
+          const instance = instances.find((i: any) => i.name === instanceName);
+          const ownerJid = instance?.ownerJid || '';
+          const phone = ownerJid.replace('@s.whatsapp.net', '');
+          
+          if (phone) {
+            const user = await prisma.user.findFirst({
+              where: { evolutionInstanceName: instanceName }
+            });
+            
+            if (user) {
+              await prisma.user.update({
+                where: { id: user.id },
+                data: {
+                  whatsappConnected: true,
+                  whatsappStatus: 'connected',
+                  whatsappPhone: phone,
+                  whatsappQrCode: null
+                }
+              });
+            }
+          }
+          
+          return { connected: true, state: 'open', phone };
+        } catch (e) {
+          return { connected: true, state: 'open' };
         }
       }
 
-      return {
-        connected: connected,
-        state: state,
-        phone: phone
-      };
+      return { connected: false, state: state };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        const user = await prisma.user.findFirst({
-          where: { evolutionInstanceName: instanceName }
-        });
-        
-        if (user) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              evolutionInstanceName: null,
-              whatsappConnected: false,
-              whatsappStatus: 'disconnected',
-              whatsappQrCode: null,
-              whatsappPhone: null
-            }
-          });
-        }
-        
         return {
           connected: false,
           state: 'not_found',
@@ -181,13 +171,13 @@ class EvolutionService {
       console.error('❌ Error verificando estado:', error.message);
       return {
         connected: false,
-        error: error.response?.data?.message || error.message
+        error: error.message
       };
     }
   }
 
   // ============================================
-  // OBTENER QR CODE
+  // OBTENER QR CODE - v2.3.7
   // ============================================
   async getQRCode(instanceName: string): Promise<{ 
     success: boolean; 
@@ -208,8 +198,7 @@ class EvolutionService {
 
       const qrcode = response.data?.qrcode?.base64 || 
                      response.data?.base64 || 
-                     response.data?.code ||
-                     response.data?.data?.qrcode?.base64;
+                     response.data?.code;
 
       if (qrcode) {
         const user = await prisma.user.findFirst({
@@ -239,29 +228,26 @@ class EvolutionService {
       console.error('❌ Error obteniendo QR:', error.message);
       return {
         success: false,
-        error: error.response?.data?.message || error.message
+        error: error.message
       };
     }
   }
 
   // ============================================
-  // ENVIAR MENSAJE DE TEXTO - Múltiples métodos
+  // ENVIAR MENSAJE DE TEXTO - v2.3.7
   // ============================================
   async sendTextMessage(
     instanceName: string, 
     to: string, 
-    text: string,
-    quotedMessageId?: string,
-    quotedRemoteJid?: string
+    text: string
   ): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE v2.3.7 ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
     console.log(`📤 Destinatario: "${to}"`);
-    console.log(`📤 QuotedMsgId: "${quotedMessageId || 'none'}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     // Ignorar grupos
@@ -270,109 +256,29 @@ class EvolutionService {
       return { success: false, error: 'Groups not supported' };
     }
 
-    // MÉTODO 1: Intentar con quoted message (respuesta)
-    if (quotedMessageId && quotedRemoteJid) {
-      console.log('🔄 Intentando enviar como respuesta (quoted)...');
-      try {
-        const payload = {
-          number: quotedRemoteJid,
-          options: {
-            delay: 1200,
-            presence: "composing",
-            quoted: {
-              key: {
-                remoteJid: quotedRemoteJid,
-                fromMe: false,
-                id: quotedMessageId
-              }
-            }
-          },
-          textMessage: {
-            text: text
-          }
-        };
-        
-        const response = await axios.post(
-          `${this.apiUrl}/message/sendText/${instanceName}`,
-          payload,
-          { 
-            headers: this.getHeaders(),
-            timeout: 30000
-          }
-        );
-        
-        console.log('✅ Mensaje enviado con quoted:', JSON.stringify(response.data).substring(0, 300));
-        return {
-          success: true,
-          messageId: response.data?.key?.id || response.data?.messageId
-        };
-      } catch (error: any) {
-        console.log('⚠️ Falló con quoted:', error.response?.data?.message || error.message);
-      }
-    }
-
-    // MÉTODO 2: Intentar enviar normalmente con diferentes formatos
-    const formatsToTry = [];
+    // Preparar el número - v2.3.7 acepta el remoteJid directamente
+    let numberToSend = to;
     
-    // Si tiene @, usarlo como está
-    if (to.includes('@')) {
-      formatsToTry.push(to);
-    }
-    
-    // Extraer solo números
-    const cleanNumber = to.replace(/@.*$/, '').replace(/\D/g, '');
-    if (cleanNumber) {
-      formatsToTry.push(cleanNumber);
+    // Si no tiene @, agregarlo
+    if (!to.includes('@')) {
+      numberToSend = to.replace(/\D/g, '');
     }
 
-    for (const numberFormat of formatsToTry) {
-      console.log(`🔄 Intentando con: "${numberFormat}"`);
-      
-      try {
-        const payload = {
-          number: numberFormat,
-          options: {
-            delay: 1200,
-            presence: "composing",
-            linkPreview: false
-          },
-          textMessage: {
-            text: text
-          }
-        };
-        
-        const response = await axios.post(
-          `${this.apiUrl}/message/sendText/${instanceName}`,
-          payload,
-          { 
-            headers: this.getHeaders(),
-            timeout: 30000
-          }
-        );
-        
-        console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 300));
-        return {
-          success: true,
-          messageId: response.data?.key?.id || response.data?.messageId
-        };
-        
-      } catch (error: any) {
-        console.log(`⚠️ Falló con "${numberFormat}":`, error.response?.data?.message || error.message);
-        continue;
-      }
-    }
+    console.log(`📤 Número a enviar: "${numberToSend}"`);
 
-    // MÉTODO 3: Intentar con endpoint de chat/sendMessage
-    console.log('🔄 Intentando con chat/sendMessage...');
     try {
+      // Endpoint de v2.3.7: POST /message/sendText/{instanceName}
       const payload = {
-        chatId: to,
-        contentType: "string",
-        content: text
+        number: numberToSend,
+        text: text,
+        delay: 1200
       };
       
+      console.log(`🔄 Enviando a: ${this.apiUrl}/message/sendText/${instanceName}`);
+      console.log(`🔄 Payload:`, JSON.stringify(payload));
+      
       const response = await axios.post(
-        `${this.apiUrl}/chat/sendMessage/${instanceName}`,
+        `${this.apiUrl}/message/sendText/${instanceName}`,
         payload,
         { 
           headers: this.getHeaders(),
@@ -380,28 +286,37 @@ class EvolutionService {
         }
       );
       
-      console.log('✅ Mensaje enviado via chat/sendMessage:', JSON.stringify(response.data).substring(0, 300));
+      console.log('✅ Respuesta envío:', JSON.stringify(response.data).substring(0, 500));
+      
+      const messageId = response.data?.key?.id || 
+                       response.data?.messageId ||
+                       response.data?.id;
+      
       return {
         success: true,
-        messageId: response.data?.key?.id || response.data?.messageId
+        messageId: messageId
       };
+      
     } catch (error: any) {
-      console.log('⚠️ Falló chat/sendMessage:', error.response?.data?.message || error.message);
+      console.error('❌ Error enviando mensaje:', {
+        status: error.response?.status,
+        data: JSON.stringify(error.response?.data).substring(0, 500),
+        message: error.message
+      });
+      
+      return {
+        success: false,
+        error: JSON.stringify(error.response?.data || error.message)
+      };
     }
-
-    console.error('❌ Todos los métodos de envío fallaron');
-    return {
-      success: false,
-      error: 'No se pudo enviar el mensaje con ningún método'
-    };
   }
 
   // ============================================
-  // CONFIGURAR WEBHOOK
+  // CONFIGURAR WEBHOOK - v2.3.7
   // ============================================
   async setWebhook(instanceName: string, webhookUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`🔗 Configurando webhook: ${webhookUrl}`);
+      console.log(`🔗 Configurando webhook v2.3.7: ${webhookUrl}`);
       
       const response = await axios.post(
         `${this.apiUrl}/webhook/set/${instanceName}`,
@@ -413,7 +328,6 @@ class EvolutionService {
             webhookBase64: false,
             events: [
               'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
               'CONNECTION_UPDATE',
               'QRCODE_UPDATED'
             ]
@@ -431,22 +345,19 @@ class EvolutionService {
       console.error('❌ Error configurando webhook:', error.response?.data || error.message);
       return { 
         success: false, 
-        error: error.response?.data?.message || error.message 
+        error: error.message 
       };
     }
   }
 
   // ============================================
-  // DESCONECTAR INSTANCIA
+  // DESCONECTAR INSTANCIA - v2.3.7
   // ============================================
   async disconnectInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await axios.delete(
         `${this.apiUrl}/instance/logout/${instanceName}`, 
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
+        { headers: this.getHeaders(), timeout: 10000 }
       );
       
       const user = await prisma.user.findFirst({ 
@@ -468,24 +379,18 @@ class EvolutionService {
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error desconectando:', error.message);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message 
-      };
+      return { success: false, error: error.message };
     }
   }
 
   // ============================================
-  // ELIMINAR INSTANCIA
+  // ELIMINAR INSTANCIA - v2.3.7
   // ============================================
   async deleteInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await axios.delete(
         `${this.apiUrl}/instance/delete/${instanceName}`, 
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
+        { headers: this.getHeaders(), timeout: 10000 }
       );
       
       const user = await prisma.user.findFirst({ 
@@ -509,30 +414,10 @@ class EvolutionService {
       return { success: true };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        const user = await prisma.user.findFirst({ 
-          where: { evolutionInstanceName: instanceName } 
-        });
-        
-        if (user) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { 
-              evolutionInstanceName: null, 
-              whatsappConnected: false, 
-              whatsappStatus: 'disconnected', 
-              whatsappQrCode: null, 
-              whatsappPhone: null 
-            }
-          });
-        }
         return { success: true };
       }
-      
       console.error('❌ Error eliminando instancia:', error.message);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message 
-      };
+      return { success: false, error: error.message };
     }
   }
 

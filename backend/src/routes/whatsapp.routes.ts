@@ -142,15 +142,19 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // ============================================
-// WEBHOOK PRINCIPAL
+// WEBHOOK PRINCIPAL - v2.3.7 FORMAT
 // ============================================
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const data = req.body;
-    const event = data.event || data.type;
-    const instanceName = data.instance || data.instanceName;
     
-    console.log(`\n📨 Webhook: ${event}`);
+    // v2.3.7 puede enviar el evento de diferentes formas
+    const event = data.event || data.type || 'unknown';
+    const instanceName = data.instance || data.instanceName || data.data?.instance;
+    
+    console.log(`\n📨 Webhook recibido: ${event}`);
+    console.log(`📋 Instance: ${instanceName}`);
+    console.log(`📋 Data completa:`, JSON.stringify(data).substring(0, 1000));
 
     // CONNECTION_UPDATE
     if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
@@ -184,74 +188,116 @@ router.post('/webhook', async (req: Request, res: Response) => {
       return res.json({ received: true });
     }
 
-    // MESSAGES_UPSERT
+    // MESSAGES_UPSERT - v2.3.7 format
     if (event === 'MESSAGES_UPSERT' || event === 'messages.upsert') {
-      const messageData = data.data || data;
-      const messages = messageData.messages || [messageData];
+      console.log('\n╔══════════════════════════════════════════════════════════════╗');
+      console.log('║                    MENSAJE RECIBIDO v2.3.7                    ║');
+      console.log('╚══════════════════════════════════════════════════════════════╝');
       
+      // v2.3.7 estructura: data.data[] contiene los mensajes
+      const messageData = data.data || data;
+      let messages = [];
+      
+      // Puede venir como array o como objeto
+      if (Array.isArray(messageData)) {
+        messages = messageData;
+      } else if (messageData.messages) {
+        messages = messageData.messages;
+      } else if (messageData.key) {
+        messages = [messageData];
+      } else {
+        messages = [messageData];
+      }
+
+      console.log(`📋 Mensajes a procesar: ${messages.length}`);
+
       for (const msg of messages) {
-        if (msg.key?.fromMe) {
+        console.log(`📋 Mensaje raw:`, JSON.stringify(msg).substring(0, 800));
+        
+        // v2.3.7: verificar si es mensaje propio
+        const fromMe = msg.key?.fromMe || msg.fromMe;
+        if (fromMe) {
           console.log('⏭️ Mensaje propio, ignorando');
           continue;
         }
         
-        const remoteJid = msg.key?.remoteJid || msg.from;
-        if (!remoteJid) continue;
-        if (remoteJid.includes('@g.us')) continue;
+        // Obtener remoteJid
+        const remoteJid = msg.key?.remoteJid || msg.remoteJid || msg.from;
+        if (!remoteJid) {
+          console.log('⏭️ Sin remoteJid, ignorando');
+          continue;
+        }
+        
+        // Ignorar grupos
+        if (remoteJid.includes('@g.us')) {
+          console.log('⏭️ Es grupo, ignorando');
+          continue;
+        }
 
-        console.log('\n╔══════════════════════════════════════════════════════════════╗');
-        console.log('║                    MENSAJE RECIBIDO                          ║');
-        console.log('╚══════════════════════════════════════════════════════════════╝');
+        console.log(`📱 remoteJid: ${remoteJid}`);
         
-        // Guardar datos del mensaje original para quoted reply
-        const originalMessageId = msg.key?.id;
-        const originalRemoteJid = remoteJid;
+        // Extraer el número para responder
+        // v2.3.7 puede usar LIDs pero también envía el número real en algunos campos
+        let replyTo = remoteJid;
         
-        console.log(`📋 remoteJid: ${remoteJid}`);
-        console.log(`📋 messageId: ${originalMessageId}`);
+        // Buscar número real en diferentes campos
+        const pushName = msg.pushName || msg.key?.pushName || '';
         
+        // Para conversaciones, usar un ID limpio
         const conversationId = extractConversationId(remoteJid);
-        const pushName = msg.pushName || '';
         
-        console.log(`🆔 ID conversación: ${conversationId}`);
+        console.log(`📱 Reply to: ${replyTo}`);
+        console.log(`🆔 Conversation ID: ${conversationId}`);
         console.log(`👤 Nombre: ${pushName}`);
 
-        const messageContent = msg.message?.conversation || 
-                              msg.message?.extendedTextMessage?.text ||
-                              msg.message?.text || 
-                              msg.text ||
-                              msg.body || '';
+        // Extraer contenido del mensaje - v2.3.7 puede tener diferentes estructuras
+        let messageContent = '';
         
-        if (!messageContent) continue;
+        if (msg.message) {
+          messageContent = msg.message.conversation || 
+                          msg.message.extendedTextMessage?.text ||
+                          msg.message.text ||
+                          '';
+        } else {
+          messageContent = msg.text || msg.body || msg.conversation || '';
+        }
+        
+        if (!messageContent) {
+          console.log('⏭️ Sin contenido de texto, ignorando');
+          console.log('📋 Estructura del mensaje:', JSON.stringify(msg.message || msg).substring(0, 500));
+          continue;
+        }
 
         console.log(`💬 Mensaje: ${messageContent}`);
 
+        // Buscar usuario dueño de la instancia
         const user = await prisma.user.findFirst({ 
           where: { evolutionInstanceName: instanceName } 
         });
         
         if (!user) {
-          console.log('❌ Usuario no encontrado');
+          console.log('❌ Usuario no encontrado para esta instancia');
           continue;
         }
 
+        // Verificar que tiene API Key de OpenAI
         if (!user.apiKeyConnected) {
-          console.log('⚠️ Sin API Key');
+          console.log('⚠️ Usuario sin API Key configurada');
           await evolutionService.sendTextMessage(
             instanceName, 
-            originalRemoteJid, 
-            '⚠️ El asistente no está configurado.',
-            originalMessageId,
-            originalRemoteJid
+            replyTo, 
+            '⚠️ El asistente no está configurado correctamente.'
           );
           continue;
         }
 
+        // Buscar o crear conversación
         let conversation = await prisma.conversation.findFirst({
           where: { userId: user.id, recipientId: conversationId }
         });
 
         if (!conversation) {
+          console.log('📝 Creando nueva conversación');
           conversation = await prisma.conversation.create({
             data: { 
               userId: user.id, 
@@ -272,6 +318,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           });
         }
 
+        // Guardar mensaje entrante
         await prisma.message.create({
           data: { 
             conversationId: conversation.id, 
@@ -282,6 +329,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           }
         });
 
+        // Obtener historial para contexto
         const recentMessages = await prisma.message.findMany({
           where: { conversationId: conversation.id },
           orderBy: { timestamp: 'asc' },
@@ -293,8 +341,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
           content: m.content 
         }));
 
-        console.log('🤖 Generando respuesta...');
+        console.log('🤖 Generando respuesta con OpenAI...');
         
+        // Generar respuesta con IA
         const aiResponse = await openaiService.generateResponse(
           user.id, 
           messageContent, 
@@ -303,16 +352,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
         if (aiResponse.success && aiResponse.response) {
           console.log(`📤 Respuesta: ${aiResponse.response.substring(0, 100)}...`);
-          console.log(`📤 Enviando a: ${originalRemoteJid}`);
-          console.log(`📤 QuotedMsgId: ${originalMessageId}`);
+          console.log(`📤 Enviando a: ${replyTo}`);
           
-          // Enviar con quoted message (respuesta al mensaje original)
+          // Enviar respuesta
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            originalRemoteJid,
-            aiResponse.response,
-            originalMessageId,  // ID del mensaje para responder
-            originalRemoteJid   // JID del remitente original
+            replyTo,
+            aiResponse.response
           );
 
           if (sendResult.success) {
@@ -325,18 +371,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 fromMe: true 
               }
             });
-            console.log('✅ ¡Mensaje enviado!');
+            console.log('✅ ¡Mensaje enviado exitosamente!');
           } else {
-            console.error('❌ Error:', sendResult.error);
+            console.error('❌ Error enviando mensaje:', sendResult.error);
           }
         } else {
-          console.error('❌ Error IA:', aiResponse.error);
+          console.error('❌ Error generando respuesta:', aiResponse.error);
           await evolutionService.sendTextMessage(
             instanceName, 
-            originalRemoteJid, 
-            'Lo siento, hubo un problema. Intenta de nuevo.',
-            originalMessageId,
-            originalRemoteJid
+            replyTo, 
+            'Lo siento, hubo un problema. Intenta de nuevo.'
           );
         }
       }
@@ -344,13 +388,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     res.json({ received: true });
   } catch (error: any) {
-    console.error('❌ Error webhook:', error);
-    res.status(500).json({ error: 'Error' });
+    console.error('❌ Error en webhook:', error);
+    res.status(500).json({ error: 'Error procesando webhook' });
   }
 });
 
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('Webhook activo - Elisa IA');
+  res.send('Webhook activo - Elisa IA v2.3.7');
 });
 
 export default router;

@@ -1,12 +1,12 @@
-FROM node:18-alpine
+FROM node:18
 
 WORKDIR /app
 
 COPY package*.json ./
+
+RUN npm ci
+
 COPY prisma ./prisma/
-
-RUN npm ci --only=production
-
 RUN npx prisma generate
 
 COPY . .

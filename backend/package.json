@@ -1,13 +1,21 @@
 {
-  "name": "elisa-ia-evolution",
-  "version": "3.0.0",
-  "description": "Backend para Elisa IA - Chatbots de WhatsApp con Evolution API",
+  "name": "elisa-ia-backend",
+  "version": "3.1.0",
+  "description": "Backend para Elisa IA - Plataforma SaaS de Chatbots WhatsApp con IA",
   "main": "dist/server.js",
   "scripts": {
     "build": "npx prisma generate && tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
-    "postinstall": "npx prisma generate"
+    "start:migrate": "npx prisma migrate deploy && npx prisma generate && node dist/server.js",
+    "dev": "ts-node-dev --respawn src/server.ts",
+    "postinstall": "npx prisma generate",
+    "prisma:generate": "npx prisma generate",
+    "prisma:migrate": "npx prisma migrate deploy",
+    "prisma:push": "npx prisma db push",
+    "prisma:studio": "npx prisma studio"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -33,6 +41,7 @@
     "@types/qrcode": "^1.5.5",
     "@types/uuid": "^9.0.7",
     "prisma": "^5.22.0",
+    "ts-node-dev": "^2.0.0",
     "typescript": "^5.3.2"
   }
 }

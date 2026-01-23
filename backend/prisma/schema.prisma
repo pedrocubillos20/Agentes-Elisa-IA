@@ -1,12 +1,21 @@
+// ============================================
+// ELISA IA - ESQUEMA DE BASE DE DATOS
+// Compatible con Supabase PostgreSQL
+// ============================================
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")      // URL con pooling para queries (puerto 6543)
+  directUrl = env("DIRECT_URL")        // URL directa para migraciones (puerto 5432)
 }
 
+// ============================================
+// MODELO: USER (Usuario de la plataforma)
+// ============================================
 model User {
   id                    String       @id @default(uuid())
   email                 String       @unique
@@ -14,10 +23,12 @@ model User {
   name                  String?
   plan                  String       @default("FREE")
   trialEndsAt           DateTime?
+  
+  // API Key de OpenAI (encriptada)
   apiKeyEncrypted       String?      @db.Text
   apiKeyConnected       Boolean      @default(false)
   
-  // Evolution API fields
+  // Evolution API - Configuración WhatsApp
   evolutionInstanceName String?      @unique
   evolutionInstanceKey  String?      @db.Text
   whatsappConnected     Boolean      @default(false)
@@ -25,23 +36,31 @@ model User {
   whatsappQrCode        String?      @db.Text
   whatsappStatus        String?      @default("disconnected")
   
-  // Referidos
+  // Sistema de referidos
   referralCode          String?      @unique
   referredBy            String?
   
-  // Marca blanca
+  // Marca blanca (opcional)
   customBrandName       String?
   
+  // Timestamps
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
   
+  // Relaciones
   assistants            Assistant[]
   conversations         Conversation[]
   messages              Message[]
   faqs                  FAQ[]
   products              Product[]
+
+  @@index([email])
+  @@index([evolutionInstanceName])
 }
 
+// ============================================
+// MODELO: ASSISTANT (Asistente de IA)
+// ============================================
 model Assistant {
   id              String   @id @default(uuid())
   userId          String
@@ -52,58 +71,94 @@ model Assistant {
   instructions    String?  @db.Text
   welcomeMessage  String?  @db.Text
   isActive        Boolean  @default(true)
+  
+  // Configuración del modelo
   model           String   @default("gpt-3.5-turbo")
   temperature     Float    @default(0.7)
   maxTokens       Int      @default(500)
+  
+  // Timestamps
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
+  // Relaciones
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversations   Conversation[]
+
+  @@index([userId])
+  @@index([isActive])
 }
 
+// ============================================
+// MODELO: CONVERSATION (Conversación WhatsApp)
+// ============================================
 model Conversation {
   id           String    @id @default(uuid())
-  recipientId  String
+  recipientId  String    // Número de WhatsApp del cliente
   recipientName String?
   userId       String
   assistantId  String?
   lastMessage  String?   @db.Text
   lastMessageAt DateTime?
   isActive     Boolean   @default(true)
+  
+  // Timestamps
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   
+  // Relaciones
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   assistant    Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
   messages     Message[]
+
+  @@unique([userId, recipientId])
+  @@index([userId])
+  @@index([recipientId])
 }
 
+// ============================================
+// MODELO: MESSAGE (Mensaje individual)
+// ============================================
 model Message {
   id             String   @id @default(uuid())
   conversationId String
   userId         String
-  role           String
+  role           String   // 'user' | 'assistant'
   content        String   @db.Text
   fromMe         Boolean  @default(false)
   timestamp      DateTime @default(now())
   
+  // Relaciones
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([timestamp])
 }
 
+// ============================================
+// MODELO: FAQ (Preguntas frecuentes)
+// ============================================
 model FAQ {
   id        String   @id @default(uuid())
   userId    String
   question  String   @db.Text
   answer    String   @db.Text
   isActive  Boolean  @default(true)
+  
+  // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
+  // Relaciones
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
+// ============================================
+// MODELO: PRODUCT (Productos/Servicios)
+// ============================================
 model Product {
   id          String   @id @default(uuid())
   userId      String
@@ -112,8 +167,14 @@ model Product {
   price       Float?
   category    String?
   isActive    Boolean  @default(true)
+  
+  // Timestamps
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
+  // Relaciones
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([category])
 }

@@ -1,0 +1,44 @@
+# ============================================
+# ELISA IA - Variables para Railway
+# ============================================
+# Copia estas variables a Railway > Tu Servicio > Variables
+# Recuerda cambiar los valores por los tuyos
+
+# ============================================
+# BASE DE DATOS - SUPABASE
+# ============================================
+# Ve a Supabase Dashboard > Settings > Database > Connection String
+
+# URL con pooling para QUERIES (puerto 6543)
+DATABASE_URL=postgresql://postgres.TU_PROJECT_REF:TU_PASSWORD@aws-0-us-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true
+
+# URL directa para MIGRACIONES (puerto 5432)
+DIRECT_URL=postgresql://postgres.TU_PROJECT_REF:TU_PASSWORD@aws-0-us-west-1.pooler.supabase.com:5432/postgres
+
+# ============================================
+# SEGURIDAD
+# ============================================
+JWT_SECRET=ElisaIA_JWT_Secret_2026_CambiaEstoAhora_MuySeguro123!
+JWT_EXPIRES_IN=30d
+ENCRYPTION_KEY=ElisaIA_Encryption_Key_2026_ParaOpenAI_CambiaEsto!
+
+# ============================================
+# EVOLUTION API (WhatsApp)
+# ============================================
+# Cambia TU_IP_VPS por la IP pública de tu VPS
+EVOLUTION_API_URL=http://TU_IP_VPS:8080
+EVOLUTION_API_KEY=ElisaIA_Evolution_2026_CambiaEsto!
+
+# ============================================
+# URLS
+# ============================================
+FRONTEND_URL=https://agentes-elisa-ia.vercel.app
+NODE_ENV=production
+
+# ============================================
+# WOMPI (PAGOS - OPCIONAL)
+# ============================================
+# WOMPI_PUBLIC_KEY=
+# WOMPI_PRIVATE_KEY=
+# WOMPI_EVENT_SECRET=
+# WOMPI_ENVIRONMENT=sandbox

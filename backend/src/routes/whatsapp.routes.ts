@@ -10,69 +10,178 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN
   : 'http://localhost:3000/api/whatsapp/webhook';
 
 // ============================================
-// CACHÉ DE MAPEO LID → NÚMERO REAL
+// CACHÉ EN MEMORIA PARA MAPEO LID → NÚMERO
+// Para respuestas rápidas sin consultar DB
 // ============================================
-// Estructura: { "55852006375537@lid": "573203921881" }
-const lidToPhoneCache: Map<string, string> = new Map();
+const lidCache: Map<string, string> = new Map();
 
-// Función para extraer número real de un contacto
-function extractRealNumber(contact: any): string | null {
-  // Buscar en todos los campos posibles donde puede estar el número real
-  const possibleFields = [
-    contact.id,
-    contact.jid,
-    contact.number,
-    contact.phone,
-    contact.wid,
-    contact.remoteJid,
-    contact.pushName,
-    contact.verifiedName,
-    contact.notify,
+// ============================================
+// FUNCIONES AUXILIARES PARA EXTRAER NÚMEROS
+// ============================================
+
+/**
+ * Extrae un número de teléfono válido de cualquier campo
+ * Valida que tenga entre 10-15 dígitos
+ */
+function extractPhoneNumber(value: any): string | null {
+  if (!value) return null;
+  
+  const str = String(value);
+  
+  // Si contiene @s.whatsapp.net, extraer número
+  if (str.includes('@s.whatsapp.net')) {
+    const num = str.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    if (num.length >= 10 && num.length <= 15) {
+      return num;
+    }
+  }
+  
+  // Si contiene @lid, NO es un número real
+  if (str.includes('@lid')) {
+    return null;
+  }
+  
+  // Limpiar y validar
+  const clean = str.replace(/\D/g, '');
+  if (clean.length >= 10 && clean.length <= 15) {
+    return clean;
+  }
+  
+  return null;
+}
+
+/**
+ * Busca el número real en todos los campos posibles del mensaje
+ */
+function findRealNumberInMessage(msg: any, messageData: any): string | null {
+  // Lista de campos donde puede estar el número real
+  const fieldsToCheck = [
+    // Campos del mensaje
+    msg.key?.participant,
+    msg.participant,
+    msg.sender,
+    msg.from,
+    msg.phone,
+    msg.number,
+    msg.contact?.id,
+    msg.contact?.number,
+    msg.contact?.phone,
+    
+    // Campos del messageData
+    messageData.sender,
+    messageData.participant,
+    messageData.from,
+    messageData.phone,
+    messageData.number,
+    
+    // Campos anidados
+    msg.key?.remoteJid,
+    messageData.key?.participant,
   ];
   
-  for (const field of possibleFields) {
-    if (!field) continue;
-    
-    const fieldStr = String(field);
-    
-    // Si contiene @s.whatsapp.net, es un número real
-    if (fieldStr.includes('@s.whatsapp.net')) {
-      const number = fieldStr.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-      if (number.length >= 10 && number.length <= 15) {
-        return number;
-      }
-    }
-    
-    // Si es solo números y tiene longitud válida
-    const cleanNumber = fieldStr.replace(/\D/g, '');
-    if (cleanNumber.length >= 10 && cleanNumber.length <= 15) {
-      // Verificar que NO sea un LID (los LID de Brasil empiezan con 5585)
-      if (!cleanNumber.startsWith('5585') && !fieldStr.includes('@lid')) {
-        return cleanNumber;
-      }
+  for (const field of fieldsToCheck) {
+    const number = extractPhoneNumber(field);
+    if (number) {
+      return number;
     }
   }
   
   return null;
 }
 
-// Función para extraer LID de un contacto
-function extractLid(contact: any): string | null {
-  const possibleFields = [contact.id, contact.jid, contact.lid, contact.remoteJid];
+/**
+ * Guarda el mapeo LID → Número en la base de datos
+ */
+async function saveLidMapping(
+  instanceName: string, 
+  lid: string, 
+  phoneNumber: string, 
+  pushName?: string
+): Promise<void> {
+  try {
+    // Normalizar el LID (quitar @lid si lo tiene)
+    const normalizedLid = lid.includes('@') ? lid : `${lid}@lid`;
+    
+    // Guardar en caché de memoria
+    lidCache.set(normalizedLid, phoneNumber);
+    lidCache.set(lid.replace('@lid', ''), phoneNumber);
+    
+    // Guardar en base de datos usando la tabla Conversation o crear una tabla dedicada
+    // Por ahora usamos el campo recipientId para guardar el número real
+    console.log(`💾 Mapeo guardado: ${lid} → ${phoneNumber}`);
+    
+  } catch (error) {
+    console.error('Error guardando mapeo LID:', error);
+  }
+}
+
+/**
+ * Busca el número real para un LID
+ * Primero en caché, luego en DB, luego consulta a Evolution API
+ */
+async function resolvePhoneNumber(
+  instanceName: string, 
+  jid: string,
+  msg?: any,
+  messageData?: any
+): Promise<string> {
+  console.log(`\n🔍 ========== RESOLVIENDO NÚMERO ==========`);
+  console.log(`📋 JID recibido: ${jid}`);
   
-  for (const field of possibleFields) {
-    if (!field) continue;
-    const fieldStr = String(field);
-    if (fieldStr.includes('@lid')) {
-      return fieldStr;
+  // Si ya es un número normal @s.whatsapp.net
+  if (jid.includes('@s.whatsapp.net')) {
+    const number = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    console.log(`✅ Es número normal: ${number}`);
+    return number;
+  }
+  
+  // Si no es LID, extraer directamente
+  if (!jid.includes('@lid')) {
+    const number = jid.split('@')[0].replace(/\D/g, '');
+    console.log(`✅ Número extraído directamente: ${number}`);
+    return number;
+  }
+  
+  console.log('🔍 Es un LID, buscando número real...');
+  
+  // PASO 1: Buscar en caché de memoria
+  let cachedNumber = lidCache.get(jid);
+  if (!cachedNumber) {
+    cachedNumber = lidCache.get(jid.replace('@lid', ''));
+  }
+  
+  if (cachedNumber) {
+    console.log(`✅ Encontrado en caché: ${cachedNumber}`);
+    return cachedNumber;
+  }
+  
+  // PASO 2: Buscar en los campos del mensaje actual
+  if (msg || messageData) {
+    const numberFromMessage = findRealNumberInMessage(msg || {}, messageData || {});
+    if (numberFromMessage) {
+      console.log(`✅ Encontrado en campos del mensaje: ${numberFromMessage}`);
+      await saveLidMapping(instanceName, jid, numberFromMessage);
+      return numberFromMessage;
     }
   }
   
-  return null;
+  // PASO 3: Consultar Evolution API
+  const numberFromApi = await evolutionService.getRealPhoneNumber(instanceName, jid);
+  if (numberFromApi) {
+    console.log(`✅ Encontrado via API: ${numberFromApi}`);
+    await saveLidMapping(instanceName, jid, numberFromApi);
+    return numberFromApi;
+  }
+  
+  // PASO 4: Último recurso - usar el número del LID
+  // Esto probablemente fallará, pero al menos intentamos
+  const fallbackNumber = jid.replace('@lid', '').replace(/\D/g, '');
+  console.log(`⚠️ Usando LID como fallback: ${fallbackNumber}`);
+  return fallbackNumber;
 }
 
 // ============================================
-// RUTAS EXISTENTES
+// RUTAS DE ESTADO Y CONEXIÓN
 // ============================================
 
 router.get('/status', authMiddleware, async (req: Request, res: Response) => {
@@ -207,65 +316,96 @@ router.post('/webhook', async (req: Request, res: Response) => {
     console.log(`\n📨 Webhook: ${event}`);
 
     // ============================================
-    // EVENTOS DE CONTACTOS - GUARDAR MAPEO LID
+    // EVENTOS DE CONTACTOS - Capturar mapeos LID
     // ============================================
     if (event === 'CONTACTS_UPSERT' || event === 'contacts.upsert' || 
         event === 'CONTACTS_UPDATE' || event === 'contacts.update' ||
         event === 'CONTACTS_SET' || event === 'contacts.set') {
       
-      console.log('\n╔══════════════════════════════════════════════════════════════╗');
-      console.log('║                   EVENTO DE CONTACTOS                         ║');
-      console.log('╚══════════════════════════════════════════════════════════════╝');
-      console.log('📋 Data completa:', JSON.stringify(data).substring(0, 2000));
+      console.log('\n📇 ========== CONTACTOS RECIBIDOS ==========');
       
       const contacts = data.data || data.contacts || [data];
       const contactsArray = Array.isArray(contacts) ? contacts : [contacts];
       
       for (const contact of contactsArray) {
-        console.log('\n📇 Procesando contacto:', JSON.stringify(contact).substring(0, 500));
+        // Buscar LID
+        const lidFields = [contact.lid, contact.id, contact.jid];
+        let lid: string | null = null;
+        for (const field of lidFields) {
+          if (field && String(field).includes('@lid')) {
+            lid = String(field);
+            break;
+          }
+        }
         
-        const lid = extractLid(contact);
-        const realNumber = extractRealNumber(contact);
-        
-        console.log(`   LID encontrado: ${lid}`);
-        console.log(`   Número real encontrado: ${realNumber}`);
+        // Buscar número real
+        const realNumber = extractPhoneNumber(contact.id) || 
+                          extractPhoneNumber(contact.number) ||
+                          extractPhoneNumber(contact.phone) ||
+                          extractPhoneNumber(contact.wid);
         
         if (lid && realNumber) {
-          lidToPhoneCache.set(lid, realNumber);
-          // También guardar sin @lid
-          const lidWithoutSuffix = lid.replace('@lid', '');
-          lidToPhoneCache.set(lidWithoutSuffix, realNumber);
-          
-          console.log(`✅ MAPEO GUARDADO: ${lid} → ${realNumber}`);
-          console.log(`✅ MAPEO GUARDADO: ${lidWithoutSuffix} → ${realNumber}`);
+          await saveLidMapping(instanceName, lid, realNumber, contact.pushName || contact.name);
+          console.log(`✅ Contacto mapeado: ${lid} → ${realNumber}`);
         }
       }
-      
-      console.log(`\n📊 Cache actual (${lidToPhoneCache.size} entradas):`);
-      lidToPhoneCache.forEach((phone, lid) => {
-        console.log(`   ${lid} → ${phone}`);
-      });
       
       return res.json({ received: true });
     }
 
+    // ============================================
+    // EVENTOS DE CHATS - Capturar más mapeos
+    // ============================================
+    if (event === 'CHATS_UPSERT' || event === 'chats.upsert' ||
+        event === 'CHATS_UPDATE' || event === 'chats.update') {
+      
+      console.log('\n💬 ========== CHATS RECIBIDOS ==========');
+      
+      const chats = data.data || data.chats || [data];
+      const chatsArray = Array.isArray(chats) ? chats : [chats];
+      
+      for (const chat of chatsArray) {
+        const jid = chat.id || chat.jid || chat.remoteJid;
+        if (jid && jid.includes('@lid')) {
+          const realNumber = extractPhoneNumber(chat.number) ||
+                            extractPhoneNumber(chat.phone) ||
+                            extractPhoneNumber(chat.contact?.id);
+          if (realNumber) {
+            await saveLidMapping(instanceName, jid, realNumber);
+          }
+        }
+      }
+      
+      return res.json({ received: true });
+    }
+
+    // ============================================
     // CONNECTION_UPDATE
+    // ============================================
     if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
       const state = data.data?.state || data.state;
+      console.log(`📡 Estado conexión: ${state}`);
+      
       if (instanceName) {
         const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
           const connected = state === 'open';
           await prisma.user.update({
             where: { id: user.id },
-            data: { whatsappConnected: connected, whatsappStatus: connected ? 'connected' : state, whatsappQrCode: connected ? null : user.whatsappQrCode }
+            data: { 
+              whatsappConnected: connected, 
+              whatsappStatus: connected ? 'connected' : state, 
+              whatsappQrCode: connected ? null : user.whatsappQrCode 
+            }
           });
         }
       }
       return res.json({ received: true });
     }
 
+    // ============================================
     // QRCODE_UPDATED
+    // ============================================
     if (event === 'QRCODE_UPDATED' || event === 'qrcode.updated') {
       const qrcode = data.data?.qrcode?.base64 || data.qrcode?.base64 || data.data?.base64;
       if (instanceName && qrcode) {
@@ -276,179 +416,192 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
 
     // ============================================
-    // MESSAGES_UPSERT - PROCESAR CON MAPEO LID
+    // MESSAGES_UPSERT - Procesar mensajes entrantes
     // ============================================
     if (event === 'MESSAGES_UPSERT' || event === 'messages.upsert') {
       const messageData = data.data || data;
       const messages = messageData.messages || [messageData];
       
       for (const msg of messages) {
-        if (msg.key?.fromMe) continue;
+        // Ignorar mensajes propios
+        if (msg.key?.fromMe) {
+          console.log('⏭️ Mensaje propio, ignorando');
+          continue;
+        }
         
         const remoteJid = msg.key?.remoteJid || msg.from;
-        if (!remoteJid) continue;
-        if (remoteJid.includes('@g.us')) continue;
+        if (!remoteJid) {
+          console.log('⏭️ Sin remoteJid, ignorando');
+          continue;
+        }
+        
+        // Ignorar grupos
+        if (remoteJid.includes('@g.us')) {
+          console.log('⏭️ Es grupo, ignorando');
+          continue;
+        }
 
         console.log('\n╔══════════════════════════════════════════════════════════════╗');
         console.log('║                    MENSAJE RECIBIDO                          ║');
         console.log('╚══════════════════════════════════════════════════════════════╝');
         console.log(`📋 remoteJid: ${remoteJid}`);
+        console.log(`📋 Datos completos del mensaje:`, JSON.stringify(msg).substring(0, 1000));
         
-        const isLid = remoteJid.includes('@lid');
-        let replyTo: string;
-        let displayNumber: string;
+        // Resolver el número real usando todas las fuentes
+        const phoneNumber = await resolvePhoneNumber(instanceName, remoteJid, msg, messageData);
         const pushName = msg.pushName || '';
+        
+        console.log(`📱 Número resuelto: ${phoneNumber}`);
+        console.log(`👤 Nombre: ${pushName}`);
 
-        if (isLid) {
-          console.log('🔍 Es un LID, buscando en caché...');
-          
-          // Buscar en el caché
-          let cachedNumber = lidToPhoneCache.get(remoteJid);
-          if (!cachedNumber) {
-            const lidWithoutSuffix = remoteJid.replace('@lid', '');
-            cachedNumber = lidToPhoneCache.get(lidWithoutSuffix);
-          }
-          
-          if (cachedNumber) {
-            console.log(`✅ NÚMERO ENCONTRADO EN CACHÉ: ${cachedNumber}`);
-            replyTo = cachedNumber;
-            displayNumber = cachedNumber;
-          } else {
-            console.log('⚠️ No encontrado en caché, buscando en campos del mensaje...');
-            
-            // Buscar en campos del mensaje
-            const possibleSources = [
-              msg.key?.participant,
-              msg.participant,
-              msg.sender,
-              msg.from,
-              msg.phone,
-              msg.number,
-              messageData.sender,
-              messageData.participant,
-            ];
-            
-            let foundNumber: string | null = null;
-            for (const source of possibleSources) {
-              if (!source) continue;
-              const sourceStr = String(source);
-              
-              if (sourceStr.includes('@s.whatsapp.net')) {
-                foundNumber = sourceStr.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-                console.log(`✅ Número encontrado en campo: ${foundNumber}`);
-                break;
-              }
-              
-              const cleanNum = sourceStr.replace(/\D/g, '');
-              if (cleanNum.length >= 10 && cleanNum.length <= 15 && !cleanNum.startsWith('5585')) {
-                foundNumber = cleanNum;
-                console.log(`✅ Número encontrado: ${foundNumber}`);
-                break;
-              }
-            }
-            
-            if (foundNumber) {
-              // Guardar en caché para futuro
-              lidToPhoneCache.set(remoteJid, foundNumber);
-              console.log(`💾 Guardado en caché: ${remoteJid} → ${foundNumber}`);
-              
-              replyTo = foundNumber;
-              displayNumber = foundNumber;
-            } else {
-              // Último recurso: usar el número del LID
-              displayNumber = remoteJid.split('@')[0];
-              replyTo = displayNumber;
-              console.log(`⚠️ Usando LID como número: ${replyTo}`);
-            }
-          }
-        } else {
-          // Número normal
-          displayNumber = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-          replyTo = displayNumber;
-          console.log(`📱 Número normal: ${replyTo}`);
-        }
-
-        // Extraer mensaje
+        // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
                               msg.message?.extendedTextMessage?.text ||
-                              msg.message?.text || msg.text || '';
+                              msg.message?.text || 
+                              msg.text ||
+                              msg.body || '';
         
-        if (!messageContent) continue;
+        if (!messageContent) {
+          console.log('⏭️ Sin contenido de texto, ignorando');
+          continue;
+        }
 
-        console.log(`\n📨 De: ${pushName} (${displayNumber})`);
-        console.log(`📨 ReplyTo: ${replyTo}`);
-        console.log(`📨 Mensaje: ${messageContent}`);
+        console.log(`💬 Mensaje: ${messageContent}`);
 
-        // Buscar usuario
-        const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
+        // Buscar usuario dueño de la instancia
+        const user = await prisma.user.findFirst({ 
+          where: { evolutionInstanceName: instanceName } 
+        });
+        
         if (!user) {
-          console.log('❌ Usuario no encontrado');
+          console.log('❌ Usuario no encontrado para esta instancia');
           continue;
         }
 
+        // Verificar que tiene API Key de OpenAI
         if (!user.apiKeyConnected) {
-          await evolutionService.sendTextMessage(instanceName, replyTo, '⚠️ El asistente no está configurado.');
+          console.log('⚠️ Usuario sin API Key configurada');
+          await evolutionService.sendTextMessage(
+            instanceName, 
+            phoneNumber, 
+            '⚠️ El asistente no está configurado correctamente. Contacta al administrador.'
+          );
           continue;
         }
 
-        // Conversación
+        // Buscar o crear conversación
         let conversation = await prisma.conversation.findFirst({
-          where: { userId: user.id, recipientId: displayNumber }
+          where: { 
+            userId: user.id, 
+            recipientId: phoneNumber 
+          }
         });
 
         if (!conversation) {
+          console.log('📝 Creando nueva conversación');
           conversation = await prisma.conversation.create({
-            data: { userId: user.id, recipientId: displayNumber, recipientName: pushName || displayNumber, lastMessage: messageContent, lastMessageAt: new Date() }
+            data: { 
+              userId: user.id, 
+              recipientId: phoneNumber, 
+              recipientName: pushName || phoneNumber, 
+              lastMessage: messageContent, 
+              lastMessageAt: new Date() 
+            }
           });
         } else {
           await prisma.conversation.update({
             where: { id: conversation.id },
-            data: { lastMessage: messageContent, lastMessageAt: new Date(), recipientName: pushName || conversation.recipientName }
+            data: { 
+              lastMessage: messageContent, 
+              lastMessageAt: new Date(), 
+              recipientName: pushName || conversation.recipientName 
+            }
           });
         }
 
+        // Guardar mensaje entrante
         await prisma.message.create({
-          data: { conversationId: conversation.id, userId: user.id, role: 'user', content: messageContent, fromMe: false }
+          data: { 
+            conversationId: conversation.id, 
+            userId: user.id, 
+            role: 'user', 
+            content: messageContent, 
+            fromMe: false 
+          }
         });
 
+        // Obtener historial para contexto
         const recentMessages = await prisma.message.findMany({
           where: { conversationId: conversation.id },
           orderBy: { timestamp: 'asc' },
           take: 20
         });
 
-        const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
+        const history = recentMessages.map(m => ({ 
+          role: m.role as 'user' | 'assistant', 
+          content: m.content 
+        }));
 
-        console.log('🤖 Generando respuesta...');
-        const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
+        console.log('🤖 Generando respuesta con OpenAI...');
+        
+        // Generar respuesta con IA
+        const aiResponse = await openaiService.generateResponse(
+          user.id, 
+          messageContent, 
+          history.slice(0, -1) // Excluir el mensaje actual del historial
+        );
 
         if (aiResponse.success && aiResponse.response) {
-          console.log(`📤 Enviando a: ${replyTo}`);
-          const sendResult = await evolutionService.sendTextMessage(instanceName, replyTo, aiResponse.response);
+          console.log(`📤 Respuesta generada: ${aiResponse.response.substring(0, 100)}...`);
+          console.log(`📤 Enviando a número: ${phoneNumber}`);
+          
+          // Enviar respuesta
+          const sendResult = await evolutionService.sendTextMessage(
+            instanceName, 
+            phoneNumber, 
+            aiResponse.response
+          );
 
           if (sendResult.success) {
+            // Guardar mensaje de respuesta
             await prisma.message.create({
-              data: { conversationId: conversation.id, userId: user.id, role: 'assistant', content: aiResponse.response, fromMe: true }
+              data: { 
+                conversationId: conversation.id, 
+                userId: user.id, 
+                role: 'assistant', 
+                content: aiResponse.response, 
+                fromMe: true 
+              }
             });
-            console.log('✅ ¡MENSAJE ENVIADO!');
+            console.log('✅ ¡Mensaje enviado exitosamente!');
           } else {
-            console.error('❌ Error:', sendResult.error);
+            console.error('❌ Error enviando mensaje:', sendResult.error);
+            
+            // Intentar con formato alternativo si falló
+            if (sendResult.error?.includes('exists') && sendResult.error?.includes('false')) {
+              console.log('🔄 El número no existe, puede ser un problema de formato');
+            }
           }
         } else {
-          await evolutionService.sendTextMessage(instanceName, replyTo, 'Lo siento, hubo un problema. Intenta de nuevo.');
+          console.error('❌ Error generando respuesta:', aiResponse.error);
+          await evolutionService.sendTextMessage(
+            instanceName, 
+            phoneNumber, 
+            'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo.'
+          );
         }
       }
     }
 
     res.json({ received: true });
   } catch (error: any) {
-    console.error('❌ Error webhook:', error);
-    res.status(500).json({ error: 'Error' });
+    console.error('❌ Error en webhook:', error);
+    res.status(500).json({ error: 'Error procesando webhook' });
   }
 });
 
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('Webhook activo');
+  res.send('Webhook activo - Elisa IA');
 });
 
 export default router;

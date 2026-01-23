@@ -33,7 +33,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // CREAR INSTANCIA - v2.3.7 Compatible
+  // CREAR INSTANCIA - v1.8.0 Compatible
   // ============================================
   async createInstance(userId: string): Promise<{ 
     success: boolean; 
@@ -46,7 +46,6 @@ class EvolutionService {
       
       console.log(`🔧 Creando instancia: ${instanceName}`);
       
-      // Evolution API v2.3.7 endpoint para crear instancia
       const response = await axios.post(
         `${this.apiUrl}/instance/create`,
         {
@@ -98,7 +97,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // VERIFICAR ESTADO DE CONEXIÓN - v2.3.7
+  // VERIFICAR ESTADO DE CONEXIÓN
   // ============================================
   async checkConnectionStatus(instanceName: string): Promise<{ 
     connected: boolean; 
@@ -188,7 +187,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // OBTENER QR CODE - v2.3.7
+  // OBTENER QR CODE
   // ============================================
   async getQRCode(instanceName: string): Promise<{ 
     success: boolean; 
@@ -246,7 +245,159 @@ class EvolutionService {
   }
 
   // ============================================
-  // ENVIAR MENSAJE DE TEXTO - v2.3.7
+  // OBTENER NÚMERO REAL DE UN CONTACTO/LID
+  // Busca en múltiples fuentes de Evolution API
+  // ============================================
+  async getRealPhoneNumber(instanceName: string, jid: string): Promise<string | null> {
+    console.log(`\n🔍 ========== BUSCANDO NÚMERO REAL ==========`);
+    console.log(`📋 JID recibido: ${jid}`);
+    
+    // Si ya es un número normal, extraerlo
+    if (jid.includes('@s.whatsapp.net')) {
+      const number = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+      console.log(`✅ Es número normal: ${number}`);
+      return number;
+    }
+    
+    // Si no es un LID, extraer el número directamente
+    if (!jid.includes('@lid')) {
+      const number = jid.split('@')[0].replace(/\D/g, '');
+      if (number.length >= 10 && number.length <= 15) {
+        console.log(`✅ Número extraído: ${number}`);
+        return number;
+      }
+    }
+    
+    console.log('🔍 Es un LID, buscando número real...');
+    
+    // MÉTODO 1: Buscar en fetchInstances (tiene info del owner conectado)
+    try {
+      const instanceResponse = await axios.get(
+        `${this.apiUrl}/instance/fetchInstances`,
+        { 
+          headers: this.getHeaders(),
+          timeout: 10000
+        }
+      );
+      
+      const instances = instanceResponse.data || [];
+      for (const inst of instances) {
+        if (inst.instanceName === instanceName || inst.instance?.instanceName === instanceName) {
+          const owner = inst.owner || inst.instance?.owner;
+          if (owner && owner.includes('@s.whatsapp.net')) {
+            // Este es el número del dueño de la instancia, no del contacto
+            console.log(`📋 Owner de instancia: ${owner}`);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`⚠️ Error fetchInstances: ${e.message}`);
+    }
+    
+    // MÉTODO 2: Buscar perfil del contacto
+    try {
+      const profileResponse = await axios.post(
+        `${this.apiUrl}/chat/fetchProfile/${instanceName}`,
+        { number: jid },
+        { 
+          headers: this.getHeaders(),
+          timeout: 10000
+        }
+      );
+      
+      console.log('📋 Perfil encontrado:', JSON.stringify(profileResponse.data).substring(0, 500));
+      
+      const profile = profileResponse.data;
+      const possibleNumbers = [
+        profile.wid?.user,
+        profile.id?.user,
+        profile.jid,
+        profile.number,
+        profile.phone,
+        profile.wid?._serialized?.replace('@s.whatsapp.net', ''),
+      ];
+      
+      for (const num of possibleNumbers) {
+        if (num) {
+          const clean = String(num).replace(/\D/g, '');
+          if (clean.length >= 10 && clean.length <= 15) {
+            console.log(`✅ Número encontrado en perfil: ${clean}`);
+            return clean;
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`⚠️ Error fetchProfile: ${e.message}`);
+    }
+    
+    // MÉTODO 3: Buscar en chats recientes
+    try {
+      const chatsResponse = await axios.get(
+        `${this.apiUrl}/chat/findChats/${instanceName}`,
+        { 
+          headers: this.getHeaders(),
+          timeout: 10000
+        }
+      );
+      
+      const chats = chatsResponse.data || [];
+      for (const chat of chats) {
+        // Buscar si algún chat tiene este LID asociado
+        const chatJid = chat.id || chat.jid || chat.remoteJid;
+        if (chatJid === jid || chat.lid === jid) {
+          const possibleNumber = chat.id?.replace('@s.whatsapp.net', '') ||
+                                chat.number ||
+                                chat.phone;
+          if (possibleNumber) {
+            const clean = String(possibleNumber).replace(/\D/g, '');
+            if (clean.length >= 10 && clean.length <= 15) {
+              console.log(`✅ Número encontrado en chats: ${clean}`);
+              return clean;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`⚠️ Error findChats: ${e.message}`);
+    }
+    
+    // MÉTODO 4: Buscar en contactos
+    try {
+      const contactsResponse = await axios.get(
+        `${this.apiUrl}/chat/findContacts/${instanceName}`,
+        { 
+          headers: this.getHeaders(),
+          timeout: 10000
+        }
+      );
+      
+      const contacts = contactsResponse.data || [];
+      for (const contact of contacts) {
+        const contactJid = contact.id || contact.jid;
+        if (contactJid === jid || contact.lid === jid) {
+          const possibleNumber = contact.id?.replace('@s.whatsapp.net', '') ||
+                                contact.number ||
+                                contact.phone;
+          if (possibleNumber) {
+            const clean = String(possibleNumber).replace(/\D/g, '');
+            if (clean.length >= 10 && clean.length <= 15) {
+              console.log(`✅ Número encontrado en contactos: ${clean}`);
+              return clean;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`⚠️ Error findContacts: ${e.message}`);
+    }
+    
+    console.log(`❌ No se encontró número real para: ${jid}`);
+    return null;
+  }
+
+  // ============================================
+  // ENVIAR MENSAJE DE TEXTO
+  // Maneja tanto números normales como LIDs
   // ============================================
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
     success: boolean; 
@@ -258,32 +409,18 @@ class EvolutionService {
     console.log(`📤 Destinatario original: "${to}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
-    let numberToSend: string;
-    
+    // Ignorar grupos
     if (to.includes('@g.us')) {
       console.log('⚠️ Grupos no soportados');
       return { success: false, error: 'Groups not supported' };
     }
     
-    if (to.includes('@lid')) {
-      const realNumber = await this.findRealPhoneNumber(instanceName, to);
-      if (realNumber) {
-        numberToSend = realNumber;
-        console.log(`📱 Usando número REAL encontrado: ${numberToSend}`);
-      } else {
-        numberToSend = to.split('@')[0];
-        console.log(`⚠️ No se encontró número real, usando: ${numberToSend}`);
-      }
-    } else if (to.includes('@s.whatsapp.net')) {
-      numberToSend = to.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-    } else if (to.includes('@')) {
-      numberToSend = to.split('@')[0].replace(/\D/g, '');
-    } else {
-      numberToSend = to.replace(/\D/g, '');
-    }
+    // Limpiar el número
+    let numberToSend = to.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
     
-    console.log(`📤 Número final para enviar: "${numberToSend}"`);
+    console.log(`📤 Número limpio para enviar: "${numberToSend}"`);
     
+    // Intentar enviar con el número
     try {
       const payload = {
         number: numberToSend,
@@ -298,6 +435,7 @@ class EvolutionService {
       };
       
       console.log(`🔄 Enviando a: ${this.apiUrl}/message/sendText/${instanceName}`);
+      console.log(`🔄 Payload:`, JSON.stringify(payload));
       
       const response = await axios.post(
         `${this.apiUrl}/message/sendText/${instanceName}`,
@@ -320,7 +458,18 @@ class EvolutionService {
       };
       
     } catch (error: any) {
-      console.error('❌ Error enviando mensaje:', error.response?.data || error.message);
+      console.error('❌ Error enviando mensaje:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message
+      });
+      
+      // Si el error es "exists: false", el número no está en WhatsApp
+      const errorData = error.response?.data;
+      if (errorData?.response?.[0]?.exists === false) {
+        console.log('⚠️ El número no existe en WhatsApp');
+      }
+      
       return {
         success: false,
         error: JSON.stringify(error.response?.data || error.message)
@@ -329,73 +478,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // BUSCAR NÚMERO REAL DE UN LID
-  // ============================================
-  async findRealPhoneNumber(instanceName: string, lidJid: string): Promise<string | null> {
-    console.log(`🔍 Buscando número real para LID: ${lidJid}`);
-    
-    try {
-      // Método 1: Buscar en contactos
-      try {
-        const contactsResponse = await axios.get(
-          `${this.apiUrl}/chat/findContacts/${instanceName}`,
-          { 
-            headers: this.getHeaders(),
-            params: { where: JSON.stringify({ id: lidJid }) },
-            timeout: 10000
-          }
-        );
-        
-        if (contactsResponse.data && Array.isArray(contactsResponse.data) && contactsResponse.data.length > 0) {
-          const contact = contactsResponse.data[0];
-          const possibleNumber = contact.id?.replace('@s.whatsapp.net', '') ||
-                                contact.number ||
-                                contact.phone;
-          
-          if (possibleNumber && !possibleNumber.includes('@lid') && possibleNumber.length >= 10) {
-            console.log(`✅ Número encontrado en contactos: ${possibleNumber}`);
-            return possibleNumber.replace(/\D/g, '');
-          }
-        }
-      } catch (e: any) {
-        console.log(`⚠️ Búsqueda en contactos falló:`, e.message);
-      }
-
-      // Método 2: Buscar en chats recientes
-      try {
-        const chatsResponse = await axios.get(
-          `${this.apiUrl}/chat/findChats/${instanceName}`,
-          { 
-            headers: this.getHeaders(),
-            timeout: 10000
-          }
-        );
-        
-        const chats = chatsResponse.data || [];
-        for (const chat of chats) {
-          if (chat.id === lidJid || chat.remoteJid === lidJid) {
-            const possibleNumber = chat.number || chat.phone || chat.contact?.number;
-            if (possibleNumber && possibleNumber.length >= 10) {
-              console.log(`✅ Número encontrado en chats: ${possibleNumber}`);
-              return possibleNumber.replace(/\D/g, '');
-            }
-          }
-        }
-      } catch (e: any) {
-        console.log(`⚠️ Búsqueda en chats falló:`, e.message);
-      }
-
-      console.log(`❌ No se encontró número real para ${lidJid}`);
-      return null;
-      
-    } catch (error: any) {
-      console.error('❌ Error buscando número real:', error.message);
-      return null;
-    }
-  }
-
-  // ============================================
-  // CONFIGURAR WEBHOOK - v2.3.7
+  // CONFIGURAR WEBHOOK
   // ============================================
   async setWebhook(instanceName: string, webhookUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
@@ -412,10 +495,12 @@ class EvolutionService {
             events: [
               'MESSAGES_UPSERT',
               'MESSAGES_UPDATE',
-              'MESSAGES_DELETE',
               'CONNECTION_UPDATE',
               'QRCODE_UPDATED',
-              'SEND_MESSAGE'
+              'CONTACTS_UPSERT',
+              'CONTACTS_UPDATE',
+              'CHATS_UPSERT',
+              'CHATS_UPDATE'
             ]
           }
         },
@@ -437,7 +522,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // DESCONECTAR INSTANCIA - v2.3.7
+  // DESCONECTAR INSTANCIA
   // ============================================
   async disconnectInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
@@ -476,7 +561,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // ELIMINAR INSTANCIA - v2.3.7
+  // ELIMINAR INSTANCIA
   // ============================================
   async deleteInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {

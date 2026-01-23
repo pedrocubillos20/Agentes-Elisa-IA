@@ -13,10 +13,6 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN
 // FUNCIONES AUXILIARES
 // ============================================
 
-/**
- * Extrae un identificador para guardar conversaciones
- * Usa el remoteJid limpio (sin @lid o @s.whatsapp.net)
- */
 function extractConversationId(remoteJid: string): string {
   return remoteJid.replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
 }
@@ -156,9 +152,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     
     console.log(`\n📨 Webhook: ${event}`);
 
-    // ============================================
     // CONNECTION_UPDATE
-    // ============================================
     if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
       const state = data.data?.state || data.state;
       console.log(`📡 Estado conexión: ${state}`);
@@ -180,9 +174,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       return res.json({ received: true });
     }
 
-    // ============================================
     // QRCODE_UPDATED
-    // ============================================
     if (event === 'QRCODE_UPDATED' || event === 'qrcode.updated') {
       const qrcode = data.data?.qrcode?.base64 || data.qrcode?.base64 || data.data?.base64;
       if (instanceName && qrcode) {
@@ -192,94 +184,74 @@ router.post('/webhook', async (req: Request, res: Response) => {
       return res.json({ received: true });
     }
 
-    // ============================================
-    // MESSAGES_UPSERT - Procesar mensajes entrantes
-    // ============================================
+    // MESSAGES_UPSERT
     if (event === 'MESSAGES_UPSERT' || event === 'messages.upsert') {
       const messageData = data.data || data;
       const messages = messageData.messages || [messageData];
       
       for (const msg of messages) {
-        // Ignorar mensajes propios
         if (msg.key?.fromMe) {
           console.log('⏭️ Mensaje propio, ignorando');
           continue;
         }
         
-        // Obtener el remoteJid ORIGINAL - esto es CRUCIAL
         const remoteJid = msg.key?.remoteJid || msg.from;
-        if (!remoteJid) {
-          console.log('⏭️ Sin remoteJid, ignorando');
-          continue;
-        }
-        
-        // Ignorar grupos
-        if (remoteJid.includes('@g.us')) {
-          console.log('⏭️ Es grupo, ignorando');
-          continue;
-        }
+        if (!remoteJid) continue;
+        if (remoteJid.includes('@g.us')) continue;
 
         console.log('\n╔══════════════════════════════════════════════════════════════╗');
         console.log('║                    MENSAJE RECIBIDO                          ║');
         console.log('╚══════════════════════════════════════════════════════════════╝');
-        console.log(`📋 remoteJid ORIGINAL: ${remoteJid}`);
         
-        // Para responder, USAR EL REMOTEJID ORIGINAL (incluyendo @lid si es LID)
-        const replyTo = remoteJid;
+        // Guardar datos del mensaje original para quoted reply
+        const originalMessageId = msg.key?.id;
+        const originalRemoteJid = remoteJid;
         
-        // Para guardar en DB, usar un identificador limpio
+        console.log(`📋 remoteJid: ${remoteJid}`);
+        console.log(`📋 messageId: ${originalMessageId}`);
+        
         const conversationId = extractConversationId(remoteJid);
         const pushName = msg.pushName || '';
         
-        console.log(`📱 Responder a: ${replyTo}`);
         console.log(`🆔 ID conversación: ${conversationId}`);
         console.log(`👤 Nombre: ${pushName}`);
 
-        // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
                               msg.message?.extendedTextMessage?.text ||
                               msg.message?.text || 
                               msg.text ||
                               msg.body || '';
         
-        if (!messageContent) {
-          console.log('⏭️ Sin contenido de texto, ignorando');
-          continue;
-        }
+        if (!messageContent) continue;
 
         console.log(`💬 Mensaje: ${messageContent}`);
 
-        // Buscar usuario dueño de la instancia
         const user = await prisma.user.findFirst({ 
           where: { evolutionInstanceName: instanceName } 
         });
         
         if (!user) {
-          console.log('❌ Usuario no encontrado para esta instancia');
+          console.log('❌ Usuario no encontrado');
           continue;
         }
 
-        // Verificar que tiene API Key de OpenAI
         if (!user.apiKeyConnected) {
-          console.log('⚠️ Usuario sin API Key configurada');
+          console.log('⚠️ Sin API Key');
           await evolutionService.sendTextMessage(
             instanceName, 
-            replyTo, 
-            '⚠️ El asistente no está configurado correctamente. Contacta al administrador.'
+            originalRemoteJid, 
+            '⚠️ El asistente no está configurado.',
+            originalMessageId,
+            originalRemoteJid
           );
           continue;
         }
 
-        // Buscar o crear conversación (usando el ID limpio)
         let conversation = await prisma.conversation.findFirst({
-          where: { 
-            userId: user.id, 
-            recipientId: conversationId 
-          }
+          where: { userId: user.id, recipientId: conversationId }
         });
 
         if (!conversation) {
-          console.log('📝 Creando nueva conversación');
           conversation = await prisma.conversation.create({
             data: { 
               userId: user.id, 
@@ -300,7 +272,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
           });
         }
 
-        // Guardar mensaje entrante
         await prisma.message.create({
           data: { 
             conversationId: conversation.id, 
@@ -311,7 +282,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
           }
         });
 
-        // Obtener historial para contexto
         const recentMessages = await prisma.message.findMany({
           where: { conversationId: conversation.id },
           orderBy: { timestamp: 'asc' },
@@ -323,9 +293,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
           content: m.content 
         }));
 
-        console.log('🤖 Generando respuesta con OpenAI...');
+        console.log('🤖 Generando respuesta...');
         
-        // Generar respuesta con IA
         const aiResponse = await openaiService.generateResponse(
           user.id, 
           messageContent, 
@@ -333,14 +302,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
         );
 
         if (aiResponse.success && aiResponse.response) {
-          console.log(`📤 Respuesta generada: ${aiResponse.response.substring(0, 100)}...`);
-          console.log(`📤 Enviando a: ${replyTo}`);
+          console.log(`📤 Respuesta: ${aiResponse.response.substring(0, 100)}...`);
+          console.log(`📤 Enviando a: ${originalRemoteJid}`);
+          console.log(`📤 QuotedMsgId: ${originalMessageId}`);
           
-          // ENVIAR USANDO EL REMOTEJID ORIGINAL
+          // Enviar con quoted message (respuesta al mensaje original)
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            replyTo,  // <-- Esto ahora incluye @lid si es necesario
-            aiResponse.response
+            originalRemoteJid,
+            aiResponse.response,
+            originalMessageId,  // ID del mensaje para responder
+            originalRemoteJid   // JID del remitente original
           );
 
           if (sendResult.success) {
@@ -353,16 +325,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 fromMe: true 
               }
             });
-            console.log('✅ ¡Mensaje enviado exitosamente!');
+            console.log('✅ ¡Mensaje enviado!');
           } else {
-            console.error('❌ Error enviando mensaje:', sendResult.error);
+            console.error('❌ Error:', sendResult.error);
           }
         } else {
-          console.error('❌ Error generando respuesta:', aiResponse.error);
+          console.error('❌ Error IA:', aiResponse.error);
           await evolutionService.sendTextMessage(
             instanceName, 
-            replyTo, 
-            'Lo siento, hubo un problema procesando tu mensaje. Por favor intenta de nuevo.'
+            originalRemoteJid, 
+            'Lo siento, hubo un problema. Intenta de nuevo.',
+            originalMessageId,
+            originalRemoteJid
           );
         }
       }
@@ -370,8 +344,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     res.json({ received: true });
   } catch (error: any) {
-    console.error('❌ Error en webhook:', error);
-    res.status(500).json({ error: 'Error procesando webhook' });
+    console.error('❌ Error webhook:', error);
+    res.status(500).json({ error: 'Error' });
   }
 });
 

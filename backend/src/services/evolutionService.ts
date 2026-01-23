@@ -245,17 +245,23 @@ class EvolutionService {
   }
 
   // ============================================
-  // ENVIAR MENSAJE DE TEXTO
-  // Soporta: números normales, JIDs completos, y LIDs
+  // ENVIAR MENSAJE DE TEXTO - Múltiples métodos
   // ============================================
-  async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
+  async sendTextMessage(
+    instanceName: string, 
+    to: string, 
+    text: string,
+    quotedMessageId?: string,
+    quotedRemoteJid?: string
+  ): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
     console.log(`\n📤 ========== ENVIANDO MENSAJE ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
-    console.log(`📤 Destinatario original: "${to}"`);
+    console.log(`📤 Destinatario: "${to}"`);
+    console.log(`📤 QuotedMsgId: "${quotedMessageId || 'none'}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     // Ignorar grupos
@@ -264,37 +270,63 @@ class EvolutionService {
       return { success: false, error: 'Groups not supported' };
     }
 
-    // ESTRATEGIA: Intentar múltiples formatos
-    const attemptsToTry: string[] = [];
+    // MÉTODO 1: Intentar con quoted message (respuesta)
+    if (quotedMessageId && quotedRemoteJid) {
+      console.log('🔄 Intentando enviar como respuesta (quoted)...');
+      try {
+        const payload = {
+          number: quotedRemoteJid,
+          options: {
+            delay: 1200,
+            presence: "composing",
+            quoted: {
+              key: {
+                remoteJid: quotedRemoteJid,
+                fromMe: false,
+                id: quotedMessageId
+              }
+            }
+          },
+          textMessage: {
+            text: text
+          }
+        };
+        
+        const response = await axios.post(
+          `${this.apiUrl}/message/sendText/${instanceName}`,
+          payload,
+          { 
+            headers: this.getHeaders(),
+            timeout: 30000
+          }
+        );
+        
+        console.log('✅ Mensaje enviado con quoted:', JSON.stringify(response.data).substring(0, 300));
+        return {
+          success: true,
+          messageId: response.data?.key?.id || response.data?.messageId
+        };
+      } catch (error: any) {
+        console.log('⚠️ Falló con quoted:', error.response?.data?.message || error.message);
+      }
+    }
+
+    // MÉTODO 2: Intentar enviar normalmente con diferentes formatos
+    const formatsToTry = [];
     
-    // Si es un LID completo, usarlo directamente primero
-    if (to.includes('@lid')) {
-      attemptsToTry.push(to); // JID completo con @lid
+    // Si tiene @, usarlo como está
+    if (to.includes('@')) {
+      formatsToTry.push(to);
     }
     
-    // Si es un JID de WhatsApp normal
-    if (to.includes('@s.whatsapp.net')) {
-      attemptsToTry.push(to); // JID completo
-      attemptsToTry.push(to.replace('@s.whatsapp.net', '')); // Solo número
-    }
-    
-    // Si no tiene @, es solo un número
-    if (!to.includes('@')) {
-      attemptsToTry.push(to);
-      attemptsToTry.push(`${to}@s.whatsapp.net`);
-    }
-    
-    // Limpiar número como último recurso
+    // Extraer solo números
     const cleanNumber = to.replace(/@.*$/, '').replace(/\D/g, '');
-    if (cleanNumber && !attemptsToTry.includes(cleanNumber)) {
-      attemptsToTry.push(cleanNumber);
+    if (cleanNumber) {
+      formatsToTry.push(cleanNumber);
     }
 
-    console.log(`📋 Intentos a probar: ${JSON.stringify(attemptsToTry)}`);
-
-    // Intentar cada formato
-    for (const numberFormat of attemptsToTry) {
-      console.log(`\n🔄 Intentando con: "${numberFormat}"`);
+    for (const numberFormat of formatsToTry) {
+      console.log(`🔄 Intentando con: "${numberFormat}"`);
       
       try {
         const payload = {
@@ -318,44 +350,49 @@ class EvolutionService {
           }
         );
         
-        console.log('✅ Respuesta exitosa:', JSON.stringify(response.data).substring(0, 300));
-        
-        const messageId = response.data?.key?.id || 
-                         response.data?.messageId ||
-                         response.data?.data?.key?.id;
-        
+        console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 300));
         return {
           success: true,
-          messageId: messageId
+          messageId: response.data?.key?.id || response.data?.messageId
         };
         
       } catch (error: any) {
-        const errorData = error.response?.data;
-        console.log(`⚠️ Falló con "${numberFormat}":`, JSON.stringify(errorData || error.message).substring(0, 200));
-        
-        // Si el error NO es "number not exists", detenerse
-        const isNotExistsError = errorData?.response?.[0]?.exists === false ||
-                                 JSON.stringify(errorData).includes('exists') ||
-                                 JSON.stringify(errorData).includes('not registered');
-        
-        if (!isNotExistsError && error.response?.status !== 400) {
-          // Error diferente, reportarlo
-          return {
-            success: false,
-            error: JSON.stringify(errorData || error.message)
-          };
-        }
-        
-        // Continuar con el siguiente formato
+        console.log(`⚠️ Falló con "${numberFormat}":`, error.response?.data?.message || error.message);
         continue;
       }
     }
-    
-    // Todos los intentos fallaron
-    console.error('❌ Todos los intentos de envío fallaron');
+
+    // MÉTODO 3: Intentar con endpoint de chat/sendMessage
+    console.log('🔄 Intentando con chat/sendMessage...');
+    try {
+      const payload = {
+        chatId: to,
+        contentType: "string",
+        content: text
+      };
+      
+      const response = await axios.post(
+        `${this.apiUrl}/chat/sendMessage/${instanceName}`,
+        payload,
+        { 
+          headers: this.getHeaders(),
+          timeout: 30000
+        }
+      );
+      
+      console.log('✅ Mensaje enviado via chat/sendMessage:', JSON.stringify(response.data).substring(0, 300));
+      return {
+        success: true,
+        messageId: response.data?.key?.id || response.data?.messageId
+      };
+    } catch (error: any) {
+      console.log('⚠️ Falló chat/sendMessage:', error.response?.data?.message || error.message);
+    }
+
+    console.error('❌ Todos los métodos de envío fallaron');
     return {
       success: false,
-      error: 'No se pudo enviar el mensaje. El número puede no estar registrado en WhatsApp.'
+      error: 'No se pudo enviar el mensaje con ningún método'
     };
   }
 
@@ -378,11 +415,7 @@ class EvolutionService {
               'MESSAGES_UPSERT',
               'MESSAGES_UPDATE',
               'CONNECTION_UPDATE',
-              'QRCODE_UPDATED',
-              'CONTACTS_UPSERT',
-              'CONTACTS_UPDATE',
-              'CHATS_UPSERT',
-              'CHATS_UPDATE'
+              'QRCODE_UPDATED'
             ]
           }
         },

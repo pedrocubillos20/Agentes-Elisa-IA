@@ -5,12 +5,13 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-RUN npm install
+RUN npm install --unsafe-perm
 
 COPY . .
 
-RUN npm run build
+RUN npx prisma generate
+RUN npx tsc
 
 EXPOSE 3001
 
-CMD ["npm", "start"]
+CMD ["node", "dist/server.js"]

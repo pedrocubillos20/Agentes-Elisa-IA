@@ -1,10 +1,7 @@
 {
-  "name": "elisa-ia-evolution",
+  "name": "elisa-ia-backend",
   "version": "3.0.0",
-  "engines": {
-    "node": ">=20.0.0"
-  },
-  "description": "Backend para Elisa IA - Chatbots de WhatsApp con Evolution API",
+  "description": "Backend para Elisa IA - Chatbots de WhatsApp",
   "main": "dist/server.js",
   "scripts": {
     "build": "npx prisma generate && tsc",
@@ -13,9 +10,7 @@
     "postinstall": "npx prisma generate"
   },
   "dependencies": {
-    "@hapi/boom": "^10.0.1",
     "@prisma/client": "^5.22.0",
-    "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -24,7 +19,6 @@
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "openai": "^4.20.1",
-    "pino": "^10.3.0",
     "qrcode": "^1.5.3",
     "socket.io": "^4.7.2",
     "uuid": "^9.0.1"

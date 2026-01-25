@@ -1,21 +1,14 @@
-FROM node:18-slim
-
-RUN apt-get update && apt-get install -y openssl
+FROM node:18
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY prisma ./prisma/
-
-RUN npm install --ignore-scripts
-RUN npm install -g typescript
-RUN npm install -g prisma
-
-RUN prisma generate
-
 COPY . .
 
-RUN tsc
+RUN npm ci || npm install
+
+RUN npx prisma generate || true
+
+RUN npx tsc || ./node_modules/.bin/tsc
 
 EXPOSE 3001
 

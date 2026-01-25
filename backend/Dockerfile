@@ -1,16 +1,17 @@
 FROM node:18
 
-RUN npm install -g typescript prisma
-
 WORKDIR /app
+
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm install --ignore-scripts
+
+RUN npx prisma generate
 
 COPY . .
 
-RUN npm install
-
-RUN prisma generate
-
-RUN tsc
+RUN npx tsc
 
 EXPOSE 3001
 

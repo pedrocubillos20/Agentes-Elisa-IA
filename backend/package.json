@@ -1,6 +1,9 @@
 {
   "name": "elisa-ia-evolution",
   "version": "3.0.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "description": "Backend para Elisa IA - Chatbots de WhatsApp con Evolution API",
   "main": "dist/server.js",
   "scripts": {

@@ -2,16 +2,18 @@ FROM node:20
 
 WORKDIR /app
 
+RUN npm install -g typescript prisma
+
 COPY package*.json ./
 COPY prisma ./prisma/
 
 RUN npm install --legacy-peer-deps --ignore-scripts
 
-RUN npx prisma generate
+RUN prisma generate
 
 COPY . .
 
-RUN npx tsc
+RUN tsc
 
 EXPOSE 3001
 

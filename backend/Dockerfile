@@ -9,7 +9,10 @@ COPY prisma ./prisma/
 
 RUN npm install --legacy-peer-deps --ignore-scripts
 
-RUN DATABASE_URL="postgresql://user:pass@host:5432/db" prisma generate
+ARG DATABASE_URL="postgresql://user:pass@host:5432/db"
+ENV DATABASE_URL=$DATABASE_URL
+
+RUN prisma generate
 
 COPY . .
 

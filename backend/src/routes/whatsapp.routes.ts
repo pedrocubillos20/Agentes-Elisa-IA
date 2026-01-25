@@ -11,10 +11,35 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.RAILWAY_PUBLIC_DOMAIN
 
 /**
  * ============================================
- * WHATSAPP ROUTES - EVOLUTION API v1.8.0
- * VERSIÓN LIMPIA - SIN LID
+ * WHATSAPP ROUTES - ARQUITECTURA TYPEBOT
+ * ============================================
+ * 
+ * CONCEPTO CLAVE (como Typebot):
+ * - chatId = remoteJid (sea @lid, @c.us o @s.whatsapp.net)
+ * - NO filtramos LID
+ * - NO intentamos convertir LID a número
+ * - Usamos chatId como ID único de conversación
+ * - WhatsApp PERMITE responder a LID
+ * 
+ * El teléfono real es solo metadata, no clave primaria.
+ * 
  * ============================================
  */
+
+// ============================================
+// HELPER: Extraer displayPhone (solo para mostrar)
+// ============================================
+function extractDisplayPhone(chatId: string): string {
+  // Si es número real, lo mostramos
+  if (chatId.includes('@c.us') || chatId.includes('@s.whatsapp.net')) {
+    return chatId.split('@')[0];
+  }
+  // Si es LID, mostramos "LID:xxxxx"
+  if (chatId.includes('@lid')) {
+    return `LID:${chatId.split('@')[0].slice(-6)}`;
+  }
+  return chatId;
+}
 
 // ============================================
 // GET /status
@@ -30,7 +55,7 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
 
     if (currentUser.evolutionInstanceName) {
       const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
-      console.log(`📊 [v1.8.0] Estado conexión: {"instance":{"instanceName":"${currentUser.evolutionInstanceName}","state":"${status.connected ? 'open' : 'disconnected'}"}}`);
+      console.log(`📊 Estado conexión: ${currentUser.evolutionInstanceName} -> ${status.connected ? 'open' : 'disconnected'}`);
       
       if (status.instanceNotFound) {
         return res.json({ connected: false, status: 'disconnected', phone: null, instanceName: null, qrCode: null });
@@ -211,15 +236,22 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // ============================================
-// POST /webhook - EVOLUTION API v1.8.0 LIMPIO
+// POST /webhook - ARQUITECTURA TYPEBOT
 // ============================================
+/**
+ * CLAVE: NO filtramos LID
+ * - chatId = remoteJid (exacto como viene)
+ * - Guardamos conversación con chatId como ID
+ * - Respondemos al chatId original
+ * - WhatsApp PERMITE responder a LID
+ */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const data = req.body;
     const event = data.event || data.type;
     const instanceName = data.instance || data.instanceName || data.data?.instance;
     
-    console.log(`\n🔔 [v1.8.0] Webhook: ${event} | Instancia: ${instanceName}`);
+    console.log(`\n🔔 Webhook: ${event} | Instancia: ${instanceName}`);
     
     // ============================================
     // CONNECTION_UPDATE
@@ -262,7 +294,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
 
     // ============================================
-    // MESSAGES_UPSERT - v1.8.0 LIMPIO
+    // MESSAGES_UPSERT - ESTILO TYPEBOT
     // ============================================
     if (event === 'MESSAGES_UPSERT' || event === 'messages.upsert') {
       const messageData = data.data || data;
@@ -272,33 +304,36 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
-        const remoteJid = msg.key?.remoteJid;
+        // ============================================
+        // CLAVE TYPEBOT: chatId = remoteJid EXACTO
+        // NO filtramos LID, lo aceptamos como válido
+        // ============================================
+        const chatId = msg.key?.remoteJid;
         
-        // ============================================
-        // SOLO ACEPTAR NÚMEROS REALES (@s.whatsapp.net o @c.us)
-        // ============================================
-        if (!remoteJid || (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@c.us'))) {
-          console.log(`🚫 Mensaje ignorado (LID o inválido): ${remoteJid}`);
+        if (!chatId) {
+          console.log('⚠️ Sin remoteJid');
           continue;
         }
         
-        // Ignorar grupos
-        if (remoteJid.includes('@g.us')) {
+        // Solo ignorar grupos
+        if (chatId.includes('@g.us')) {
           console.log('⚠️ Mensaje de grupo ignorado');
           continue;
         }
 
-        // ============================================
-        // EXTRAER NÚMERO REAL
-        // ============================================
-        const phone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
-        const pushName = msg.pushName || '';
+        // Determinar tipo de chat
+        const isLid = chatId.includes('@lid');
+        const chatType = isLid ? 'LID' : 'REAL';
+        
+        // Display phone (solo para mostrar en UI)
+        const displayPhone = extractDisplayPhone(chatId);
+        const pushName = msg.pushName || displayPhone;
 
         console.log('\n╔══════════════════════════════════════════════════════════════╗');
-        console.log('║             MENSAJE RECIBIDO (v1.8.0)                        ║');
+        console.log('║         MENSAJE RECIBIDO (Typebot Style)                     ║');
         console.log('╚══════════════════════════════════════════════════════════════╝');
-        console.log(`📋 remoteJid: ${remoteJid}`);
-        console.log(`📞 Número REAL: ${phone}`);
+        console.log(`📋 chatId: ${chatId}`);
+        console.log(`📱 Tipo: ${chatType}`);
         console.log(`👤 Nombre: ${pushName}`);
 
         // Extraer contenido del mensaje
@@ -328,33 +363,44 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
 
         // ============================================
-        // GESTIÓN DE CONVERSACIÓN
+        // GESTIÓN DE CONVERSACIÓN (ESTILO TYPEBOT)
+        // recipientId = chatId completo (puede ser LID)
         // ============================================
         let conversation = await prisma.conversation.findFirst({
-          where: { userId: user.id, recipientId: phone }
+          where: { userId: user.id, recipientId: chatId }
         });
 
         if (!conversation) {
           conversation = await prisma.conversation.create({
             data: { 
               userId: user.id, 
-              recipientId: phone, 
-              recipientName: pushName || phone, 
+              recipientId: chatId,  // chatId completo como ID
+              recipientName: pushName, 
               lastMessage: messageContent, 
               lastMessageAt: new Date() 
             }
           });
-          console.log(`📝 Nueva conversación: ${conversation.id}`);
+          console.log(`📝 Nueva conversación: ${conversation.id} (${chatType})`);
         } else {
           await prisma.conversation.update({
             where: { id: conversation.id },
-            data: { lastMessage: messageContent, lastMessageAt: new Date(), recipientName: pushName || conversation.recipientName }
+            data: { 
+              lastMessage: messageContent, 
+              lastMessageAt: new Date(), 
+              recipientName: pushName || conversation.recipientName 
+            }
           });
         }
 
         // Guardar mensaje
         await prisma.message.create({
-          data: { conversationId: conversation.id, userId: user.id, role: 'user', content: messageContent, fromMe: false }
+          data: { 
+            conversationId: conversation.id, 
+            userId: user.id, 
+            role: 'user', 
+            content: messageContent, 
+            fromMe: false 
+          }
         });
 
         // Historial
@@ -377,22 +423,33 @@ router.post('/webhook', async (req: Request, res: Response) => {
           console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
           
           // ============================================
-          // ENVIAR AL NÚMERO REAL
+          // ENVIAR RESPUESTA AL chatId ORIGINAL
+          // WhatsApp PERMITE responder a LID
           // ============================================
-          console.log(`📤 Enviando a: ${phone}`);
+          console.log(`📤 Enviando a chatId: ${chatId}`);
           
-          const sendResult = await evolutionService.sendTextMessage(instanceName, phone, aiResponse.response);
+          const sendResult = await evolutionService.sendTextMessage(
+            instanceName, 
+            chatId,  // Enviamos al chatId exacto (LID o número real)
+            aiResponse.response
+          );
 
           if (sendResult.success) {
             await prisma.message.create({
-              data: { conversationId: conversation.id, userId: user.id, role: 'assistant', content: aiResponse.response, fromMe: true }
+              data: { 
+                conversationId: conversation.id, 
+                userId: user.id, 
+                role: 'assistant', 
+                content: aiResponse.response, 
+                fromMe: true 
+              }
             });
-            console.log('✅ ¡MENSAJE ENVIADO!');
+            console.log(`✅ ¡MENSAJE ENVIADO! (${chatType})`);
           } else {
             console.error('❌ Error enviando:', sendResult.error);
           }
         } else {
-          console.error('❌ Error generando respuesta IA');
+          console.error('❌ Error generando respuesta IA:', aiResponse.error);
         }
       }
     }
@@ -408,7 +465,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 // GET /webhook - Health check
 // ============================================
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook Evolution API v1.8.0 activo');
+  res.send('✅ Webhook Evolution API (Typebot Style) activo');
 });
 
 export default router;

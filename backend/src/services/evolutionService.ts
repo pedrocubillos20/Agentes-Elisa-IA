@@ -6,15 +6,18 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Ke
 
 /**
  * ============================================
- * EVOLUTION SERVICE - v1.8.0 COMPATIBLE
+ * EVOLUTION SERVICE - ARQUITECTURA TYPEBOT
  * ============================================
  * 
- * En v1.8.0 el número real viene directamente en:
- * - key.remoteJid: "573001234567@s.whatsapp.net"
+ * CONCEPTO CLAVE:
+ * - NO intentamos convertir LID a número
+ * - Usamos chatId como identificador único
+ * - WhatsApp PERMITE responder a LID
+ * - Solo NO permite INICIAR conversación con LID
  * 
- * NO hay problema de LID en esta versión.
  * ============================================
  */
+
 class EvolutionService {
   private apiUrl: string;
   private apiKey: string;
@@ -22,7 +25,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
-    console.log(`🔧 Evolution Service v1.8.0 inicializado: ${this.apiUrl}`);
+    console.log(`🔧 Evolution Service (Typebot Style) inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -33,7 +36,7 @@ class EvolutionService {
   }
 
   // ============================================
-  // CREAR INSTANCIA - v1.8.0
+  // CREAR INSTANCIA
   // ============================================
   async createInstance(userId: string): Promise<{ 
     success: boolean; 
@@ -44,9 +47,8 @@ class EvolutionService {
     try {
       const instanceName = `elisa_${userId.substring(0, 8)}_${Date.now()}`;
       
-      console.log(`🔧 [v1.8.0] Creando instancia: ${instanceName}`);
+      console.log(`🔧 Creando instancia: ${instanceName}`);
       
-      // Evolution API v1.8.0 endpoint
       const response = await axios.post(
         `${this.apiUrl}/instance/create`,
         {
@@ -60,9 +62,6 @@ class EvolutionService {
         }
       );
 
-      console.log('📋 Respuesta crear instancia:', JSON.stringify(response.data).substring(0, 500));
-
-      // v1.8.0: QR puede venir en diferentes ubicaciones
       const qrcode = response.data?.qrcode?.base64 || 
                      response.data?.base64 ||
                      response.data?.qr ||
@@ -78,22 +77,15 @@ class EvolutionService {
         }
       });
 
-      return {
-        success: true,
-        instanceName: instanceName,
-        qrcode: qrcode
-      };
+      return { success: true, instanceName, qrcode };
     } catch (error: any) {
       console.error('❌ Error creando instancia:', error.response?.data || error.message);
-      return {
-        success: false,
-        error: error.response?.data?.message || error.response?.data?.error || error.message
-      };
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 
   // ============================================
-  // VERIFICAR ESTADO DE CONEXIÓN - v1.8.0
+  // VERIFICAR ESTADO DE CONEXIÓN
   // ============================================
   async checkConnectionStatus(instanceName: string): Promise<{ 
     connected: boolean; 
@@ -103,90 +95,44 @@ class EvolutionService {
     error?: string 
   }> {
     try {
-      // v1.8.0: Endpoint de estado de conexión
       const response = await axios.get(
         `${this.apiUrl}/instance/connectionState/${instanceName}`,
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
+        { headers: this.getHeaders(), timeout: 10000 }
       );
 
-      console.log('📋 [v1.8.0] Estado conexión:', JSON.stringify(response.data).substring(0, 300));
-
-      // v1.8.0: Estado viene en instance.state o state
-      const state = response.data?.instance?.state || 
-                   response.data?.state ||
-                   'disconnected';
-      
-      // v1.8.0: Número viene en instance.owner
-      const owner = response.data?.instance?.owner || 
-                   response.data?.owner;
-
-      // Extraer número limpio (573001234567@s.whatsapp.net -> 573001234567)
+      const state = response.data?.instance?.state || response.data?.state || 'disconnected';
+      const owner = response.data?.instance?.owner || response.data?.owner;
       const phone = owner ? owner.replace('@s.whatsapp.net', '').replace(/\D/g, '') : null;
       const connected = state === 'open' || state === 'connected';
 
       if (connected && phone) {
-        const user = await prisma.user.findFirst({
-          where: { evolutionInstanceName: instanceName }
-        });
-        
+        const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
           await prisma.user.update({
             where: { id: user.id },
-            data: {
-              whatsappConnected: true,
-              whatsappStatus: 'connected',
-              whatsappPhone: phone,
-              whatsappQrCode: null
-            }
+            data: { whatsappConnected: true, whatsappStatus: 'connected', whatsappPhone: phone, whatsappQrCode: null }
           });
         }
       }
 
-      return {
-        connected: connected,
-        state: state,
-        phone: phone || undefined
-      };
+      return { connected, state, phone: phone || undefined };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        const user = await prisma.user.findFirst({
-          where: { evolutionInstanceName: instanceName }
-        });
-        
+        const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
           await prisma.user.update({
             where: { id: user.id },
-            data: {
-              evolutionInstanceName: null,
-              whatsappConnected: false,
-              whatsappStatus: 'disconnected',
-              whatsappQrCode: null,
-              whatsappPhone: null
-            }
+            data: { evolutionInstanceName: null, whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null, whatsappPhone: null }
           });
         }
-        
-        return {
-          connected: false,
-          state: 'not_found',
-          instanceNotFound: true,
-          error: 'Instance not found'
-        };
+        return { connected: false, state: 'not_found', instanceNotFound: true };
       }
-      
-      console.error('❌ Error verificando estado:', error.message);
-      return {
-        connected: false,
-        error: error.response?.data?.message || error.message
-      };
+      return { connected: false, error: error.message };
     }
   }
 
   // ============================================
-  // OBTENER QR CODE - v1.8.0
+  // OBTENER QR CODE
   // ============================================
   async getQRCode(instanceName: string): Promise<{ 
     success: boolean; 
@@ -195,88 +141,68 @@ class EvolutionService {
     error?: string 
   }> {
     try {
-      // v1.8.0: Endpoint para obtener QR
       const response = await axios.get(
         `${this.apiUrl}/instance/connect/${instanceName}`,
-        { 
-          headers: this.getHeaders(),
-          timeout: 15000
-        }
+        { headers: this.getHeaders(), timeout: 15000 }
       );
 
-      console.log('📋 [v1.8.0] Respuesta QR:', JSON.stringify(response.data).substring(0, 300));
-
-      const qrcode = response.data?.qrcode?.base64 || 
-                     response.data?.base64 ||
-                     response.data?.qr ||
-                     null;
+      const qrcode = response.data?.qrcode?.base64 || response.data?.base64 || response.data?.qr || null;
 
       if (qrcode) {
-        const user = await prisma.user.findFirst({
-          where: { evolutionInstanceName: instanceName }
-        });
-        
+        const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { whatsappQrCode: qrcode }
-          });
+          await prisma.user.update({ where: { id: user.id }, data: { whatsappQrCode: qrcode } });
         }
       }
 
-      return {
-        success: !!qrcode,
-        qrcode: qrcode || undefined
-      };
+      return { success: !!qrcode, qrcode: qrcode || undefined };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        return {
-          success: false,
-          instanceNotFound: true,
-          error: 'Instance not found'
-        };
+        return { success: false, instanceNotFound: true };
       }
-      console.error('❌ Error obteniendo QR:', error.message);
-      return {
-        success: false,
-        error: error.response?.data?.message || error.message
-      };
+      return { success: false, error: error.message };
     }
   }
 
   // ============================================
-  // ENVIAR MENSAJE DE TEXTO - v1.8.0
+  // ENVIAR MENSAJE - ESTILO TYPEBOT
   // ============================================
-  async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
+  /**
+   * CLAVE: Enviamos al chatId EXACTO que recibimos
+   * - Si es @lid → enviamos a @lid
+   * - Si es @c.us → enviamos a @c.us
+   * - Si es @s.whatsapp.net → enviamos a ese
+   * 
+   * WhatsApp PERMITE responder a LID
+   */
+  async sendTextMessage(instanceName: string, chatId: string, text: string): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0) ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE (Typebot Style) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
-    console.log(`📤 Destinatario: "${to}"`);
+    console.log(`📤 ChatId: "${chatId}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     // Ignorar grupos
-    if (to.includes('@g.us')) {
+    if (chatId.includes('@g.us')) {
       console.log('⚠️ Grupos no soportados');
       return { success: false, error: 'Groups not supported' };
     }
     
-    // Limpiar número (remover todo excepto dígitos)
-    let cleanNumber = to.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+    // Extraer número/id limpio (sin el sufijo)
+    const cleanId = chatId
+      .replace('@s.whatsapp.net', '')
+      .replace('@c.us', '')
+      .replace('@lid', '');
     
-    // Asegurar que no tenga el sufijo
-    if (cleanNumber.length < 10) {
-      return { success: false, error: 'Invalid phone number' };
-    }
-    
-    console.log(`📱 Número limpio: ${cleanNumber}`);
+    console.log(`📱 ID limpio: ${cleanId}`);
     
     try {
-      // v1.8.0: Payload para enviar mensaje
+      // Intentar enviar con el número limpio
       const payload = {
-        number: cleanNumber,
+        number: cleanId,
         options: {
           delay: 1200,
           presence: "composing"
@@ -286,194 +212,142 @@ class EvolutionService {
         }
       };
       
-      console.log(`🔄 Enviando a: ${this.apiUrl}/message/sendText/${instanceName}`);
-      
       const response = await axios.post(
         `${this.apiUrl}/message/sendText/${instanceName}`,
         payload,
-        { 
-          headers: this.getHeaders(),
-          timeout: 30000
-        }
+        { headers: this.getHeaders(), timeout: 30000 }
       );
       
-      console.log('✅ Respuesta envío:', JSON.stringify(response.data).substring(0, 300));
-      
-      const messageId = response.data?.key?.id || 
-                       response.data?.messageId ||
-                       response.data?.id;
+      console.log('✅ Mensaje enviado:', JSON.stringify(response.data).substring(0, 200));
       
       return {
         success: true,
-        messageId: messageId
+        messageId: response.data?.key?.id || response.data?.messageId
       };
       
     } catch (error: any) {
-      console.error('❌ Error enviando mensaje:', error.response?.data || error.message);
-      return {
-        success: false,
-        error: JSON.stringify(error.response?.data || error.message)
-      };
+      console.error('❌ Error primer intento:', error.response?.data?.message || error.message);
+      
+      // Si falla, intentar con formato completo @s.whatsapp.net
+      try {
+        console.log('🔄 Reintentando con @s.whatsapp.net...');
+        
+        const retryPayload = {
+          number: `${cleanId}@s.whatsapp.net`,
+          options: { delay: 1200, presence: "composing" },
+          textMessage: { text }
+        };
+        
+        const retryResponse = await axios.post(
+          `${this.apiUrl}/message/sendText/${instanceName}`,
+          retryPayload,
+          { headers: this.getHeaders(), timeout: 30000 }
+        );
+        
+        console.log('✅ Reintento exitoso');
+        return { success: true, messageId: retryResponse.data?.key?.id };
+        
+      } catch (retryError: any) {
+        console.error('❌ Reintento fallido:', retryError.response?.data?.message || retryError.message);
+        return { success: false, error: retryError.response?.data?.message || retryError.message };
+      }
     }
   }
 
   // ============================================
-  // CONFIGURAR WEBHOOK - v1.8.0
+  // CONFIGURAR WEBHOOK
   // ============================================
   async setWebhook(instanceName: string, webhookUrl: string): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log(`🔗 [v1.8.0] Configurando webhook: ${webhookUrl}`);
+      console.log(`🔗 Configurando webhook: ${webhookUrl}`);
       
-      // v1.8.0: Endpoint y estructura de webhook
       const response = await axios.post(
         `${this.apiUrl}/webhook/set/${instanceName}`,
         {
-          webhook: {
-            enabled: true,
-            url: webhookUrl,
-            webhookByEvents: false,
-            webhookBase64: false,
-            events: [
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'CONNECTION_UPDATE',
-              'QRCODE_UPDATED'
-            ]
-          }
+          url: webhookUrl,
+          enabled: true,
+          events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED']
         },
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
+        { headers: this.getHeaders(), timeout: 10000 }
       );
       
-      console.log('✅ Webhook configurado:', JSON.stringify(response.data).substring(0, 200));
+      console.log('✅ Webhook configurado');
       return { success: true };
     } catch (error: any) {
       console.error('❌ Error configurando webhook:', error.response?.data || error.message);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message 
-      };
+      return { success: false, error: error.message };
     }
   }
 
   // ============================================
-  // DESCONECTAR INSTANCIA - v1.8.0
+  // DESCONECTAR INSTANCIA
   // ============================================
   async disconnectInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await axios.delete(
-        `${this.apiUrl}/instance/logout/${instanceName}`, 
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
+        `${this.apiUrl}/instance/logout/${instanceName}`,
+        { headers: this.getHeaders(), timeout: 10000 }
       );
       
-      const user = await prisma.user.findFirst({ 
-        where: { evolutionInstanceName: instanceName } 
-      });
-      
+      const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
       if (user) {
         await prisma.user.update({
           where: { id: user.id },
-          data: { 
-            whatsappConnected: false, 
-            whatsappStatus: 'disconnected', 
-            whatsappQrCode: null 
-          }
+          data: { whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null }
         });
       }
       
-      console.log(`✅ Instancia ${instanceName} desconectada`);
       return { success: true };
     } catch (error: any) {
-      console.error('❌ Error desconectando:', error.message);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message 
-      };
+      return { success: false, error: error.message };
     }
   }
 
   // ============================================
-  // ELIMINAR INSTANCIA - v1.8.0
+  // ELIMINAR INSTANCIA
   // ============================================
   async deleteInstance(instanceName: string): Promise<{ success: boolean; error?: string }> {
     try {
       await axios.delete(
-        `${this.apiUrl}/instance/delete/${instanceName}`, 
-        { 
-          headers: this.getHeaders(),
-          timeout: 10000
-        }
+        `${this.apiUrl}/instance/delete/${instanceName}`,
+        { headers: this.getHeaders(), timeout: 10000 }
       );
       
-      const user = await prisma.user.findFirst({ 
-        where: { evolutionInstanceName: instanceName } 
-      });
-      
+      const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
       if (user) {
         await prisma.user.update({
           where: { id: user.id },
-          data: { 
-            evolutionInstanceName: null, 
-            whatsappConnected: false, 
-            whatsappStatus: 'disconnected', 
-            whatsappQrCode: null, 
-            whatsappPhone: null 
-          }
+          data: { evolutionInstanceName: null, whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null, whatsappPhone: null }
         });
       }
       
-      console.log(`✅ Instancia ${instanceName} eliminada`);
       return { success: true };
     } catch (error: any) {
       if (error.response?.status === 404) {
-        const user = await prisma.user.findFirst({ 
-          where: { evolutionInstanceName: instanceName } 
-        });
-        
+        const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
           await prisma.user.update({
             where: { id: user.id },
-            data: { 
-              evolutionInstanceName: null, 
-              whatsappConnected: false, 
-              whatsappStatus: 'disconnected', 
-              whatsappQrCode: null, 
-              whatsappPhone: null 
-            }
+            data: { evolutionInstanceName: null, whatsappConnected: false, whatsappStatus: 'disconnected', whatsappQrCode: null, whatsappPhone: null }
           });
         }
         return { success: true };
       }
-      
-      console.error('❌ Error eliminando instancia:', error.message);
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message 
-      };
+      return { success: false, error: error.message };
     }
   }
 
   // ============================================
-  // OBTENER INFORMACIÓN DE LA INSTANCIA - v1.8.0
+  // OBTENER INFO DE INSTANCIA
   // ============================================
   async getInstanceInfo(instanceName: string): Promise<any> {
     try {
       const response = await axios.get(
         `${this.apiUrl}/instance/fetchInstances`,
-        { 
-          headers: this.getHeaders(),
-          params: { instanceName },
-          timeout: 10000
-        }
+        { headers: this.getHeaders(), params: { instanceName }, timeout: 10000 }
       );
       return response.data;
     } catch (error: any) {
-      console.error('❌ Error obteniendo info:', error.message);
       return null;
     }
   }

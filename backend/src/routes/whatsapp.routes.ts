@@ -323,7 +323,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // ============================================
         // 🔧 FIX PARA LID - CAMBIO PRINCIPAL
         // ============================================
-        // Detectar si es LID o número normal
         const isLid = remoteJid.includes('@lid');
         
         // Para identificación en BD: extraer solo dígitos
@@ -334,7 +333,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
           .replace(/\D/g, '');
         
         // ⭐ IMPORTANTE: Guardar el remoteJid ORIGINAL para responder
-        // Evolution API v1.8 acepta el remoteJid completo
         const replyTo = remoteJid;
         
         const pushName = msg.pushName || recipientId;
@@ -375,8 +373,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
             data: { 
               userId: user.id, 
               recipientId: recipientId,
-              // Guardar el remoteJid original para futuras respuestas
-              recipientJid: replyTo,
               recipientName: pushName, 
               lastMessage: messageContent, 
               lastMessageAt: new Date() 
@@ -384,14 +380,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
           });
           console.log(`📝 Nueva conversación creada: ${conversation.id}`);
         } else {
-          // Actualizar el JID por si cambió (de número a LID o viceversa)
           await prisma.conversation.update({
             where: { id: conversation.id },
             data: { 
               lastMessage: messageContent, 
               lastMessageAt: new Date(), 
-              recipientName: pushName || conversation.recipientName,
-              recipientJid: replyTo // Actualizar siempre con el último JID
+              recipientName: pushName || conversation.recipientName
             }
           });
         }

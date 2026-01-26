@@ -10,23 +10,34 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
 
 /**
  * ============================================
- * WHATSAPP ROUTES - ARQUITECTURA TYPEBOT
- * Acepta LID como chatId válido
+ * WHATSAPP ROUTES - EVOLUTION API v1.8.0
+ * CON SOPORTE PARA LID (Link ID)
  * ============================================
  */
 
+// GET /status
 router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
     
-    if (!currentUser) return res.status(404).json({ error: 'Usuario no encontrado' });
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
 
     if (currentUser.evolutionInstanceName) {
       const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
+      
       if (status.instanceNotFound) {
-        return res.json({ connected: false, status: 'disconnected', phone: null, instanceName: null, qrCode: null });
+        return res.json({ 
+          connected: false, 
+          status: 'disconnected', 
+          phone: null, 
+          instanceName: null, 
+          qrCode: null 
+        });
       }
+      
       const updatedUser = await prisma.user.findUnique({ where: { id: currentUser.id } });
       return res.json({
         connected: updatedUser?.whatsappConnected || false,
@@ -37,109 +48,212 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
       });
     }
     
-    res.json({ connected: false, status: 'disconnected', phone: null, instanceName: null, qrCode: null });
+    res.json({ 
+      connected: false, 
+      status: 'disconnected', 
+      phone: null, 
+      instanceName: null, 
+      qrCode: null 
+    });
   } catch (error: any) {
+    console.error('❌ Error /status:', error);
     res.status(500).json({ error: 'Error al obtener estado' });
   }
 });
 
+// POST /connect
 router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
-    if (!currentUser) return res.status(404).json({ error: 'Usuario no encontrado' });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
 
+    // Si ya tiene instancia, verificar estado
     if (currentUser.evolutionInstanceName) {
       const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
+      
       if (!status.instanceNotFound && status.connected) {
-        return res.json({ success: true, connected: true, status: 'connected', phone: status.phone });
+        return res.json({ 
+          success: true, 
+          connected: true, 
+          status: 'connected', 
+          phone: status.phone 
+        });
       }
+      
       if (!status.instanceNotFound) {
         const qrResult = await evolutionService.getQRCode(currentUser.evolutionInstanceName);
         if (qrResult.success && qrResult.qrcode) {
-          return res.json({ success: true, connected: false, status: 'waiting_qr', qrCode: qrResult.qrcode, instanceName: currentUser.evolutionInstanceName });
+          return res.json({ 
+            success: true, 
+            connected: false, 
+            status: 'waiting_qr', 
+            qrCode: qrResult.qrcode, 
+            instanceName: currentUser.evolutionInstanceName 
+          });
         }
       }
     }
 
+    // Crear nueva instancia
     const result = await evolutionService.createInstance(currentUser.id);
-    if (!result.success) return res.status(500).json({ error: result.error });
-    if (result.instanceName) await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
     
-    res.json({ success: true, connected: false, status: 'waiting_qr', qrCode: result.qrcode, instanceName: result.instanceName });
+    if (!result.success) {
+      return res.status(500).json({ error: result.error });
+    }
+    
+    // Configurar webhook
+    if (result.instanceName) {
+      await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
+    }
+    
+    res.json({ 
+      success: true, 
+      connected: false, 
+      status: 'waiting_qr', 
+      qrCode: result.qrcode, 
+      instanceName: result.instanceName 
+    });
   } catch (error: any) {
+    console.error('❌ Error /connect:', error);
     res.status(500).json({ error: 'Error al conectar WhatsApp' });
   }
 });
 
+// GET /qr
 router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
-    if (!currentUser) return res.status(404).json({ error: 'Usuario no encontrado' });
+    
+    if (!currentUser) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
 
     if (!currentUser.evolutionInstanceName) {
       const result = await evolutionService.createInstance(currentUser.id);
-      if (!result.success) return res.status(500).json({ error: result.error });
-      if (result.instanceName) await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
-      return res.json({ connected: false, status: 'waiting_qr', qrCode: result.qrcode, instanceName: result.instanceName });
+      if (!result.success) {
+        return res.status(500).json({ error: result.error });
+      }
+      if (result.instanceName) {
+        await evolutionService.setWebhook(result.instanceName, WEBHOOK_URL);
+      }
+      return res.json({ 
+        connected: false, 
+        status: 'waiting_qr', 
+        qrCode: result.qrcode, 
+        instanceName: result.instanceName 
+      });
     }
 
     const status = await evolutionService.checkConnectionStatus(currentUser.evolutionInstanceName);
-    if (status.connected) return res.json({ connected: true, status: 'connected', phone: status.phone, qrCode: null });
+    
+    if (status.connected) {
+      return res.json({ 
+        connected: true, 
+        status: 'connected', 
+        phone: status.phone, 
+        qrCode: null 
+      });
+    }
 
     const result = await evolutionService.getQRCode(currentUser.evolutionInstanceName);
+    
     if (result.instanceNotFound) {
       const newInstance = await evolutionService.createInstance(currentUser.id);
-      if (!newInstance.success) return res.status(500).json({ error: newInstance.error });
-      if (newInstance.instanceName) await evolutionService.setWebhook(newInstance.instanceName, WEBHOOK_URL);
-      return res.json({ connected: false, status: 'waiting_qr', qrCode: newInstance.qrcode, instanceName: newInstance.instanceName });
+      if (!newInstance.success) {
+        return res.status(500).json({ error: newInstance.error });
+      }
+      if (newInstance.instanceName) {
+        await evolutionService.setWebhook(newInstance.instanceName, WEBHOOK_URL);
+      }
+      return res.json({ 
+        connected: false, 
+        status: 'waiting_qr', 
+        qrCode: newInstance.qrcode, 
+        instanceName: newInstance.instanceName 
+      });
     }
     
-    res.json({ connected: false, status: 'waiting_qr', qrCode: result.qrcode || currentUser.whatsappQrCode });
+    res.json({ 
+      connected: false, 
+      status: 'waiting_qr', 
+      qrCode: result.qrcode || currentUser.whatsappQrCode 
+    });
   } catch (error: any) {
+    console.error('❌ Error /qr:', error);
     res.status(500).json({ error: 'Error al obtener QR' });
   }
 });
 
+// POST /disconnect
 router.post('/disconnect', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    if (user.evolutionInstanceName) await evolutionService.disconnectInstance(user.evolutionInstanceName);
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (currentUser?.evolutionInstanceName) {
+      await evolutionService.disconnectInstance(currentUser.evolutionInstanceName);
+    }
+    
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('❌ Error /disconnect:', error);
     res.status(500).json({ error: 'Error al desconectar' });
   }
 });
 
+// DELETE /instance
 router.delete('/instance', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    if (user.evolutionInstanceName) await evolutionService.deleteInstance(user.evolutionInstanceName);
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
+    
+    if (currentUser?.evolutionInstanceName) {
+      await evolutionService.deleteInstance(currentUser.evolutionInstanceName);
+    }
+    
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('❌ Error /instance:', error);
     res.status(500).json({ error: 'Error al eliminar' });
   }
 });
 
+// POST /send
 router.post('/send', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const { to, message } = req.body;
-    if (!user.evolutionInstanceName || !user.whatsappConnected) return res.status(400).json({ error: 'WhatsApp no conectado' });
-    if (!to || !message) return res.status(400).json({ error: 'Faltan datos' });
+    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
     
-    const result = await evolutionService.sendTextMessage(user.evolutionInstanceName, to, message);
-    if (!result.success) return res.status(500).json({ error: result.error });
+    if (!currentUser?.evolutionInstanceName || !currentUser?.whatsappConnected) {
+      return res.status(400).json({ error: 'WhatsApp no conectado' });
+    }
+    
+    if (!to || !message) {
+      return res.status(400).json({ error: 'Faltan datos (to, message)' });
+    }
+    
+    const result = await evolutionService.sendTextMessage(currentUser.evolutionInstanceName, to, message);
+    
+    if (!result.success) {
+      return res.status(500).json({ error: result.error });
+    }
+    
     res.json({ success: true, messageId: result.messageId });
-  } catch (error) {
-    res.status(500).json({ error: 'Error al enviar' });
+  } catch (error: any) {
+    console.error('❌ Error /send:', error);
+    res.status(500).json({ error: 'Error al enviar mensaje' });
   }
 });
 
 /**
  * ============================================
- * WEBHOOK - ACEPTA LID
+ * WEBHOOK - EVOLUTION API v1.8.0 + LID SUPPORT
  * ============================================
  */
 router.post('/webhook', async (req: Request, res: Response) => {
@@ -154,12 +268,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
       const state = data.data?.state || data.state;
       const connected = state === 'open' || state === 'connected';
+      
+      console.log(`📡 Estado conexión: ${state} (${connected ? 'conectado' : 'desconectado'})`);
+      
       if (instanceName) {
         const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
         if (user) {
           await prisma.user.update({
             where: { id: user.id },
-            data: { whatsappConnected: connected, whatsappStatus: connected ? 'connected' : state, whatsappQrCode: connected ? null : user.whatsappQrCode }
+            data: { 
+              whatsappConnected: connected, 
+              whatsappStatus: connected ? 'connected' : state, 
+              whatsappQrCode: connected ? null : user.whatsappQrCode 
+            }
           });
         }
       }
@@ -169,9 +290,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // QRCODE_UPDATED
     if (event === 'QRCODE_UPDATED' || event === 'qrcode.updated') {
       const qrcode = data.data?.qrcode?.base64 || data.qrcode?.base64 || data.data?.base64;
+      
+      console.log(`📱 QR actualizado: ${qrcode ? 'Sí' : 'No'}`);
+      
       if (instanceName && qrcode) {
         const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
-        if (user) await prisma.user.update({ where: { id: user.id }, data: { whatsappQrCode: qrcode } });
+        if (user) {
+          await prisma.user.update({ 
+            where: { id: user.id }, 
+            data: { whatsappQrCode: qrcode } 
+          });
+        }
       }
       return res.json({ received: true });
     }
@@ -182,47 +311,103 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const messages = messageData.messages || [messageData];
       
       for (const msg of messages) {
+        // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
-        const chatId = msg.key?.remoteJid;
-        if (!chatId || chatId.includes('@g.us')) continue;
+        const remoteJid = msg.key?.remoteJid;
+        if (!remoteJid) continue;
+        
+        // Ignorar grupos
+        if (remoteJid.includes('@g.us')) continue;
 
-        // ACEPTA LID - usa chatId como identificador
-        const isLid = chatId.includes('@lid');
-        const recipientId = chatId; // Guardar chatId completo
-        const pushName = msg.pushName || chatId.split('@')[0];
+        // ============================================
+        // 🔧 FIX PARA LID - CAMBIO PRINCIPAL
+        // ============================================
+        // Detectar si es LID o número normal
+        const isLid = remoteJid.includes('@lid');
+        
+        // Para identificación en BD: extraer solo dígitos
+        const recipientId = remoteJid
+          .replace('@s.whatsapp.net', '')
+          .replace('@c.us', '')
+          .replace('@lid', '')
+          .replace(/\D/g, '');
+        
+        // ⭐ IMPORTANTE: Guardar el remoteJid ORIGINAL para responder
+        // Evolution API v1.8 acepta el remoteJid completo
+        const replyTo = remoteJid;
+        
+        const pushName = msg.pushName || recipientId;
 
-        console.log(`\n📨 Mensaje de: ${chatId} (${isLid ? 'LID' : 'REAL'})`);
+        console.log(`\n📨 Mensaje de: ${recipientId} (${pushName})`);
+        console.log(`📍 RemoteJid original: ${remoteJid}`);
+        console.log(`📍 Tipo: ${isLid ? 'LID (Link ID)' : 'Número normal'}`);
+        console.log(`📍 ReplyTo: ${replyTo}`);
 
+        // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
                               msg.message?.extendedTextMessage?.text || '';
         
         if (!messageContent) continue;
+        
         console.log(`📝 Contenido: ${messageContent}`);
 
+        // Buscar usuario
         const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
-        if (!user || !user.apiKeyConnected) continue;
+        
+        if (!user) {
+          console.log('⚠️ Usuario no encontrado');
+          continue;
+        }
+        
+        if (!user.apiKeyConnected) {
+          console.log('⚠️ Usuario sin API Key configurada');
+          continue;
+        }
 
-        // Gestión de conversación con chatId como ID
+        // Gestión de conversación (usar recipientId para BD)
         let conversation = await prisma.conversation.findFirst({
-          where: { userId: user.id, recipientId }
+          where: { userId: user.id, recipientId: recipientId }
         });
 
         if (!conversation) {
           conversation = await prisma.conversation.create({
-            data: { userId: user.id, recipientId, recipientName: pushName, lastMessage: messageContent, lastMessageAt: new Date() }
+            data: { 
+              userId: user.id, 
+              recipientId: recipientId,
+              // Guardar el remoteJid original para futuras respuestas
+              recipientJid: replyTo,
+              recipientName: pushName, 
+              lastMessage: messageContent, 
+              lastMessageAt: new Date() 
+            }
           });
+          console.log(`📝 Nueva conversación creada: ${conversation.id}`);
         } else {
+          // Actualizar el JID por si cambió (de número a LID o viceversa)
           await prisma.conversation.update({
             where: { id: conversation.id },
-            data: { lastMessage: messageContent, lastMessageAt: new Date(), recipientName: pushName || conversation.recipientName }
+            data: { 
+              lastMessage: messageContent, 
+              lastMessageAt: new Date(), 
+              recipientName: pushName || conversation.recipientName,
+              recipientJid: replyTo // Actualizar siempre con el último JID
+            }
           });
         }
 
+        // Guardar mensaje del usuario
         await prisma.message.create({
-          data: { conversationId: conversation.id, userId: user.id, role: 'user', content: messageContent, fromMe: false }
+          data: { 
+            conversationId: conversation.id, 
+            userId: user.id, 
+            role: 'user', 
+            content: messageContent, 
+            fromMe: false 
+          }
         });
 
+        // Obtener historial
         const recentMessages = await prisma.message.findMany({
           where: { conversationId: conversation.id },
           orderBy: { timestamp: 'asc' },
@@ -230,36 +415,55 @@ router.post('/webhook', async (req: Request, res: Response) => {
         });
         const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
 
-        console.log('🤖 Generando respuesta...');
+        // Generar respuesta con IA
+        console.log('🤖 Generando respuesta con OpenAI...');
         const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
 
         if (aiResponse.success && aiResponse.response) {
-          console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 50)}...`);
+          console.log(`✅ Respuesta generada: ${aiResponse.response.substring(0, 80)}...`);
           
-          // Enviar al chatId (funciona con LID en Evolution API v1.8.0)
-          const sendResult = await evolutionService.sendTextMessage(instanceName, chatId, aiResponse.response);
+          // ============================================
+          // 🔧 FIX: ENVIAR USANDO remoteJid ORIGINAL
+          // ============================================
+          console.log(`📤 Enviando respuesta a: ${replyTo}`);
+          
+          const sendResult = await evolutionService.sendTextMessage(
+            instanceName, 
+            replyTo,  // ⭐ Usar remoteJid original (con @lid o @s.whatsapp.net)
+            aiResponse.response
+          );
 
           if (sendResult.success) {
+            // Guardar respuesta del asistente
             await prisma.message.create({
-              data: { conversationId: conversation.id, userId: user.id, role: 'assistant', content: aiResponse.response, fromMe: true }
+              data: { 
+                conversationId: conversation.id, 
+                userId: user.id, 
+                role: 'assistant', 
+                content: aiResponse.response, 
+                fromMe: true 
+              }
             });
-            console.log('✅ ¡Mensaje enviado!');
+            console.log('✅ ¡Mensaje enviado exitosamente!');
           } else {
-            console.error('❌ Error enviando:', sendResult.error);
+            console.error('❌ Error enviando mensaje:', sendResult.error);
           }
+        } else {
+          console.error('❌ Error generando respuesta:', aiResponse.error);
         }
       }
     }
 
     res.json({ received: true });
   } catch (error: any) {
-    console.error('❌ Error webhook:', error);
+    console.error('❌ Error en webhook:', error);
     res.status(500).json({ error: 'Error procesando webhook' });
   }
 });
 
+// GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook activo');
+  res.send('✅ Webhook Evolution API v1.8.0 + LID Support activo');
 });
 
 export default router;

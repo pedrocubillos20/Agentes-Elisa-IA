@@ -1,7 +1,7 @@
 {
   "name": "elisa-ia-backend",
-  "version": "3.0.0",
-  "description": "Backend para Elisa IA - Chatbots de WhatsApp",
+  "version": "1.8.0",
+  "description": "Backend para Elisa IA - Chatbots de WhatsApp con Evolution API v1.8.0",
   "main": "dist/server.js",
   "scripts": {
     "build": "npx prisma generate && tsc",

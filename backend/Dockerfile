@@ -1,14 +1,23 @@
-FROM node:18
+FROM node:20
 
 WORKDIR /app
 
+RUN npm install -g typescript prisma
+
+COPY package*.json ./
+COPY prisma ./prisma/
+
+RUN npm install
+
+ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
+
+RUN prisma generate
+
 COPY . .
 
-RUN npm ci || npm install
+RUN tsc
 
-RUN npx prisma generate || true
-
-RUN npx tsc || ./node_modules/.bin/tsc
+RUN mkdir -p baileys_sessions
 
 EXPOSE 3001
 

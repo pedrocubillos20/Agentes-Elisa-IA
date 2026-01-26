@@ -6,7 +6,8 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Ke
 
 /**
  * ============================================
- * EVOLUTION SERVICE - v1.8.0 + DEBUG
+ * EVOLUTION SERVICE - v1.8.0 
+ * USANDO remoteJid COMPLETO (FIX LID)
  * ============================================
  */
 
@@ -17,7 +18,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
-    console.log(`🔧 Evolution Service v1.8.0 DEBUG inicializado: ${this.apiUrl}`);
+    console.log(`🔧 Evolution Service v1.8.0 (JID completo) inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -142,51 +143,33 @@ class EvolutionService {
 
   /**
    * ============================================
-   * SEND TEXT MESSAGE - SIMPLIFICADO
+   * SEND TEXT MESSAGE - USANDO JID COMPLETO
    * ============================================
+   * 
+   * ✅ Usa remoteJid tal cual viene del webhook
+   * ✅ No convierte nada
+   * ✅ Evolution lo envía porque es reply al mismo chat
    */
-  async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
+  async sendTextMessage(instanceName: string, jid: string, text: string): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0) ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE (JID COMPLETO) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
-    console.log(`📤 Destinatario original: "${to}"`);
+    console.log(`📤 JID: "${jid}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     // Ignorar grupos
-    if (to.includes('@g.us')) {
+    if (jid.includes('@g.us')) {
       console.log('⚠️ Grupos no soportados');
       return { success: false, error: 'Groups not supported' };
     }
     
-    // Detectar tipo de destinatario
-    const isLid = to.includes('@lid');
-    const hasJidSuffix = to.includes('@s.whatsapp.net') || to.includes('@c.us') || to.includes('@lid');
-    
-    // Limpiar número (extraer solo dígitos)
-    let cleanNumber = to
-      .replace('@s.whatsapp.net', '')
-      .replace('@c.us', '')
-      .replace('@lid', '')
-      .replace(/\D/g, '');
-    
-    console.log(`📍 Es LID: ${isLid}`);
-    console.log(`📍 Tiene sufijo JID: ${hasJidSuffix}`);
-    console.log(`📱 Número limpio: ${cleanNumber}`);
-    
-    // Validación básica
-    if (cleanNumber.length < 10) {
-      console.error('❌ Número inválido: menos de 10 dígitos');
-      return { success: false, error: 'Invalid phone number' };
-    }
-    
     try {
-      // Intentar enviar con número limpio
+      // ✅ USAR JID COMPLETO TAL CUAL - NO MODIFICAR NADA
       const payload = {
-        number: cleanNumber,
-        options: { delay: 1200, presence: "composing" },
+        number: jid,  // Usar el JID completo (ej: 55852006375537@lid)
         textMessage: { text }
       };
       

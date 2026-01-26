@@ -11,7 +11,7 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
 /**
  * ============================================
  * WHATSAPP ROUTES - EVOLUTION API v1.8.0
- * CON DEBUG PARA LID
+ * USANDO remoteJid COMPLETO (FIX LID)
  * ============================================
  */
 
@@ -250,7 +250,7 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
 
 /**
  * ============================================
- * WEBHOOK - EVOLUTION API v1.8.0 + DEBUG LID
+ * WEBHOOK - USANDO remoteJid COMPLETO
  * ============================================
  */
 router.post('/webhook', async (req: Request, res: Response) => {
@@ -304,12 +304,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // MESSAGES_UPSERT
     if (event === 'MESSAGES_UPSERT' || event === 'messages.upsert') {
-      
-      // ⭐⭐⭐ DEBUG: VER DATOS COMPLETOS DEL WEBHOOK ⭐⭐⭐
-      console.log('\n📦📦📦 ========== WEBHOOK DATA COMPLETA (DEBUG LID) ========== 📦📦📦');
-      console.log(JSON.stringify(data, null, 2));
-      console.log('📦📦📦 ========== FIN WEBHOOK DATA ========== 📦📦📦\n');
-      
       const messageData = data.data || data;
       const messages = messageData.messages || [messageData];
       
@@ -317,54 +311,23 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
-        const remoteJid = msg.key?.remoteJid;
-        if (!remoteJid) continue;
+        // ✅ OBTENER remoteJid COMPLETO - NO MODIFICAR
+        const jid = msg.key?.remoteJid;
+        if (!jid) continue;
         
         // Ignorar grupos
-        if (remoteJid.includes('@g.us')) continue;
+        if (jid.includes('@g.us')) continue;
 
-        // ⭐ DEBUG: Ver todos los campos disponibles
-        console.log('\n🔍 ========== DEBUG MSG FIELDS ==========');
-        console.log('remoteJid:', remoteJid);
-        console.log('remoteJidAlt:', msg.key?.remoteJidAlt);
-        console.log('participant:', msg.key?.participant);
-        console.log('sender:', messageData.sender);
-        console.log('pushName:', msg.pushName);
-        console.log('owner:', messageData.owner);
-        console.log('source:', messageData.source);
-        console.log('msg.key completo:', JSON.stringify(msg.key, null, 2));
-        console.log('========== FIN DEBUG ==========\n');
+        console.log(`\n📨 Mensaje recibido`);
+        console.log(`📍 JID completo: ${jid}`);
 
-        // Detectar si es LID
-        const isLid = remoteJid.includes('@lid');
-        
-        // ⭐ INTENTAR OBTENER NÚMERO REAL DE CAMPOS ALTERNATIVOS
-        let replyTo = remoteJid;
-        let recipientId = remoteJid
+        // Para guardar en BD: extraer identificador
+        const recipientId = jid
           .replace('@s.whatsapp.net', '')
           .replace('@c.us', '')
-          .replace('@lid', '')
-          .replace(/\D/g, '');
-        
-        // Si es LID, buscar número real en campos alternativos
-        if (isLid) {
-          const altJid = msg.key?.remoteJidAlt || messageData.sender || msg.key?.participant;
-          if (altJid && altJid.includes('@s.whatsapp.net')) {
-            replyTo = altJid;
-            recipientId = altJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-            console.log(`✅ LID detectado, usando número alternativo: ${replyTo}`);
-          } else {
-            console.log(`⚠️ LID detectado pero NO hay número alternativo disponible`);
-            console.log(`⚠️ Se usará LID original: ${replyTo}`);
-          }
-        }
+          .replace('@lid', '');
         
         const pushName = msg.pushName || recipientId;
-
-        console.log(`\n📨 Mensaje de: ${recipientId} (${pushName})`);
-        console.log(`📍 RemoteJid original: ${remoteJid}`);
-        console.log(`📍 Tipo: ${isLid ? 'LID (Link ID)' : 'Número normal'}`);
-        console.log(`📍 ReplyTo final: ${replyTo}`);
 
         // Extraer contenido del mensaje
         const messageContent = msg.message?.conversation || 
@@ -373,6 +336,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (!messageContent) continue;
         
         console.log(`📝 Contenido: ${messageContent}`);
+        console.log(`👤 De: ${pushName}`);
 
         // Buscar usuario
         const user = await prisma.user.findFirst({ where: { evolutionInstanceName: instanceName } });
@@ -438,14 +402,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
 
         if (aiResponse.success && aiResponse.response) {
-          console.log(`✅ Respuesta generada: ${aiResponse.response.substring(0, 80)}...`);
+          console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
           
-          // Enviar respuesta
-          console.log(`📤 Enviando respuesta a: ${replyTo}`);
+          // ✅ ENVIAR USANDO JID COMPLETO - TAL CUAL VINO
+          console.log(`📤 Enviando a JID: ${jid}`);
           
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            replyTo,
+            jid,  // ✅ Usar JID completo sin modificar
             aiResponse.response
           );
 
@@ -478,7 +442,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook Evolution API v1.8.0 + DEBUG LID activo');
+  res.send('✅ Webhook Evolution API v1.8.0 (JID completo) activo');
 });
 
 export default router;

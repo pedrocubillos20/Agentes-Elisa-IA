@@ -9,9 +9,7 @@ COPY prisma ./prisma/
 
 RUN npm install
 
-ENV DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
-
-RUN prisma generate
+RUN DATABASE_URL="postgresql://x:x@x:5432/x" prisma generate
 
 COPY . .
 

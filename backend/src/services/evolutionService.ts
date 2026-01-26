@@ -6,8 +6,7 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Ke
 
 /**
  * ============================================
- * EVOLUTION SERVICE - v1.8.0 ESTABLE
- * CON SOPORTE PARA LID (Link ID)
+ * EVOLUTION SERVICE - v1.8.0 + DEBUG
  * ============================================
  */
 
@@ -18,7 +17,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
-    console.log(`🔧 Evolution Service v1.8.0 + LID Support inicializado: ${this.apiUrl}`);
+    console.log(`🔧 Evolution Service v1.8.0 DEBUG inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -143,20 +142,15 @@ class EvolutionService {
 
   /**
    * ============================================
-   * SEND TEXT MESSAGE - CON SOPORTE LID
+   * SEND TEXT MESSAGE - SIMPLIFICADO
    * ============================================
-   * 
-   * Evolution API v1.8.0 acepta:
-   * - Número limpio: "573001234567"
-   * - remoteJid completo: "573001234567@s.whatsapp.net"
-   * - LID completo: "266575869378587@lid"
    */
   async sendTextMessage(instanceName: string, to: string, text: string): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0 + LID) ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
     console.log(`📤 Destinatario original: "${to}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
@@ -167,47 +161,37 @@ class EvolutionService {
       return { success: false, error: 'Groups not supported' };
     }
     
-    // ============================================
-    // 🔧 LÓGICA MEJORADA PARA LID
-    // ============================================
-    let numberToSend: string;
+    // Detectar tipo de destinatario
     const isLid = to.includes('@lid');
     const hasJidSuffix = to.includes('@s.whatsapp.net') || to.includes('@c.us') || to.includes('@lid');
     
-    if (isLid) {
-      // ⭐ Para LID: usar el remoteJid completo TAL CUAL
-      // Evolution API v1.8 acepta "266575869378587@lid" directamente
-      numberToSend = to;
-      console.log(`📍 Tipo: LID - usando remoteJid completo`);
-    } else if (hasJidSuffix) {
-      // Para @s.whatsapp.net o @c.us: extraer solo el número
-      numberToSend = to
-        .replace('@s.whatsapp.net', '')
-        .replace('@c.us', '')
-        .replace(/\D/g, '');
-      console.log(`📍 Tipo: JID normal - extrayendo número`);
-    } else {
-      // Ya es un número limpio
-      numberToSend = to.replace(/\D/g, '');
-      console.log(`📍 Tipo: Número limpio`);
-    }
+    // Limpiar número (extraer solo dígitos)
+    let cleanNumber = to
+      .replace('@s.whatsapp.net', '')
+      .replace('@c.us', '')
+      .replace('@lid', '')
+      .replace(/\D/g, '');
     
-    // Validación básica (solo si NO es LID)
-    if (!isLid && numberToSend.length < 10) {
+    console.log(`📍 Es LID: ${isLid}`);
+    console.log(`📍 Tiene sufijo JID: ${hasJidSuffix}`);
+    console.log(`📱 Número limpio: ${cleanNumber}`);
+    
+    // Validación básica
+    if (cleanNumber.length < 10) {
       console.error('❌ Número inválido: menos de 10 dígitos');
       return { success: false, error: 'Invalid phone number' };
     }
     
-    console.log(`📱 Enviando a: ${numberToSend}`);
-    
     try {
+      // Intentar enviar con número limpio
       const payload = {
-        number: numberToSend,
+        number: cleanNumber,
         options: { delay: 1200, presence: "composing" },
         textMessage: { text }
       };
       
       console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
+      console.log(`🔗 URL: ${this.apiUrl}/message/sendText/${instanceName}`);
       
       const response = await axios.post(
         `${this.apiUrl}/message/sendText/${instanceName}`,
@@ -222,75 +206,9 @@ class EvolutionService {
       const errorData = error.response?.data;
       const errorStatus = error.response?.status;
       
-      console.error(`❌ Error enviando mensaje (HTTP ${errorStatus}):`, errorData || error.message);
-      
-      // Si falla con LID, intentar método alternativo
-      if (isLid && errorStatus === 400) {
-        console.log('🔄 Reintentando con formato alternativo para LID...');
-        return await this.sendTextMessageAlternative(instanceName, to, text);
-      }
+      console.error(`❌ Error enviando mensaje (HTTP ${errorStatus}):`, JSON.stringify(errorData, null, 2));
       
       return { success: false, error: JSON.stringify(errorData || error.message) };
-    }
-  }
-
-  /**
-   * Método alternativo para enviar mensajes a LID
-   * Algunos endpoints de Evolution API prefieren el formato sin @lid
-   */
-  private async sendTextMessageAlternative(instanceName: string, to: string, text: string): Promise<{
-    success: boolean;
-    messageId?: string;
-    error?: string;
-  }> {
-    console.log('📤 Intentando método alternativo para LID...');
-    
-    try {
-      // Método 1: Intentar con el LID pero en campo "remoteJid"
-      const payload1 = {
-        remoteJid: to, // LID completo como remoteJid
-        message: { text },
-        options: { delay: 1200 }
-      };
-      
-      console.log('📦 Payload alternativo 1:', JSON.stringify(payload1, null, 2));
-      
-      const response = await axios.post(
-        `${this.apiUrl}/message/sendText/${instanceName}`,
-        payload1,
-        { headers: this.getHeaders(), timeout: 30000 }
-      );
-      
-      console.log('✅ Método alternativo exitoso:', JSON.stringify(response.data).substring(0, 200));
-      return { success: true, messageId: response.data?.key?.id };
-      
-    } catch (error1: any) {
-      console.log('⚠️ Método alternativo 1 falló, intentando método 2...');
-      
-      try {
-        // Método 2: Usar endpoint de sendMessage genérico
-        const payload2 = {
-          number: to,
-          text: text,
-          delay: 1200
-        };
-        
-        const response = await axios.post(
-          `${this.apiUrl}/message/send/${instanceName}`,
-          payload2,
-          { headers: this.getHeaders(), timeout: 30000 }
-        );
-        
-        console.log('✅ Método alternativo 2 exitoso:', JSON.stringify(response.data).substring(0, 200));
-        return { success: true, messageId: response.data?.key?.id };
-        
-      } catch (error2: any) {
-        console.error('❌ Todos los métodos fallaron');
-        return { 
-          success: false, 
-          error: `LID send failed: ${JSON.stringify(error1.response?.data || error1.message)}` 
-        };
-      }
     }
   }
 

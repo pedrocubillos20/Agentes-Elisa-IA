@@ -13,9 +13,12 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
  * WHATSAPP ROUTES - WAHA API
  * ============================================
  * 
- * Comandos de control en chat:
- * - ".."  → Pausar IA (modo humano)
- * - "."   → Reanudar IA
+ * Comandos de control (SOLO para el dueño del negocio):
+ * - ".."  → Pausar IA (el dueño toma el control) - SILENCIOSO
+ * - "."   → Reanudar IA - SILENCIOSO
+ * 
+ * El cliente NUNCA sabe que hay un bot.
+ * Los comandos son invisibles para el cliente.
  */
 
 // GET /status
@@ -138,14 +141,14 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
  * WEBHOOK - WAHA
  * ============================================
  * 
- * Comandos de control:
- * - ".."  → Pausar IA (un humano toma el control)
- * - "."   → Reanudar IA
+ * COMANDOS SILENCIOSOS (solo para el dueño):
+ * - ".."  → Pausar IA (NO envía mensaje al cliente)
+ * - "."   → Reanudar IA (NO envía mensaje al cliente)
  * 
- * Estado de pausa se guarda en metadata JSON
+ * El cliente NUNCA ve estos comandos ni sabe que existe un bot.
  */
 
-// Cache en memoria para estado de pausa (alternativa si no hay campo en BD)
+// Cache en memoria para estado de pausa
 const pausedConversations = new Map<string, boolean>();
 
 router.post('/webhook', async (req: Request, res: Response) => {
@@ -159,14 +162,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (event === 'message' || event === 'message.any') {
       const payload = data.payload || data;
       
-      // Ignorar mensajes propios
-      if (payload.fromMe) {
-        return res.json({ received: true });
-      }
-      
       const chatId = payload.from || payload.chatId;
       const messageContent = payload.body || payload.text || '';
       const pushName = payload.notifyName || payload._data?.notifyName || '';
+      const isFromMe = payload.fromMe || false;
       
       if (!chatId || !messageContent) {
         return res.json({ received: true });
@@ -176,11 +175,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
       if (chatId.includes('@g.us')) {
         return res.json({ received: true });
       }
-
-      console.log(`\n📨 Mensaje recibido`);
-      console.log(`📍 ChatId: ${chatId}`);
-      console.log(`📝 Contenido: ${messageContent}`);
-      console.log(`👤 De: ${pushName}`);
 
       // Extraer número para BD
       const recipientId = chatId
@@ -227,77 +221,58 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
 
       const conversationId = conversation.id;
-      
-      // ============================================
-      // COMANDOS DE CONTROL
-      // ============================================
-      
       const trimmedContent = messageContent.trim();
       
-      // Comando ".." → PAUSAR IA
-      if (trimmedContent === '..') {
-        console.log('⏸️ Comando detectado: PAUSAR IA');
-        
-        // Guardar estado de pausa
-        pausedConversations.set(conversationId, true);
-        
-        // Notificar al usuario
-        await wahaService.sendTextMessage(
-          chatId, 
-          '⏸️ *Modo Humano Activado*\n\nUn agente humano tomará el control de esta conversación.\n\n_Escribe "." para volver al asistente automático._'
-        );
-        
-        // Guardar mensaje del sistema
-        await prisma.message.create({
-          data: { 
-            conversationId: conversationId, 
-            userId: user.id, 
-            role: 'system', 
-            content: '⏸️ IA pausada - Modo humano activado', 
-            fromMe: true 
-          }
-        });
-        
-        return res.json({ received: true });
-      }
+      // ============================================
+      // COMANDOS DE CONTROL (SILENCIOSOS)
+      // Solo funcionan cuando el DUEÑO escribe (fromMe = true)
+      // ============================================
       
-      // Comando "." → REANUDAR IA
-      if (trimmedContent === '.') {
-        console.log('▶️ Comando detectado: REANUDAR IA');
+      if (isFromMe) {
+        // Comando ".." → PAUSAR IA (silencioso)
+        if (trimmedContent === '..') {
+          console.log('⏸️ [SILENCIOSO] Dueño pausó la IA');
+          pausedConversations.set(conversationId, true);
+          
+          // NO enviamos mensaje al cliente - es silencioso
+          // Solo registramos internamente
+          console.log(`⏸️ IA pausada para conversación ${conversationId}`);
+          
+          return res.json({ received: true });
+        }
         
-        // Quitar pausa
-        pausedConversations.set(conversationId, false);
+        // Comando "." → REANUDAR IA (silencioso)
+        if (trimmedContent === '.') {
+          console.log('▶️ [SILENCIOSO] Dueño reactivó la IA');
+          pausedConversations.set(conversationId, false);
+          
+          // NO enviamos mensaje al cliente - es silencioso
+          console.log(`▶️ IA reactivada para conversación ${conversationId}`);
+          
+          return res.json({ received: true });
+        }
         
-        // Notificar al usuario
-        await wahaService.sendTextMessage(
-          chatId, 
-          '▶️ *Asistente Automático Activado*\n\n¡Hola de nuevo! Estoy aquí para ayudarte. ¿En qué puedo asistirte? 😊'
-        );
-        
-        // Guardar mensaje del sistema
-        await prisma.message.create({
-          data: { 
-            conversationId: conversationId, 
-            userId: user.id, 
-            role: 'system', 
-            content: '▶️ IA reactivada - Modo automático', 
-            fromMe: true 
-          }
-        });
-        
+        // Si es otro mensaje del dueño, ignoramos (el dueño está respondiendo manualmente)
+        console.log('📤 Mensaje del dueño - ignorando');
         return res.json({ received: true });
       }
 
       // ============================================
-      // VERIFICAR SI LA IA ESTÁ PAUSADA
+      // MENSAJE DEL CLIENTE
       // ============================================
       
+      console.log(`\n📨 Mensaje del cliente`);
+      console.log(`📍 ChatId: ${chatId}`);
+      console.log(`📝 Contenido: ${messageContent}`);
+      console.log(`👤 De: ${pushName}`);
+
+      // Verificar si la IA está pausada
       const isPaused = pausedConversations.get(conversationId) || false;
       
       if (isPaused) {
-        console.log('⏸️ IA pausada para esta conversación - No se genera respuesta');
+        console.log('⏸️ IA pausada - El dueño está atendiendo manualmente');
         
-        // Solo guardar el mensaje del usuario
+        // Guardar mensaje del cliente pero NO responder
         await prisma.message.create({
           data: { 
             conversationId: conversationId, 
@@ -312,10 +287,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
 
       // ============================================
-      // PROCESAR CON IA (normal)
+      // PROCESAR CON IA (modo automático)
       // ============================================
 
-      // Guardar mensaje del usuario
+      // Guardar mensaje del cliente
       await prisma.message.create({
         data: { 
           conversationId: conversationId, 
@@ -335,14 +310,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
 
       // Generar respuesta con IA
-      console.log('🤖 Generando respuesta con OpenAI...');
+      console.log('🤖 Generando respuesta con IA...');
       const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
 
       if (aiResponse.success && aiResponse.response) {
         console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
-        
-        // Enviar respuesta
-        console.log(`📤 Enviando a: ${chatId}`);
         
         const sendResult = await wahaService.sendTextMessage(chatId, aiResponse.response);
 
@@ -356,12 +328,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
               fromMe: true 
             }
           });
-          console.log('✅ ¡Mensaje enviado exitosamente!');
+          console.log('✅ ¡Mensaje enviado!');
         } else {
-          console.error('❌ Error enviando mensaje:', sendResult.error);
+          console.error('❌ Error enviando:', sendResult.error);
         }
       } else {
-        console.error('❌ Error generando respuesta:', aiResponse.error);
+        console.error('❌ Error IA:', aiResponse.error);
       }
     }
 
@@ -379,9 +351,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook WAHA activo - Comandos: ".." pausar, "." reanudar');
+  res.send('✅ Webhook WAHA activo');
 });
 
-// Exportar el mapa de pausas para uso en otros archivos
+// Exportar el mapa de pausas
 export { pausedConversations };
 export default router;

@@ -17,7 +17,8 @@ import {
   Play,
   Info,
   Copy,
-  Check
+  Check,
+  EyeOff
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -195,7 +196,6 @@ export default function AsistentesPage() {
         body: JSON.stringify({
           name,
           context,
-          // Valores por defecto
           model: 'gpt-4-turbo-preview',
           temperature: 0.3,
           maxTokens: 500
@@ -221,7 +221,6 @@ export default function AsistentesPage() {
     setName(assistant.name);
     setContext(assistant.context || '');
     
-    // Detectar si es JSON o Markdown
     try {
       if (assistant.context) {
         JSON.parse(assistant.context);
@@ -335,13 +334,17 @@ export default function AsistentesPage() {
         )}
       </div>
 
-      {/* Comandos de Control Info */}
+      {/* Comandos de Control Info - ACTUALIZADO */}
       {!showForm && (
         <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Info className="w-5 h-5 text-blue-400" />
+            <EyeOff className="w-5 h-5 text-purple-400" />
             <span className="text-sm font-medium text-slate-300">Comandos de Control en Chat</span>
+            <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded-full">Silenciosos</span>
           </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Escribe estos comandos desde tu WhatsApp para controlar el bot. El cliente NO ve estos comandos ni sabe que existe un bot.
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div className="flex items-center gap-3 bg-slate-900/50 p-3 rounded-lg">
               <div className="flex items-center justify-center w-10 h-10 bg-yellow-500/20 rounded-lg">
@@ -349,7 +352,7 @@ export default function AsistentesPage() {
               </div>
               <div>
                 <code className="text-yellow-400 font-mono text-lg">..</code>
-                <p className="text-slate-400">Pausar IA → Un humano toma el control</p>
+                <p className="text-slate-400">Pausar IA → Tú tomas el control</p>
               </div>
             </div>
             <div className="flex items-center gap-3 bg-slate-900/50 p-3 rounded-lg">
@@ -358,7 +361,7 @@ export default function AsistentesPage() {
               </div>
               <div>
                 <code className="text-green-400 font-mono text-lg">.</code>
-                <p className="text-slate-400">Reanudar IA → El bot vuelve a responder</p>
+                <p className="text-slate-400">Reanudar IA → El bot responde</p>
               </div>
             </div>
           </div>
@@ -402,12 +405,13 @@ export default function AsistentesPage() {
               />
             </div>
 
-            {/* Comandos de Control en Form */}
-            <div className="bg-blue-900/20 border border-blue-700/50 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Info className="w-5 h-5 text-blue-400" />
-                <span className="text-sm font-medium text-slate-300">Comandos de Control</span>
+            {/* Comandos de Control en Form - ACTUALIZADO */}
+            <div className="bg-purple-900/20 border border-purple-700/50 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <EyeOff className="w-4 h-4 text-purple-400" />
+                <span className="text-sm font-medium text-slate-300">Comandos Silenciosos</span>
               </div>
+              <p className="text-xs text-slate-500 mb-3">El cliente nunca ve estos comandos ni sabe que hay un bot</p>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center gap-3">
                   <Pause className="w-4 h-4 text-yellow-400" />

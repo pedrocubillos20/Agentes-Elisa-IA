@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { wahaService } from '../services/wahaService';
 import { authMiddleware } from './auth.routes';
+import { pausedConversations } from './whatsapp.routes';
 
 const router = Router();
 
@@ -29,7 +30,13 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       }
     });
     
-    res.json({ conversations });
+    // Agregar estado de pausa desde memoria
+    const conversationsWithPause = conversations.map(conv => ({
+      ...conv,
+      aiPaused: pausedConversations.get(conv.id) || false
+    }));
+    
+    res.json({ conversations: conversationsWithPause });
   } catch (error: any) {
     console.error('❌ Error obteniendo conversaciones:', error);
     res.status(500).json({ error: 'Error al obtener conversaciones' });
@@ -53,7 +60,13 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Conversación no encontrada' });
     }
     
-    res.json({ conversation });
+    // Agregar estado de pausa
+    const conversationWithPause = {
+      ...conversation,
+      aiPaused: pausedConversations.get(id) || false
+    };
+    
+    res.json({ conversation: conversationWithPause });
   } catch (error: any) {
     console.error('❌ Error obteniendo conversación:', error);
     res.status(500).json({ error: 'Error al obtener conversación' });
@@ -114,6 +127,9 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       where: { id }
     });
     
+    // Limpiar estado de pausa
+    pausedConversations.delete(id);
+    
     res.json({ success: true });
   } catch (error: any) {
     console.error('❌ Error eliminando conversación:', error);
@@ -143,11 +159,8 @@ router.post('/:id/ai-pause', authMiddleware, async (req: Request, res: Response)
       return res.status(404).json({ error: 'Conversación no encontrada' });
     }
     
-    // Actualizar estado de pausa
-    const updated = await prisma.conversation.update({
-      where: { id },
-      data: { aiPaused: paused }
-    });
+    // Actualizar estado de pausa en memoria
+    pausedConversations.set(id, paused);
     
     console.log(`${paused ? '⏸️' : '▶️'} IA ${paused ? 'pausada' : 'reanudada'} para conversación ${id}`);
     
@@ -179,7 +192,7 @@ router.post('/:id/ai-pause', authMiddleware, async (req: Request, res: Response)
       }
     });
     
-    res.json({ success: true, aiPaused: updated.aiPaused });
+    res.json({ success: true, aiPaused: paused });
   } catch (error: any) {
     console.error('❌ Error al cambiar estado de IA:', error);
     res.status(500).json({ error: 'Error al cambiar estado de IA' });
@@ -217,10 +230,7 @@ router.post('/:id/send', authMiddleware, async (req: Request, res: Response) => 
     
     // Comando "." para reanudar IA
     if (trimmedMessage === '.') {
-      await prisma.conversation.update({
-        where: { id },
-        data: { aiPaused: false }
-      });
+      pausedConversations.set(id, false);
       
       const chatId = `${conversation.recipientId}@c.us`;
       await wahaService.sendTextMessage(
@@ -254,7 +264,7 @@ router.post('/:id/send', authMiddleware, async (req: Request, res: Response) => 
       data: {
         conversationId: id,
         userId: user.id,
-        role: 'human',  // Diferenciamos del assistant (IA)
+        role: 'human',
         content: message,
         fromMe: true
       }

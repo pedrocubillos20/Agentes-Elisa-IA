@@ -45,8 +45,6 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
 // POST /connect
 router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    
     const status = await wahaService.checkConnectionStatus();
     
     if (status.connected) {
@@ -143,7 +141,13 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
  * Comandos de control:
  * - ".."  → Pausar IA (un humano toma el control)
  * - "."   → Reanudar IA
+ * 
+ * Estado de pausa se guarda en metadata JSON
  */
+
+// Cache en memoria para estado de pausa (alternativa si no hay campo en BD)
+const pausedConversations = new Map<string, boolean>();
+
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const data = req.body;
@@ -161,7 +165,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
       
       const chatId = payload.from || payload.chatId;
-      const messageId = payload.id;
       const messageContent = payload.body || payload.text || '';
       const pushName = payload.notifyName || payload._data?.notifyName || '';
       
@@ -208,8 +211,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             recipientId: recipientId,
             recipientName: pushName || recipientId, 
             lastMessage: messageContent, 
-            lastMessageAt: new Date(),
-            aiPaused: false  // IA activa por defecto
+            lastMessageAt: new Date()
           }
         });
         console.log(`📝 Nueva conversación creada: ${conversation.id}`);
@@ -224,6 +226,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
         });
       }
 
+      const conversationId = conversation.id;
+      
       // ============================================
       // COMANDOS DE CONTROL
       // ============================================
@@ -234,10 +238,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       if (trimmedContent === '..') {
         console.log('⏸️ Comando detectado: PAUSAR IA');
         
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { aiPaused: true }
-        });
+        // Guardar estado de pausa
+        pausedConversations.set(conversationId, true);
         
         // Notificar al usuario
         await wahaService.sendTextMessage(
@@ -248,7 +250,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Guardar mensaje del sistema
         await prisma.message.create({
           data: { 
-            conversationId: conversation.id, 
+            conversationId: conversationId, 
             userId: user.id, 
             role: 'system', 
             content: '⏸️ IA pausada - Modo humano activado', 
@@ -263,10 +265,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       if (trimmedContent === '.') {
         console.log('▶️ Comando detectado: REANUDAR IA');
         
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { aiPaused: false }
-        });
+        // Quitar pausa
+        pausedConversations.set(conversationId, false);
         
         // Notificar al usuario
         await wahaService.sendTextMessage(
@@ -277,7 +277,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Guardar mensaje del sistema
         await prisma.message.create({
           data: { 
-            conversationId: conversation.id, 
+            conversationId: conversationId, 
             userId: user.id, 
             role: 'system', 
             content: '▶️ IA reactivada - Modo automático', 
@@ -292,18 +292,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // VERIFICAR SI LA IA ESTÁ PAUSADA
       // ============================================
       
-      // Recargar conversación para obtener estado actual
-      conversation = await prisma.conversation.findUnique({
-        where: { id: conversation.id }
-      });
+      const isPaused = pausedConversations.get(conversationId) || false;
       
-      if (conversation?.aiPaused) {
+      if (isPaused) {
         console.log('⏸️ IA pausada para esta conversación - No se genera respuesta');
         
         // Solo guardar el mensaje del usuario
         await prisma.message.create({
           data: { 
-            conversationId: conversation.id, 
+            conversationId: conversationId, 
             userId: user.id, 
             role: 'user', 
             content: messageContent, 
@@ -321,7 +318,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // Guardar mensaje del usuario
       await prisma.message.create({
         data: { 
-          conversationId: conversation.id, 
+          conversationId: conversationId, 
           userId: user.id, 
           role: 'user', 
           content: messageContent, 
@@ -331,7 +328,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
       // Obtener historial
       const recentMessages = await prisma.message.findMany({
-        where: { conversationId: conversation.id },
+        where: { conversationId: conversationId },
         orderBy: { timestamp: 'asc' },
         take: 20
       });
@@ -352,7 +349,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (sendResult.success) {
           await prisma.message.create({
             data: { 
-              conversationId: conversation.id, 
+              conversationId: conversationId, 
               userId: user.id, 
               role: 'assistant', 
               content: aiResponse.response, 
@@ -385,4 +382,6 @@ router.get('/webhook', (req: Request, res: Response) => {
   res.send('✅ Webhook WAHA activo - Comandos: ".." pausar, "." reanudar');
 });
 
+// Exportar el mapa de pausas para uso en otros archivos
+export { pausedConversations };
 export default router;

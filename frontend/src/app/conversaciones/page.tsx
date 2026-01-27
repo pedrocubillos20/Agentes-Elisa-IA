@@ -7,7 +7,11 @@ import {
   Clock, 
   ChevronRight,
   Search,
-  Trash2
+  Trash2,
+  Pause,
+  Play,
+  Bot,
+  Send
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -18,6 +22,7 @@ interface Conversation {
   recipientName?: string;
   lastMessage?: string;
   lastMessageAt?: string;
+  aiPaused?: boolean;
   _count: { messages: number };
 }
 
@@ -36,6 +41,8 @@ export default function ConversacionesPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [newMessage, setNewMessage] = useState('');
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     fetchConversations();
@@ -113,6 +120,66 @@ export default function ConversacionesPage() {
     }
   };
 
+  // Pausar o reanudar IA
+  const toggleAiPause = async (conversationId: string, pause: boolean) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${conversationId}/ai-pause`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ paused: pause })
+      });
+
+      if (res.ok) {
+        // Actualizar estado local
+        setConversations(convs => 
+          convs.map(c => c.id === conversationId ? { ...c, aiPaused: pause } : c)
+        );
+        if (selectedConversation?.id === conversationId) {
+          setSelectedConversation(prev => prev ? { ...prev, aiPaused: pause } : null);
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
+  // Enviar mensaje manual (como humano)
+  const sendManualMessage = async () => {
+    if (!newMessage.trim() || !selectedConversation) return;
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setSending(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConversation.id}/send`, {
+        method: 'POST',
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: newMessage })
+      });
+
+      if (res.ok) {
+        setNewMessage('');
+        // Recargar mensajes
+        fetchMessages(selectedConversation.id);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setSending(false);
+    }
+  };
+
   const filteredConversations = conversations.filter(c => 
     c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.recipientId.includes(searchTerm)
@@ -178,20 +245,33 @@ export default function ConversacionesPage() {
               <div
                 key={conversation.id}
                 onClick={() => handleSelectConversation(conversation)}
-                className={`p-4 border-b border-slate-700/50 cursor-pointer transition-all duration-200 ${
+                className={`p-4 border-b border-slate-700/50 cursor-pointer transition-all duration-200 group ${
                   selectedConversation?.id === conversation.id
                     ? 'bg-emerald-500/10'
                     : 'hover:bg-slate-700/30'
                 }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
-                    <User className="w-5 h-5 text-slate-300" />
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
+                      <User className="w-5 h-5 text-slate-300" />
+                    </div>
+                    {/* Indicador de estado IA */}
+                    {conversation.aiPaused && (
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center">
+                        <Pause className="w-3 h-3 text-black" />
+                      </div>
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-white truncate">
+                      <h3 className="font-semibold text-white truncate flex items-center gap-2">
                         {conversation.recipientName || `+${conversation.recipientId}`}
+                        {conversation.aiPaused && (
+                          <span className="text-xs px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
+                            Humano
+                          </span>
+                        )}
                       </h3>
                       <span className="text-xs text-slate-400">
                         {formatDate(conversation.lastMessageAt)}
@@ -224,19 +304,66 @@ export default function ConversacionesPage() {
         {selectedConversation ? (
           <>
             {/* Chat Header */}
-            <div className="p-4 border-b border-slate-700 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center">
-                <User className="w-5 h-5 text-slate-300" />
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-600 flex items-center justify-center">
+                  <User className="w-5 h-5 text-slate-300" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white flex items-center gap-2">
+                    {selectedConversation.recipientName || `+${selectedConversation.recipientId}`}
+                    {selectedConversation.aiPaused ? (
+                      <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full flex items-center gap-1">
+                        <Pause className="w-3 h-3" />
+                        Modo Humano
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center gap-1">
+                        <Bot className="w-3 h-3" />
+                        IA Activa
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    +{selectedConversation.recipientId}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-semibold text-white">
-                  {selectedConversation.recipientName || `+${selectedConversation.recipientId}`}
-                </h3>
-                <p className="text-sm text-slate-400">
-                  +{selectedConversation.recipientId}
+              
+              {/* Botón para pausar/reanudar IA */}
+              <button
+                onClick={() => toggleAiPause(selectedConversation.id, !selectedConversation.aiPaused)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  selectedConversation.aiPaused
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400'
+                }`}
+              >
+                {selectedConversation.aiPaused ? (
+                  <>
+                    <Play className="w-4 h-4" />
+                    Reanudar IA
+                  </>
+                ) : (
+                  <>
+                    <Pause className="w-4 h-4" />
+                    Pausar IA
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Aviso de modo humano */}
+            {selectedConversation.aiPaused && (
+              <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/30">
+                <p className="text-sm text-yellow-400 flex items-center gap-2">
+                  <Pause className="w-4 h-4" />
+                  <span>
+                    <strong>Modo Humano activo:</strong> La IA no responderá. Escribe <code className="bg-yellow-500/20 px-1 rounded">.</code> en el chat para reactivarla.
+                  </span>
                 </p>
               </div>
-            </div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -265,6 +392,7 @@ export default function ConversacionesPage() {
                       <p className={`text-xs mt-1 ${
                         message.fromMe ? 'text-emerald-200' : 'text-slate-400'
                       }`}>
+                        {message.role === 'assistant' && '🤖 '}
                         {new Date(message.timestamp).toLocaleTimeString('es', {
                           hour: '2-digit',
                           minute: '2-digit'
@@ -275,6 +403,32 @@ export default function ConversacionesPage() {
                 ))
               )}
             </div>
+
+            {/* Input para enviar mensaje manual */}
+            {selectedConversation.aiPaused && (
+              <div className="p-4 border-t border-slate-700">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && sendManualMessage()}
+                    placeholder="Escribe un mensaje como humano..."
+                    className="flex-1 px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    onClick={sendManualMessage}
+                    disabled={sending || !newMessage.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg transition-all duration-200 flex items-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Tip: Escribe <code className="bg-slate-700 px-1 rounded">.</code> para reactivar la IA
+                </p>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">

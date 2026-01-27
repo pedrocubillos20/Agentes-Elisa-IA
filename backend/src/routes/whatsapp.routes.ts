@@ -11,8 +11,11 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
 /**
  * ============================================
  * WHATSAPP ROUTES - WAHA API
- * ✅ Soporta LID nativamente
  * ============================================
+ * 
+ * Comandos de control en chat:
+ * - ".."  → Pausar IA (modo humano)
+ * - "."   → Reanudar IA
  */
 
 // GET /status
@@ -44,7 +47,6 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     
-    // Verificar estado actual
     const status = await wahaService.checkConnectionStatus();
     
     if (status.connected) {
@@ -56,13 +58,9 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
       });
     }
 
-    // Iniciar sesión si no está activa
     await wahaService.startSession();
-    
-    // Configurar webhook
     await wahaService.setWebhook(WEBHOOK_URL);
     
-    // Obtener QR
     const qrResult = await wahaService.getQRCode();
     
     res.json({ 
@@ -142,7 +140,9 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
  * WEBHOOK - WAHA
  * ============================================
  * 
- * WAHA envía eventos en formato diferente a Evolution
+ * Comandos de control:
+ * - ".."  → Pausar IA (un humano toma el control)
+ * - "."   → Reanudar IA
  */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -150,7 +150,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const event = data.event;
     
     console.log(`\n🔔 Webhook WAHA: ${event}`);
-    console.log('📦 Data:', JSON.stringify(data).substring(0, 500));
     
     // Evento de mensaje
     if (event === 'message' || event === 'message.any') {
@@ -161,7 +160,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
         return res.json({ received: true });
       }
       
-      // Obtener datos del mensaje
       const chatId = payload.from || payload.chatId;
       const messageId = payload.id;
       const messageContent = payload.body || payload.text || '';
@@ -189,7 +187,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
         .replace(/\D/g, '');
 
       // Buscar usuario con WhatsApp conectado
-      // Como WAHA gratis solo tiene 1 sesión, buscamos cualquier usuario con apiKeyConnected
       const user = await prisma.user.findFirst({ 
         where: { apiKeyConnected: true }
       });
@@ -211,7 +208,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
             recipientId: recipientId,
             recipientName: pushName || recipientId, 
             lastMessage: messageContent, 
-            lastMessageAt: new Date() 
+            lastMessageAt: new Date(),
+            aiPaused: false  // IA activa por defecto
           }
         });
         console.log(`📝 Nueva conversación creada: ${conversation.id}`);
@@ -225,6 +223,100 @@ router.post('/webhook', async (req: Request, res: Response) => {
           }
         });
       }
+
+      // ============================================
+      // COMANDOS DE CONTROL
+      // ============================================
+      
+      const trimmedContent = messageContent.trim();
+      
+      // Comando ".." → PAUSAR IA
+      if (trimmedContent === '..') {
+        console.log('⏸️ Comando detectado: PAUSAR IA');
+        
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { aiPaused: true }
+        });
+        
+        // Notificar al usuario
+        await wahaService.sendTextMessage(
+          chatId, 
+          '⏸️ *Modo Humano Activado*\n\nUn agente humano tomará el control de esta conversación.\n\n_Escribe "." para volver al asistente automático._'
+        );
+        
+        // Guardar mensaje del sistema
+        await prisma.message.create({
+          data: { 
+            conversationId: conversation.id, 
+            userId: user.id, 
+            role: 'system', 
+            content: '⏸️ IA pausada - Modo humano activado', 
+            fromMe: true 
+          }
+        });
+        
+        return res.json({ received: true });
+      }
+      
+      // Comando "." → REANUDAR IA
+      if (trimmedContent === '.') {
+        console.log('▶️ Comando detectado: REANUDAR IA');
+        
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { aiPaused: false }
+        });
+        
+        // Notificar al usuario
+        await wahaService.sendTextMessage(
+          chatId, 
+          '▶️ *Asistente Automático Activado*\n\n¡Hola de nuevo! Estoy aquí para ayudarte. ¿En qué puedo asistirte? 😊'
+        );
+        
+        // Guardar mensaje del sistema
+        await prisma.message.create({
+          data: { 
+            conversationId: conversation.id, 
+            userId: user.id, 
+            role: 'system', 
+            content: '▶️ IA reactivada - Modo automático', 
+            fromMe: true 
+          }
+        });
+        
+        return res.json({ received: true });
+      }
+
+      // ============================================
+      // VERIFICAR SI LA IA ESTÁ PAUSADA
+      // ============================================
+      
+      // Recargar conversación para obtener estado actual
+      conversation = await prisma.conversation.findUnique({
+        where: { id: conversation.id }
+      });
+      
+      if (conversation?.aiPaused) {
+        console.log('⏸️ IA pausada para esta conversación - No se genera respuesta');
+        
+        // Solo guardar el mensaje del usuario
+        await prisma.message.create({
+          data: { 
+            conversationId: conversation.id, 
+            userId: user.id, 
+            role: 'user', 
+            content: messageContent, 
+            fromMe: false 
+          }
+        });
+        
+        return res.json({ received: true });
+      }
+
+      // ============================================
+      // PROCESAR CON IA (normal)
+      // ============================================
 
       // Guardar mensaje del usuario
       await prisma.message.create({
@@ -252,7 +344,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       if (aiResponse.success && aiResponse.response) {
         console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
         
-        // ✅ ENVIAR RESPUESTA (WAHA soporta LID)
+        // Enviar respuesta
         console.log(`📤 Enviando a: ${chatId}`);
         
         const sendResult = await wahaService.sendTextMessage(chatId, aiResponse.response);
@@ -290,7 +382,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook WAHA activo - Soporta LID');
+  res.send('✅ Webhook WAHA activo - Comandos: ".." pausar, "." reanudar');
 });
 
 export default router;

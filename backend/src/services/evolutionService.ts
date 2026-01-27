@@ -7,12 +7,8 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Ke
 /**
  * ============================================
  * EVOLUTION SERVICE - v1.8.0
- * FIX LID: Usando "quoted" para responder
+ * FIX LID: Convertir @lid → @s.whatsapp.net
  * ============================================
- * 
- * En v1.8.0, enviar a @lid falla con "exists:false"
- * SOLUCIÓN: Usar el campo "quoted" que responde al
- * mensaje original sin validar el número
  */
 
 class EvolutionService {
@@ -22,7 +18,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
-    console.log(`🔧 Evolution Service v1.8.0 (quoted fix) inicializado: ${this.apiUrl}`);
+    console.log(`🔧 Evolution Service v1.8.0 (LID→WhatsApp) inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -30,6 +26,22 @@ class EvolutionService {
       'Content-Type': 'application/json',
       'apikey': this.apiKey
     };
+  }
+
+  /**
+   * ✅ CONVERTIR JID PARA ENVÍO
+   * @lid → @s.whatsapp.net
+   */
+  private convertJidForSending(jid: string): string {
+    // Extraer solo los dígitos
+    const number = jid
+      .replace('@lid', '')
+      .replace('@s.whatsapp.net', '')
+      .replace('@c.us', '')
+      .replace(/\D/g, '');
+    
+    // Siempre enviar con @s.whatsapp.net
+    return `${number}@s.whatsapp.net`;
   }
 
   async createInstance(userId: string): Promise<{ 
@@ -143,32 +155,24 @@ class EvolutionService {
 
   /**
    * ============================================
-   * SEND TEXT MESSAGE - v1.8.0 CON QUOTED
+   * SEND TEXT MESSAGE - v1.8.0
    * ============================================
    * 
-   * Para LID (@lid) usamos "quoted" que responde
-   * al mensaje original sin validar "exists"
-   * 
-   * @param instanceName - Nombre de la instancia
-   * @param remoteJid - JID completo (ej: 123@lid o 123@s.whatsapp.net)
-   * @param text - Texto a enviar
-   * @param messageId - ID del mensaje original (para quoted)
+   * ✅ Convierte @lid → @s.whatsapp.net
+   * ✅ Envía con sendText normal
    */
   async sendTextMessage(
     instanceName: string, 
     remoteJid: string, 
-    text: string,
-    messageId?: string
+    text: string
   ): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0 quoted) ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
-    console.log(`📤 RemoteJid: "${remoteJid}"`);
-    console.log(`📤 MessageId para quoted: "${messageId || 'N/A'}"`);
-    console.log(`📝 Texto: ${text.substring(0, 100)}...`);
+    console.log(`📤 JID Original: "${remoteJid}"`);
     
     // Ignorar grupos
     if (remoteJid.includes('@g.us')) {
@@ -176,35 +180,17 @@ class EvolutionService {
       return { success: false, error: 'Groups not supported' };
     }
     
-    // Detectar si es LID
-    const isLid = remoteJid.includes('@lid');
-    console.log(`🔍 Es LID: ${isLid}`);
+    // ✅ CONVERTIR @lid → @s.whatsapp.net
+    const numberToSend = this.convertJidForSending(remoteJid);
+    
+    console.log(`📤 JID Convertido: "${numberToSend}"`);
+    console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     try {
-      let payload: any;
-      
-      if (isLid && messageId) {
-        // ✅ PARA LID: Usar quoted (responde al mensaje sin validar exists)
-        console.log('📌 Usando método QUOTED para LID');
-        payload = {
-          number: remoteJid,
-          textMessage: { text },
-          quoted: {
-            key: {
-              remoteJid: remoteJid,
-              id: messageId,
-              fromMe: false
-            }
-          }
-        };
-      } else {
-        // Para números normales (@s.whatsapp.net)
-        console.log('📌 Usando método normal');
-        payload = {
-          number: remoteJid,
-          textMessage: { text }
-        };
-      }
+      const payload = {
+        number: numberToSend,
+        textMessage: { text }
+      };
       
       const url = `${this.apiUrl}/message/sendText/${instanceName}`;
       

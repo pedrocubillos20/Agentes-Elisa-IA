@@ -11,7 +11,7 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
 /**
  * ============================================
  * WHATSAPP ROUTES - EVOLUTION API v1.8.0
- * FIX LID: Usando "quoted" para responder
+ * FIX LID: Conversión automática @lid → @s.whatsapp.net
  * ============================================
  */
 
@@ -250,11 +250,11 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
 
 /**
  * ============================================
- * WEBHOOK - EVOLUTION v1.8.0 CON QUOTED
+ * WEBHOOK - EVOLUTION v1.8.0
  * ============================================
  * 
- * Capturamos el messageId para usar quoted
- * al responder a mensajes de usuarios LID
+ * El evolutionService convierte automáticamente
+ * @lid → @s.whatsapp.net antes de enviar
  */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -314,24 +314,22 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
-        // ✅ OBTENER JID Y MESSAGE ID
+        // Obtener JID (puede venir como @lid)
         const remoteJid = msg.key?.remoteJid;
-        const messageId = msg.key?.id;  // ⬅️ CLAVE PARA QUOTED
-        
         if (!remoteJid) continue;
         
         // Ignorar grupos
         if (remoteJid.includes('@g.us')) continue;
 
         console.log(`\n📨 Mensaje recibido`);
-        console.log(`📍 RemoteJid: ${remoteJid}`);
-        console.log(`🔑 MessageId: ${messageId}`);  // ⬅️ Lo usaremos para quoted
+        console.log(`📍 RemoteJid original: ${remoteJid}`);
 
-        // Para BD: extraer identificador
+        // Para BD: extraer solo dígitos
         const recipientId = remoteJid
           .replace('@s.whatsapp.net', '')
           .replace('@c.us', '')
-          .replace('@lid', '');
+          .replace('@lid', '')
+          .replace(/\D/g, '');
         
         const pushName = msg.pushName || recipientId;
 
@@ -410,14 +408,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (aiResponse.success && aiResponse.response) {
           console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
           
-          // ✅ ENVIAR CON QUOTED PARA SOPORTAR LID
-          console.log(`📤 Enviando a: ${remoteJid} (messageId: ${messageId})`);
+          // ✅ ENVIAR - El service convierte automáticamente @lid → @s.whatsapp.net
+          console.log(`📤 Enviando respuesta a: ${remoteJid}`);
           
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            remoteJid,      // JID completo
-            aiResponse.response,
-            messageId       // ⬅️ PASAR MESSAGE ID PARA QUOTED
+            remoteJid,  // El service lo convierte automáticamente
+            aiResponse.response
           );
 
           if (sendResult.success) {
@@ -449,7 +446,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook Evolution API v1.8.0 (quoted fix) activo');
+  res.send('✅ Webhook Evolution API v1.8.0 (LID→WhatsApp) activo');
 });
 
 export default router;

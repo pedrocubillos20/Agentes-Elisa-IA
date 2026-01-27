@@ -6,9 +6,13 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Ke
 
 /**
  * ============================================
- * EVOLUTION SERVICE - v1.8.0 
- * USANDO remoteJid COMPLETO (FIX LID)
+ * EVOLUTION SERVICE - v1.8.0
+ * FIX LID: Usando "quoted" para responder
  * ============================================
+ * 
+ * En v1.8.0, enviar a @lid falla con "exists:false"
+ * SOLUCIÓN: Usar el campo "quoted" que responde al
+ * mensaje original sin validar el número
  */
 
 class EvolutionService {
@@ -18,7 +22,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
-    console.log(`🔧 Evolution Service v1.8.0 (JID completo) inicializado: ${this.apiUrl}`);
+    console.log(`🔧 Evolution Service v1.8.0 (quoted fix) inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -84,8 +88,6 @@ class EvolutionService {
         { headers: this.getHeaders(), timeout: 10000 }
       );
 
-      console.log('📋 [v1.8.0] Estado conexión:', JSON.stringify(response.data).substring(0, 300));
-
       const state = response.data?.instance?.state || response.data?.state || 'disconnected';
       const owner = response.data?.instance?.owner || response.data?.owner;
       const phone = owner ? owner.replace('@s.whatsapp.net', '').replace(/\D/g, '') : null;
@@ -121,8 +123,6 @@ class EvolutionService {
         { headers: this.getHeaders(), timeout: 15000 }
       );
 
-      console.log('📋 [v1.8.0] Respuesta QR:', JSON.stringify(response.data).substring(0, 300));
-
       const qrcode = response.data?.qrcode?.base64 || response.data?.base64 || response.data?.qr || null;
 
       if (qrcode) {
@@ -143,44 +143,78 @@ class EvolutionService {
 
   /**
    * ============================================
-   * SEND TEXT MESSAGE - USANDO JID COMPLETO
+   * SEND TEXT MESSAGE - v1.8.0 CON QUOTED
    * ============================================
    * 
-   * ✅ Usa remoteJid tal cual viene del webhook
-   * ✅ No convierte nada
-   * ✅ Evolution lo envía porque es reply al mismo chat
+   * Para LID (@lid) usamos "quoted" que responde
+   * al mensaje original sin validar "exists"
+   * 
+   * @param instanceName - Nombre de la instancia
+   * @param remoteJid - JID completo (ej: 123@lid o 123@s.whatsapp.net)
+   * @param text - Texto a enviar
+   * @param messageId - ID del mensaje original (para quoted)
    */
-  async sendTextMessage(instanceName: string, jid: string, text: string): Promise<{ 
+  async sendTextMessage(
+    instanceName: string, 
+    remoteJid: string, 
+    text: string,
+    messageId?: string
+  ): Promise<{ 
     success: boolean; 
     messageId?: string; 
     error?: string 
   }> {
-    console.log(`\n📤 ========== ENVIANDO MENSAJE (JID COMPLETO) ==========`);
+    console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0 quoted) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
-    console.log(`📤 JID: "${jid}"`);
+    console.log(`📤 RemoteJid: "${remoteJid}"`);
+    console.log(`📤 MessageId para quoted: "${messageId || 'N/A'}"`);
     console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     // Ignorar grupos
-    if (jid.includes('@g.us')) {
+    if (remoteJid.includes('@g.us')) {
       console.log('⚠️ Grupos no soportados');
       return { success: false, error: 'Groups not supported' };
     }
     
+    // Detectar si es LID
+    const isLid = remoteJid.includes('@lid');
+    console.log(`🔍 Es LID: ${isLid}`);
+    
     try {
-      // ✅ USAR JID COMPLETO TAL CUAL - NO MODIFICAR NADA
-      const payload = {
-        number: jid,  // Usar el JID completo (ej: 55852006375537@lid)
-        textMessage: { text }
-      };
+      let payload: any;
+      
+      if (isLid && messageId) {
+        // ✅ PARA LID: Usar quoted (responde al mensaje sin validar exists)
+        console.log('📌 Usando método QUOTED para LID');
+        payload = {
+          number: remoteJid,
+          textMessage: { text },
+          quoted: {
+            key: {
+              remoteJid: remoteJid,
+              id: messageId,
+              fromMe: false
+            }
+          }
+        };
+      } else {
+        // Para números normales (@s.whatsapp.net)
+        console.log('📌 Usando método normal');
+        payload = {
+          number: remoteJid,
+          textMessage: { text }
+        };
+      }
+      
+      const url = `${this.apiUrl}/message/sendText/${instanceName}`;
       
       console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
-      console.log(`🔗 URL: ${this.apiUrl}/message/sendText/${instanceName}`);
+      console.log(`🔗 URL: ${url}`);
       
-      const response = await axios.post(
-        `${this.apiUrl}/message/sendText/${instanceName}`,
-        payload,
-        { headers: this.getHeaders(), timeout: 30000 }
-      );
+      const response = await axios.post(url, payload, { 
+        headers: this.getHeaders(), 
+        timeout: 30000 
+      });
       
       console.log('✅ Respuesta envío:', JSON.stringify(response.data).substring(0, 300));
       return { success: true, messageId: response.data?.key?.id };

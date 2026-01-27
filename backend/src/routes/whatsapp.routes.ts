@@ -11,7 +11,7 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
 /**
  * ============================================
  * WHATSAPP ROUTES - EVOLUTION API v1.8.0
- * USANDO remoteJid COMPLETO (FIX LID)
+ * FIX LID: Usando "quoted" para responder
  * ============================================
  */
 
@@ -250,8 +250,11 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
 
 /**
  * ============================================
- * WEBHOOK - USANDO remoteJid COMPLETO
+ * WEBHOOK - EVOLUTION v1.8.0 CON QUOTED
  * ============================================
+ * 
+ * Capturamos el messageId para usar quoted
+ * al responder a mensajes de usuarios LID
  */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -311,18 +314,21 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
-        // ✅ OBTENER remoteJid COMPLETO - NO MODIFICAR
-        const jid = msg.key?.remoteJid;
-        if (!jid) continue;
+        // ✅ OBTENER JID Y MESSAGE ID
+        const remoteJid = msg.key?.remoteJid;
+        const messageId = msg.key?.id;  // ⬅️ CLAVE PARA QUOTED
+        
+        if (!remoteJid) continue;
         
         // Ignorar grupos
-        if (jid.includes('@g.us')) continue;
+        if (remoteJid.includes('@g.us')) continue;
 
         console.log(`\n📨 Mensaje recibido`);
-        console.log(`📍 JID completo: ${jid}`);
+        console.log(`📍 RemoteJid: ${remoteJid}`);
+        console.log(`🔑 MessageId: ${messageId}`);  // ⬅️ Lo usaremos para quoted
 
-        // Para guardar en BD: extraer identificador
-        const recipientId = jid
+        // Para BD: extraer identificador
+        const recipientId = remoteJid
           .replace('@s.whatsapp.net', '')
           .replace('@c.us', '')
           .replace('@lid', '');
@@ -404,13 +410,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (aiResponse.success && aiResponse.response) {
           console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
           
-          // ✅ ENVIAR USANDO JID COMPLETO - TAL CUAL VINO
-          console.log(`📤 Enviando a JID: ${jid}`);
+          // ✅ ENVIAR CON QUOTED PARA SOPORTAR LID
+          console.log(`📤 Enviando a: ${remoteJid} (messageId: ${messageId})`);
           
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            jid,  // ✅ Usar JID completo sin modificar
-            aiResponse.response
+            remoteJid,      // JID completo
+            aiResponse.response,
+            messageId       // ⬅️ PASAR MESSAGE ID PARA QUOTED
           );
 
           if (sendResult.success) {
@@ -442,7 +449,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook Evolution API v1.8.0 (JID completo) activo');
+  res.send('✅ Webhook Evolution API v1.8.0 (quoted fix) activo');
 });
 
 export default router;

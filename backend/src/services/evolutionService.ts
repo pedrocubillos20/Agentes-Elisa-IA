@@ -7,8 +7,11 @@ const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'ElisaIA_Evolution_Ke
 /**
  * ============================================
  * EVOLUTION SERVICE - v1.8.0
- * FIX LID: Convertir @lid → @s.whatsapp.net
+ * FIX LID: Usar /message/reply para @lid
  * ============================================
+ * 
+ * - @lid → /message/reply (responder al mensaje)
+ * - @s.whatsapp.net → /message/sendText (envío normal)
  */
 
 class EvolutionService {
@@ -18,7 +21,7 @@ class EvolutionService {
   constructor() {
     this.apiUrl = EVOLUTION_API_URL;
     this.apiKey = EVOLUTION_API_KEY;
-    console.log(`🔧 Evolution Service v1.8.0 (LID→WhatsApp) inicializado: ${this.apiUrl}`);
+    console.log(`🔧 Evolution Service v1.8.0 (reply para LID) inicializado: ${this.apiUrl}`);
   }
 
   private getHeaders() {
@@ -26,22 +29,6 @@ class EvolutionService {
       'Content-Type': 'application/json',
       'apikey': this.apiKey
     };
-  }
-
-  /**
-   * ✅ CONVERTIR JID PARA ENVÍO
-   * @lid → @s.whatsapp.net
-   */
-  private convertJidForSending(jid: string): string {
-    // Extraer solo los dígitos
-    const number = jid
-      .replace('@lid', '')
-      .replace('@s.whatsapp.net', '')
-      .replace('@c.us', '')
-      .replace(/\D/g, '');
-    
-    // Siempre enviar con @s.whatsapp.net
-    return `${number}@s.whatsapp.net`;
   }
 
   async createInstance(userId: string): Promise<{ 
@@ -158,13 +145,14 @@ class EvolutionService {
    * SEND TEXT MESSAGE - v1.8.0
    * ============================================
    * 
-   * ✅ Convierte @lid → @s.whatsapp.net
-   * ✅ Envía con sendText normal
+   * ✅ Si @lid → usa /message/reply
+   * ✅ Si @s.whatsapp.net → usa /message/sendText
    */
   async sendTextMessage(
     instanceName: string, 
     remoteJid: string, 
-    text: string
+    text: string,
+    messageId?: string  // Necesario para reply a LID
   ): Promise<{ 
     success: boolean; 
     messageId?: string; 
@@ -172,7 +160,9 @@ class EvolutionService {
   }> {
     console.log(`\n📤 ========== ENVIANDO MENSAJE (v1.8.0) ==========`);
     console.log(`📤 Instancia: ${instanceName}`);
-    console.log(`📤 JID Original: "${remoteJid}"`);
+    console.log(`📤 RemoteJid: "${remoteJid}"`);
+    console.log(`📤 MessageId: "${messageId || 'N/A'}"`);
+    console.log(`📝 Texto: ${text.substring(0, 100)}...`);
     
     // Ignorar grupos
     if (remoteJid.includes('@g.us')) {
@@ -180,22 +170,37 @@ class EvolutionService {
       return { success: false, error: 'Groups not supported' };
     }
     
-    // ✅ CONVERTIR @lid → @s.whatsapp.net
-    const numberToSend = this.convertJidForSending(remoteJid);
-    
-    console.log(`📤 JID Convertido: "${numberToSend}"`);
-    console.log(`📝 Texto: ${text.substring(0, 100)}...`);
+    // Detectar si es LID
+    const isLid = remoteJid.includes('@lid');
+    console.log(`🔍 Es LID: ${isLid}`);
     
     try {
-      const payload = {
-        number: numberToSend,
-        textMessage: { text }
-      };
+      let url: string;
+      let payload: any;
       
-      const url = `${this.apiUrl}/message/sendText/${instanceName}`;
+      if (isLid && messageId) {
+        // ✅ PARA LID: Usar /message/reply
+        console.log('📌 Usando método REPLY para LID');
+        
+        url = `${this.apiUrl}/message/reply/${instanceName}`;
+        payload = {
+          jid: remoteJid,  // Mantener @lid tal cual
+          messageId: messageId,
+          text: text
+        };
+      } else {
+        // ✅ PARA NÚMEROS NORMALES: Usar /message/sendText
+        console.log('📌 Usando método sendText normal');
+        
+        url = `${this.apiUrl}/message/sendText/${instanceName}`;
+        payload = {
+          number: remoteJid,
+          textMessage: { text }
+        };
+      }
       
-      console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
       console.log(`🔗 URL: ${url}`);
+      console.log(`📦 Payload:`, JSON.stringify(payload, null, 2));
       
       const response = await axios.post(url, payload, { 
         headers: this.getHeaders(), 

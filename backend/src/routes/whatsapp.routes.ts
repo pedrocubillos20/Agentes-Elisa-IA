@@ -11,7 +11,7 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
 /**
  * ============================================
  * WHATSAPP ROUTES - EVOLUTION API v1.8.0
- * FIX LID: Conversión automática @lid → @s.whatsapp.net
+ * FIX LID: Usar /message/reply para @lid
  * ============================================
  */
 
@@ -253,8 +253,8 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
  * WEBHOOK - EVOLUTION v1.8.0
  * ============================================
  * 
- * El evolutionService convierte automáticamente
- * @lid → @s.whatsapp.net antes de enviar
+ * Captura messageId para usar con /message/reply
+ * cuando el remoteJid es @lid
  */
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -314,15 +314,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
         // Ignorar mensajes propios
         if (msg.key?.fromMe) continue;
         
-        // Obtener JID (puede venir como @lid)
+        // ✅ OBTENER JID Y MESSAGE ID (CLAVE PARA REPLY)
         const remoteJid = msg.key?.remoteJid;
+        const messageId = msg.key?.id;  // ⬅️ NECESARIO PARA /message/reply
+        
         if (!remoteJid) continue;
         
         // Ignorar grupos
         if (remoteJid.includes('@g.us')) continue;
 
         console.log(`\n📨 Mensaje recibido`);
-        console.log(`📍 RemoteJid original: ${remoteJid}`);
+        console.log(`📍 RemoteJid: ${remoteJid}`);
+        console.log(`🔑 MessageId: ${messageId}`);
+        console.log(`🔍 Es LID: ${remoteJid.includes('@lid')}`);
 
         // Para BD: extraer solo dígitos
         const recipientId = remoteJid
@@ -408,13 +412,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
         if (aiResponse.success && aiResponse.response) {
           console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
           
-          // ✅ ENVIAR - El service convierte automáticamente @lid → @s.whatsapp.net
+          // ✅ ENVIAR - El service usa /reply para LID, /sendText para normal
           console.log(`📤 Enviando respuesta a: ${remoteJid}`);
+          console.log(`📤 Con messageId: ${messageId}`);
           
           const sendResult = await evolutionService.sendTextMessage(
             instanceName, 
-            remoteJid,  // El service lo convierte automáticamente
-            aiResponse.response
+            remoteJid,     // JID tal cual (@lid o @s.whatsapp.net)
+            aiResponse.response,
+            messageId      // ⬅️ PASAR MESSAGE ID PARA REPLY
           );
 
           if (sendResult.success) {
@@ -446,7 +452,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook Evolution API v1.8.0 (LID→WhatsApp) activo');
+  res.send('✅ Webhook Evolution API v1.8.0 (reply para LID) activo');
 });
 
 export default router;

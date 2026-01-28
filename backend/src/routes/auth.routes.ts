@@ -135,8 +135,8 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api-key - Guardar API Key de OpenAI del usuario
-router.put('/api-key', authMiddleware, async (req: Request, res: Response) => {
+// POST /api-key - Guardar API Key de OpenAI del usuario
+router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const { apiKey } = req.body;

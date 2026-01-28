@@ -8,21 +8,6 @@ const router = Router();
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 
   (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api/whatsapp/webhook` : 'http://localhost:3000/api/whatsapp/webhook');
 
-/**
- * ============================================
- * WHATSAPP ROUTES - WAHA API
- * ============================================
- * 
- * COMANDOS PARA EL DUEÑO (desde el WhatsApp conectado):
- * - ".."  → Pausar IA para ese chat (tú tomas el control)
- * - "."   → Reanudar IA para ese chat
- * 
- * El cliente NUNCA ve estos comandos.
- */
-
-// Cache en memoria para estado de pausa por recipientId
-const pausedChats = new Map<string, boolean>();
-
 // GET /status
 router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -138,98 +123,46 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * ============================================
- * WEBHOOK - WAHA
- * ============================================
- */
-
+// POST /webhook - WAHA Webhook
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const data = req.body;
     const event = data.event;
     
-    console.log(`\n🔔 Webhook: ${event}`);
+    console.log(`\n🔔 Webhook WAHA: ${event}`);
     
-    // Evento de mensaje
     if (event === 'message' || event === 'message.any') {
       const payload = data.payload || data;
       
-      // Extraer datos del mensaje
-      const messageContent = payload.body || payload.text || '';
-      const trimmedContent = messageContent.trim();
-      
-      // Detectar si es mensaje enviado por el dueño (fromMe)
-      const isFromMe = payload.fromMe === true || 
-                       payload.from_me === true || 
-                       (payload._data && payload._data.id && payload._data.id.fromMe === true);
-      
-      // Obtener el chatId (número del cliente)
-      // Cuando fromMe=true, el "to" es el cliente
-      // Cuando fromMe=false, el "from" es el cliente
-      let clientChatId: string;
-      
-      if (isFromMe) {
-        // Mensaje del dueño → el cliente está en "to"
-        clientChatId = payload.to || payload.chatId || '';
-      } else {
-        // Mensaje del cliente → el cliente está en "from"
-        clientChatId = payload.from || payload.chatId || '';
+      // Ignorar mensajes propios
+      if (payload.fromMe) {
+        return res.json({ received: true });
       }
       
-      // Extraer número limpio del cliente
-      const clientNumber = clientChatId
-        .replace('@c.us', '')
-        .replace('@s.whatsapp.net', '')
-        .replace('@lid', '')
-        .replace(/\D/g, '');
+      const chatId = payload.from || payload.chatId;
+      const messageContent = payload.body || payload.text || '';
+      const pushName = payload.notifyName || payload._data?.notifyName || '';
       
-      console.log(`📱 Cliente: ${clientNumber}`);
-      console.log(`📝 Mensaje: "${trimmedContent}"`);
-      console.log(`👤 fromMe: ${isFromMe}`);
-      
-      if (!clientNumber || !trimmedContent) {
+      if (!chatId || !messageContent) {
         return res.json({ received: true });
       }
       
       // Ignorar grupos
-      if (clientChatId.includes('@g.us')) {
+      if (chatId.includes('@g.us')) {
         return res.json({ received: true });
       }
 
-      // ============================================
-      // MENSAJE DEL DUEÑO (fromMe = true)
-      // ============================================
-      if (isFromMe) {
-        console.log(`\n🏠 Mensaje del DUEÑO`);
-        
-        // Comando ".." → PAUSAR IA
-        if (trimmedContent === '..') {
-          pausedChats.set(clientNumber, true);
-          console.log(`⏸️ IA PAUSADA para cliente ${clientNumber}`);
-          return res.json({ received: true });
-        }
-        
-        // Comando "." → REANUDAR IA
-        if (trimmedContent === '.') {
-          pausedChats.set(clientNumber, false);
-          console.log(`▶️ IA REANUDADA para cliente ${clientNumber}`);
-          return res.json({ received: true });
-        }
-        
-        // Otro mensaje del dueño → ignorar (está respondiendo manualmente)
-        console.log(`📤 Dueño respondiendo manualmente, ignorando`);
-        return res.json({ received: true });
-      }
+      console.log(`\n📨 Mensaje recibido`);
+      console.log(`📍 ChatId: ${chatId}`);
+      console.log(`📝 Contenido: ${messageContent}`);
+      console.log(`👤 De: ${pushName}`);
 
-      // ============================================
-      // MENSAJE DEL CLIENTE (fromMe = false)
-      // ============================================
-      console.log(`\n📨 Mensaje del CLIENTE`);
-      
-      const pushName = payload.notifyName || payload._data?.notifyName || '';
-      
-      // Buscar usuario con WhatsApp conectado
+      const recipientId = chatId
+        .replace('@c.us', '')
+        .replace('@s.whatsapp.net', '')
+        .replace('@lid', '')
+        .replace(/\D/g, '');
+
       const user = await prisma.user.findFirst({ 
         where: { apiKeyConnected: true }
       });
@@ -239,21 +172,21 @@ router.post('/webhook', async (req: Request, res: Response) => {
         return res.json({ received: true });
       }
 
-      // Gestión de conversación
       let conversation = await prisma.conversation.findFirst({
-        where: { userId: user.id, recipientId: clientNumber }
+        where: { userId: user.id, recipientId: recipientId }
       });
 
       if (!conversation) {
         conversation = await prisma.conversation.create({
           data: { 
             userId: user.id, 
-            recipientId: clientNumber,
-            recipientName: pushName || clientNumber, 
+            recipientId: recipientId,
+            recipientName: pushName || recipientId, 
             lastMessage: messageContent, 
             lastMessageAt: new Date()
           }
         });
+        console.log(`📝 Nueva conversación creada: ${conversation.id}`);
       } else {
         await prisma.conversation.update({
           where: { id: conversation.id },
@@ -264,31 +197,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
           }
         });
       }
-
-      // Verificar si la IA está pausada para este cliente
-      const isPaused = pausedChats.get(clientNumber) || false;
-      console.log(`⏸️ IA pausada: ${isPaused}`);
-      
-      if (isPaused) {
-        console.log('⏸️ IA pausada - Solo guardando mensaje, NO respondiendo');
-        
-        await prisma.message.create({
-          data: { 
-            conversationId: conversation.id, 
-            userId: user.id, 
-            role: 'user', 
-            content: messageContent, 
-            fromMe: false 
-          }
-        });
-        
-        return res.json({ received: true });
-      }
-
-      // ============================================
-      // PROCESAR CON IA (modo automático)
-      // ============================================
-      console.log('🤖 Procesando con IA...');
 
       await prisma.message.create({
         data: { 
@@ -307,12 +215,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       });
       const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
 
+      console.log('🤖 Generando respuesta con OpenAI...');
       const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
 
       if (aiResponse.success && aiResponse.response) {
-        console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 60)}...`);
+        console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
         
-        const sendResult = await wahaService.sendTextMessage(clientChatId, aiResponse.response);
+        const sendResult = await wahaService.sendTextMessage(chatId, aiResponse.response);
 
         if (sendResult.success) {
           await prisma.message.create({
@@ -324,15 +233,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
               fromMe: true 
             }
           });
-          console.log('✅ Enviado!');
+          console.log('✅ ¡Mensaje enviado!');
         } else {
-          console.error('❌ Error:', sendResult.error);
+          console.error('❌ Error enviando:', sendResult.error);
         }
+      } else {
+        console.error('❌ Error IA:', aiResponse.error);
       }
     }
 
     if (event === 'session.status') {
-      console.log(`📡 Sesión: ${data.payload?.status}`);
+      console.log(`📡 Estado sesión: ${data.payload?.status}`);
     }
 
     res.json({ received: true });
@@ -344,16 +255,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 // GET /webhook
 router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook activo');
+  res.send('✅ Webhook WAHA activo');
 });
 
-// GET /pause-status - Debug
-router.get('/pause-status', (req: Request, res: Response) => {
-  res.json({ 
-    pausedChats: Object.fromEntries(pausedChats),
-    total: pausedChats.size
-  });
-});
-
-export { pausedChats };
 export default router;

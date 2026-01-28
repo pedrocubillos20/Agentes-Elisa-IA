@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { wahaService } from '../services/wahaService';
 import { authMiddleware } from './auth.routes';
-import { pausedConversations } from './whatsapp.routes';
+import { pausedChats } from './whatsapp.routes';
 
 const router = Router();
 
@@ -10,9 +10,6 @@ const router = Router();
  * ============================================
  * CONVERSATIONS ROUTES
  * ============================================
- * 
- * Pausar/reanudar IA es SILENCIOSO
- * El cliente NUNCA sabe que hay un bot
  */
 
 // GET / - Obtener todas las conversaciones
@@ -30,10 +27,10 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
       }
     });
     
-    // Agregar estado de pausa desde memoria
+    // Agregar estado de pausa usando el número del cliente
     const conversationsWithPause = conversations.map(conv => ({
       ...conv,
-      aiPaused: pausedConversations.get(conv.id) || false
+      aiPaused: pausedChats.get(conv.recipientId) || false
     }));
     
     res.json({ conversations: conversationsWithPause });
@@ -62,7 +59,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
     
     const conversationWithPause = {
       ...conversation,
-      aiPaused: pausedConversations.get(id) || false
+      aiPaused: pausedChats.get(conversation.recipientId) || false
     };
     
     res.json({ conversation: conversationWithPause });
@@ -122,7 +119,8 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       where: { id }
     });
     
-    pausedConversations.delete(id);
+    // Limpiar estado de pausa
+    pausedChats.delete(conversation.recipientId);
     
     res.json({ success: true });
   } catch (error: any) {
@@ -133,10 +131,8 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 
 /**
  * ============================================
- * PAUSAR / REANUDAR IA (SILENCIOSO)
+ * PAUSAR / REANUDAR IA (desde dashboard)
  * ============================================
- * NO envía mensajes al cliente
- * El cliente nunca sabe que hay un bot
  */
 
 // POST /:id/ai-pause - Pausar o reanudar IA (silencioso)
@@ -154,13 +150,10 @@ router.post('/:id/ai-pause', authMiddleware, async (req: Request, res: Response)
       return res.status(404).json({ error: 'Conversación no encontrada' });
     }
     
-    // Actualizar estado de pausa en memoria (SILENCIOSO)
-    pausedConversations.set(id, paused);
+    // Usar el número del cliente para la pausa
+    pausedChats.set(conversation.recipientId, paused);
     
-    console.log(`${paused ? '⏸️' : '▶️'} [SILENCIOSO] IA ${paused ? 'pausada' : 'reanudada'} para conversación ${id}`);
-    
-    // NO enviamos mensaje al cliente - es silencioso
-    // El cliente no sabe que existe un bot
+    console.log(`${paused ? '⏸️' : '▶️'} IA ${paused ? 'pausada' : 'reanudada'} para ${conversation.recipientId}`);
     
     res.json({ success: true, aiPaused: paused });
   } catch (error: any) {
@@ -171,7 +164,7 @@ router.post('/:id/ai-pause', authMiddleware, async (req: Request, res: Response)
 
 /**
  * ============================================
- * ENVIAR MENSAJE MANUAL (COMO DUEÑO)
+ * ENVIAR MENSAJE MANUAL
  * ============================================
  */
 
@@ -198,15 +191,15 @@ router.post('/:id/send', authMiddleware, async (req: Request, res: Response) => 
     
     // Comando "." para reanudar IA (silencioso)
     if (trimmedMessage === '.') {
-      pausedConversations.set(id, false);
-      console.log(`▶️ [SILENCIOSO] IA reanudada desde dashboard`);
+      pausedChats.set(conversation.recipientId, false);
+      console.log(`▶️ IA reanudada para ${conversation.recipientId}`);
       return res.json({ success: true, command: 'resume_ai' });
     }
     
     // Comando ".." para pausar IA (silencioso)
     if (trimmedMessage === '..') {
-      pausedConversations.set(id, true);
-      console.log(`⏸️ [SILENCIOSO] IA pausada desde dashboard`);
+      pausedChats.set(conversation.recipientId, true);
+      console.log(`⏸️ IA pausada para ${conversation.recipientId}`);
       return res.json({ success: true, command: 'pause_ai' });
     }
     
@@ -236,8 +229,6 @@ router.post('/:id/send', authMiddleware, async (req: Request, res: Response) => 
         lastMessageAt: new Date()
       }
     });
-    
-    console.log(`📤 Mensaje manual enviado a ${conversation.recipientId}`);
     
     res.json({ success: true, messageId: result.messageId });
   } catch (error: any) {

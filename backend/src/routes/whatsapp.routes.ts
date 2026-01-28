@@ -18,7 +18,6 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL ||
  * - "."   → Reanudar IA - SILENCIOSO
  * 
  * El cliente NUNCA sabe que hay un bot.
- * Los comandos son invisibles para el cliente.
  */
 
 // GET /status
@@ -140,12 +139,6 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
  * ============================================
  * WEBHOOK - WAHA
  * ============================================
- * 
- * COMANDOS SILENCIOSOS (solo para el dueño):
- * - ".."  → Pausar IA (NO envía mensaje al cliente)
- * - "."   → Reanudar IA (NO envía mensaje al cliente)
- * 
- * El cliente NUNCA ve estos comandos ni sabe que existe un bot.
  */
 
 // Cache en memoria para estado de pausa
@@ -156,23 +149,47 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const data = req.body;
     const event = data.event;
     
-    console.log(`\n🔔 Webhook WAHA: ${event}`);
+    console.log(`\n🔔 ========== WEBHOOK WAHA ==========`);
+    console.log(`📡 Evento: ${event}`);
     
     // Evento de mensaje
     if (event === 'message' || event === 'message.any') {
       const payload = data.payload || data;
       
+      // ============================================
+      // DEBUG: Ver estructura completa del payload
+      // ============================================
+      console.log(`\n🔍 DEBUG - Payload completo:`);
+      console.log(JSON.stringify(payload, null, 2));
+      
       const chatId = payload.from || payload.chatId;
       const messageContent = payload.body || payload.text || '';
       const pushName = payload.notifyName || payload._data?.notifyName || '';
-      const isFromMe = payload.fromMe || false;
+      
+      // Verificar múltiples ubicaciones posibles de fromMe
+      const isFromMe = payload.fromMe || 
+                       payload.from_me || 
+                       payload._data?.fromMe ||
+                       (payload.id && payload.id.fromMe) ||
+                       false;
+      
+      console.log(`\n📊 DEBUG - Campos extraídos:`);
+      console.log(`   chatId: ${chatId}`);
+      console.log(`   messageContent: "${messageContent}"`);
+      console.log(`   pushName: ${pushName}`);
+      console.log(`   isFromMe: ${isFromMe}`);
+      console.log(`   payload.fromMe: ${payload.fromMe}`);
+      console.log(`   payload.from_me: ${payload.from_me}`);
+      console.log(`   payload._data?.fromMe: ${payload._data?.fromMe}`);
       
       if (!chatId || !messageContent) {
+        console.log('⚠️ ChatId o contenido vacío, ignorando');
         return res.json({ received: true });
       }
       
       // Ignorar grupos
       if (chatId.includes('@g.us')) {
+        console.log('⚠️ Mensaje de grupo, ignorando');
         return res.json({ received: true });
       }
 
@@ -182,6 +199,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
         .replace('@s.whatsapp.net', '')
         .replace('@lid', '')
         .replace(/\D/g, '');
+
+      console.log(`📱 RecipientId extraído: ${recipientId}`);
 
       // Buscar usuario con WhatsApp conectado
       const user = await prisma.user.findFirst({ 
@@ -223,37 +242,42 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const conversationId = conversation.id;
       const trimmedContent = messageContent.trim();
       
+      console.log(`\n🎯 Analizando mensaje:`);
+      console.log(`   Contenido trimmed: "${trimmedContent}"`);
+      console.log(`   Es ".."?: ${trimmedContent === '..'}`);
+      console.log(`   Es "."?: ${trimmedContent === '.'}`);
+      console.log(`   isFromMe: ${isFromMe}`);
+      
       // ============================================
       // COMANDOS DE CONTROL (SILENCIOSOS)
-      // Solo funcionan cuando el DUEÑO escribe (fromMe = true)
+      // Funcionan tanto si isFromMe es true O si el mensaje es solo ".." o "."
       // ============================================
       
+      // Comando ".." → PAUSAR IA (silencioso)
+      if (trimmedContent === '..') {
+        console.log('⏸️ ========== COMANDO PAUSAR DETECTADO ==========');
+        pausedConversations.set(conversationId, true);
+        console.log(`⏸️ IA PAUSADA para conversación ${conversationId}`);
+        console.log(`📋 Estado actual de pausas:`, Object.fromEntries(pausedConversations));
+        
+        // NO enviamos mensaje al cliente - es silencioso
+        return res.json({ received: true });
+      }
+      
+      // Comando "." → REANUDAR IA (silencioso)
+      if (trimmedContent === '.') {
+        console.log('▶️ ========== COMANDO REANUDAR DETECTADO ==========');
+        pausedConversations.set(conversationId, false);
+        console.log(`▶️ IA REANUDADA para conversación ${conversationId}`);
+        console.log(`📋 Estado actual de pausas:`, Object.fromEntries(pausedConversations));
+        
+        // NO enviamos mensaje al cliente - es silencioso
+        return res.json({ received: true });
+      }
+      
+      // Si el mensaje es del dueño (no es comando), ignoramos
       if (isFromMe) {
-        // Comando ".." → PAUSAR IA (silencioso)
-        if (trimmedContent === '..') {
-          console.log('⏸️ [SILENCIOSO] Dueño pausó la IA');
-          pausedConversations.set(conversationId, true);
-          
-          // NO enviamos mensaje al cliente - es silencioso
-          // Solo registramos internamente
-          console.log(`⏸️ IA pausada para conversación ${conversationId}`);
-          
-          return res.json({ received: true });
-        }
-        
-        // Comando "." → REANUDAR IA (silencioso)
-        if (trimmedContent === '.') {
-          console.log('▶️ [SILENCIOSO] Dueño reactivó la IA');
-          pausedConversations.set(conversationId, false);
-          
-          // NO enviamos mensaje al cliente - es silencioso
-          console.log(`▶️ IA reactivada para conversación ${conversationId}`);
-          
-          return res.json({ received: true });
-        }
-        
-        // Si es otro mensaje del dueño, ignoramos (el dueño está respondiendo manualmente)
-        console.log('📤 Mensaje del dueño - ignorando');
+        console.log('📤 Mensaje del dueño (no es comando) - ignorando');
         return res.json({ received: true });
       }
 
@@ -261,16 +285,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // MENSAJE DEL CLIENTE
       // ============================================
       
-      console.log(`\n📨 Mensaje del cliente`);
+      console.log(`\n📨 ========== MENSAJE DEL CLIENTE ==========`);
       console.log(`📍 ChatId: ${chatId}`);
       console.log(`📝 Contenido: ${messageContent}`);
       console.log(`👤 De: ${pushName}`);
 
       // Verificar si la IA está pausada
       const isPaused = pausedConversations.get(conversationId) || false;
+      console.log(`⏸️ ¿IA pausada?: ${isPaused}`);
       
       if (isPaused) {
-        console.log('⏸️ IA pausada - El dueño está atendiendo manualmente');
+        console.log('⏸️ IA PAUSADA - El dueño está atendiendo manualmente');
+        console.log('📝 Guardando mensaje pero NO respondiendo');
         
         // Guardar mensaje del cliente pero NO responder
         await prisma.message.create({
@@ -289,6 +315,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // ============================================
       // PROCESAR CON IA (modo automático)
       // ============================================
+      console.log('🤖 ========== PROCESANDO CON IA ==========');
 
       // Guardar mensaje del cliente
       await prisma.message.create({
@@ -314,7 +341,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
 
       if (aiResponse.success && aiResponse.response) {
-        console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
+        console.log(`✅ Respuesta generada: ${aiResponse.response.substring(0, 80)}...`);
         
         const sendResult = await wahaService.sendTextMessage(chatId, aiResponse.response);
 
@@ -328,12 +355,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
               fromMe: true 
             }
           });
-          console.log('✅ ¡Mensaje enviado!');
+          console.log('✅ ¡Mensaje enviado exitosamente!');
         } else {
-          console.error('❌ Error enviando:', sendResult.error);
+          console.error('❌ Error enviando mensaje:', sendResult.error);
         }
       } else {
-        console.error('❌ Error IA:', aiResponse.error);
+        console.error('❌ Error generando respuesta IA:', aiResponse.error);
       }
     }
 
@@ -352,6 +379,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
 // GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
   res.send('✅ Webhook WAHA activo');
+});
+
+// GET /pause-status - Ver estado de pausas (debug)
+router.get('/pause-status', (req: Request, res: Response) => {
+  res.json({ 
+    pausedConversations: Object.fromEntries(pausedConversations),
+    total: pausedConversations.size
+  });
 });
 
 // Exportar el mapa de pausas

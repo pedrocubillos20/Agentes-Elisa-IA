@@ -33,12 +33,8 @@ class OpenAIService {
         };
       }
 
-      // Obtener configuración del usuario
-      const user = await prisma.user.findUnique({
-        where: { id: userId }
-      });
-
-      const openaiApiKey = user?.openaiApiKey || process.env.OPENAI_API_KEY;
+      // Usar API Key de variables de entorno
+      const openaiApiKey = process.env.OPENAI_API_KEY;
       
       if (!openaiApiKey) {
         return { success: false, error: 'No hay API Key de OpenAI configurada' };

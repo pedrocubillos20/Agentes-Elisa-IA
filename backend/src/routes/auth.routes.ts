@@ -33,7 +33,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-// POST /register - Registro de usuario
+// POST /register
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const { name, email, password } = req.body;
@@ -76,7 +76,7 @@ router.post('/register', async (req: Request, res: Response) => {
   }
 });
 
-// POST /login - Inicio de sesión
+// POST /login
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
@@ -106,8 +106,7 @@ router.post('/login', async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        openaiApiKey: user.openaiApiKey ? '***' : null,
-        apiKeyConnected: user.apiKeyConnected
+        apiKeyConnected: (user as any).apiKeyConnected || false
       },
       token
     });
@@ -117,7 +116,7 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
-// GET /me - Obtener usuario actual
+// GET /me
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -127,8 +126,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        openaiApiKey: user.openaiApiKey ? '***' : null,
-        apiKeyConnected: user.apiKeyConnected
+        apiKeyConnected: user.apiKeyConnected || false
       }
     });
   } catch (error: any) {
@@ -137,16 +135,16 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api-key - Actualizar API Key de OpenAI
+// PUT /api-key
 router.put('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const { apiKey } = req.body;
     
+    // Actualizar solo el campo apiKeyConnected
     await prisma.user.update({
       where: { id: user.id },
       data: { 
-        openaiApiKey: apiKey,
         apiKeyConnected: !!apiKey
       }
     });

@@ -8,7 +8,7 @@ const router = Router();
 const WEBHOOK_URL = process.env.WEBHOOK_URL || 
   (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api/whatsapp/webhook` : 'http://localhost:3000/api/whatsapp/webhook');
 
-// GET /status
+// GET /status - Obtener estado de conexión
 router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -32,7 +32,7 @@ router.get('/status', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// POST /connect
+// POST /connect - Conectar WhatsApp
 router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
   try {
     const status = await wahaService.checkConnectionStatus();
@@ -63,7 +63,7 @@ router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// GET /qr
+// GET /qr - Obtener código QR
 router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
   try {
     const status = await wahaService.checkConnectionStatus();
@@ -90,7 +90,7 @@ router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// POST /disconnect
+// POST /disconnect - Desconectar WhatsApp
 router.post('/disconnect', authMiddleware, async (req: Request, res: Response) => {
   try {
     await wahaService.stopSession();
@@ -101,7 +101,7 @@ router.post('/disconnect', authMiddleware, async (req: Request, res: Response) =
   }
 });
 
-// POST /send
+// POST /send - Enviar mensaje
 router.post('/send', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { to, message } = req.body;
@@ -123,7 +123,7 @@ router.post('/send', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// POST /webhook - WAHA Webhook
+// POST /webhook - Webhook para recibir mensajes de WAHA
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const data = req.body;
@@ -131,6 +131,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     
     console.log(`\n🔔 Webhook WAHA: ${event}`);
     
+    // Procesar eventos de mensaje
     if (event === 'message' || event === 'message.any') {
       const payload = data.payload || data;
       
@@ -157,12 +158,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
       console.log(`📝 Contenido: ${messageContent}`);
       console.log(`👤 De: ${pushName}`);
 
+      // Extraer número limpio
       const recipientId = chatId
         .replace('@c.us', '')
         .replace('@s.whatsapp.net', '')
         .replace('@lid', '')
         .replace(/\D/g, '');
 
+      // Buscar usuario con API configurada
       const user = await prisma.user.findFirst({ 
         where: { apiKeyConnected: true }
       });
@@ -172,6 +175,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         return res.json({ received: true });
       }
 
+      // Gestionar conversación
       let conversation = await prisma.conversation.findFirst({
         where: { userId: user.id, recipientId: recipientId }
       });
@@ -198,6 +202,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         });
       }
 
+      // Guardar mensaje del usuario
       await prisma.message.create({
         data: { 
           conversationId: conversation.id, 
@@ -208,6 +213,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
       });
 
+      // Obtener historial de mensajes
       const recentMessages = await prisma.message.findMany({
         where: { conversationId: conversation.id },
         orderBy: { timestamp: 'asc' },
@@ -215,15 +221,18 @@ router.post('/webhook', async (req: Request, res: Response) => {
       });
       const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
 
+      // Generar respuesta con IA
       console.log('🤖 Generando respuesta con OpenAI...');
       const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
 
       if (aiResponse.success && aiResponse.response) {
         console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
         
+        // Enviar respuesta por WhatsApp
         const sendResult = await wahaService.sendTextMessage(chatId, aiResponse.response);
 
         if (sendResult.success) {
+          // Guardar respuesta en BD
           await prisma.message.create({
             data: { 
               conversationId: conversation.id, 
@@ -233,27 +242,28 @@ router.post('/webhook', async (req: Request, res: Response) => {
               fromMe: true 
             }
           });
-          console.log('✅ ¡Mensaje enviado!');
+          console.log('✅ ¡Mensaje enviado exitosamente!');
         } else {
-          console.error('❌ Error enviando:', sendResult.error);
+          console.error('❌ Error enviando mensaje:', sendResult.error);
         }
       } else {
-        console.error('❌ Error IA:', aiResponse.error);
+        console.error('❌ Error generando respuesta IA:', aiResponse.error);
       }
     }
 
+    // Procesar eventos de estado de sesión
     if (event === 'session.status') {
       console.log(`📡 Estado sesión: ${data.payload?.status}`);
     }
 
     res.json({ received: true });
   } catch (error: any) {
-    console.error('❌ Error webhook:', error);
-    res.status(500).json({ error: 'Error' });
+    console.error('❌ Error en webhook:', error);
+    res.status(500).json({ error: 'Error procesando webhook' });
   }
 });
 
-// GET /webhook
+// GET /webhook - Health check
 router.get('/webhook', (req: Request, res: Response) => {
   res.send('✅ Webhook WAHA activo');
 });

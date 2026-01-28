@@ -92,10 +92,12 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Conversación no encontrada' });
     }
     
+    // Eliminar mensajes primero
     await prisma.message.deleteMany({
       where: { conversationId: id }
     });
     
+    // Eliminar conversación
     await prisma.conversation.delete({
       where: { id }
     });

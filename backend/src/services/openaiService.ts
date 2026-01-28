@@ -1,201 +1,95 @@
 import OpenAI from 'openai';
-import CryptoJS from 'crypto-js';
 import prisma from '../lib/prisma';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'elisa-ia-secret-key-2024';
-
 class OpenAIService {
-  // Desencriptar API Key
-  decryptApiKey(encryptedKey: string): string {
-    try {
-      const bytes = CryptoJS.AES.decrypt(encryptedKey, ENCRYPTION_KEY);
-      return bytes.toString(CryptoJS.enc.Utf8);
-    } catch (error) {
-      console.error('Error desencriptando API Key');
-      return '';
+  private openai: OpenAI | null = null;
+
+  constructor() {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (apiKey) {
+      this.openai = new OpenAI({ apiKey });
+      console.log('✅ Servicio OpenAI inicializado');
+    } else {
+      console.log('⚠️ OPENAI_API_KEY no configurada');
     }
   }
 
-  // Encriptar API Key
-  encryptApiKey(apiKey: string): string {
-    return CryptoJS.AES.encrypt(apiKey, ENCRYPTION_KEY).toString();
-  }
-
-  // Obtener cliente OpenAI para un usuario
-  async getClientForUser(userId: string): Promise<OpenAI | null> {
+  async generateResponse(
+    userId: string, 
+    message: string, 
+    history: Array<{ role: string; content: string }>
+  ): Promise<{ success: boolean; response?: string; error?: string }> {
     try {
+      // Obtener asistente activo del usuario
+      const assistant = await prisma.assistant.findFirst({
+        where: { userId, isActive: true }
+      });
+
+      if (!assistant) {
+        console.log('⚠️ No hay asistente activo');
+        return { 
+          success: true, 
+          response: '¡Hola! Gracias por escribirnos. En este momento no tenemos un asistente configurado. Por favor, intenta más tarde.' 
+        };
+      }
+
+      // Obtener configuración del usuario
       const user = await prisma.user.findUnique({
         where: { id: userId }
       });
 
-      if (!user?.apiKeyEncrypted) {
-        console.log('❌ Usuario no tiene API Key configurada');
-        return null;
-      }
-
-      const apiKey = this.decryptApiKey(user.apiKeyEncrypted);
-      if (!apiKey) {
-        console.log('❌ No se pudo desencriptar API Key');
-        return null;
-      }
-
-      return new OpenAI({ apiKey });
-    } catch (error) {
-      console.error('Error obteniendo cliente OpenAI:', error);
-      return null;
-    }
-  }
-
-  // Generar respuesta con contexto
-  async generateResponse(
-    userId: string,
-    userMessage: string,
-    conversationHistory: { role: string; content: string }[] = []
-  ): Promise<{ success: boolean; response?: string; error?: string }> {
-    try {
-      const openai = await this.getClientForUser(userId);
-      if (!openai) {
-        return {
-          success: false,
-          error: 'API Key de OpenAI no configurada'
-        };
-      }
-
-      // Obtener asistente activo
-      const assistant = await prisma.assistant.findFirst({
-        where: {
-          userId,
-          isActive: true
-        }
-      });
-
-      // Construir contexto del sistema
-      let systemPrompt = 'Eres un asistente virtual amigable y profesional.';
+      const openaiApiKey = user?.openaiApiKey || process.env.OPENAI_API_KEY;
       
-      if (assistant) {
-        const parts = [];
-        
-        if (assistant.personality) {
-          parts.push(`Personalidad: ${assistant.personality}`);
-        }
-        if (assistant.context) {
-          parts.push(`Contexto: ${assistant.context}`);
-        }
-        if (assistant.businessInfo) {
-          parts.push(`Información del negocio: ${assistant.businessInfo}`);
-        }
-        if (assistant.instructions) {
-          parts.push(`Instrucciones: ${assistant.instructions}`);
-        }
-        
-        if (parts.length > 0) {
-          systemPrompt = parts.join('\n\n');
-        }
+      if (!openaiApiKey) {
+        return { success: false, error: 'No hay API Key de OpenAI configurada' };
       }
 
-      // Obtener FAQs del usuario
-      const faqs = await prisma.fAQ.findMany({
-        where: {
-          userId,
-          isActive: true
-        }
-      });
+      const openai = new OpenAI({ apiKey: openaiApiKey });
 
-      if (faqs.length > 0) {
-        const faqContext = faqs.map(f => `P: ${f.question}\nR: ${f.answer}`).join('\n\n');
-        systemPrompt += `\n\nPreguntas frecuentes:\n${faqContext}`;
+      // Construir el prompt del sistema
+      let systemPrompt = `Eres un asistente virtual llamado "${assistant.name}".`;
+      
+      if (assistant.context) {
+        systemPrompt += `\n\nContexto e instrucciones:\n${assistant.context}`;
       }
 
-      // Obtener productos del usuario
-      const products = await prisma.product.findMany({
-        where: {
-          userId,
-          isActive: true
-        }
-      });
-
-      if (products.length > 0) {
-        const productContext = products.map(p => 
-          `- ${p.name}${p.price ? ` ($${p.price})` : ''}${p.description ? `: ${p.description}` : ''}`
-        ).join('\n');
-        systemPrompt += `\n\nProductos/Servicios disponibles:\n${productContext}`;
-      }
-
-      // Construir mensajes
-      const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+      // Construir mensajes para OpenAI
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt }
       ];
 
-      // Agregar historial de conversación (últimos 10 mensajes)
-      const recentHistory = conversationHistory.slice(-10);
-      for (const msg of recentHistory) {
-        messages.push({
-          role: msg.role as 'user' | 'assistant',
-          content: msg.content
-        });
+      // Agregar historial de conversación
+      for (const msg of history) {
+        if (msg.role === 'user') {
+          messages.push({ role: 'user', content: msg.content });
+        } else if (msg.role === 'assistant') {
+          messages.push({ role: 'assistant', content: msg.content });
+        }
       }
 
       // Agregar mensaje actual
-      messages.push({ role: 'user', content: userMessage });
+      messages.push({ role: 'user', content: message });
 
-      console.log('🤖 Generando respuesta con OpenAI...');
-
+      // Llamar a OpenAI
       const completion = await openai.chat.completions.create({
-        model: assistant?.model || 'gpt-3.5-turbo',
-        messages,
-        temperature: assistant?.temperature || 0.7,
-        max_tokens: assistant?.maxTokens || 500
+        model: assistant.model || 'gpt-4-turbo-preview',
+        messages: messages,
+        temperature: assistant.temperature || 0.7,
+        max_tokens: assistant.maxTokens || 500
       });
 
-      const response = completion.choices[0]?.message?.content || 'Lo siento, no pude generar una respuesta.';
+      const response = completion.choices[0]?.message?.content;
 
-      console.log('✅ Respuesta generada:', response.substring(0, 100) + '...');
-
-      return {
-        success: true,
-        response
-      };
-    } catch (error: any) {
-      console.error('❌ Error generando respuesta:', error.message);
-      
-      if (error.code === 'insufficient_quota') {
-        return {
-          success: false,
-          error: 'Tu cuenta de OpenAI no tiene créditos suficientes'
-        };
-      }
-      
-      if (error.code === 'invalid_api_key') {
-        return {
-          success: false,
-          error: 'API Key de OpenAI inválida'
-        };
+      if (!response) {
+        return { success: false, error: 'No se recibió respuesta de OpenAI' };
       }
 
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // Verificar API Key
-  async verifyApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
-    try {
-      const openai = new OpenAI({ apiKey });
-      
-      await openai.models.list();
-      
-      return { valid: true };
+      return { success: true, response };
     } catch (error: any) {
-      console.error('❌ API Key inválida:', error.message);
-      return {
-        valid: false,
-        error: error.code === 'invalid_api_key' ? 'API Key inválida' : error.message
-      };
+      console.error('❌ Error en OpenAI:', error.message);
+      return { success: false, error: error.message };
     }
   }
 }
 
 export const openaiService = new OpenAIService();
-export default openaiService;

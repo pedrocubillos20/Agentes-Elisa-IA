@@ -3,7 +3,16 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Bot, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { 
+  Mail, 
+  Lock, 
+  Eye, 
+  EyeOff, 
+  Loader2,
+  Sparkles,
+  ArrowRight,
+  CheckCircle
+} from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -42,76 +51,159 @@ export default function LoginPage() {
     }
   };
 
+  const features = [
+    'Automatiza tu WhatsApp con IA',
+    'CRM integrado para gestión de clientes',
+    'Sistema de agendamiento de citas',
+    'Análisis y reportes en tiempo real'
+  ];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 mb-4">
-            <Bot className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-white">Elisa IA</h1>
-          <p className="text-slate-400 mt-2">Chatbots de WhatsApp con IA</p>
+    <div className="min-h-screen flex">
+      {/* Left Side - Branding */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
+        {/* Gradient Background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-400" />
+        
+        {/* Pattern Overlay */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute inset-0" style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          }} />
         </div>
+        
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-center px-16">
+          {/* Logo */}
+          <div className="flex items-center gap-3 mb-12">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+              <Sparkles className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <span className="text-3xl font-bold text-white">Elisa</span>
+              <span className="text-3xl font-light text-white/80"> IA</span>
+            </div>
+          </div>
+          
+          {/* Tagline */}
+          <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
+            Automatiza tu negocio<br />
+            con inteligencia artificial
+          </h1>
+          
+          <p className="text-lg text-white/80 mb-8 max-w-md">
+            La plataforma todo-en-uno para gestionar tu WhatsApp, clientes y citas de forma inteligente.
+          </p>
+          
+          {/* Features */}
+          <div className="space-y-4">
+            {features.map((feature, index) => (
+              <div 
+                key={index}
+                className="flex items-center gap-3 text-white/90 animate-fade-in"
+                style={{ animationDelay: `${index * 100}ms` }}
+              >
+                <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                  <CheckCircle className="w-4 h-4" />
+                </div>
+                <span>{feature}</span>
+              </div>
+            ))}
+          </div>
+          
+          {/* Floating Elements */}
+          <div className="absolute top-20 right-20 w-32 h-32 rounded-full bg-white/10 blur-3xl animate-float" />
+          <div className="absolute bottom-40 right-40 w-48 h-48 rounded-full bg-white/10 blur-3xl animate-float" style={{ animationDelay: '2s' }} />
+        </div>
+      </div>
 
-        {/* Form Card */}
-        <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700 p-8">
-          <h2 className="text-2xl font-bold text-white mb-6 text-center">
-            Iniciar Sesión
-          </h2>
+      {/* Right Side - Form */}
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="w-full max-w-md">
+          {/* Mobile Logo */}
+          <div className="lg:hidden flex items-center justify-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-xl bg-[var(--accent-gradient)] flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <span className="text-2xl font-bold text-white">Elisa</span>
+              <span className="text-2xl font-light text-[var(--accent-primary)]"> IA</span>
+            </div>
+          </div>
 
+          {/* Form Header */}
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-white mb-2">
+              Bienvenido de nuevo
+            </h2>
+            <p className="text-[var(--text-muted)]">
+              Ingresa tus credenciales para continuar
+            </p>
+          </div>
+
+          {/* Error Message */}
           {error && (
-            <div className="mb-4 p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm animate-fade-in">
               {error}
             </div>
           )}
 
+          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Correo Electrónico
-              </label>
+              <label className="input-label">Correo Electrónico</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" />
                 <input
                   type="email"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="input pl-12"
                   placeholder="tu@email.com"
-                  required
                 />
               </div>
             </div>
 
+            {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Contraseña
-              </label>
+              <label className="input-label">Contraseña</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[var(--text-muted)]" />
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-12 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                  className="input pl-12 pr-12"
                   placeholder="••••••••"
-                  required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
 
+            {/* Forgot Password */}
+            <div className="flex justify-end">
+              <Link 
+                href="/forgot-password" 
+                className="text-sm text-[var(--accent-primary)] hover:text-[var(--accent-secondary)] transition-colors"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
+
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full btn-primary py-4 text-base"
             >
               {loading ? (
                 <>
@@ -119,25 +211,46 @@ export default function LoginPage() {
                   Iniciando sesión...
                 </>
               ) : (
-                'Iniciar Sesión'
+                <>
+                  Iniciar Sesión
+                  <ArrowRight className="w-5 h-5" />
+                </>
               )}
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-slate-400">
-              ¿No tienes cuenta?{' '}
-              <Link href="/register" className="text-emerald-400 hover:text-emerald-300 font-medium">
-                Regístrate gratis
-              </Link>
-            </p>
+          {/* Divider */}
+          <div className="relative my-8">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-[var(--border-primary)]" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-4 bg-[var(--bg-primary)] text-[var(--text-muted)]">
+                ¿No tienes cuenta?
+              </span>
+            </div>
           </div>
-        </div>
 
-        {/* Footer */}
-        <p className="text-center text-slate-500 text-sm mt-6">
-          © 2024 Elisa IA. Todos los derechos reservados.
-        </p>
+          {/* Register Link */}
+          <Link
+            href="/register"
+            className="w-full btn-secondary py-4 text-base flex items-center justify-center"
+          >
+            Crear cuenta gratis
+          </Link>
+
+          {/* Footer */}
+          <p className="mt-8 text-center text-xs text-[var(--text-muted)]">
+            Al continuar, aceptas nuestros{' '}
+            <Link href="/terms" className="text-[var(--accent-primary)] hover:underline">
+              Términos de Servicio
+            </Link>{' '}
+            y{' '}
+            <Link href="/privacy" className="text-[var(--accent-primary)] hover:underline">
+              Política de Privacidad
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

@@ -106,7 +106,7 @@ router.post('/login', async (req: Request, res: Response) => {
         id: user.id,
         name: user.name,
         email: user.email,
-        apiKeyConnected: (user as any).apiKeyConnected || false
+        apiKeyConnected: user.apiKeyConnected || false
       },
       token
     });
@@ -135,24 +135,75 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api-key
+// PUT /api-key - Guardar API Key de OpenAI del usuario
 router.put('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
     const { apiKey } = req.body;
     
-    // Actualizar solo el campo apiKeyConnected
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API Key es requerida' });
+    }
+    
+    // Guardar la API Key en el campo apiKeyEncrypted
     await prisma.user.update({
       where: { id: user.id },
       data: { 
-        apiKeyConnected: !!apiKey
+        apiKeyEncrypted: apiKey,
+        apiKeyConnected: true
       }
     });
     
-    res.json({ success: true });
+    res.json({ success: true, message: 'API Key guardada correctamente' });
   } catch (error: any) {
-    console.error('❌ Error actualizando API Key:', error);
-    res.status(500).json({ error: 'Error al actualizar API Key' });
+    console.error('❌ Error guardando API Key:', error);
+    res.status(500).json({ error: 'Error al guardar API Key' });
+  }
+});
+
+// DELETE /api-key - Eliminar API Key
+router.delete('/api-key', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { 
+        apiKeyEncrypted: null,
+        apiKeyConnected: false
+      }
+    });
+    
+    res.json({ success: true, message: 'API Key eliminada' });
+  } catch (error: any) {
+    console.error('❌ Error eliminando API Key:', error);
+    res.status(500).json({ error: 'Error al eliminar API Key' });
+  }
+});
+
+// POST /test-api-key - Probar API Key
+router.post('/test-api-key', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { apiKey } = req.body;
+    
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API Key es requerida' });
+    }
+    
+    // Probar la API Key con OpenAI
+    const OpenAI = require('openai');
+    const openai = new OpenAI({ apiKey });
+    
+    await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [{ role: 'user', content: 'test' }],
+      max_tokens: 5
+    });
+    
+    res.json({ success: true, message: 'API Key válida' });
+  } catch (error: any) {
+    console.error('❌ Error probando API Key:', error.message);
+    res.status(400).json({ error: 'API Key inválida o sin créditos' });
   }
 });
 

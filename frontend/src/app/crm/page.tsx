@@ -1,67 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Users, 
-  UserPlus, 
-  Search, 
-  Filter,
-  MoreVertical,
-  Phone,
-  Mail,
-  MapPin,
-  Calendar,
-  Package,
-  DollarSign,
-  Edit2,
-  Trash2,
-  Eye,
-  X,
-  Plus,
-  ChevronDown,
-  TrendingUp,
-  ShoppingBag,
-  MessageSquare,
-  Star,
-  Tag
-} from 'lucide-react';
+import { Users, Package, Plus, Search, Filter, Edit2, Trash2, Phone, Mail, Tag, X, DollarSign, Box, ChevronRight } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-interface Client {
-  id: string;
-  name: string;
-  phone: string;
-  email?: string;
-  address?: string;
-  notes?: string;
-  tags: string[];
-  totalPurchases: number;
-  lastContact?: string;
-  status: 'active' | 'inactive' | 'lead';
-  createdAt: string;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  description?: string;
-  price: number;
-  stock: number;
-  category: string;
-  image?: string;
-}
-
 export default function CRMPage() {
   const [activeTab, setActiveTab] = useState<'clients' | 'products'>('clients');
-  const [clients, setClients] = useState<Client[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<'client' | 'product'>('client');
-  const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', address: '', status: 'lead', tags: '', notes: '' });
+  const [productForm, setProductForm] = useState({ name: '', description: '', price: '', stock: '', category: '' });
 
   useEffect(() => {
     fetchData();
@@ -72,260 +27,200 @@ export default function CRMPage() {
     if (!token) return;
 
     try {
-      // Simulated data - Replace with actual API calls
-      setClients([
-        {
-          id: '1',
-          name: 'María García',
-          phone: '+57 320 123 4567',
-          email: 'maria@email.com',
-          address: 'Bogotá, Colombia',
-          notes: 'Cliente frecuente, prefiere buzos premium',
-          tags: ['VIP', 'Frecuente'],
-          totalPurchases: 450000,
-          lastContact: '2026-01-28',
-          status: 'active',
-          createdAt: '2025-06-15'
-        },
-        {
-          id: '2',
-          name: 'Carlos López',
-          phone: '+57 315 987 6543',
-          email: 'carlos@email.com',
-          address: 'Medellín, Colombia',
-          notes: 'Interesado en productos deportivos',
-          tags: ['Nuevo'],
-          totalPurchases: 150000,
-          lastContact: '2026-01-27',
-          status: 'active',
-          createdAt: '2026-01-20'
-        },
-        {
-          id: '3',
-          name: 'Ana Martínez',
-          phone: '+57 310 456 7890',
-          email: 'ana@email.com',
-          tags: ['Lead'],
-          totalPurchases: 0,
-          lastContact: '2026-01-25',
-          status: 'lead',
-          createdAt: '2026-01-25'
-        },
+      const [clientsRes, productsRes] = await Promise.all([
+        fetch(`${API_URL}/api/clients`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`${API_URL}/api/products`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
       ]);
 
-      setProducts([
-        {
-          id: '1',
-          name: 'Buzo Premium Marfil',
-          description: 'Buzo de alta calidad en color marfil',
-          price: 85000,
-          stock: 25,
-          category: 'Buzos'
-        },
-        {
-          id: '2',
-          name: 'Buzo Premium Negro',
-          description: 'Buzo de alta calidad en color negro',
-          price: 85000,
-          stock: 30,
-          category: 'Buzos'
-        },
-        {
-          id: '3',
-          name: 'Camiseta Básica',
-          description: 'Camiseta de algodón básica',
-          price: 45000,
-          stock: 50,
-          category: 'Camisetas'
-        },
-      ]);
+      if (clientsRes?.ok) setClients((await clientsRes.json()).clients || []);
+      if (productsRes?.ok) setProducts((await productsRes.json()).products || []);
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const openModal = (type: 'client' | 'product', item?: any) => {
-    setModalType(type);
-    setSelectedItem(item || null);
-    setShowModal(true);
+  const handleSaveClient = async () => {
+    const token = localStorage.getItem('token');
+    const method = editingItem ? 'PUT' : 'POST';
+    const url = editingItem ? `${API_URL}/api/clients/${editingItem.id}` : `${API_URL}/api/clients`;
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...clientForm,
+          tags: clientForm.tags ? clientForm.tags.split(',').map(t => t.trim()) : []
+        })
+      });
+
+      if (res.ok) {
+        fetchData();
+        setShowModal(false);
+        resetForms();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
   };
 
-  const closeModal = () => {
-    setShowModal(false);
-    setSelectedItem(null);
-  };
+  const handleSaveProduct = async () => {
+    const token = localStorage.getItem('token');
+    const method = editingItem ? 'PUT' : 'POST';
+    const url = editingItem ? `${API_URL}/api/products/${editingItem.id}` : `${API_URL}/api/products`;
 
-  const handleSave = async (data: any) => {
-    // TODO: Implement save functionality
-    console.log('Saving:', data);
-    closeModal();
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...productForm,
+          price: parseFloat(productForm.price) || 0,
+          stock: parseInt(productForm.stock) || 0
+        })
+      });
+
+      if (res.ok) {
+        fetchData();
+        setShowModal(false);
+        resetForms();
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
   };
 
   const handleDelete = async (id: string, type: 'client' | 'product') => {
-    if (!confirm(`¿Estás seguro de eliminar este ${type === 'client' ? 'cliente' : 'producto'}?`)) return;
-    // TODO: Implement delete functionality
-    console.log('Deleting:', id);
+    if (!confirm('¿Estás seguro de eliminar?')) return;
+    const token = localStorage.getItem('token');
+    const url = type === 'client' ? `${API_URL}/api/clients/${id}` : `${API_URL}/api/products/${id}`;
+
+    try {
+      await fetch(url, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      fetchData();
+    } catch (error) {
+      console.error('Error:', error);
+    }
   };
 
-  const filteredClients = clients.filter(client => {
-    const matchesSearch = client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         client.phone.includes(searchTerm) ||
-                         client.email?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterStatus === 'all' || client.status === filterStatus;
-    return matchesSearch && matchesFilter;
+  const resetForms = () => {
+    setClientForm({ name: '', phone: '', email: '', address: '', status: 'lead', tags: '', notes: '' });
+    setProductForm({ name: '', description: '', price: '', stock: '', category: '' });
+    setEditingItem(null);
+  };
+
+  const openEditClient = (client: any) => {
+    setEditingItem(client);
+    setClientForm({
+      name: client.name, phone: client.phone, email: client.email || '',
+      address: client.address || '', status: client.status, tags: client.tags?.join(', ') || '', notes: client.notes || ''
+    });
+    setShowModal(true);
+  };
+
+  const openEditProduct = (product: any) => {
+    setEditingItem(product);
+    setProductForm({
+      name: product.name, description: product.description || '',
+      price: product.price?.toString() || '', stock: product.stock?.toString() || '', category: product.category || ''
+    });
+    setShowModal(true);
+  };
+
+  const filteredClients = clients.filter(c => {
+    const matchSearch = c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm);
+    const matchStatus = filterStatus === 'all' || c.status === filterStatus;
+    return matchSearch && matchStatus;
   });
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter(p => p.name?.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const stats = {
     totalClients: clients.length,
     activeClients: clients.filter(c => c.status === 'active').length,
-    totalRevenue: clients.reduce((sum, c) => sum + c.totalPurchases, 0),
-    totalProducts: products.length,
-    lowStock: products.filter(p => p.stock < 10).length
+    totalRevenue: clients.reduce((sum, c) => sum + (c.totalPurchases || 0), 0),
+    totalProducts: products.length
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <Users className="w-8 h-8 text-[var(--accent-primary)]" />
-            CRM
-          </h1>
-          <p className="text-[var(--text-muted)] mt-1">
-            Gestiona tus clientes, productos y ventas
-          </p>
+        <div className="flex items-center gap-4">
+          <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl hidden md:block" />
+          <div>
+            <h1 className="text-3xl font-bold text-white">CRM</h1>
+            <p className="text-[var(--text-muted)]">Gestiona clientes y productos</p>
+          </div>
         </div>
-        <button 
-          onClick={() => openModal(activeTab === 'clients' ? 'client' : 'product')}
-          className="btn-primary"
-        >
-          <Plus className="w-4 h-4" />
-          {activeTab === 'clients' ? 'Nuevo Cliente' : 'Nuevo Producto'}
+        <button onClick={() => { resetForms(); setShowModal(true); }} className="btn-primary">
+          <Plus className="w-4 h-4" />Nuevo {activeTab === 'clients' ? 'Cliente' : 'Producto'}
         </button>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="stat-card">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-              <Users className="w-5 h-5 text-blue-400" />
-            </div>
-            <div className="stat-value text-2xl">{stats.totalClients}</div>
-          </div>
+          <div className="stat-value">{stats.totalClients}</div>
           <div className="stat-label">Total Clientes</div>
         </div>
-        
         <div className="stat-card">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div className="stat-value text-2xl">{stats.activeClients}</div>
-          </div>
+          <div className="stat-value">{stats.activeClients}</div>
           <div className="stat-label">Clientes Activos</div>
         </div>
-
         <div className="stat-card">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-purple-400" />
-            </div>
-            <div className="stat-value text-2xl">${(stats.totalRevenue / 1000).toFixed(0)}k</div>
-          </div>
-          <div className="stat-label">Ventas Totales</div>
+          <div className="stat-value">${stats.totalRevenue.toLocaleString()}</div>
+          <div className="stat-label">Ingresos Totales</div>
         </div>
-
         <div className="stat-card">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
-              <Package className="w-5 h-5 text-orange-400" />
-            </div>
-            <div className="stat-value text-2xl">{stats.totalProducts}</div>
-          </div>
+          <div className="stat-value">{stats.totalProducts}</div>
           <div className="stat-label">Productos</div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-[var(--border-primary)] pb-4">
-        <button
-          onClick={() => setActiveTab('clients')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            activeTab === 'clients'
-              ? 'bg-[var(--accent-primary)] text-white'
-              : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <Users className="w-4 h-4" />
-            Clientes
-          </span>
+      <div className="flex gap-2 p-1 bg-[var(--bg-tertiary)] rounded-xl w-fit">
+        <button onClick={() => setActiveTab('clients')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'clients' ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white'}`}>
+          <Users className="w-4 h-4" />Clientes
         </button>
-        <button
-          onClick={() => setActiveTab('products')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            activeTab === 'products'
-              ? 'bg-[var(--accent-primary)] text-white'
-              : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <span className="flex items-center gap-2">
-            <ShoppingBag className="w-4 h-4" />
-            Productos
-          </span>
+        <button onClick={() => setActiveTab('products')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'products' ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white'}`}>
+          <Package className="w-4 h-4" />Productos
         </button>
       </div>
 
-      {/* Search and Filters */}
-      <div className="flex flex-col md:flex-row gap-4">
+      {/* Search & Filter */}
+      <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-          <input
-            type="text"
-            placeholder={`Buscar ${activeTab === 'clients' ? 'clientes' : 'productos'}...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="input pl-11"
-          />
+          <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            className="input pl-11" />
         </div>
-        
         {activeTab === 'clients' && (
-          <div className="relative">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="input appearance-none pr-10 min-w-[150px]"
-            >
-              <option value="all">Todos</option>
-              <option value="active">Activos</option>
-              <option value="inactive">Inactivos</option>
-              <option value="lead">Leads</option>
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
-          </div>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+            className="input w-auto">
+            <option value="all">Todos</option>
+            <option value="active">Activos</option>
+            <option value="lead">Leads</option>
+            <option value="inactive">Inactivos</option>
+          </select>
         )}
       </div>
 
       {/* Content */}
       {activeTab === 'clients' ? (
-        /* Clients Table */
         <div className="table-container">
           <table className="table">
             <thead>
@@ -334,135 +229,92 @@ export default function CRMPage() {
                 <th>Contacto</th>
                 <th>Estado</th>
                 <th>Compras</th>
-                <th>Último Contacto</th>
-                <th></th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredClients.map((client) => (
-                <tr key={client.id} className="group">
+                <tr key={client.id}>
                   <td>
                     <div className="flex items-center gap-3">
-                      <div className="avatar">
-                        {client.name.charAt(0)}
-                      </div>
+                      <div className="avatar">{client.name?.[0] || 'C'}</div>
                       <div>
                         <p className="font-medium text-white">{client.name}</p>
-                        <div className="flex gap-1 mt-1">
-                          {client.tags.map((tag, i) => (
-                            <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
+                        {client.tags?.length > 0 && (
+                          <div className="flex gap-1 mt-1">
+                            {client.tags.slice(0, 2).map((tag: string, i: number) => (
+                              <span key={i} className="text-xs px-2 py-0.5 bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] rounded">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
                   <td>
-                    <div className="space-y-1">
-                      <p className="flex items-center gap-2 text-sm">
-                        <Phone className="w-3 h-3" />
-                        {client.phone}
-                      </p>
-                      {client.email && (
-                        <p className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                          <Mail className="w-3 h-3" />
-                          {client.email}
-                        </p>
-                      )}
+                    <div className="flex flex-col gap-1">
+                      <span className="flex items-center gap-2 text-sm"><Phone className="w-3 h-3" />{client.phone}</span>
+                      {client.email && <span className="flex items-center gap-2 text-sm"><Mail className="w-3 h-3" />{client.email}</span>}
                     </div>
                   </td>
                   <td>
-                    <span className={`badge ${
-                      client.status === 'active' ? 'badge-success' : 
-                      client.status === 'lead' ? 'badge-warning' : 'badge-danger'
-                    }`}>
-                      {client.status === 'active' ? 'Activo' : 
-                       client.status === 'lead' ? 'Lead' : 'Inactivo'}
+                    <span className={`badge ${client.status === 'active' ? 'badge-success' : client.status === 'lead' ? 'badge-warning' : 'badge-danger'}`}>
+                      {client.status === 'active' ? 'Activo' : client.status === 'lead' ? 'Lead' : 'Inactivo'}
                     </span>
                   </td>
                   <td>
-                    <span className="font-medium text-white">
-                      ${client.totalPurchases.toLocaleString()}
-                    </span>
+                    <span className="text-[var(--accent-primary)] font-semibold">${(client.totalPurchases || 0).toLocaleString()}</span>
                   </td>
                   <td>
-                    <span className="text-sm">
-                      {client.lastContact ? new Date(client.lastContact).toLocaleDateString('es') : '-'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => openModal('client', client)}
-                        className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4 text-[var(--text-muted)]" />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(client.id, 'client')}
-                        className="p-2 hover:bg-red-500/10 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4 text-red-400" />
-                      </button>
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditClient(client)} className="btn-icon"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => handleDelete(client.id, 'client')} className="btn-icon text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          
           {filteredClients.length === 0 && (
-            <div className="p-12 text-center">
-              <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3" />
-              <p className="text-[var(--text-muted)]">No se encontraron clientes</p>
+            <div className="text-center py-12 text-[var(--text-muted)]">
+              <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No hay clientes</p>
             </div>
           )}
         </div>
       ) : (
-        /* Products Grid */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredProducts.map((product) => (
-            <div key={product.id} className="card glass-hover group">
+            <div key={product.id} className="card glass-hover">
               <div className="flex items-start justify-between mb-4">
-                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-500/20 to-blue-500/20 flex items-center justify-center">
-                  <Package className="w-7 h-7 text-purple-400" />
+                <div className="w-14 h-14 rounded-xl bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                  <Box className="w-7 h-7 text-[var(--accent-primary)]" />
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
-                    onClick={() => openModal('product', product)}
-                    className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                  >
-                    <Edit2 className="w-4 h-4 text-[var(--text-muted)]" />
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(product.id, 'product')}
-                    className="p-2 hover:bg-red-500/10 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                  </button>
+                <div className="flex gap-2">
+                  <button onClick={() => openEditProduct(product)} className="btn-icon"><Edit2 className="w-4 h-4" /></button>
+                  <button onClick={() => handleDelete(product.id, 'product')} className="btn-icon text-red-400"><Trash2 className="w-4 h-4" /></button>
                 </div>
               </div>
-              
-              <h3 className="text-lg font-semibold text-white mb-1">{product.name}</h3>
-              <p className="text-sm text-[var(--text-muted)] mb-4">{product.description}</p>
-              
-              <div className="flex items-center justify-between pt-4 border-t border-[var(--border-primary)]">
-                <div>
-                  <p className="text-2xl font-bold text-gradient">${product.price.toLocaleString()}</p>
-                  <p className="text-xs text-[var(--text-muted)]">{product.category}</p>
-                </div>
-                <div className={`badge ${product.stock > 10 ? 'badge-success' : 'badge-warning'}`}>
-                  Stock: {product.stock}
-                </div>
+              <h3 className="text-lg font-semibold text-white mb-2">{product.name}</h3>
+              <p className="text-sm text-[var(--text-muted)] mb-4 line-clamp-2">{product.description || 'Sin descripción'}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-2xl font-bold text-[var(--accent-primary)]">${product.price?.toLocaleString() || 0}</span>
+                <span className={`badge ${(product.stock || 0) < 10 ? 'badge-danger' : 'badge-success'}`}>
+                  Stock: {product.stock || 0}
+                </span>
               </div>
+              {product.category && (
+                <div className="mt-4 pt-4 border-t border-[var(--border-primary)]">
+                  <span className="text-xs text-[var(--text-muted)]">Categoría: {product.category}</span>
+                </div>
+              )}
             </div>
           ))}
-          
           {filteredProducts.length === 0 && (
-            <div className="col-span-full p-12 text-center card">
-              <Package className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3" />
-              <p className="text-[var(--text-muted)]">No se encontraron productos</p>
+            <div className="col-span-full text-center py-12 text-[var(--text-muted)]">
+              <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>No hay productos</p>
             </div>
           )}
         </div>
@@ -470,242 +322,101 @@ export default function CRMPage() {
 
       {/* Modal */}
       {showModal && (
-        <div className="modal-overlay" onClick={closeModal}>
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-white">
-                {selectedItem 
-                  ? `Editar ${modalType === 'client' ? 'Cliente' : 'Producto'}`
-                  : `Nuevo ${modalType === 'client' ? 'Cliente' : 'Producto'}`
-                }
-              </h2>
-              <button 
-                onClick={closeModal}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-[var(--text-muted)]" />
-              </button>
+              <h3 className="text-xl font-bold text-white">
+                {editingItem ? 'Editar' : 'Nuevo'} {activeTab === 'clients' ? 'Cliente' : 'Producto'}
+              </h3>
+              <button onClick={() => setShowModal(false)} className="btn-icon"><X className="w-5 h-5" /></button>
             </div>
-            
-            {modalType === 'client' ? (
-              <ClientForm 
-                client={selectedItem} 
-                onSave={handleSave} 
-                onCancel={closeModal}
-              />
+
+            {activeTab === 'clients' ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="input-label">Nombre *</label>
+                  <input type="text" value={clientForm.name} onChange={(e) => setClientForm({...clientForm, name: e.target.value})}
+                    className="input" placeholder="Nombre del cliente" />
+                </div>
+                <div>
+                  <label className="input-label">Teléfono *</label>
+                  <input type="text" value={clientForm.phone} onChange={(e) => setClientForm({...clientForm, phone: e.target.value})}
+                    className="input" placeholder="+57 300 123 4567" />
+                </div>
+                <div>
+                  <label className="input-label">Email</label>
+                  <input type="email" value={clientForm.email} onChange={(e) => setClientForm({...clientForm, email: e.target.value})}
+                    className="input" placeholder="cliente@email.com" />
+                </div>
+                <div>
+                  <label className="input-label">Dirección</label>
+                  <input type="text" value={clientForm.address} onChange={(e) => setClientForm({...clientForm, address: e.target.value})}
+                    className="input" placeholder="Dirección completa" />
+                </div>
+                <div>
+                  <label className="input-label">Estado</label>
+                  <select value={clientForm.status} onChange={(e) => setClientForm({...clientForm, status: e.target.value})}
+                    className="input">
+                    <option value="lead">Lead</option>
+                    <option value="active">Activo</option>
+                    <option value="inactive">Inactivo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="input-label">Etiquetas (separadas por coma)</label>
+                  <input type="text" value={clientForm.tags} onChange={(e) => setClientForm({...clientForm, tags: e.target.value})}
+                    className="input" placeholder="VIP, Frecuente, Mayorista" />
+                </div>
+                <div>
+                  <label className="input-label">Notas</label>
+                  <textarea value={clientForm.notes} onChange={(e) => setClientForm({...clientForm, notes: e.target.value})}
+                    className="input min-h-[80px]" placeholder="Notas adicionales..." />
+                </div>
+                <button onClick={handleSaveClient} className="btn-primary w-full">{editingItem ? 'Actualizar' : 'Guardar'} Cliente</button>
+              </div>
             ) : (
-              <ProductForm 
-                product={selectedItem} 
-                onSave={handleSave} 
-                onCancel={closeModal}
-              />
+              <div className="space-y-4">
+                <div>
+                  <label className="input-label">Nombre *</label>
+                  <input type="text" value={productForm.name} onChange={(e) => setProductForm({...productForm, name: e.target.value})}
+                    className="input" placeholder="Nombre del producto" />
+                </div>
+                <div>
+                  <label className="input-label">Descripción</label>
+                  <textarea value={productForm.description} onChange={(e) => setProductForm({...productForm, description: e.target.value})}
+                    className="input min-h-[80px]" placeholder="Descripción del producto" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="input-label">Precio</label>
+                    <input type="number" value={productForm.price} onChange={(e) => setProductForm({...productForm, price: e.target.value})}
+                      className="input" placeholder="0" />
+                  </div>
+                  <div>
+                    <label className="input-label">Stock</label>
+                    <input type="number" value={productForm.stock} onChange={(e) => setProductForm({...productForm, stock: e.target.value})}
+                      className="input" placeholder="0" />
+                  </div>
+                </div>
+                <div>
+                  <label className="input-label">Categoría</label>
+                  <input type="text" value={productForm.category} onChange={(e) => setProductForm({...productForm, category: e.target.value})}
+                    className="input" placeholder="Categoría del producto" />
+                </div>
+                <button onClick={handleSaveProduct} className="btn-primary w-full">{editingItem ? 'Actualizar' : 'Guardar'} Producto</button>
+              </div>
             )}
           </div>
         </div>
       )}
+
+      {/* Elisa Footer */}
+      <div className="flex items-center justify-center py-4">
+        <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm">
+          <img src="/elisa.png" alt="Elisa" className="w-5 h-5 rounded" />
+          CRM powered by Elisa IA
+        </div>
+      </div>
     </div>
-  );
-}
-
-// Client Form Component
-function ClientForm({ client, onSave, onCancel }: { client?: Client; onSave: (data: any) => void; onCancel: () => void }) {
-  const [formData, setFormData] = useState({
-    name: client?.name || '',
-    phone: client?.phone || '',
-    email: client?.email || '',
-    address: client?.address || '',
-    notes: client?.notes || '',
-    status: client?.status || 'lead',
-    tags: client?.tags?.join(', ') || ''
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSave({
-      ...formData,
-      tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean)
-    });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="input-label">Nombre *</label>
-        <input
-          type="text"
-          required
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          className="input"
-          placeholder="Nombre del cliente"
-        />
-      </div>
-      
-      <div>
-        <label className="input-label">Teléfono *</label>
-        <input
-          type="tel"
-          required
-          value={formData.phone}
-          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-          className="input"
-          placeholder="+57 300 000 0000"
-        />
-      </div>
-      
-      <div>
-        <label className="input-label">Email</label>
-        <input
-          type="email"
-          value={formData.email}
-          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-          className="input"
-          placeholder="email@ejemplo.com"
-        />
-      </div>
-      
-      <div>
-        <label className="input-label">Dirección</label>
-        <input
-          type="text"
-          value={formData.address}
-          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-          className="input"
-          placeholder="Ciudad, País"
-        />
-      </div>
-      
-      <div>
-        <label className="input-label">Estado</label>
-        <select
-          value={formData.status}
-          onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-          className="input"
-        >
-          <option value="lead">Lead</option>
-          <option value="active">Activo</option>
-          <option value="inactive">Inactivo</option>
-        </select>
-      </div>
-      
-      <div>
-        <label className="input-label">Etiquetas</label>
-        <input
-          type="text"
-          value={formData.tags}
-          onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-          className="input"
-          placeholder="VIP, Frecuente, etc. (separadas por coma)"
-        />
-      </div>
-      
-      <div>
-        <label className="input-label">Notas</label>
-        <textarea
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          className="input min-h-[100px]"
-          placeholder="Notas adicionales sobre el cliente..."
-        />
-      </div>
-      
-      <div className="flex gap-3 pt-4">
-        <button type="button" onClick={onCancel} className="btn-secondary flex-1">
-          Cancelar
-        </button>
-        <button type="submit" className="btn-primary flex-1">
-          {client ? 'Guardar Cambios' : 'Crear Cliente'}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-// Product Form Component
-function ProductForm({ product, onSave, onCancel }: { product?: Product; onSave: (data: any) => void; onCancel: () => void }) {
-  const [formData, setFormData] = useState({
-    name: product?.name || '',
-    description: product?.description || '',
-    price: product?.price || 0,
-    stock: product?.stock || 0,
-    category: product?.category || ''
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSave(formData);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="input-label">Nombre *</label>
-        <input
-          type="text"
-          required
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          className="input"
-          placeholder="Nombre del producto"
-        />
-      </div>
-      
-      <div>
-        <label className="input-label">Descripción</label>
-        <textarea
-          value={formData.description}
-          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          className="input min-h-[80px]"
-          placeholder="Descripción del producto..."
-        />
-      </div>
-      
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="input-label">Precio *</label>
-          <input
-            type="number"
-            required
-            min="0"
-            value={formData.price}
-            onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
-            className="input"
-            placeholder="0"
-          />
-        </div>
-        
-        <div>
-          <label className="input-label">Stock</label>
-          <input
-            type="number"
-            min="0"
-            value={formData.stock}
-            onChange={(e) => setFormData({ ...formData, stock: Number(e.target.value) })}
-            className="input"
-            placeholder="0"
-          />
-        </div>
-      </div>
-      
-      <div>
-        <label className="input-label">Categoría</label>
-        <input
-          type="text"
-          value={formData.category}
-          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-          className="input"
-          placeholder="Ej: Buzos, Camisetas, etc."
-        />
-      </div>
-      
-      <div className="flex gap-3 pt-4">
-        <button type="button" onClick={onCancel} className="btn-secondary flex-1">
-          Cancelar
-        </button>
-        <button type="submit" className="btn-primary flex-1">
-          {product ? 'Guardar Cambios' : 'Crear Producto'}
-        </button>
-      </div>
-    </form>
   );
 }

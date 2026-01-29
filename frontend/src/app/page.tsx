@@ -7,11 +7,20 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.push('/dashboard');
+    const token = localStorage.getItem('token');
+    if (token) {
+      router.push('/dashboard');
+    } else {
+      router.push('/login');
+    }
   }, [router]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6">
+      <img src="/elisa.png" alt="Elisa IA" className="w-24 h-24 rounded-3xl animate-pulse shadow-lg" />
+      <h1 className="text-3xl font-bold text-white">
+        Elisa <span className="text-[var(--accent-primary)] font-light">IA</span>
+      </h1>
       <div className="loading-spinner" />
     </div>
   );

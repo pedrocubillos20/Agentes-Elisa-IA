@@ -1,30 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Key, 
-  CheckCircle, 
-  XCircle, 
-  Loader2,
-  ExternalLink,
-  AlertCircle,
-  Eye,
-  EyeOff,
-  Trash2
-} from 'lucide-react';
+import { Settings, Key, User, Shield, Save, CheckCircle, XCircle, Eye, EyeOff } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function ConfiguracionPage() {
   const [user, setUser] = useState<any>(null);
   const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
     fetchUser();
@@ -33,322 +21,196 @@ export default function ConfiguracionPage() {
   const fetchUser = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
-
     try {
-      const res = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
+      const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setUser((await res.json()).user);
+    } catch (error) { console.error('Error:', error); }
+    finally { setLoading(false); }
   };
 
-  const handleSave = async () => {
-    if (!apiKey.trim()) {
-      setError('Ingresa una API Key válida');
-      return;
-    }
-
-    if (!apiKey.startsWith('sk-')) {
-      setError('La API Key debe comenzar con "sk-"');
-      return;
-    }
-
+  const testApiKey = async () => {
+    if (!apiKey) return;
+    setTesting(true);
+    setMessage({ type: '', text: '' });
     const token = localStorage.getItem('token');
-    if (!token) return;
 
+    try {
+      const res = await fetch(`${API_URL}/api/auth/test-api-key`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey })
+      });
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'API Key válida ✓' });
+      } else {
+        setMessage({ type: 'error', text: 'API Key inválida o sin créditos' });
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Error al probar la API Key' });
+    } finally { setTesting(false); }
+  };
+
+  const saveApiKey = async () => {
+    if (!apiKey) return;
     setSaving(true);
-    setError('');
-    setSuccess('');
+    setMessage({ type: '', text: '' });
+    const token = localStorage.getItem('token');
 
     try {
       const res = await fetch(`${API_URL}/api/auth/api-key`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey })
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Error al guardar');
+      if (res.ok) {
+        setMessage({ type: 'success', text: 'API Key guardada correctamente' });
+        setApiKey('');
+        fetchUser();
+      } else {
+        setMessage({ type: 'error', text: 'Error al guardar la API Key' });
       }
-
-      setSuccess('¡API Key guardada correctamente!');
-      setApiKey('');
-      setUser({ ...user, apiKeyConnected: true });
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Error de conexión' });
+    } finally { setSaving(false); }
   };
 
-  const handleTest = async () => {
-    if (!apiKey.trim()) {
-      setError('Ingresa una API Key para probar');
-      return;
-    }
-
-    setTesting(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      // Simple validation by checking format
-      if (!apiKey.startsWith('sk-')) {
-        throw new Error('Formato de API Key inválido');
-      }
-      
-      setSuccess('Formato de API Key válido. Guárdala para verificar con OpenAI.');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!confirm('¿Estás seguro de eliminar tu API Key?')) return;
-
+  const deleteApiKey = async () => {
+    if (!confirm('¿Eliminar la API Key?')) return;
     const token = localStorage.getItem('token');
-    if (!token) return;
-
-    setDeleting(true);
-    setError('');
-    setSuccess('');
-
     try {
-      const res = await fetch(`${API_URL}/api/auth/api-key`, {
+      await fetch(`${API_URL}/api/auth/api-key`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Error al eliminar');
-      }
-
-      setSuccess('API Key eliminada');
-      setUser({ ...user, apiKeyConnected: false });
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setDeleting(false);
+      setMessage({ type: 'success', text: 'API Key eliminada' });
+      fetchUser();
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Error al eliminar' });
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <div className="loading-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className="max-w-4xl mx-auto space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-          <Key className="w-8 h-8 text-yellow-400" />
-          Configurar API Key de OpenAI
-        </h1>
-        <p className="text-slate-400 mt-2">
-          Conecta tu cuenta de OpenAI. Tú eres responsable de tus créditos.
-        </p>
+      <div className="flex items-center gap-4">
+        <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl" />
+        <div>
+          <h1 className="text-3xl font-bold text-white">Configuración</h1>
+          <p className="text-[var(--text-muted)]">Personaliza tu cuenta</p>
+        </div>
       </div>
 
-      {/* Current Status */}
-      <div className={`rounded-xl border p-6 ${
-        user?.apiKeyConnected 
-          ? 'bg-emerald-500/10 border-emerald-500/30' 
-          : 'bg-slate-800/50 border-slate-700'
-      }`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-              user?.apiKeyConnected ? 'bg-emerald-500/20' : 'bg-slate-600'
-            }`}>
-              <Key className={`w-6 h-6 ${user?.apiKeyConnected ? 'text-emerald-400' : 'text-slate-400'}`} />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-white">
-                {user?.apiKeyConnected ? 'API Key Conectada' : 'Sin API Key'}
-              </h2>
-              <p className="text-slate-400 text-sm">
-                {user?.apiKeyConnected 
-                  ? 'Tu API Key está configurada y lista' 
-                  : 'Configura tu API Key para activar el bot'
-                }
-              </p>
-            </div>
+      {/* Profile Card */}
+      <div className="card">
+        <div className="flex items-center gap-3 mb-6">
+          <User className="w-5 h-5 text-[var(--accent-primary)]" />
+          <h2 className="text-lg font-semibold text-white">Perfil</h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="input-label">Nombre</label>
+            <input type="text" value={user?.name || ''} className="input" disabled />
           </div>
-          {user?.apiKeyConnected ? (
-            <span className="badge-success">
-              <CheckCircle className="w-4 h-4 mr-1" />
-              Conectada
-            </span>
-          ) : (
-            <span className="badge-danger">
-              <XCircle className="w-4 h-4 mr-1" />
-              Pendiente
-            </span>
+          <div>
+            <label className="input-label">Email</label>
+            <input type="email" value={user?.email || ''} className="input" disabled />
+          </div>
+        </div>
+      </div>
+
+      {/* API Key Card */}
+      <div className="card">
+        <div className="flex items-center gap-3 mb-6">
+          <Key className="w-5 h-5 text-[var(--accent-primary)]" />
+          <h2 className="text-lg font-semibold text-white">API Key de OpenAI</h2>
+        </div>
+
+        {/* Status */}
+        <div className="flex items-center gap-3 mb-6 p-4 rounded-xl bg-[var(--bg-tertiary)]">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${user?.apiKeyConnected ? 'bg-emerald-500/20' : 'bg-yellow-500/20'}`}>
+            {user?.apiKeyConnected ? <CheckCircle className="w-5 h-5 text-emerald-400" /> : <Key className="w-5 h-5 text-yellow-400" />}
+          </div>
+          <div className="flex-1">
+            <p className="font-medium text-white">
+              {user?.apiKeyConnected ? 'API Key configurada' : 'Sin API Key'}
+            </p>
+            <p className="text-sm text-[var(--text-muted)]">
+              {user?.apiKeyConnected ? 'Tu asistente IA está listo' : 'Agrega tu API Key para activar Elisa'}
+            </p>
+          </div>
+          {user?.apiKeyConnected && (
+            <button onClick={deleteApiKey} className="btn-danger text-sm py-2">
+              <XCircle className="w-4 h-4" />Eliminar
+            </button>
           )}
         </div>
 
-        {user?.apiKeyConnected && (
-          <button
-            onClick={handleDelete}
-            disabled={deleting}
-            className="mt-4 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg transition-all duration-200 flex items-center gap-2 disabled:opacity-50"
-          >
-            {deleting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Trash2 className="w-4 h-4" />
-            )}
-            Eliminar API Key
-          </button>
+        {/* Message */}
+        {message.text && (
+          <div className={`mb-4 p-4 rounded-xl ${message.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'}`}>
+            {message.text}
+          </div>
         )}
-      </div>
 
-      {/* Messages */}
-      {error && (
-        <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-          <p className="text-red-400">{error}</p>
-        </div>
-      )}
-
-      {success && (
-        <div className="bg-emerald-500/20 border border-emerald-500/50 rounded-lg p-4 flex items-center gap-3">
-          <CheckCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-          <p className="text-emerald-400">{success}</p>
-        </div>
-      )}
-
-      {/* API Key Form */}
-      <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">
-          {user?.apiKeyConnected ? 'Cambiar API Key' : 'Agregar API Key'}
-        </h3>
-
+        {/* Input */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              API Key de OpenAI
-            </label>
+            <label className="input-label">Nueva API Key</label>
             <div className="relative">
               <input
-                type={showKey ? 'text' : 'password'}
+                type={showApiKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent pr-12"
-                placeholder="sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx"
+                className="input pr-12"
+                placeholder="sk-..."
               />
               <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white"
               >
-                {showKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                {showApiKey ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
             </div>
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={handleTest}
-              disabled={testing || !apiKey.trim()}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-all duration-200 flex items-center gap-2 disabled:opacity-50"
-            >
-              {testing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                'Probar'
-              )}
+            <button onClick={testApiKey} disabled={!apiKey || testing} className="btn-secondary">
+              {testing ? <div className="loading-spinner w-4 h-4" /> : <Shield className="w-4 h-4" />}
+              Probar
             </button>
-            <button
-              onClick={handleSave}
-              disabled={saving || !apiKey.trim()}
-              className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg transition-all duration-200 flex items-center gap-2 disabled:opacity-50"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Guardando...
-                </>
-              ) : (
-                'Guardar'
-              )}
+            <button onClick={saveApiKey} disabled={!apiKey || saving} className="btn-primary">
+              {saving ? <div className="loading-spinner w-4 h-4" /> : <Save className="w-4 h-4" />}
+              Guardar API Key
             </button>
           </div>
         </div>
+
+        {/* Help */}
+        <div className="mt-6 p-4 bg-[var(--bg-tertiary)] rounded-xl">
+          <h4 className="font-medium text-white mb-2">¿Cómo obtener tu API Key?</h4>
+          <ol className="text-sm text-[var(--text-muted)] space-y-1">
+            <li>1. Ve a <a href="https://platform.openai.com/api-keys" target="_blank" className="text-[var(--accent-primary)] hover:underline">platform.openai.com/api-keys</a></li>
+            <li>2. Inicia sesión o crea una cuenta</li>
+            <li>3. Crea una nueva API Key</li>
+            <li>4. Copia y pega aquí</li>
+          </ol>
+        </div>
       </div>
 
-      {/* Instructions */}
-      <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">
-          📝 ¿Cómo obtener tu API Key?
-        </h3>
-        <ol className="space-y-3 text-slate-300">
-          <li className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">1</span>
-            <span>
-              Ve a{' '}
-              <a 
-                href="https://platform.openai.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-emerald-400 hover:underline inline-flex items-center gap-1"
-              >
-                platform.openai.com
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </span>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">2</span>
-            <span>Inicia sesión o crea una cuenta</span>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">3</span>
-            <span>Ve a "API Keys" en el menú</span>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">4</span>
-            <span>Crea una nueva API Key</span>
-          </li>
-          <li className="flex items-start gap-3">
-            <span className="w-6 h-6 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold">5</span>
-            <span>Copia la clave y pégala aquí</span>
-          </li>
-        </ol>
-      </div>
-
-      {/* Pricing Info */}
-      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-6">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="w-6 h-6 text-yellow-400 flex-shrink-0" />
-          <div>
-            <h4 className="font-semibold text-yellow-400">Sobre los costos</h4>
-            <p className="text-slate-300 text-sm mt-1">
-              OpenAI cobra por uso. GPT-3.5-turbo cuesta aproximadamente $0.002 por 1000 tokens 
-              (aproximadamente 750 palabras). Monitorea tu uso en el dashboard de OpenAI.
-            </p>
-          </div>
+      {/* Footer */}
+      <div className="flex items-center justify-center py-4">
+        <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm">
+          <img src="/elisa.png" alt="Elisa" className="w-5 h-5 rounded" />
+          Configuración powered by Elisa IA
         </div>
       </div>
     </div>

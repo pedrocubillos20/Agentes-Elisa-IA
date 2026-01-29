@@ -179,7 +179,7 @@ router.delete('/api-key', authMiddleware, async (req: Request, res: Response) =>
   }
 });
 
-// POST /api/auth/api-key/test - Probar API Key (público, no requiere auth)
+// POST /api/auth/api-key/test - Probar API Key
 router.post('/api-key/test', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
@@ -189,42 +189,74 @@ router.post('/api-key/test', async (req: Request, res: Response) => {
       return;
     }
 
-    console.log('Probando API Key...');
+    // Validar formato básico
+    if (!apiKey.startsWith('sk-')) {
+      res.json({ valid: false, message: 'Formato de API Key inválido. Debe comenzar con sk-' });
+      return;
+    }
 
+    console.log('Probando API Key:', apiKey.substring(0, 15) + '...');
+
+    // Usar fetch con timeout manual
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    const response = await fetch('https://api.openai.com/v1/models', {
-      method: 'GET',
-      headers: { 
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      signal: controller.signal
-    });
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        method: 'GET',
+        headers: { 
+          'Authorization': `Bearer ${apiKey}`
+        },
+        signal: controller.signal
+      });
 
-    clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
 
-    console.log('OpenAI response status:', response.status);
+      console.log('OpenAI response status:', response.status);
 
-    if (response.ok) {
-      res.json({ valid: true, message: 'API Key válida' });
-    } else if (response.status === 401) {
-      res.json({ valid: false, message: 'API Key inválida' });
-    } else if (response.status === 429) {
-      res.json({ valid: false, message: 'Sin créditos o límite excedido' });
-    } else {
-      const errorData = await response.text();
-      console.log('OpenAI error:', errorData);
-      res.json({ valid: false, message: 'Error al verificar API Key' });
+      if (response.status === 200) {
+        res.json({ valid: true, message: 'API Key válida ✓' });
+        return;
+      } 
+      
+      if (response.status === 401) {
+        res.json({ valid: false, message: 'API Key inválida' });
+        return;
+      } 
+      
+      if (response.status === 429) {
+        // 429 significa rate limit pero la key es válida
+        res.json({ valid: true, message: 'API Key válida (límite de rate alcanzado)' });
+        return;
+      } 
+      
+      if (response.status === 403) {
+        res.json({ valid: false, message: 'API Key sin permisos o sin créditos' });
+        return;
+      }
+
+      // Intentar leer el error
+      const errorText = await response.text();
+      console.log('OpenAI error response:', errorText);
+      
+      res.json({ valid: false, message: 'API Key inválida o sin créditos' });
+
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        console.log('Request timeout');
+        res.json({ valid: false, message: 'Tiempo de espera agotado. Intenta de nuevo.' });
+        return;
+      }
+      
+      console.error('Fetch error:', fetchError.message);
+      res.json({ valid: false, message: 'Error de conexión. Intenta de nuevo.' });
     }
+
   } catch (error: any) {
-    console.error('Error probando API Key:', error.message);
-    if (error.name === 'AbortError') {
-      res.json({ valid: false, message: 'Tiempo de espera agotado' });
-    } else {
-      res.json({ valid: false, message: 'Error de conexión' });
-    }
+    console.error('Error general probando API Key:', error);
+    res.json({ valid: false, message: 'Error al verificar. Intenta de nuevo.' });
   }
 });
 

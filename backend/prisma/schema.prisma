@@ -108,6 +108,7 @@ model Conversation {
   recipientName String?
   lastMessage   String?
   aiPaused      Boolean   @default(false)
+  stage         String    @default("new")  // Etapa del embudo: new, interested, quoting, negotiating, pending_confirm, converted, follow_up, lost
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -116,6 +117,7 @@ model Conversation {
   messages      Message[]
 
   @@index([recipientId])
+  @@index([userId, stage])
 }
 
 model Message {

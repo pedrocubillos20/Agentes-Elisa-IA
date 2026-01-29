@@ -66,7 +66,12 @@ router.post('/login', async (req: Request, res: Response) => {
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
-      user: { id: user.id, email: user.email, name: user.name },
+      user: { 
+        id: user.id, 
+        email: user.email, 
+        name: user.name,
+        apiKeyConnected: user.apiKeyConnected || false
+      },
       token
     });
   } catch (error) {
@@ -79,6 +84,11 @@ router.post('/login', async (req: Request, res: Response) => {
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+
+    if (!userId) {
+      res.status(401).json({ error: 'No autorizado' });
+      return;
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -104,7 +114,27 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/auth/api-key
+// GET /api/auth/api-key/status - Verificar si tiene API Key configurada
+router.get('/api-key/status', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { apiKey: true, apiKeyConnected: true }
+    });
+
+    res.json({ 
+      hasApiKey: !!user?.apiKey,
+      apiKeyConnected: user?.apiKeyConnected || false
+    });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+// POST /api/auth/api-key - Guardar API Key
 router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -115,34 +145,86 @@ router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
+    if (!userId) {
+      res.status(401).json({ error: 'No autorizado' });
+      return;
+    }
+
     await prisma.user.update({
       where: { id: userId },
       data: { apiKey, apiKeyConnected: true }
     });
 
-    res.json({ message: 'API Key guardada correctamente' });
+    res.json({ success: true, message: 'API Key guardada correctamente' });
   } catch (error) {
     console.error('Error guardando API Key:', error);
     res.status(500).json({ error: 'Error al guardar API Key' });
   }
 });
 
-// POST /api/auth/api-key/test
+// DELETE /api/auth/api-key - Eliminar API Key
+router.delete('/api-key', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { apiKey: null, apiKeyConnected: false }
+    });
+
+    res.json({ success: true, message: 'API Key eliminada' });
+  } catch (error) {
+    console.error('Error eliminando API Key:', error);
+    res.status(500).json({ error: 'Error al eliminar API Key' });
+  }
+});
+
+// POST /api/auth/api-key/test - Probar API Key (público, no requiere auth)
 router.post('/api-key/test', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
 
+    if (!apiKey) {
+      res.json({ valid: false, message: 'API Key es requerida' });
+      return;
+    }
+
+    console.log('Probando API Key...');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     const response = await fetch('https://api.openai.com/v1/models', {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
+      method: 'GET',
+      headers: { 
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
+
+    console.log('OpenAI response status:', response.status);
 
     if (response.ok) {
       res.json({ valid: true, message: 'API Key válida' });
-    } else {
+    } else if (response.status === 401) {
       res.json({ valid: false, message: 'API Key inválida' });
+    } else if (response.status === 429) {
+      res.json({ valid: false, message: 'Sin créditos o límite excedido' });
+    } else {
+      const errorData = await response.text();
+      console.log('OpenAI error:', errorData);
+      res.json({ valid: false, message: 'Error al verificar API Key' });
     }
-  } catch (error) {
-    res.json({ valid: false, message: 'Error al verificar API Key' });
+  } catch (error: any) {
+    console.error('Error probando API Key:', error.message);
+    if (error.name === 'AbortError') {
+      res.json({ valid: false, message: 'Tiempo de espera agotado' });
+    } else {
+      res.json({ valid: false, message: 'Error de conexión' });
+    }
   }
 });
 

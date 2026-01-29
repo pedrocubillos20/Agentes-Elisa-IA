@@ -40,6 +40,8 @@ model User {
   messages              Message[]
   faqs                  FAQ[]
   products              Product[]
+  clients               Client[]
+  appointments          Appointment[]
 }
 
 model Assistant {
@@ -63,20 +65,21 @@ model Assistant {
 }
 
 model Conversation {
-  id           String    @id @default(uuid())
-  recipientId  String
+  id            String    @id @default(uuid())
+  recipientId   String
   recipientName String?
-  userId       String
-  assistantId  String?
-  lastMessage  String?   @db.Text
+  userId        String
+  assistantId   String?
+  lastMessage   String?   @db.Text
   lastMessageAt DateTime?
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  isActive      Boolean   @default(true)
+  aiPaused      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assistant    Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
-  messages     Message[]
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assistant     Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  messages      Message[]
 }
 
 model Message {
@@ -104,16 +107,73 @@ model FAQ {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+// ==========================================
+// CRM - PRODUCTOS (Actualizado)
+// ==========================================
 model Product {
   id          String   @id @default(uuid())
   userId      String
   name        String
   description String?  @db.Text
   price       Float?
+  stock       Int      @default(0)
   category    String?
+  image       String?  @db.Text
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// CRM - CLIENTES (Nuevo)
+// ==========================================
+model Client {
+  id             String    @id @default(uuid())
+  userId         String
+  name           String
+  phone          String
+  email          String?
+  address        String?
+  notes          String?   @db.Text
+  tags           String[]  @default([])
+  status         String    @default("lead") // lead, active, inactive
+  totalPurchases Float     @default(0)
+  lastContact    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments   Appointment[]
+  
+  @@index([userId, phone])
+}
+
+// ==========================================
+// AGENDA - CITAS Y PEDIDOS (Nuevo)
+// ==========================================
+model Appointment {
+  id          String   @id @default(uuid())
+  userId      String
+  clientId    String?
+  type        String   // appointment, order
+  clientName  String
+  clientPhone String
+  date        DateTime
+  time        String
+  duration    Int?     // en minutos
+  status      String   @default("pending") // pending, confirmed, completed, cancelled
+  notes       String?  @db.Text
+  address     String?
+  products    Json?    // Para pedidos: [{name, quantity, price}]
+  total       Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  
+  @@index([userId, date])
+  @@index([userId, status])
 }

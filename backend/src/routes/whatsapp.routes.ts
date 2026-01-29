@@ -14,10 +14,10 @@ router.get('/status', async (req: Request, res: Response) => {
     const response = await fetch(`${WAHA_API}/api/sessions/${sessionName}`);
 
     if (response.ok) {
-      const data = await response.json();
+      const data = await response.json() as any;
       res.json({
         connected: data.status === 'WORKING',
-        status: data.status,
+        status: data.status || 'UNKNOWN',
         session: sessionName
       });
     } else {
@@ -35,7 +35,7 @@ router.post('/connect', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const sessionName = `session_${userId}`;
 
-    const response = await fetch(`${WAHA_API}/api/sessions`, {
+    const createResponse = await fetch(`${WAHA_API}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -49,11 +49,11 @@ router.post('/connect', async (req: Request, res: Response) => {
       })
     });
 
-    if (response.ok || response.status === 409) {
+    if (createResponse.ok || createResponse.status === 409) {
       const qrResponse = await fetch(`${WAHA_API}/api/sessions/${sessionName}/auth/qr`);
       if (qrResponse.ok) {
-        const qrData = await qrResponse.json();
-        res.json({ qr: qrData.value, session: sessionName });
+        const qrData = await qrResponse.json() as any;
+        res.json({ qr: qrData.value || qrData.qr || '', session: sessionName });
       } else {
         res.json({ message: 'Sesión creada, esperando QR', session: sessionName });
       }
@@ -75,8 +75,8 @@ router.get('/qr', async (req: Request, res: Response) => {
     const response = await fetch(`${WAHA_API}/api/sessions/${sessionName}/auth/qr`);
 
     if (response.ok) {
-      const data = await response.json();
-      res.json({ qr: data.value });
+      const data = await response.json() as any;
+      res.json({ qr: data.value || data.qr || '' });
     } else {
       res.status(400).json({ error: 'QR no disponible' });
     }

@@ -10,7 +10,7 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const { search, status } = req.query;
 
-    let where: any = { userId };
+    const where: any = { userId };
     
     if (status) where.status = status;
     

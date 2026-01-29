@@ -96,8 +96,8 @@ router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
     });
 
     if (response.ok) {
-      const data = await response.json();
-      res.json({ voices: data.voices });
+      const data = await response.json() as any;
+      res.json({ voices: data.voices || [] });
     } else {
       res.status(400).json({ error: 'API Key inválida' });
     }

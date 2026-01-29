@@ -10,6 +10,7 @@ export default function WhatsAppPage() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
+  const [qrLoading, setQrLoading] = useState(false);
 
   useEffect(() => {
     checkStatus();
@@ -17,18 +18,32 @@ export default function WhatsAppPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Efecto para obtener QR automáticamente cuando el status es 'qr'
+  useEffect(() => {
+    if (status?.status === 'qr' || status?.hasQR) {
+      getQR();
+    }
+  }, [status]);
+
   const checkStatus = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/status`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/whatsapp/status`, { 
+        headers: { 'Authorization': `Bearer ${token}` } 
+      });
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
-        if (data.connected) setQrCode(null);
+        if (data.connected) {
+          setQrCode(null);
+        }
       }
-    } catch (error) { console.error('Error:', error); }
-    finally { setLoading(false); }
+    } catch (error) { 
+      console.error('Error:', error); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const connect = async () => {
@@ -40,12 +55,28 @@ export default function WhatsAppPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        const data = await res.json();
-        if (data.qrCode) setQrCode(data.qrCode);
-        checkStatus();
+        // Esperar un poco para que se genere el QR
+        setTimeout(() => {
+          getQR();
+          checkStatus();
+        }, 3000);
+        
+        // Seguir intentando obtener el QR
+        const qrInterval = setInterval(async () => {
+          const hasQR = await getQR();
+          if (hasQR) {
+            clearInterval(qrInterval);
+          }
+        }, 2000);
+        
+        // Detener después de 30 segundos
+        setTimeout(() => clearInterval(qrInterval), 30000);
       }
-    } catch (error) { console.error('Error:', error); }
-    finally { setConnecting(false); }
+    } catch (error) { 
+      console.error('Error:', error); 
+    } finally { 
+      setConnecting(false); 
+    }
   };
 
   const disconnect = async () => {
@@ -58,18 +89,34 @@ export default function WhatsAppPage() {
       });
       setQrCode(null);
       checkStatus();
-    } catch (error) { console.error('Error:', error); }
+    } catch (error) { 
+      console.error('Error:', error); 
+    }
   };
 
-  const getQR = async () => {
+  const getQR = async (): Promise<boolean> => {
+    setQrLoading(true);
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/qr`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/whatsapp/qr`, { 
+        headers: { 'Authorization': `Bearer ${token}` } 
+      });
       if (res.ok) {
         const data = await res.json();
-        if (data.qrCode) setQrCode(data.qrCode);
+        console.log('QR Response:', data); // Debug
+        
+        // El backend devuelve 'qr' no 'qrCode'
+        if (data.qr) {
+          setQrCode(data.qr);
+          setQrLoading(false);
+          return true;
+        }
       }
-    } catch (error) { console.error('Error:', error); }
+    } catch (error) { 
+      console.error('Error:', error); 
+    }
+    setQrLoading(false);
+    return false;
   };
 
   if (loading) {
@@ -136,18 +183,32 @@ export default function WhatsAppPage() {
             
             {qrCode ? (
               <div className="inline-block p-6 bg-white rounded-2xl mb-4">
-                <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code" className="w-64 h-64" />
+                <img 
+                  src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} 
+                  alt="QR Code" 
+                  className="w-64 h-64" 
+                />
               </div>
             ) : (
               <div className="inline-flex flex-col items-center justify-center w-64 h-64 bg-[var(--bg-tertiary)] rounded-2xl mb-4">
-                <QrCode className="w-16 h-16 text-[var(--text-muted)] mb-4" />
-                <p className="text-[var(--text-muted)] text-sm">Haz clic en "Conectar" para generar el QR</p>
+                {qrLoading ? (
+                  <>
+                    <div className="loading-spinner w-12 h-12 mb-4" />
+                    <p className="text-[var(--text-muted)] text-sm">Generando código QR...</p>
+                  </>
+                ) : (
+                  <>
+                    <QrCode className="w-16 h-16 text-[var(--text-muted)] mb-4" />
+                    <p className="text-[var(--text-muted)] text-sm">Haz clic en "Conectar" para generar el QR</p>
+                  </>
+                )}
               </div>
             )}
 
             <div className="flex justify-center gap-3">
-              <button onClick={getQR} className="btn-secondary">
-                <RefreshCw className="w-4 h-4" />Actualizar QR
+              <button onClick={getQR} disabled={qrLoading} className="btn-secondary">
+                <RefreshCw className={`w-4 h-4 ${qrLoading ? 'animate-spin' : ''}`} />
+                {qrLoading ? 'Cargando...' : 'Actualizar QR'}
               </button>
             </div>
 

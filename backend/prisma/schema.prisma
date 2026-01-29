@@ -1,3 +1,7 @@
+// ==========================================
+// ELISA IA - PRISMA SCHEMA v5.0
+// ==========================================
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,172 +12,183 @@ datasource db {
 }
 
 model User {
-  id                    String       @id @default(uuid())
-  email                 String       @unique
-  password              String
-  name                  String?
-  plan                  String       @default("FREE")
-  trialEndsAt           DateTime?
-  apiKeyEncrypted       String?      @db.Text
-  apiKeyConnected       Boolean      @default(false)
-  
-  // Evolution API fields
-  evolutionInstanceName String?      @unique
-  evolutionInstanceKey  String?      @db.Text
-  whatsappConnected     Boolean      @default(false)
-  whatsappPhone         String?
-  whatsappQrCode        String?      @db.Text
-  whatsappStatus        String?      @default("disconnected")
-  
-  // Referidos
-  referralCode          String?      @unique
-  referredBy            String?
-  
-  // Marca blanca
-  customBrandName       String?
-  
-  createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
-  
-  assistants            Assistant[]
-  conversations         Conversation[]
-  messages              Message[]
-  faqs                  FAQ[]
-  products              Product[]
-  clients               Client[]
-  appointments          Appointment[]
+  id              String         @id @default(cuid())
+  email           String         @unique
+  password        String
+  name            String?
+  phone           String?
+  apiKey          String?        // OpenAI API Key
+  apiKeyConnected Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  assistants      Assistant[]
+  conversations   Conversation[]
+  products        Product[]
+  clients         Client[]
+  appointments    Appointment[]
+  mediaFiles      MediaFile[]
+  learningLogs    LearningLog[]
 }
 
 model Assistant {
-  id              String   @id @default(uuid())
+  id              String    @id @default(cuid())
   userId          String
-  name            String
-  personality     String?  @db.Text
-  context         String?  @db.Text
-  businessInfo    String?  @db.Text
-  instructions    String?  @db.Text
-  welcomeMessage  String?  @db.Text
-  isActive        Boolean  @default(true)
-  model           String   @default("gpt-3.5-turbo")
-  temperature     Float    @default(0.7)
-  maxTokens       Int      @default(500)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  conversations   Conversation[]
+  name            String
+  context         String?   @db.Text
+  personality     String?   @db.Text
+  businessInfo    String?   @db.Text
+  instructions    String?   @db.Text
+  
+  // Nuevos campos v5.0
+  knowledgeItems  Json      @default("[]")   // Respuestas rápidas con triggers
+  mediaItems      Json      @default("[]")   // Referencias a archivos multimedia
+  
+  // ElevenLabs
+  elevenLabsKey   String?
+  selectedVoice   String?
+  voiceEnabled    Boolean   @default(false)
+  
+  // Auto-aprendizaje
+  autoLearn       Boolean   @default(true)
+  learningHistory Json      @default("[]")
+  
+  // Configuración del modelo
+  model           String    @default("gpt-4-turbo-preview")
+  temperature     Float     @default(0.7)
+  maxTokens       Int       @default(500)
+  
+  isActive        Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  mediaFiles      MediaFile[]
+}
+
+model MediaFile {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assistantId String?
+  assistant   Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
+  
+  name        String
+  type        String     // image, video, audio
+  url         String     @db.Text
+  trigger     String?    // Palabra clave que activa el envío
+  size        Int?
+  
+  createdAt   DateTime   @default(now())
+
+  @@index([userId])
+}
+
+model LearningLog {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assistantId String?
+  
+  type        String    // suggestion, improvement, pattern
+  suggestion  String    @db.Text
+  reason      String?   @db.Text
+  applied     Boolean   @default(false)
+  appliedAt   DateTime?
+  
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Conversation {
-  id            String    @id @default(uuid())
+  id            String    @id @default(cuid())
   recipientId   String
   recipientName String?
-  userId        String
-  assistantId   String?
-  lastMessage   String?   @db.Text
-  lastMessageAt DateTime?
-  isActive      Boolean   @default(true)
+  lastMessage   String?
   aiPaused      Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-  
+
+  userId        String
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assistant     Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
   messages      Message[]
+
+  @@index([recipientId])
 }
 
 model Message {
-  id             String   @id @default(uuid())
+  id             String       @id @default(cuid())
   conversationId String
-  userId         String
-  role           String
-  content        String   @db.Text
-  fromMe         Boolean  @default(false)
-  timestamp      DateTime @default(now())
-  
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content        String       @db.Text
+  fromMe         Boolean      @default(false)
+  timestamp      DateTime     @default(now())
+  mediaType      String?
+  mediaUrl       String?      @db.Text
 }
 
-model FAQ {
-  id        String   @id @default(uuid())
-  userId    String
-  question  String   @db.Text
-  answer    String   @db.Text
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-// ==========================================
-// CRM - PRODUCTOS (Actualizado)
-// ==========================================
 model Product {
-  id          String   @id @default(uuid())
+  id          String   @id @default(cuid())
   userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
   description String?  @db.Text
-  price       Float?
-  stock       Int      @default(0)
+  price       Float
   category    String?
   image       String?  @db.Text
+  stock       Int      @default(0)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, category])
 }
 
-// ==========================================
-// CRM - CLIENTES (Nuevo)
-// ==========================================
 model Client {
-  id             String    @id @default(uuid())
+  id             String        @id @default(cuid())
   userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   name           String
   phone          String
   email          String?
-  address        String?
-  notes          String?   @db.Text
-  tags           String[]  @default([])
-  status         String    @default("lead") // lead, active, inactive
-  totalPurchases Float     @default(0)
+  address        String?       @db.Text
+  notes          String?       @db.Text
+  tags           String[]      @default([])
+  status         String        @default("lead")
+  totalPurchases Float         @default(0)
   lastContact    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
   appointments   Appointment[]
-  
+
   @@index([userId, phone])
 }
 
-// ==========================================
-// AGENDA - CITAS Y PEDIDOS (Nuevo)
-// ==========================================
 model Appointment {
-  id          String   @id @default(uuid())
+  id          String   @id @default(cuid())
   userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  
   type        String   // appointment, order
   clientName  String
   clientPhone String
   date        DateTime
   time        String
-  duration    Int?     // en minutos
-  status      String   @default("pending") // pending, confirmed, completed, cancelled
+  duration    Int?
+  status      String   @default("pending")
   notes       String?  @db.Text
-  address     String?
-  products    Json?    // Para pedidos: [{name, quantity, price}]
+  address     String?  @db.Text
+  products    Json?
   total       Float?
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  
+
   @@index([userId, date])
   @@index([userId, status])
 }

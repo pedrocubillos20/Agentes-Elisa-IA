@@ -1,15 +1,23 @@
-FROM node:18
+FROM node:18-alpine
 
 WORKDIR /app
 
+# Copiar archivos de dependencias
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Instalar dependencias
+RUN npm install
+
+# Copiar código fuente
 COPY . .
 
-RUN npm ci || npm install
+# Generar cliente Prisma y compilar TypeScript
+RUN npx prisma generate
+RUN npm run build
 
-RUN npx prisma generate || true
+# Exponer puerto
+EXPOSE 3000
 
-RUN npx tsc || ./node_modules/.bin/tsc
-
-EXPOSE 3001
-
-CMD ["node", "dist/server.js"]
+# Comando de inicio
+CMD ["npm", "start"]

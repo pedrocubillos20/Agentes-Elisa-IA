@@ -1,209 +1,148 @@
-import { Router, Request, Response, NextFunction } from 'express';
-import prisma from '../lib/prisma';
+import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import prisma from '../lib/prisma';
+import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key-2024';
 
-// Middleware de autenticación
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Token no proporcionado' });
-    }
-    
-    const token = authHeader.substring(7);
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId }
-    });
-    
-    if (!user) {
-      return res.status(401).json({ error: 'Usuario no encontrado' });
-    }
-    
-    (req as any).user = user;
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: 'Token inválido' });
-  }
-};
-
-// POST /register
+// POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { name, email, password } = req.body;
-    
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Todos los campos son requeridos' });
+    const { email, password, name } = req.body;
+
+    if (!email || !password) {
+      res.status(400).json({ error: 'Email y contraseña son requeridos' });
+      return;
     }
-    
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
-    });
-    
+
+    const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      return res.status(400).json({ error: 'El email ya está registrado' });
+      res.status(400).json({ error: 'El email ya está registrado' });
+      return;
     }
-    
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword
-      }
+      data: { email, password: hashedPassword, name: name || null }
     });
-    
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-    
-    res.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email
-      },
+
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.status(201).json({
+      user: { id: user.id, email: user.email, name: user.name },
       token
     });
-  } catch (error: any) {
-    console.error('❌ Error registro:', error);
+  } catch (error) {
+    console.error('Error en registro:', error);
     res.status(500).json({ error: 'Error al registrar usuario' });
   }
 });
 
-// POST /login
+// POST /api/auth/login
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
-    
+
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email y contraseña son requeridos' });
+      res.status(400).json({ error: 'Email y contraseña son requeridos' });
+      return;
     }
-    
-    const user = await prisma.user.findUnique({
-      where: { email }
-    });
-    
+
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+      res.status(401).json({ error: 'Credenciales inválidas' });
+      return;
     }
-    
+
     const validPassword = await bcrypt.compare(password, user.password);
-    
     if (!validPassword) {
-      return res.status(401).json({ error: 'Credenciales inválidas' });
+      res.status(401).json({ error: 'Credenciales inválidas' });
+      return;
     }
-    
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-    
+
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+
     res.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        apiKeyConnected: user.apiKeyConnected || false
-      },
+      user: { id: user.id, email: user.email, name: user.name },
       token
     });
-  } catch (error: any) {
-    console.error('❌ Error login:', error);
+  } catch (error) {
+    console.error('Error en login:', error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
 
-// GET /me
+// GET /api/auth/me
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    
-    res.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        apiKeyConnected: user.apiKeyConnected || false
+    const userId = (req as AuthRequest).user?.id;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        phone: true,
+        apiKeyConnected: true,
+        createdAt: true
       }
     });
-  } catch (error: any) {
-    console.error('❌ Error /me:', error);
+
+    if (!user) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+
+    res.json({ user });
+  } catch (error) {
+    console.error('Error obteniendo usuario:', error);
     res.status(500).json({ error: 'Error al obtener usuario' });
   }
 });
 
-// POST /api-key - Guardar API Key de OpenAI del usuario
+// POST /api/auth/api-key
 router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
+    const userId = (req as AuthRequest).user?.id;
     const { apiKey } = req.body;
-    
+
     if (!apiKey) {
-      return res.status(400).json({ error: 'API Key es requerida' });
+      res.status(400).json({ error: 'API Key es requerida' });
+      return;
     }
-    
-    // Guardar la API Key en el campo apiKeyEncrypted
+
     await prisma.user.update({
-      where: { id: user.id },
-      data: { 
-        apiKeyEncrypted: apiKey,
-        apiKeyConnected: true
-      }
+      where: { id: userId },
+      data: { apiKey, apiKeyConnected: true }
     });
-    
-    res.json({ success: true, message: 'API Key guardada correctamente' });
-  } catch (error: any) {
-    console.error('❌ Error guardando API Key:', error);
+
+    res.json({ message: 'API Key guardada correctamente' });
+  } catch (error) {
+    console.error('Error guardando API Key:', error);
     res.status(500).json({ error: 'Error al guardar API Key' });
   }
 });
 
-// DELETE /api-key - Eliminar API Key
-router.delete('/api-key', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { 
-        apiKeyEncrypted: null,
-        apiKeyConnected: false
-      }
-    });
-    
-    res.json({ success: true, message: 'API Key eliminada' });
-  } catch (error: any) {
-    console.error('❌ Error eliminando API Key:', error);
-    res.status(500).json({ error: 'Error al eliminar API Key' });
-  }
-});
-
-// POST /test-api-key - Probar API Key
-router.post('/test-api-key', authMiddleware, async (req: Request, res: Response) => {
+// POST /api/auth/api-key/test
+router.post('/api-key/test', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
-    
-    if (!apiKey) {
-      return res.status(400).json({ error: 'API Key es requerida' });
-    }
-    
-    // Probar la API Key con OpenAI
-    const OpenAI = require('openai');
-    const openai = new OpenAI({ apiKey });
-    
-    await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [{ role: 'user', content: 'test' }],
-      max_tokens: 5
+
+    const response = await fetch('https://api.openai.com/v1/models', {
+      headers: { 'Authorization': `Bearer ${apiKey}` }
     });
-    
-    res.json({ success: true, message: 'API Key válida' });
-  } catch (error: any) {
-    console.error('❌ Error probando API Key:', error.message);
-    res.status(400).json({ error: 'API Key inválida o sin créditos' });
+
+    if (response.ok) {
+      res.json({ valid: true, message: 'API Key válida' });
+    } else {
+      res.json({ valid: false, message: 'API Key inválida' });
+    }
+  } catch (error) {
+    res.json({ valid: false, message: 'Error al verificar API Key' });
   }
 });
 

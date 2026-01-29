@@ -1,257 +1,112 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { authMiddleware } from './auth.routes';
+import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// ==========================================
-// GET / - Obtener todos los productos
-// ==========================================
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
+// GET /api/products
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    const { category, search, lowStock, limit = '50' } = req.query;
-    
-    const where: any = { userId: user.id, isActive: true };
-    
-    if (category) {
-      where.category = category;
-    }
-    
-    if (search) {
-      where.OR = [
-        { name: { contains: search as string, mode: 'insensitive' } },
-        { description: { contains: search as string, mode: 'insensitive' } }
-      ];
-    }
-    
-    if (lowStock === 'true') {
-      where.stock = { lt: 10 };
-    }
-    
+    const userId = (req as AuthRequest).user?.id;
+    const { category } = req.query;
+
+    const where: any = { userId };
+    if (category) where.category = category as string;
+
     const products = await prisma.product.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
-      take: parseInt(limit as string)
+      orderBy: { createdAt: 'desc' }
     });
-    
+
     res.json({ products });
-  } catch (error: any) {
-    console.error('❌ Error obteniendo productos:', error);
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al obtener productos' });
   }
 });
 
-// ==========================================
-// GET /stats - Estadísticas de productos
-// ==========================================
-router.get('/stats', authMiddleware, async (req: Request, res: Response) => {
+// GET /api/products/stats
+router.get('/stats', async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    
-    const [total, lowStock, categories] = await Promise.all([
-      prisma.product.count({ where: { userId: user.id, isActive: true } }),
-      prisma.product.count({ where: { userId: user.id, isActive: true, stock: { lt: 10 } } }),
-      prisma.product.groupBy({
-        by: ['category'],
-        where: { userId: user.id, isActive: true },
-        _count: { category: true }
-      })
-    ]);
-    
-    res.json({
-      total,
-      lowStock,
-      categories: categories.filter(c => c.category).map(c => ({
-        name: c.category,
-        count: c._count.category
-      }))
-    });
-  } catch (error: any) {
-    console.error('❌ Error obteniendo estadísticas:', error);
+    const userId = (req as AuthRequest).user?.id;
+
+    const total = await prisma.product.count({ where: { userId } });
+    const active = await prisma.product.count({ where: { userId, isActive: true } });
+    const lowStock = await prisma.product.count({ where: { userId, stock: { lt: 10 } } });
+
+    res.json({ total, active, lowStock });
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 });
 
-// ==========================================
-// GET /categories - Obtener categorías
-// ==========================================
-router.get('/categories', authMiddleware, async (req: Request, res: Response) => {
+// POST /api/products
+router.post('/', async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    
-    const categories = await prisma.product.groupBy({
-      by: ['category'],
-      where: { userId: user.id, isActive: true }
-    });
-    
-    res.json({ 
-      categories: categories
-        .filter(c => c.category)
-        .map(c => c.category)
-    });
-  } catch (error: any) {
-    console.error('❌ Error obteniendo categorías:', error);
-    res.status(500).json({ error: 'Error al obtener categorías' });
-  }
-});
+    const userId = (req as AuthRequest).user?.id;
+    const { name, description, price, category, image, stock } = req.body;
 
-// ==========================================
-// GET /:id - Obtener un producto
-// ==========================================
-router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const { id } = req.params;
-    
-    const product = await prisma.product.findFirst({
-      where: { id, userId: user.id }
-    });
-    
-    if (!product) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
-    }
-    
-    res.json({ product });
-  } catch (error: any) {
-    console.error('❌ Error obteniendo producto:', error);
-    res.status(500).json({ error: 'Error al obtener producto' });
-  }
-});
-
-// ==========================================
-// POST / - Crear producto
-// ==========================================
-router.post('/', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const { name, description, price, stock, category, image } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'El nombre es requerido' });
-    }
-    
     const product = await prisma.product.create({
       data: {
-        userId: user.id,
+        userId: userId!,
         name,
-        description: description || null,
-        price: price || 0,
-        stock: stock || 0,
-        category: category || null,
-        image: image || null,
-        isActive: true
+        description,
+        price: parseFloat(price) || 0,
+        category,
+        image,
+        stock: parseInt(stock) || 0
       }
     });
-    
-    res.json({ product });
-  } catch (error: any) {
-    console.error('❌ Error creando producto:', error);
+
+    res.status(201).json({ product });
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al crear producto' });
   }
 });
 
-// ==========================================
-// PUT /:id - Actualizar producto
-// ==========================================
-router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
+// PUT /api/products/:id
+router.put('/:id', async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
+    const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
-    const { name, description, price, stock, category, image, isActive } = req.body;
-    
-    const existing = await prisma.product.findFirst({
-      where: { id, userId: user.id }
-    });
-    
+    const { name, description, price, category, image, stock, isActive } = req.body;
+
+    const existing = await prisma.product.findFirst({ where: { id, userId } });
     if (!existing) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
+      res.status(404).json({ error: 'Producto no encontrado' });
+      return;
     }
-    
+
     const product = await prisma.product.update({
       where: { id },
       data: {
-        name: name !== undefined ? name : existing.name,
-        description: description !== undefined ? description : existing.description,
-        price: price !== undefined ? price : existing.price,
-        stock: stock !== undefined ? stock : existing.stock,
-        category: category !== undefined ? category : existing.category,
-        image: image !== undefined ? image : existing.image,
-        isActive: isActive !== undefined ? isActive : existing.isActive
+        name, description,
+        price: price !== undefined ? parseFloat(price) : undefined,
+        category, image,
+        stock: stock !== undefined ? parseInt(stock) : undefined,
+        isActive
       }
     });
-    
+
     res.json({ product });
-  } catch (error: any) {
-    console.error('❌ Error actualizando producto:', error);
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al actualizar producto' });
   }
 });
 
-// ==========================================
-// PUT /:id/stock - Actualizar stock
-// ==========================================
-router.put('/:id/stock', authMiddleware, async (req: Request, res: Response) => {
+// DELETE /api/products/:id
+router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
+    const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
-    const { quantity, operation } = req.body; // operation: 'add' | 'subtract' | 'set'
-    
-    const existing = await prisma.product.findFirst({
-      where: { id, userId: user.id }
-    });
-    
-    if (!existing) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
-    }
-    
-    let newStock = existing.stock || 0;
-    
-    if (operation === 'add') {
-      newStock += quantity;
-    } else if (operation === 'subtract') {
-      newStock = Math.max(0, newStock - quantity);
-    } else {
-      newStock = quantity;
-    }
-    
-    const product = await prisma.product.update({
-      where: { id },
-      data: { stock: newStock }
-    });
-    
-    res.json({ product });
-  } catch (error: any) {
-    console.error('❌ Error actualizando stock:', error);
-    res.status(500).json({ error: 'Error al actualizar stock' });
-  }
-});
 
-// ==========================================
-// DELETE /:id - Eliminar producto
-// ==========================================
-router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user;
-    const { id } = req.params;
-    
-    const existing = await prisma.product.findFirst({
-      where: { id, userId: user.id }
-    });
-    
-    if (!existing) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
-    }
-    
-    // Soft delete
-    await prisma.product.update({
-      where: { id },
-      data: { isActive: false }
-    });
-    
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error('❌ Error eliminando producto:', error);
+    await prisma.product.deleteMany({ where: { id, userId } });
+    res.json({ message: 'Producto eliminado' });
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al eliminar producto' });
   }
 });

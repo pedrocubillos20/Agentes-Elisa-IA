@@ -1,271 +1,204 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { wahaService } from '../services/wahaService';
-import { openaiService } from '../services/openaiService';
-import { authMiddleware } from './auth.routes';
+import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 
-  (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api/whatsapp/webhook` : 'http://localhost:3000/api/whatsapp/webhook');
+const WAHA_API = process.env.WAHA_API_URL || 'http://31.97.142.127:8080';
 
-// GET /status - Obtener estado de conexión
-router.get('/status', authMiddleware, async (req: Request, res: Response) => {
+// GET /api/whatsapp/status
+router.get('/status', async (req: Request, res: Response) => {
   try {
-    const user = (req as any).user;
-    const currentUser = await prisma.user.findUnique({ where: { id: user.id } });
-    
-    if (!currentUser) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
+    const userId = (req as AuthRequest).user?.id;
+    const sessionName = `session_${userId}`;
 
-    const status = await wahaService.checkConnectionStatus();
-    
-    res.json({
-      connected: status.connected,
-      status: status.state || 'disconnected',
-      phone: status.phone,
-      instanceName: 'default'
-    });
-  } catch (error: any) {
-    console.error('❌ Error /status:', error);
-    res.status(500).json({ error: 'Error al obtener estado' });
+    const response = await fetch(`${WAHA_API}/api/sessions/${sessionName}`);
+
+    if (response.ok) {
+      const data = await response.json();
+      res.json({
+        connected: data.status === 'WORKING',
+        status: data.status,
+        session: sessionName
+      });
+    } else {
+      res.json({ connected: false, status: 'DISCONNECTED' });
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    res.json({ connected: false, status: 'ERROR' });
   }
 });
 
-// POST /connect - Conectar WhatsApp
-router.post('/connect', authMiddleware, async (req: Request, res: Response) => {
+// POST /api/whatsapp/connect
+router.post('/connect', async (req: Request, res: Response) => {
   try {
-    const status = await wahaService.checkConnectionStatus();
-    
-    if (status.connected) {
-      return res.json({ 
-        success: true, 
-        connected: true, 
-        status: 'connected', 
-        phone: status.phone 
-      });
-    }
+    const userId = (req as AuthRequest).user?.id;
+    const sessionName = `session_${userId}`;
 
-    await wahaService.startSession();
-    await wahaService.setWebhook(WEBHOOK_URL);
-    
-    const qrResult = await wahaService.getQRCode();
-    
-    res.json({ 
-      success: true, 
-      connected: false, 
-      status: 'waiting_qr', 
-      qrCode: qrResult.qrcode
+    const response = await fetch(`${WAHA_API}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: sessionName,
+        config: {
+          webhooks: [{
+            url: `${process.env.BACKEND_URL || 'http://localhost:3000'}/api/whatsapp/webhook`,
+            events: ['message']
+          }]
+        }
+      })
     });
-  } catch (error: any) {
-    console.error('❌ Error /connect:', error);
-    res.status(500).json({ error: 'Error al conectar WhatsApp' });
+
+    if (response.ok || response.status === 409) {
+      const qrResponse = await fetch(`${WAHA_API}/api/sessions/${sessionName}/auth/qr`);
+      if (qrResponse.ok) {
+        const qrData = await qrResponse.json();
+        res.json({ qr: qrData.value, session: sessionName });
+      } else {
+        res.json({ message: 'Sesión creada, esperando QR', session: sessionName });
+      }
+    } else {
+      res.status(400).json({ error: 'Error al crear sesión' });
+    }
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error al conectar' });
   }
 });
 
-// GET /qr - Obtener código QR
-router.get('/qr', authMiddleware, async (req: Request, res: Response) => {
+// GET /api/whatsapp/qr
+router.get('/qr', async (req: Request, res: Response) => {
   try {
-    const status = await wahaService.checkConnectionStatus();
-    
-    if (status.connected) {
-      return res.json({ 
-        connected: true, 
-        status: 'connected', 
-        phone: status.phone, 
-        qrCode: null 
-      });
-    }
+    const userId = (req as AuthRequest).user?.id;
+    const sessionName = `session_${userId}`;
 
-    const result = await wahaService.getQRCode();
-    
-    res.json({ 
-      connected: false, 
-      status: 'waiting_qr', 
-      qrCode: result.qrcode
-    });
-  } catch (error: any) {
-    console.error('❌ Error /qr:', error);
+    const response = await fetch(`${WAHA_API}/api/sessions/${sessionName}/auth/qr`);
+
+    if (response.ok) {
+      const data = await response.json();
+      res.json({ qr: data.value });
+    } else {
+      res.status(400).json({ error: 'QR no disponible' });
+    }
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al obtener QR' });
   }
 });
 
-// POST /disconnect - Desconectar WhatsApp
-router.post('/disconnect', authMiddleware, async (req: Request, res: Response) => {
+// POST /api/whatsapp/disconnect
+router.post('/disconnect', async (req: Request, res: Response) => {
   try {
-    await wahaService.stopSession();
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error('❌ Error /disconnect:', error);
+    const userId = (req as AuthRequest).user?.id;
+    const sessionName = `session_${userId}`;
+
+    await fetch(`${WAHA_API}/api/sessions/${sessionName}`, { method: 'DELETE' });
+    res.json({ message: 'Sesión desconectada' });
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error al desconectar' });
   }
 });
 
-// POST /send - Enviar mensaje
-router.post('/send', authMiddleware, async (req: Request, res: Response) => {
+// POST /api/whatsapp/send
+router.post('/send', async (req: Request, res: Response) => {
   try {
+    const userId = (req as AuthRequest).user?.id;
     const { to, message } = req.body;
-    
+    const sessionName = `session_${userId}`;
+
     if (!to || !message) {
-      return res.status(400).json({ error: 'Faltan datos (to, message)' });
+      res.status(400).json({ error: 'Destinatario y mensaje son requeridos' });
+      return;
     }
-    
-    const result = await wahaService.sendTextMessage(to, message);
-    
-    if (!result.success) {
-      return res.status(500).json({ error: result.error });
-    }
-    
-    res.json({ success: true, messageId: result.messageId });
-  } catch (error: any) {
-    console.error('❌ Error /send:', error);
-    res.status(500).json({ error: 'Error al enviar mensaje' });
-  }
-});
 
-// POST /webhook - Webhook para recibir mensajes de WAHA
-router.post('/webhook', async (req: Request, res: Response) => {
-  try {
-    const data = req.body;
-    const event = data.event;
-    
-    console.log(`\n🔔 Webhook WAHA: ${event}`);
-    
-    // Procesar eventos de mensaje
-    if (event === 'message' || event === 'message.any') {
-      const payload = data.payload || data;
-      
-      // Ignorar mensajes propios
-      if (payload.fromMe) {
-        return res.json({ received: true });
-      }
-      
-      const chatId = payload.from || payload.chatId;
-      const messageContent = payload.body || payload.text || '';
-      const pushName = payload.notifyName || payload._data?.notifyName || '';
-      
-      if (!chatId || !messageContent) {
-        return res.json({ received: true });
-      }
-      
-      // Ignorar grupos
-      if (chatId.includes('@g.us')) {
-        return res.json({ received: true });
-      }
+    const chatId = to.includes('@') ? to : `${to}@c.us`;
 
-      console.log(`\n📨 Mensaje recibido`);
-      console.log(`📍 ChatId: ${chatId}`);
-      console.log(`📝 Contenido: ${messageContent}`);
-      console.log(`👤 De: ${pushName}`);
+    const response = await fetch(`${WAHA_API}/api/sendText`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sessionName, chatId, text: message })
+    });
 
-      // Extraer número limpio
-      const recipientId = chatId
-        .replace('@c.us', '')
-        .replace('@s.whatsapp.net', '')
-        .replace('@lid', '')
-        .replace(/\D/g, '');
-
-      // Buscar usuario con API configurada
-      const user = await prisma.user.findFirst({ 
-        where: { apiKeyConnected: true }
-      });
-      
-      if (!user) {
-        console.log('⚠️ No hay usuario con API Key configurada');
-        return res.json({ received: true });
-      }
-
-      // Gestionar conversación
+    if (response.ok) {
       let conversation = await prisma.conversation.findFirst({
-        where: { userId: user.id, recipientId: recipientId }
+        where: { userId, recipientId: chatId.replace('@c.us', '') }
       });
 
       if (!conversation) {
         conversation = await prisma.conversation.create({
-          data: { 
-            userId: user.id, 
-            recipientId: recipientId,
-            recipientName: pushName || recipientId, 
-            lastMessage: messageContent, 
-            lastMessageAt: new Date()
-          }
-        });
-        console.log(`📝 Nueva conversación creada: ${conversation.id}`);
-      } else {
-        await prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { 
-            lastMessage: messageContent, 
-            lastMessageAt: new Date(), 
-            recipientName: pushName || conversation.recipientName
+          data: {
+            userId: userId!,
+            recipientId: chatId.replace('@c.us', ''),
+            lastMessage: message
           }
         });
       }
 
-      // Guardar mensaje del usuario
       await prisma.message.create({
-        data: { 
-          conversationId: conversation.id, 
-          userId: user.id, 
-          role: 'user', 
-          content: messageContent, 
-          fromMe: false 
-        }
+        data: { conversationId: conversation.id, content: message, fromMe: true }
       });
 
-      // Obtener historial de mensajes
-      const recentMessages = await prisma.message.findMany({
-        where: { conversationId: conversation.id },
-        orderBy: { timestamp: 'asc' },
-        take: 20
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { lastMessage: message }
       });
-      const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
 
-      // Generar respuesta con IA
-      console.log('🤖 Generando respuesta con OpenAI...');
-      const aiResponse = await openaiService.generateResponse(user.id, messageContent, history.slice(0, -1));
-
-      if (aiResponse.success && aiResponse.response) {
-        console.log(`✅ Respuesta: ${aiResponse.response.substring(0, 80)}...`);
-        
-        // Enviar respuesta por WhatsApp
-        const sendResult = await wahaService.sendTextMessage(chatId, aiResponse.response);
-
-        if (sendResult.success) {
-          // Guardar respuesta en BD
-          await prisma.message.create({
-            data: { 
-              conversationId: conversation.id, 
-              userId: user.id, 
-              role: 'assistant', 
-              content: aiResponse.response, 
-              fromMe: true 
-            }
-          });
-          console.log('✅ ¡Mensaje enviado exitosamente!');
-        } else {
-          console.error('❌ Error enviando mensaje:', sendResult.error);
-        }
-      } else {
-        console.error('❌ Error generando respuesta IA:', aiResponse.error);
-      }
+      res.json({ success: true, message: 'Mensaje enviado' });
+    } else {
+      res.status(400).json({ error: 'Error al enviar mensaje' });
     }
-
-    // Procesar eventos de estado de sesión
-    if (event === 'session.status') {
-      console.log(`📡 Estado sesión: ${data.payload?.status}`);
-    }
-
-    res.json({ received: true });
-  } catch (error: any) {
-    console.error('❌ Error en webhook:', error);
-    res.status(500).json({ error: 'Error procesando webhook' });
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Error al enviar mensaje' });
   }
 });
 
-// GET /webhook - Health check
-router.get('/webhook', (req: Request, res: Response) => {
-  res.send('✅ Webhook WAHA activo');
+// POST /api/whatsapp/webhook (público)
+router.post('/webhook', async (req: Request, res: Response) => {
+  try {
+    const { event, payload, session } = req.body;
+
+    if (event === 'message' && payload && !payload.fromMe) {
+      const userId = session?.replace('session_', '');
+      
+      if (userId) {
+        const chatId = payload.from?.replace('@c.us', '') || payload.chatId?.replace('@c.us', '');
+        const messageContent = payload.body || payload.text || '';
+        const senderName = payload.notifyName || payload.pushName || chatId;
+
+        let conversation = await prisma.conversation.findFirst({
+          where: { userId, recipientId: chatId }
+        });
+
+        if (!conversation) {
+          conversation = await prisma.conversation.create({
+            data: {
+              userId,
+              recipientId: chatId,
+              recipientName: senderName,
+              lastMessage: messageContent,
+              stage: 'new'
+            }
+          });
+        }
+
+        await prisma.message.create({
+          data: { conversationId: conversation.id, content: messageContent, fromMe: false }
+        });
+
+        await prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { lastMessage: messageContent, recipientName: senderName }
+        });
+      }
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('Error webhook:', error);
+    res.json({ received: true });
+  }
 });
 
 export default router;

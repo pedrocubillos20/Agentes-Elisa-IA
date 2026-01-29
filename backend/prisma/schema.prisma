@@ -1,7 +1,3 @@
-// ==========================================
-// ELISA IA - PRISMA SCHEMA v5.0
-// ==========================================
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -17,7 +13,7 @@ model User {
   password        String
   name            String?
   phone           String?
-  apiKey          String?        // OpenAI API Key
+  apiKey          String?
   apiKeyConnected Boolean        @default(false)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -27,8 +23,6 @@ model User {
   products        Product[]
   clients         Client[]
   appointments    Appointment[]
-  mediaFiles      MediaFile[]
-  learningLogs    LearningLog[]
 }
 
 model Assistant {
@@ -42,20 +36,16 @@ model Assistant {
   businessInfo    String?   @db.Text
   instructions    String?   @db.Text
   
-  // Nuevos campos v5.0
-  knowledgeItems  Json      @default("[]")   // Respuestas rápidas con triggers
-  mediaItems      Json      @default("[]")   // Referencias a archivos multimedia
+  knowledgeItems  Json      @default("[]")
+  mediaItems      Json      @default("[]")
   
-  // ElevenLabs
   elevenLabsKey   String?
   selectedVoice   String?
   voiceEnabled    Boolean   @default(false)
   
-  // Auto-aprendizaje
   autoLearn       Boolean   @default(true)
   learningHistory Json      @default("[]")
   
-  // Configuración del modelo
   model           String    @default("gpt-4-turbo-preview")
   temperature     Float     @default(0.7)
   maxTokens       Int       @default(500)
@@ -63,41 +53,6 @@ model Assistant {
   isActive        Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-
-  mediaFiles      MediaFile[]
-}
-
-model MediaFile {
-  id          String     @id @default(cuid())
-  userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assistantId String?
-  assistant   Assistant? @relation(fields: [assistantId], references: [id], onDelete: SetNull)
-  
-  name        String
-  type        String     // image, video, audio
-  url         String     @db.Text
-  trigger     String?    // Palabra clave que activa el envío
-  size        Int?
-  
-  createdAt   DateTime   @default(now())
-
-  @@index([userId])
-}
-
-model LearningLog {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  assistantId String?
-  
-  type        String    // suggestion, improvement, pattern
-  suggestion  String    @db.Text
-  reason      String?   @db.Text
-  applied     Boolean   @default(false)
-  appliedAt   DateTime?
-  
-  createdAt   DateTime  @default(now())
 
   @@index([userId])
 }
@@ -108,7 +63,7 @@ model Conversation {
   recipientName String?
   lastMessage   String?
   aiPaused      Boolean   @default(false)
-  stage         String    @default("new")  // Etapa del embudo: new, interested, quoting, negotiating, pending_confirm, converted, follow_up, lost
+  stage         String    @default("new")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -145,7 +100,7 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([userId, category])
+  @@index([userId])
 }
 
 model Client {
@@ -166,7 +121,7 @@ model Client {
 
   appointments   Appointment[]
 
-  @@index([userId, phone])
+  @@index([userId])
 }
 
 model Appointment {
@@ -176,7 +131,7 @@ model Appointment {
   clientId    String?
   client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   
-  type        String   // appointment, order
+  type        String
   clientName  String
   clientPhone String
   date        DateTime
@@ -192,5 +147,4 @@ model Appointment {
   updatedAt   DateTime @updatedAt
 
   @@index([userId, date])
-  @@index([userId, status])
 }

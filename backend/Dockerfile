@@ -1,4 +1,7 @@
-FROM node:18-alpine
+FROM node:18-slim
+
+# Instalar OpenSSL y otras dependencias necesarias
+RUN apt-get update -y && apt-get install -y openssl libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

@@ -1,7 +1,7 @@
 {
   "name": "elisa-ia-backend",
-  "version": "5.0.0",
-  "description": "Backend para Elisa IA - Agentes de WhatsApp",
+  "version": "5.1.0",
+  "description": "Backend para Elisa IA - Agentes de WhatsApp con WAHA",
   "main": "dist/server.js",
   "scripts": {
     "build": "npx prisma generate && tsc",

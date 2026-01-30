@@ -16,7 +16,7 @@ const getWahaHeaders = () => {
   return headers;
 };
 
-const getSessionName = (userId: string) => `user_${userId}`;
+const getSessionName = (userId: string) => 'default';
 
 // ==========================================
 // GET /api/whatsapp/status

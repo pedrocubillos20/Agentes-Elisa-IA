@@ -13,15 +13,18 @@ const getWahaHeaders = () => {
   return headers;
 };
 
-// PLAN FREE: sesión "default" | PLAN PRO ($19): cualquier nombre
 const SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
 
+// ===== OBTENER USUARIO POR DEFECTO =====
 const getDefaultUserId = async (): Promise<string | null> => {
+  // Primero buscar usuario con API key conectada
   const user = await prisma.user.findFirst({
     where: { apiKeyConnected: true },
     select: { id: true }
   });
   if (user) return user.id;
+
+  // Si no, primer usuario
   const firstUser = await prisma.user.findFirst({
     select: { id: true },
     orderBy: { createdAt: 'asc' }
@@ -29,61 +32,150 @@ const getDefaultUserId = async (): Promise<string | null> => {
   return firstUser?.id || null;
 };
 
+// ===== GENERAR RESPUESTA IA (MEJORADO) =====
 const generateAIResponse = async (userId: string, message: string, conversationId: string): Promise<string | null> => {
   try {
+    // 1. Verificar API Key del usuario
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { apiKey: true, apiKeyConnected: true }
     });
 
     if (!user?.apiKey || !user.apiKeyConnected) {
-      console.log('⚠️ Usuario sin API Key de OpenAI');
+      console.log('⚠️ Usuario sin API Key de OpenAI configurada');
       return null;
     }
 
-    const assistant = await prisma.assistant.findFirst({
+    // 2. Buscar asistente activo
+    let assistant = await prisma.assistant.findFirst({
       where: { userId, isActive: true }
     });
 
+    // Si no hay asistente activo, buscar CUALQUIER asistente del usuario y activarlo
     if (!assistant) {
-      console.log('⚠️ No hay asistente activo');
-      return null;
+      console.log('⚠️ No hay asistente activo, buscando cualquier asistente...');
+      assistant = await prisma.assistant.findFirst({
+        where: { userId }
+      });
+
+      if (assistant) {
+        // Activarlo automáticamente
+        await prisma.assistant.update({
+          where: { id: assistant.id },
+          data: { isActive: true }
+        });
+        console.log(`✅ Asistente "${assistant.name}" activado automáticamente`);
+      } else {
+        console.log('❌ No hay NINGÚN asistente configurado para este usuario');
+        return null;
+      }
     }
 
+    // 3. Log detallado del asistente encontrado
+    console.log(`📋 Asistente encontrado: "${assistant.name}" (ID: ${assistant.id})`);
+    console.log(`   - context: ${assistant.context ? `${assistant.context.length} chars` : 'VACÍO'}`);
+    console.log(`   - personality: ${assistant.personality ? `${assistant.personality.length} chars` : 'VACÍO'}`);
+    console.log(`   - businessInfo: ${assistant.businessInfo ? `${assistant.businessInfo.length} chars` : 'VACÍO'}`);
+    console.log(`   - instructions: ${assistant.instructions ? `${assistant.instructions.length} chars` : 'VACÍO'}`);
+    console.log(`   - knowledgeItems: ${JSON.stringify(assistant.knowledgeItems).length} chars`);
+    console.log(`   - modelo: ${assistant.model}`);
+    console.log(`   - isActive: ${assistant.isActive}`);
+
+    // 4. Obtener historial de conversación
     const history = await prisma.message.findMany({
       where: { conversationId },
       orderBy: { timestamp: 'desc' },
-      take: 10
+      take: 15
     });
 
+    // 5. CONSTRUIR SYSTEM PROMPT COMPLETO
     const systemParts: string[] = [];
-    if (assistant.name) systemParts.push(`Eres ${assistant.name}.`);
-    if (assistant.personality) systemParts.push(assistant.personality);
-    if (assistant.context) systemParts.push(assistant.context);
-    if (assistant.businessInfo) systemParts.push(`Información del negocio: ${assistant.businessInfo}`);
-    if (assistant.instructions) systemParts.push(`Instrucciones: ${assistant.instructions}`);
 
-    const knowledge = assistant.knowledgeItems as any[];
-    if (knowledge && knowledge.length > 0) {
-      const knowledgeText = knowledge.map((item: any) => {
-        if (typeof item === 'string') return item;
-        return `${item.title || ''}: ${item.content || item.text || ''}`;
-      }).join('\n');
-      systemParts.push(`Base de conocimiento:\n${knowledgeText}`);
+    // Nombre del asistente
+    if (assistant.name) {
+      systemParts.push(`Eres ${assistant.name}.`);
     }
 
-    const systemPrompt = systemParts.join('\n\n') || 'Eres un asistente virtual amable y útil. Responde de forma concisa y profesional.';
+    // Personalidad
+    if (assistant.personality && assistant.personality.trim()) {
+      systemParts.push(assistant.personality);
+    }
 
+    // CONTEXT (Base de Conocimiento) - CAMPO PRINCIPAL
+    if (assistant.context && assistant.context.trim()) {
+      systemParts.push(assistant.context);
+      console.log(`📝 Context incluido: ${assistant.context.substring(0, 100)}...`);
+    }
+
+    // Info del negocio
+    if (assistant.businessInfo && assistant.businessInfo.trim()) {
+      systemParts.push(`Información del negocio: ${assistant.businessInfo}`);
+    }
+
+    // Instrucciones
+    if (assistant.instructions && assistant.instructions.trim()) {
+      systemParts.push(`Instrucciones: ${assistant.instructions}`);
+    }
+
+    // Knowledge Items (items de conocimiento adicionales)
+    const knowledge = assistant.knowledgeItems as any;
+    if (knowledge) {
+      let knowledgeText = '';
+
+      if (typeof knowledge === 'string') {
+        // Si es string, intentar parsear como JSON
+        try {
+          const parsed = JSON.parse(knowledge);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            knowledgeText = parsed.map((item: any) => {
+              if (typeof item === 'string') return item;
+              return `${item.title || ''}: ${item.content || item.text || ''}`;
+            }).filter(Boolean).join('\n');
+          }
+        } catch {
+          // Si no es JSON válido, usarlo como texto directo
+          if (knowledge.trim() && knowledge !== '[]') {
+            knowledgeText = knowledge;
+          }
+        }
+      } else if (Array.isArray(knowledge) && knowledge.length > 0) {
+        knowledgeText = knowledge.map((item: any) => {
+          if (typeof item === 'string') return item;
+          return `${item.title || ''}: ${item.content || item.text || ''}`;
+        }).filter(Boolean).join('\n');
+      }
+
+      if (knowledgeText) {
+        systemParts.push(`Base de conocimiento adicional:\n${knowledgeText}`);
+        console.log(`📚 Knowledge items incluidos: ${knowledgeText.length} chars`);
+      }
+    }
+
+    // Prompt por defecto si no hay nada
+    const systemPrompt = systemParts.length > 0
+      ? systemParts.join('\n\n')
+      : 'Eres un asistente virtual amable y útil. Responde de forma concisa y profesional.';
+
+    console.log(`🧠 System prompt total: ${systemPrompt.length} chars (${Math.ceil(systemPrompt.length / 4)} tokens aprox.)`);
+
+    // 6. Construir mensajes para OpenAI
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
 
-    const reversedHistory = history.reverse();
+    // Agregar historial (de más antiguo a más reciente)
+    const reversedHistory = [...history].reverse();
     for (const msg of reversedHistory) {
-      messages.push({ role: msg.fromMe ? 'assistant' : 'user', content: msg.content });
+      messages.push({
+        role: msg.fromMe ? 'assistant' : 'user',
+        content: msg.content
+      });
     }
+
+    // Agregar mensaje actual
     messages.push({ role: 'user', content: message });
 
-    console.log(`🤖 Llamando a OpenAI (modelo: ${assistant.model || 'gpt-4-turbo-preview'})...`);
+    console.log(`🤖 Llamando a OpenAI (modelo: ${assistant.model || 'gpt-4-turbo-preview'}, ${messages.length} mensajes)...`);
 
+    // 7. Llamar a OpenAI
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
@@ -112,14 +204,25 @@ const generateAIResponse = async (userId: string, message: string, conversationI
 
     const data = await response.json() as any;
     const aiResponse = data.choices?.[0]?.message?.content;
-    if (aiResponse) console.log(`✅ Respuesta IA generada (${aiResponse.length} chars)`);
+
+    if (aiResponse) {
+      console.log(`✅ Respuesta IA generada (${aiResponse.length} chars): ${aiResponse.substring(0, 80)}...`);
+    } else {
+      console.log('⚠️ OpenAI no devolvió respuesta');
+    }
+
     return aiResponse || null;
   } catch (error: any) {
-    console.error('❌ Error IA:', error.message);
+    if (error.name === 'AbortError') {
+      console.error('❌ Timeout: OpenAI tardó más de 30 segundos');
+    } else {
+      console.error('❌ Error IA:', error.message);
+    }
     return null;
   }
 };
 
+// ===== ENVIAR MENSAJE POR WAHA =====
 const sendWahaMessage = async (chatId: string, text: string): Promise<boolean> => {
   try {
     const response = await fetch(`${WAHA_API_URL}/api/sendText`, {
@@ -134,6 +237,132 @@ const sendWahaMessage = async (chatId: string, text: string): Promise<boolean> =
   }
 };
 
+// ===== ENDPOINT DE DEBUG =====
+router.get('/debug', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    // Info del usuario
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        apiKey: true,
+        apiKeyConnected: true
+      }
+    });
+
+    // Todos los asistentes del usuario
+    const assistants = await prisma.assistant.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        context: true,
+        personality: true,
+        businessInfo: true,
+        instructions: true,
+        knowledgeItems: true,
+        model: true,
+        temperature: true,
+        maxTokens: true,
+        autoLearn: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    // Resumen
+    const activeAssistant = assistants.find(a => a.isActive);
+
+    const debug = {
+      user: {
+        id: user?.id,
+        email: user?.email,
+        hasApiKey: !!user?.apiKey,
+        apiKeyConnected: user?.apiKeyConnected,
+        apiKeyPreview: user?.apiKey ? `${user.apiKey.substring(0, 8)}...${user.apiKey.substring(user.apiKey.length - 4)}` : null
+      },
+      assistants: {
+        total: assistants.length,
+        active: activeAssistant ? {
+          id: activeAssistant.id,
+          name: activeAssistant.name,
+          contextLength: activeAssistant.context?.length || 0,
+          contextPreview: activeAssistant.context?.substring(0, 200) || 'VACÍO',
+          personalityLength: activeAssistant.personality?.length || 0,
+          businessInfoLength: activeAssistant.businessInfo?.length || 0,
+          instructionsLength: activeAssistant.instructions?.length || 0,
+          knowledgeItemsLength: JSON.stringify(activeAssistant.knowledgeItems).length,
+          model: activeAssistant.model,
+          temperature: activeAssistant.temperature,
+          maxTokens: activeAssistant.maxTokens,
+          autoLearn: activeAssistant.autoLearn
+        } : 'NINGUNO ACTIVO',
+        all: assistants.map(a => ({
+          id: a.id,
+          name: a.name,
+          isActive: a.isActive,
+          contextLength: a.context?.length || 0,
+          updatedAt: a.updatedAt
+        }))
+      },
+      waha: {
+        url: WAHA_API_URL,
+        session: SESSION_NAME,
+        hasApiKey: !!WAHA_API_KEY
+      },
+      conversations: await prisma.conversation.count({ where: { userId } }),
+      messages: await prisma.message.count()
+    };
+
+    res.json(debug);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== ACTIVAR ASISTENTE =====
+router.post('/activate-assistant', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    // Desactivar todos
+    await prisma.assistant.updateMany({
+      where: { userId },
+      data: { isActive: false }
+    });
+
+    const { assistantId } = req.body;
+
+    if (assistantId) {
+      // Activar el específico
+      await prisma.assistant.update({
+        where: { id: assistantId },
+        data: { isActive: true }
+      });
+    } else {
+      // Activar el primero
+      const first = await prisma.assistant.findFirst({ where: { userId } });
+      if (first) {
+        await prisma.assistant.update({
+          where: { id: first.id },
+          data: { isActive: true }
+        });
+      }
+    }
+
+    res.json({ success: true, message: 'Asistente activado' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== STATUS =====
 router.get('/status', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -166,6 +395,7 @@ router.get('/status', async (req: Request, res: Response) => {
   }
 });
 
+// ===== CONNECT =====
 router.post('/connect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -196,6 +426,7 @@ router.post('/connect', async (req: Request, res: Response) => {
   }
 });
 
+// ===== QR =====
 router.get('/qr', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -224,6 +455,7 @@ router.get('/qr', async (req: Request, res: Response) => {
   }
 });
 
+// ===== DISCONNECT =====
 router.post('/disconnect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -236,6 +468,7 @@ router.post('/disconnect', async (req: Request, res: Response) => {
   }
 });
 
+// ===== SEND MESSAGE =====
 router.post('/send', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -283,6 +516,7 @@ router.post('/send', async (req: Request, res: Response) => {
   }
 });
 
+// ===== WEBHOOK (recibe mensajes de WhatsApp) =====
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const { event, session, payload } = req.body;
@@ -326,12 +560,34 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     console.log(`💬 Mensaje de ${senderName} (${recipientId}): ${body.substring(0, 50)}...`);
 
+    // Buscar o crear conversación
     let conversation = await prisma.conversation.findFirst({ where: { userId, recipientId } });
 
     if (!conversation) {
       conversation = await prisma.conversation.create({
         data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new' }
       });
+    }
+
+    // Comandos especiales: ".." pausa IA, "." reactiva IA
+    if (body.trim() === '..') {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { aiPaused: true }
+      });
+      console.log(`⏸️ IA pausada por comando ".." en conversación ${conversation.id}`);
+      res.json({ success: true, action: 'ai_paused' });
+      return;
+    }
+
+    if (body.trim() === '.' && conversation.aiPaused) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { aiPaused: false }
+      });
+      console.log(`▶️ IA reactivada por comando "." en conversación ${conversation.id}`);
+      res.json({ success: true, action: 'ai_resumed' });
+      return;
     }
 
     // Guardar mensaje recibido
@@ -360,7 +616,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const sent = await sendWahaMessage(from, aiResponse);
 
         if (sent) {
-          // Guardar respuesta IA
           await prisma.message.create({
             data: {
               conversationId: conversation.id,

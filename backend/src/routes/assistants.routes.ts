@@ -5,32 +5,44 @@ import { AuthRequest } from '../middleware/auth.middleware';
 const router = Router();
 
 // GET /api/assistants - Obtener asistente del usuario
+// FIX: Devuelve TANTO { assistant } como { assistants } para compatibilidad
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    // Buscar asistente activo primero
-    let assistant = await prisma.assistant.findFirst({
-      where: { userId, isActive: true }
+    // Obtener TODOS los asistentes del usuario, ordenados por más reciente
+    const allAssistants = await prisma.assistant.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' }
     });
 
-    // Si no hay activo, buscar cualquiera
-    if (!assistant) {
-      assistant = await prisma.assistant.findFirst({
-        where: { userId }
-      });
+    // Buscar el activo
+    let active = allAssistants.find(a => a.isActive);
 
-      // Si encontramos uno, activarlo
-      if (assistant) {
-        assistant = await prisma.assistant.update({
-          where: { id: assistant.id },
-          data: { isActive: true }
-        });
-      }
+    // Si no hay activo pero hay asistentes, activar el más reciente
+    if (!active && allAssistants.length > 0) {
+      active = await prisma.assistant.update({
+        where: { id: allAssistants[0].id },
+        data: { isActive: true }
+      });
     }
 
-    res.json({ assistant });
+    // Si hay más de un asistente activo, desactivar los demás
+    const activeOnes = allAssistants.filter(a => a.isActive);
+    if (activeOnes.length > 1) {
+      const keepId = active?.id || activeOnes[0].id;
+      await prisma.assistant.updateMany({
+        where: { userId, id: { not: keepId } },
+        data: { isActive: false }
+      });
+    }
+
+    // Devolver en AMBOS formatos para compatibilidad
+    res.json({ 
+      assistant: active || null,
+      assistants: allAssistants 
+    });
   } catch (error) {
     console.error('Error obteniendo asistente:', error);
     res.status(500).json({ error: 'Error' });
@@ -52,9 +64,8 @@ router.post('/', async (req: Request, res: Response) => {
     console.log(`   - businessInfo: ${body.businessInfo ? `${body.businessInfo.length} chars` : 'VACÍO'}`);
     console.log(`   - instructions: ${body.instructions ? `${body.instructions.length} chars` : 'VACÍO'}`);
 
-    // Datos a guardar
     const data: any = {
-      name: body.name || 'Asistente',
+      name: body.name || 'Asistente Principal',
       context: body.context || null,
       personality: body.personality || null,
       businessInfo: body.businessInfo || null,
@@ -68,30 +79,28 @@ router.post('/', async (req: Request, res: Response) => {
       model: body.model || 'gpt-4-turbo-preview',
       temperature: body.temperature || 0.7,
       maxTokens: body.maxTokens || 500,
-      // SIEMPRE activar al guardar
       isActive: true
     };
 
-    // Buscar asistente existente
+    // FIX: Desactivar TODOS primero
+    await prisma.assistant.updateMany({
+      where: { userId },
+      data: { isActive: false }
+    });
+
+    // Buscar asistente existente - el más reciente con contexto O el primero
     let assistant = await prisma.assistant.findFirst({
-      where: { userId }
+      where: { userId },
+      orderBy: { updatedAt: 'desc' }
     });
 
     if (assistant) {
-      // Desactivar otros asistentes del usuario
-      await prisma.assistant.updateMany({
-        where: { userId, id: { not: assistant.id } },
-        data: { isActive: false }
-      });
-
-      // Actualizar el existente
       assistant = await prisma.assistant.update({
         where: { id: assistant.id },
         data
       });
-      console.log(`✅ Asistente actualizado: ${assistant.name} (ID: ${assistant.id})`);
+      console.log(`✅ Asistente actualizado: ${assistant.name} (ID: ${assistant.id}, context: ${assistant.context?.length || 0} chars)`);
     } else {
-      // Crear nuevo
       assistant = await prisma.assistant.create({
         data: { ...data, userId }
       });
@@ -114,15 +123,8 @@ router.put('/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const body = req.body;
 
-    // Verificar que el asistente pertenece al usuario
-    const existing = await prisma.assistant.findFirst({
-      where: { id, userId }
-    });
-
-    if (!existing) {
-      res.status(404).json({ error: 'Asistente no encontrado' });
-      return;
-    }
+    const existing = await prisma.assistant.findFirst({ where: { id, userId } });
+    if (!existing) { res.status(404).json({ error: 'Asistente no encontrado' }); return; }
 
     const data: any = {};
     if (body.name !== undefined) data.name = body.name;
@@ -139,52 +141,32 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (body.model !== undefined) data.model = body.model;
     if (body.temperature !== undefined) data.temperature = body.temperature;
     if (body.maxTokens !== undefined) data.maxTokens = body.maxTokens;
-    if (body.isActive !== undefined) data.isActive = body.isActive;
-
-    // SIEMPRE activar al actualizar
     data.isActive = true;
 
-    const assistant = await prisma.assistant.update({
-      where: { id },
-      data
-    });
-
+    const assistant = await prisma.assistant.update({ where: { id }, data });
     console.log(`✅ Asistente ${assistant.name} actualizado (context: ${assistant.context?.length || 0} chars)`);
 
     res.json({ assistant, message: 'Actualizado' });
   } catch (error: any) {
-    console.error('❌ Error actualizando asistente:', error);
     res.status(500).json({ error: error.message || 'Error' });
   }
 });
 
-// POST /api/assistants/:id/activate - Activar asistente
+// POST /api/assistants/:id/activate
 router.post('/:id/activate', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const { id } = req.params;
-
-    // Desactivar todos
-    await prisma.assistant.updateMany({
-      where: { userId },
-      data: { isActive: false }
-    });
-
-    // Activar el seleccionado
-    const assistant = await prisma.assistant.update({
-      where: { id },
-      data: { isActive: true }
-    });
-
+    await prisma.assistant.updateMany({ where: { userId }, data: { isActive: false } });
+    const assistant = await prisma.assistant.update({ where: { id: req.params.id }, data: { isActive: true } });
     res.json({ assistant, message: 'Activado' });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-// POST /api/assistants/elevenlabs/voices - Obtener voces de ElevenLabs
+// POST /api/assistants/elevenlabs/voices
 router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
@@ -199,6 +181,43 @@ router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
     }
   } catch (error) {
     res.status(500).json({ error: 'Error' });
+  }
+});
+
+// DELETE - Limpiar asistentes duplicados (utilidad)
+router.delete('/cleanup', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const assistants = await prisma.assistant.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    if (assistants.length <= 1) {
+      res.json({ message: 'No hay duplicados', count: assistants.length });
+      return;
+    }
+
+    // Mantener el más reciente, eliminar el resto
+    const keep = assistants[0];
+    const toDelete = assistants.slice(1).map(a => a.id);
+
+    await prisma.assistant.deleteMany({
+      where: { id: { in: toDelete } }
+    });
+
+    // Asegurar que el que queda está activo
+    await prisma.assistant.update({
+      where: { id: keep.id },
+      data: { isActive: true }
+    });
+
+    console.log(`🧹 Limpiados ${toDelete.length} asistentes duplicados. Quedó: ${keep.name} (${keep.id})`);
+    res.json({ message: `Eliminados ${toDelete.length} duplicados`, kept: keep.name });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

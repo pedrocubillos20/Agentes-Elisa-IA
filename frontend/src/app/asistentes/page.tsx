@@ -50,16 +50,28 @@ export default function AsistentesPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        const active = data.assistants?.find((a: any) => a.isActive) || data.assistants?.[0];
+        // FIX: Soportar AMBOS formatos del backend
+        // data.assistant (singular) o data.assistants (array)
+        const active = data.assistant || 
+                       data.assistants?.find((a: any) => a.isActive) || 
+                       data.assistants?.[0] || 
+                       null;
         if (active) {
+          console.log(`📋 Asistente cargado: "${active.name}" - context: ${active.context?.length || 0} chars`);
           setContext(active.context || '');
-          setKnowledgeItems(active.knowledgeItems || []);
-          setMediaItems(active.mediaItems || []);
+          setKnowledgeItems(
+            Array.isArray(active.knowledgeItems) ? active.knowledgeItems : []
+          );
+          setMediaItems(
+            Array.isArray(active.mediaItems) ? active.mediaItems : []
+          );
           setElevenLabsKey(active.elevenLabsKey || '');
           setSelectedVoice(active.selectedVoice || '');
           setVoiceEnabled(active.voiceEnabled || false);
           setAutoLearn(active.autoLearn !== false);
-          setLearningHistory(active.learningHistory || []);
+          setLearningHistory(
+            Array.isArray(active.learningHistory) ? active.learningHistory : []
+          );
         }
       }
     } catch (error) {

@@ -71,6 +71,42 @@ export default function ConversacionesPage() {
     fetchData();
   }, []);
 
+  // AUTO-REFRESH: Actualizar conversaciones cada 5 segundos
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Refrescar lista de conversaciones silenciosamente
+      fetch(`${API_URL}/api/conversations`, { 
+        headers: { 'Authorization': `Bearer ${token}` } 
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.conversations) {
+            setConversations(data.conversations);
+          }
+        })
+        .catch(() => {});
+
+      // Si hay conversación seleccionada, refrescar mensajes
+      if (selectedConv) {
+        fetch(`${API_URL}/api/conversations/${selectedConv.id}/messages`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data?.messages) {
+              setMessages(data.messages);
+            }
+          })
+          .catch(() => {});
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [selectedConv]);
+
   useEffect(() => {
     if (selectedConv) {
       fetchMessages(selectedConv.id);

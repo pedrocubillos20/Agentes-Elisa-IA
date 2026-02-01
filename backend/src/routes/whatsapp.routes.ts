@@ -13,6 +13,12 @@ const getWahaHeaders = () => {
   return headers;
 };
 
+// ==========================================
+// PLAN FREE: sesión "default"
+// PLAN PRO: se puede usar cualquier nombre
+// ==========================================
+const SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
+
 const getDefaultUserId = async (): Promise<string | null> => {
   const user = await prisma.user.findFirst({
     where: { apiKeyConnected: true },
@@ -122,7 +128,7 @@ const sendWahaMessage = async (chatId: string, text: string): Promise<boolean> =
     const response = await fetch(`${WAHA_API_URL}/api/sendText`, {
       method: 'POST',
       headers: getWahaHeaders(),
-      body: JSON.stringify({ session: 'default', chatId, text })
+      body: JSON.stringify({ session: SESSION_NAME, chatId, text })
     });
     return response.ok;
   } catch (error) {
@@ -138,7 +144,7 @@ router.get('/status', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
     try {
-      const response = await fetch(`${WAHA_API_URL}/api/sessions/default`, { headers: getWahaHeaders() });
+      const response = await fetch(`${WAHA_API_URL}/api/sessions/${SESSION_NAME}`, { headers: getWahaHeaders() });
 
       if (response.status === 404) {
         res.json({ connected: false, status: 'disconnected', phone: null, hasQR: false });
@@ -154,12 +160,12 @@ router.get('/status', async (req: Request, res: Response) => {
         status: data.status?.toLowerCase() || 'disconnected',
         phone: data.me?.id?.replace('@c.us', '') || null,
         name: data.me?.pushName || null,
-        hasQR: hasQR
+        hasQR
       });
-    } catch (fetchError) {
+    } catch {
       res.json({ connected: false, status: 'error', phone: null, hasQR: false });
     }
-  } catch (error) {
+  } catch {
     res.json({ connected: false, status: 'error', phone: null, hasQR: false });
   }
 });
@@ -170,7 +176,7 @@ router.post('/connect', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const checkResponse = await fetch(`${WAHA_API_URL}/api/sessions/default`, { headers: getWahaHeaders() });
+    const checkResponse = await fetch(`${WAHA_API_URL}/api/sessions/${SESSION_NAME}`, { headers: getWahaHeaders() });
 
     if (checkResponse.status === 404) {
       const webhookUrl = `https://elisa-iaagentes-production.up.railway.app/api/webhook/whatsapp`;
@@ -178,7 +184,7 @@ router.post('/connect', async (req: Request, res: Response) => {
         method: 'POST',
         headers: getWahaHeaders(),
         body: JSON.stringify({
-          name: 'default',
+          name: SESSION_NAME,
           config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] }
         })
       });
@@ -186,7 +192,7 @@ router.post('/connect', async (req: Request, res: Response) => {
     } else {
       const sessionData = await checkResponse.json() as any;
       if (sessionData.status === 'STOPPED' || sessionData.status === 'FAILED') {
-        await fetch(`${WAHA_API_URL}/api/sessions/default/start`, { method: 'POST', headers: getWahaHeaders() });
+        await fetch(`${WAHA_API_URL}/api/sessions/${SESSION_NAME}/start`, { method: 'POST', headers: getWahaHeaders() });
       }
       res.json({ success: true, message: 'Sesión activada' });
     }
@@ -202,7 +208,7 @@ router.get('/qr', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
     try {
-      const response = await fetch(`${WAHA_API_URL}/api/sessions/default/auth/qr`, {
+      const response = await fetch(`${WAHA_API_URL}/api/sessions/${SESSION_NAME}/auth/qr`, {
         headers: { ...getWahaHeaders(), 'Accept': 'application/json' }
       });
 
@@ -216,11 +222,11 @@ router.get('/qr', async (req: Request, res: Response) => {
       } else {
         res.json({ qr: null, available: false });
       }
-    } catch (fetchError) {
+    } catch {
       res.json({ qr: null, available: false });
     }
-  } catch (error) {
-    res.status(500).json({ error: 'Error al obtener QR', qr: null, available: false });
+  } catch {
+    res.status(500).json({ error: 'Error QR', qr: null, available: false });
   }
 });
 
@@ -230,7 +236,7 @@ router.post('/disconnect', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    await fetch(`${WAHA_API_URL}/api/sessions/default/stop`, { method: 'POST', headers: getWahaHeaders() });
+    await fetch(`${WAHA_API_URL}/api/sessions/${SESSION_NAME}/stop`, { method: 'POST', headers: getWahaHeaders() });
     res.json({ success: true, message: 'Desconectado' });
   } catch (error: any) {
     res.status(500).json({ success: false, message: error.message || 'Error' });
@@ -251,7 +257,7 @@ router.post('/send', async (req: Request, res: Response) => {
     const response = await fetch(`${WAHA_API_URL}/api/sendText`, {
       method: 'POST',
       headers: getWahaHeaders(),
-      body: JSON.stringify({ session: 'default', chatId, text: message })
+      body: JSON.stringify({ session: SESSION_NAME, chatId, text: message })
     });
 
     const result = await response.json() as any;
@@ -267,8 +273,8 @@ router.post('/send', async (req: Request, res: Response) => {
         });
       }
 
-      await prisma.message.create({
-        data: { conversationId: conversation.id, content: message, fromMe: true, userId: userId }
+      await (prisma.message.create as any)({
+        data: { conversationId: conversation.id, content: message, fromMe: true, userId }
       });
 
       await prisma.conversation.update({
@@ -313,7 +319,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const from = payload?.from || payload?.chatId || '';
     const body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
-    const messageType = payload?.type || 'chat';
 
     if (!from || !body) {
       res.json({ success: true, ignored: true });
@@ -338,13 +343,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       });
     }
 
-    await prisma.message.create({
+    // Guardar mensaje recibido
+    await (prisma.message.create as any)({
       data: {
         conversationId: conversation.id,
         content: body,
         fromMe: false,
-        mediaType: messageType !== 'chat' ? messageType : null,
-        userId: userId
+        userId
       }
     });
 
@@ -355,6 +360,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     console.log(`💾 Mensaje guardado en conversación ${conversation.id}`);
 
+    // Respuesta automática con IA
     if (!conversation.aiPaused) {
       const aiResponse = await generateAIResponse(userId, body, conversation.id);
 
@@ -362,12 +368,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const sent = await sendWahaMessage(from, aiResponse);
 
         if (sent) {
-          await prisma.message.create({
+          await (prisma.message.create as any)({
             data: {
               conversationId: conversation.id,
               content: aiResponse,
               fromMe: true,
-              userId: userId
+              userId
             }
           });
 

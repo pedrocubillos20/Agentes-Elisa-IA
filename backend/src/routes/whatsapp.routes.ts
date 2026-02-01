@@ -13,10 +13,6 @@ const getWahaHeaders = () => {
   return headers;
 };
 
-// ==========================================
-// PLAN FREE: sesión "default"
-// PLAN PRO: se puede usar cualquier nombre
-// ==========================================
 const SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
 
 const getDefaultUserId = async (): Promise<string | null> => {
@@ -137,7 +133,6 @@ const sendWahaMessage = async (chatId: string, text: string): Promise<boolean> =
   }
 };
 
-// GET /api/whatsapp/status
 router.get('/status', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -170,7 +165,6 @@ router.get('/status', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/whatsapp/connect
 router.post('/connect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -201,7 +195,6 @@ router.post('/connect', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/whatsapp/qr
 router.get('/qr', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -230,7 +223,6 @@ router.get('/qr', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/whatsapp/disconnect
 router.post('/disconnect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -243,7 +235,6 @@ router.post('/disconnect', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/whatsapp/send
 router.post('/send', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -273,8 +264,8 @@ router.post('/send', async (req: Request, res: Response) => {
         });
       }
 
-      await (prisma.message.create as any)({
-        data: { conversationId: conversation.id, content: message, fromMe: true, userId }
+      await prisma.message.create({
+        data: { conversationId: conversation.id, content: message, fromMe: true }
       });
 
       await prisma.conversation.update({
@@ -291,7 +282,6 @@ router.post('/send', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/whatsapp/webhook
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const { event, session, payload } = req.body;
@@ -343,13 +333,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
       });
     }
 
-    // Guardar mensaje recibido
-    await (prisma.message.create as any)({
+    await prisma.message.create({
       data: {
         conversationId: conversation.id,
         content: body,
-        fromMe: false,
-        userId
+        fromMe: false
       }
     });
 
@@ -360,7 +348,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     console.log(`💾 Mensaje guardado en conversación ${conversation.id}`);
 
-    // Respuesta automática con IA
     if (!conversation.aiPaused) {
       const aiResponse = await generateAIResponse(userId, body, conversation.id);
 
@@ -368,12 +355,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const sent = await sendWahaMessage(from, aiResponse);
 
         if (sent) {
-          await (prisma.message.create as any)({
+          await prisma.message.create({
             data: {
               conversationId: conversation.id,
               content: aiResponse,
-              fromMe: true,
-              userId
+              fromMe: true
             }
           });
 

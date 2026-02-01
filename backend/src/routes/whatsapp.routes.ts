@@ -13,6 +13,7 @@ const getWahaHeaders = () => {
   return headers;
 };
 
+// PLAN FREE: sesión "default" | PLAN PRO: cualquier nombre
 const SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
 
 const getDefaultUserId = async (): Promise<string | null> => {
@@ -265,7 +266,7 @@ router.post('/send', async (req: Request, res: Response) => {
       }
 
       await prisma.message.create({
-        data: { conversationId: conversation.id, content: message, fromMe: true }
+        data: { conversationId: conversation.id, content: message, fromMe: true, userId }
       });
 
       await prisma.conversation.update({
@@ -333,11 +334,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       });
     }
 
+    // Guardar mensaje recibido
     await prisma.message.create({
       data: {
         conversationId: conversation.id,
         content: body,
-        fromMe: false
+        fromMe: false,
+        userId
       }
     });
 
@@ -348,6 +351,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     console.log(`💾 Mensaje guardado en conversación ${conversation.id}`);
 
+    // Respuesta automática con IA
     if (!conversation.aiPaused) {
       const aiResponse = await generateAIResponse(userId, body, conversation.id);
 
@@ -355,11 +359,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const sent = await sendWahaMessage(from, aiResponse);
 
         if (sent) {
+          // Guardar respuesta IA
           await prisma.message.create({
             data: {
               conversationId: conversation.id,
               content: aiResponse,
-              fromMe: true
+              fromMe: true,
+              userId
             }
           });
 

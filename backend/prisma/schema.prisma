@@ -84,6 +84,7 @@ model Message {
   timestamp      DateTime     @default(now())
   mediaType      String?
   mediaUrl       String?      @db.Text
+  userId         String?
 }
 
 model Product {

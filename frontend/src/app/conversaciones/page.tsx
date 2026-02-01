@@ -66,46 +66,64 @@ export default function ConversacionesPage() {
   const [massMessageForm, setMassMessageForm] = useState({ stage: '', message: '' });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const selectedConvRef = useRef<string | null>(null);
+  const prevMessageCountRef = useRef<number>(0);
 
+  // Mantener ref sincronizado con la conversación seleccionada
+  useEffect(() => {
+    selectedConvRef.current = selectedConv?.id || null;
+  }, [selectedConv]);
+
+  // Carga inicial
   useEffect(() => {
     fetchData();
   }, []);
 
-  // AUTO-REFRESH: Actualizar conversaciones cada 5 segundos
+  // ===== AUTO-REFRESH: Conversaciones cada 5 segundos =====
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      // Refrescar lista de conversaciones silenciosamente
-      fetch(`${API_URL}/api/conversations`, { 
-        headers: { 'Authorization': `Bearer ${token}` } 
-      })
-        .then(res => res.ok ? res.json() : null)
-        .then(data => {
-          if (data?.conversations) {
-            setConversations(data.conversations);
-          }
-        })
-        .catch(() => {});
-
-      // Si hay conversación seleccionada, refrescar mensajes
-      if (selectedConv) {
-        fetch(`${API_URL}/api/conversations/${selectedConv.id}/messages`, {
+      try {
+        // Refrescar lista de conversaciones silenciosamente
+        const convRes = await fetch(`${API_URL}/api/conversations`, {
           headers: { 'Authorization': `Bearer ${token}` }
-        })
-          .then(res => res.ok ? res.json() : null)
-          .then(data => {
-            if (data?.messages) {
-              setMessages(data.messages);
-            }
-          })
-          .catch(() => {});
+        });
+        if (convRes.ok) {
+          const data = await convRes.json();
+          setConversations(data.conversations || []);
+        }
+
+        // Refrescar mensajes de la conversación seleccionada
+        if (selectedConvRef.current) {
+          const msgRes = await fetch(`${API_URL}/api/conversations/${selectedConvRef.current}/messages`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (msgRes.ok) {
+            const data = await msgRes.json();
+            const newMessages = data.messages || [];
+            setMessages(prev => {
+              // Solo actualizar si hay mensajes nuevos (evitar re-renders innecesarios)
+              if (newMessages.length !== prev.length) {
+                return newMessages;
+              }
+              // Verificar si el último mensaje es diferente
+              if (newMessages.length > 0 && prev.length > 0 && 
+                  newMessages[newMessages.length - 1]?.id !== prev[prev.length - 1]?.id) {
+                return newMessages;
+              }
+              return prev;
+            });
+          }
+        }
+      } catch (error) {
+        // Silencioso - no mostrar errores de polling
       }
-    }, 5000);
+    }, 5000); // Cada 5 segundos
 
     return () => clearInterval(interval);
-  }, [selectedConv]);
+  }, []);
 
   useEffect(() => {
     if (selectedConv) {
@@ -118,8 +136,12 @@ export default function ConversacionesPage() {
     }
   }, [selectedConv]);
 
+  // Auto-scroll cuando hay mensajes nuevos
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length > prevMessageCountRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessageCountRef.current = messages.length;
   }, [messages]);
 
   const fetchData = async () => {

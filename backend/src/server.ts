@@ -43,20 +43,15 @@ app.use('/api/auth', authRoutes);
 // Webhook de WhatsApp - WAHA envía aquí los mensajes
 app.post('/api/webhook/whatsapp', (req, res, next) => {
   console.log('🔔 Webhook WhatsApp recibido en /api/webhook/whatsapp');
+  req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
 
 // Alias para compatibilidad
 app.post('/api/whatsapp/webhook', (req, res, next) => {
   console.log('🔔 Webhook WhatsApp recibido en /api/whatsapp/webhook');
+  req.url = '/webhook';
   whatsappRoutes(req, res, next);
-});
-
-// Webhook para Wompi (pagos)
-app.post('/api/webhook/wompi', (req, res) => {
-  console.log('💳 Webhook Wompi recibido:', JSON.stringify(req.body, null, 2));
-  // TODO: Procesar pagos de Wompi
-  res.json({ success: true });
 });
 
 // ==========================================
@@ -70,7 +65,7 @@ app.use('/api/clients', authMiddleware, clientsRoutes);
 app.use('/api/appointments', authMiddleware, appointmentsRoutes);
 
 // ==========================================
-// HEALTH CHECK Y INFO
+// HEALTH CHECK
 // ==========================================
 app.get('/', (req, res) => {
   res.json({
@@ -98,16 +93,11 @@ app.get('/api', (req, res) => {
       clients: '/api/clients',
       appointments: '/api/appointments',
       webhooks: {
-        whatsapp: '/api/webhook/whatsapp',
-        wompi: '/api/webhook/wompi'
+        whatsapp: '/api/webhook/whatsapp'
       }
     }
   });
 });
-
-// ==========================================
-// ERROR HANDLING
-// ==========================================
 
 // 404
 app.use((req, res) => {
@@ -120,9 +110,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-// ==========================================
-// INICIAR SERVIDOR
-// ==========================================
+// Iniciar servidor
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');

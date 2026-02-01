@@ -13,7 +13,7 @@ const getWahaHeaders = () => {
   return headers;
 };
 
-// PLAN FREE: sesión "default" | PLAN PRO: cualquier nombre
+// PLAN FREE: sesión "default" | PLAN PRO ($19): cualquier nombre
 const SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
 
 const getDefaultUserId = async (): Promise<string | null> => {
@@ -266,7 +266,7 @@ router.post('/send', async (req: Request, res: Response) => {
       }
 
       await prisma.message.create({
-        data: { conversationId: conversation.id, content: message, fromMe: true, userId }
+        data: { conversationId: conversation.id, content: message, fromMe: true, userId, role: 'assistant' }
       });
 
       await prisma.conversation.update({
@@ -340,7 +340,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
         conversationId: conversation.id,
         content: body,
         fromMe: false,
-        userId
+        userId,
+        role: 'user'
       }
     });
 
@@ -365,7 +366,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
               conversationId: conversation.id,
               content: aiResponse,
               fromMe: true,
-              userId
+              userId,
+              role: 'assistant'
             }
           });
 

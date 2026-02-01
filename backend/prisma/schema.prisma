@@ -85,6 +85,7 @@ model Message {
   mediaType      String?
   mediaUrl       String?      @db.Text
   userId         String?
+  role           String       @default("user")
 }
 
 model Product {

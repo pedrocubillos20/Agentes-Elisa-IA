@@ -9,12 +9,12 @@ import whatsappRoutes from './routes/whatsapp.routes';
 import productsRoutes from './routes/products.routes';
 import clientsRoutes from './routes/clients.routes';
 import appointmentsRoutes from './routes/appointments.routes';
+import teamRoutes from './routes/team.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors({
   origin: [
     'http://localhost:3000',
@@ -27,98 +27,72 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Servir archivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// ==========================================
-// RUTAS PÚBLICAS
-// ==========================================
+// ===== RUTAS PÚBLICAS =====
 app.use('/api/auth', authRoutes);
 
-// ==========================================
-// WEBHOOKS PÚBLICOS (sin autenticación)
-// ==========================================
-
-// Webhook de WhatsApp - WAHA envía aquí los mensajes
+// ===== WEBHOOKS PÚBLICOS (sin auth) =====
 app.post('/api/webhook/whatsapp', (req, res, next) => {
   console.log('🔔 Webhook WhatsApp recibido en /api/webhook/whatsapp');
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
-
-// Alias para compatibilidad
 app.post('/api/whatsapp/webhook', (req, res, next) => {
   console.log('🔔 Webhook WhatsApp recibido en /api/whatsapp/webhook');
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
 
-// ==========================================
-// RUTAS PROTEGIDAS
-// ==========================================
+// ===== RUTAS PROTEGIDAS =====
 app.use('/api/assistants', authMiddleware, assistantsRoutes);
 app.use('/api/conversations', authMiddleware, conversationsRoutes);
 app.use('/api/whatsapp', authMiddleware, whatsappRoutes);
 app.use('/api/products', authMiddleware, productsRoutes);
 app.use('/api/clients', authMiddleware, clientsRoutes);
 app.use('/api/appointments', authMiddleware, appointmentsRoutes);
+app.use('/api/team', authMiddleware, teamRoutes);
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
+// ===== HEALTH CHECK =====
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ELISA IA Backend v5.1.0 - WAHA Integration',
-    version: '5.1.0',
-    modules: ['auth', 'whatsapp', 'assistants', 'conversations', 'clients', 'products', 'appointments'],
-    whatsapp: {
-      provider: 'WAHA',
-      apiUrl: process.env.WAHA_API_URL || 'http://31.97.142.127:8080'
-    },
+    message: 'ELISA IA Backend v5.2.0 - Teams + Typing + Media',
+    version: '5.2.0',
+    modules: ['auth', 'whatsapp', 'assistants', 'conversations', 'clients', 'products', 'appointments', 'team'],
+    features: ['typing-indicators', 'recording-simulation', 'media-triggers', 'pause-resume', 'sub-users', 'permissions', 'gpt-fallback'],
     timestamp: new Date().toISOString()
   });
 });
 
 app.get('/api', (req, res) => {
   res.json({
-    message: 'Elisa IA API v5.1 - WAHA',
+    message: 'Elisa IA API v5.2',
     endpoints: {
-      auth: '/api/auth',
-      assistants: '/api/assistants',
-      conversations: '/api/conversations',
-      whatsapp: '/api/whatsapp',
-      products: '/api/products',
-      clients: '/api/clients',
-      appointments: '/api/appointments',
-      webhooks: {
-        whatsapp: '/api/webhook/whatsapp'
-      }
+      auth: '/api/auth', assistants: '/api/assistants', conversations: '/api/conversations',
+      whatsapp: '/api/whatsapp', products: '/api/products', clients: '/api/clients',
+      appointments: '/api/appointments', team: '/api/team',
+      webhooks: { whatsapp: '/api/webhook/whatsapp' }
     }
   });
 });
 
-// 404
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint no encontrado', path: req.path });
-});
-
-// Error handler
+app.use((req, res) => { res.status(404).json({ error: 'No encontrado', path: req.path }); });
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
-  res.status(500).json({ error: 'Error interno del servidor' });
+  res.status(500).json({ error: 'Error interno' });
 });
 
-// Iniciar servidor
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('   🤖 ELISA IA Backend v5.1.0');
-  console.log('   📱 WhatsApp Provider: WAHA');
+  console.log('   🤖 ELISA IA Backend v5.2.0');
+  console.log('   📱 WhatsApp: Typing + Recording + Media Triggers');
+  console.log('   👥 Módulo Equipos: ACTIVO');
+  console.log('   ⏸️  Pausa IA: ".." pausa / "." reactiva');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log(`   🌐 Server: http://localhost:${PORT}`);
-  console.log(`   📡 WAHA API: ${process.env.WAHA_API_URL || 'http://31.97.142.127:8080'}`);
+  console.log(`   🌐 http://localhost:${PORT}`);
+  console.log(`   📡 WAHA: ${process.env.WAHA_API_URL || 'http://31.97.142.127:8080'}`);
   console.log(`   🔗 Webhook: /api/webhook/whatsapp`);
   console.log('═══════════════════════════════════════════════════════════');
   console.log('');

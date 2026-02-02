@@ -11,33 +11,20 @@ const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key-2024';
 router.post('/register', async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body;
+    if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
 
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email y contraseña son requeridos' });
-      return;
-    }
-
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      res.status(400).json({ error: 'El email ya está registrado' });
-      return;
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
 
     const user = await prisma.user.create({
-      data: { email, password: hashedPassword, name: name || null }
+      data: { email, password: await bcrypt.hash(password, 10), name: name || null, role: 'admin' }
     });
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({
-      user: { id: user.id, email: user.email, name: user.name },
-      token
-    });
+    res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, role: 'admin' }, token });
   } catch (error) {
-    console.error('Error en registro:', error);
-    res.status(500).json({ error: 'Error al registrar usuario' });
+    console.error('Error registro:', error);
+    res.status(500).json({ error: 'Error al registrar' });
   }
 });
 
@@ -45,37 +32,34 @@ router.post('/register', async (req: Request, res: Response) => {
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email y contraseña son requeridos' });
-      return;
-    }
+    if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      res.status(401).json({ error: 'Credenciales inválidas' });
-      return;
+    if (!user) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
+
+    // Sub-usuario desactivado
+    if (user.parentUserId && !user.isActive) {
+      res.status(403).json({ error: 'Tu cuenta ha sido desactivada. Contacta al administrador.' }); return;
     }
 
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      res.status(401).json({ error: 'Credenciales inválidas' });
-      return;
-    }
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
-      user: { 
-        id: user.id, 
-        email: user.email, 
-        name: user.name,
-        apiKeyConnected: user.apiKeyConnected || false
+      user: {
+        id: user.id, email: user.email, name: user.name,
+        role: user.role || 'admin',
+        parentUserId: user.parentUserId || null,
+        permissions: user.permissions || {},
+        apiKeyConnected: user.apiKeyConnected || false,
+        isSubUser: !!user.parentUserId
       },
       token
     });
   } catch (error) {
-    console.error('Error en login:', error);
+    console.error('Error login:', error);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
@@ -84,180 +68,97 @@ router.post('/login', async (req: Request, res: Response) => {
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-
-    if (!userId) {
-      res.status(401).json({ error: 'No autorizado' });
-      return;
-    }
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        phone: true,
-        apiKeyConnected: true,
-        createdAt: true
+      select: { id: true, email: true, name: true, phone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true }
+    });
+
+    if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
+
+    // Para sub-usuarios, obtener info del padre (API key status, etc.)
+    let parentInfo = null;
+    if (user.parentUserId) {
+      parentInfo = await prisma.user.findUnique({
+        where: { id: user.parentUserId },
+        select: { id: true, name: true, email: true, apiKeyConnected: true, phone: true }
+      });
+    }
+
+    res.json({
+      user: {
+        ...user,
+        isSubUser: !!user.parentUserId,
+        parent: parentInfo,
+        // Sub-usuarios heredan el apiKeyConnected del padre
+        apiKeyConnected: user.parentUserId ? (parentInfo?.apiKeyConnected || false) : user.apiKeyConnected
       }
     });
-
-    if (!user) {
-      res.status(404).json({ error: 'Usuario no encontrado' });
-      return;
-    }
-
-    res.json({ user });
   } catch (error) {
-    console.error('Error obteniendo usuario:', error);
-    res.status(500).json({ error: 'Error al obtener usuario' });
-  }
-});
-
-// GET /api/auth/api-key/status - Verificar si tiene API Key configurada
-router.get('/api-key/status', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { apiKey: true, apiKeyConnected: true }
-    });
-
-    res.json({ 
-      hasApiKey: !!user?.apiKey,
-      apiKeyConnected: user?.apiKeyConnected || false
-    });
-  } catch (error) {
-    console.error('Error:', error);
     res.status(500).json({ error: 'Error' });
   }
 });
 
-// POST /api/auth/api-key - Guardar API Key
+// GET /api/auth/api-key/status
+router.get('/api-key/status', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    const current = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+    const ownerId = current?.parentUserId || userId;
+    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, apiKeyConnected: true } });
+    res.json({ hasApiKey: !!user?.apiKey, apiKeyConnected: user?.apiKeyConnected || false });
+  } catch { res.status(500).json({ error: 'Error' }); }
+});
+
+// POST /api/auth/api-key
 router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { apiKey } = req.body;
+    if (!apiKey || !userId) { res.status(400).json({ error: 'API Key requerida' }); return; }
 
-    if (!apiKey) {
-      res.status(400).json({ error: 'API Key es requerida' });
-      return;
-    }
+    // Solo admins pueden configurar API key
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+    if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador puede configurar la API Key' }); return; }
 
-    if (!userId) {
-      res.status(401).json({ error: 'No autorizado' });
-      return;
-    }
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: { apiKey, apiKeyConnected: true }
-    });
-
-    res.json({ success: true, message: 'API Key guardada correctamente' });
-  } catch (error) {
-    console.error('Error guardando API Key:', error);
-    res.status(500).json({ error: 'Error al guardar API Key' });
-  }
+    await prisma.user.update({ where: { id: userId }, data: { apiKey, apiKeyConnected: true } });
+    res.json({ success: true, message: 'API Key guardada' });
+  } catch { res.status(500).json({ error: 'Error' }); }
 });
 
-// DELETE /api/auth/api-key - Eliminar API Key
+// DELETE /api/auth/api-key
 router.delete('/api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-
-    await prisma.user.update({
-      where: { id: userId },
-      data: { apiKey: null, apiKeyConnected: false }
-    });
-
-    res.json({ success: true, message: 'API Key eliminada' });
-  } catch (error) {
-    console.error('Error eliminando API Key:', error);
-    res.status(500).json({ error: 'Error al eliminar API Key' });
-  }
+    const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
+    if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
+    await prisma.user.update({ where: { id: userId }, data: { apiKey: null, apiKeyConnected: false } });
+    res.json({ success: true });
+  } catch { res.status(500).json({ error: 'Error' }); }
 });
 
-// POST /api/auth/api-key/test - Probar API Key
+// POST /api/auth/api-key/test
 router.post('/api-key/test', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
+    if (!apiKey) { res.json({ valid: false, message: 'API Key requerida' }); return; }
+    if (!apiKey.startsWith('sk-')) { res.json({ valid: false, message: 'Formato inválido' }); return; }
 
-    if (!apiKey) {
-      res.json({ valid: false, message: 'API Key es requerida' });
-      return;
-    }
-
-    // Validar formato básico
-    if (!apiKey.startsWith('sk-')) {
-      res.json({ valid: false, message: 'Formato de API Key inválido. Debe comenzar con sk-' });
-      return;
-    }
-
-    console.log('Probando API Key:', apiKey.substring(0, 15) + '...');
-
-    // Usar fetch con timeout manual
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 15000);
     try {
-      const response = await fetch('https://api.openai.com/v1/models', {
-        method: 'GET',
-        headers: { 
-          'Authorization': `Bearer ${apiKey}`
-        },
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      console.log('OpenAI response status:', response.status);
-
-      if (response.status === 200) {
-        res.json({ valid: true, message: 'API Key válida ✓' });
-        return;
-      } 
-      
-      if (response.status === 401) {
-        res.json({ valid: false, message: 'API Key inválida' });
-        return;
-      } 
-      
-      if (response.status === 429) {
-        // 429 significa rate limit pero la key es válida
-        res.json({ valid: true, message: 'API Key válida (límite de rate alcanzado)' });
-        return;
-      } 
-      
-      if (response.status === 403) {
-        res.json({ valid: false, message: 'API Key sin permisos o sin créditos' });
-        return;
-      }
-
-      // Intentar leer el error
-      const errorText = await response.text();
-      console.log('OpenAI error response:', errorText);
-      
-      res.json({ valid: false, message: 'API Key inválida o sin créditos' });
-
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      
-      if (fetchError.name === 'AbortError') {
-        console.log('Request timeout');
-        res.json({ valid: false, message: 'Tiempo de espera agotado. Intenta de nuevo.' });
-        return;
-      }
-      
-      console.error('Fetch error:', fetchError.message);
-      res.json({ valid: false, message: 'Error de conexión. Intenta de nuevo.' });
+      const r = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` }, signal: ctrl.signal });
+      clearTimeout(to);
+      if (r.status === 200) { res.json({ valid: true, message: 'API Key válida ✓' }); return; }
+      if (r.status === 401) { res.json({ valid: false, message: 'API Key inválida' }); return; }
+      if (r.status === 429) { res.json({ valid: true, message: 'Válida (rate limit)' }); return; }
+      res.json({ valid: false, message: 'Inválida o sin créditos' });
+    } catch (e: any) {
+      clearTimeout(to);
+      res.json({ valid: false, message: e.name === 'AbortError' ? 'Timeout' : 'Error conexión' });
     }
-
-  } catch (error: any) {
-    console.error('Error general probando API Key:', error);
-    res.json({ valid: false, message: 'Error al verificar. Intenta de nuevo.' });
-  }
+  } catch { res.json({ valid: false, message: 'Error' }); }
 });
 
 export default router;

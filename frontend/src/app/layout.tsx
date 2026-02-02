@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
-  Smartphone, Users, Calendar, Bell, Search, ChevronRight
+  Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -20,22 +20,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   const isAuthPage = pathname === '/login' || pathname === '/register';
 
-  useEffect(() => {
-    checkAuth();
-  }, [pathname]);
+  useEffect(() => { checkAuth(); }, [pathname]);
 
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
-    if (!token) {
-      setLoading(false);
-      if (!isAuthPage) router.push('/login');
-      return;
-    }
-
+    if (!token) { setLoading(false); if (!isAuthPage) router.push('/login'); return; }
     try {
-      const res = await fetch(`${API_URL}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
@@ -43,11 +34,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         localStorage.removeItem('token');
         if (!isAuthPage) router.push('/login');
       }
-    } catch (error) {
-      console.error('Error auth:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error('Auth error:', error); }
+    finally { setLoading(false); }
   };
 
   const handleLogout = () => {
@@ -56,15 +44,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     router.push('/login');
   };
 
-  const navigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Conversaciones', href: '/conversaciones', icon: MessageSquare },
-    { name: 'WhatsApp', href: '/whatsapp', icon: Smartphone },
-    { name: 'Asistentes IA', href: '/asistentes', icon: Bot },
-    { name: 'CRM', href: '/crm', icon: Users, badge: 'Nuevo' },
-    { name: 'Agenda', href: '/agenda', icon: Calendar, badge: 'Nuevo' },
-    { name: 'Configuración', href: '/configuracion', icon: Settings },
+  // Permisos del usuario (admin tiene todo, sub-usuarios según sus permisos)
+  const perms = user?.permissions || {};
+  const isAdmin = !user?.parentUserId;
+  const hasPerm = (p: string) => isAdmin || perms[p] === true;
+
+  // Navegación dinámica según permisos
+  const allNavigation = [
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, perm: 'dashboard' },
+    { name: 'Conversaciones', href: '/conversaciones', icon: MessageSquare, perm: 'conversations' },
+    { name: 'WhatsApp', href: '/whatsapp', icon: Smartphone, perm: 'whatsapp' },
+    { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants' },
+    { name: 'CRM', href: '/crm', icon: Users, perm: 'crm', badge: 'Nuevo' },
+    { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', badge: 'Nuevo' },
+    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
+    { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
   ];
+
+  const navigation = allNavigation.filter(item => hasPerm(item.perm));
+
+  // Rol label
+  const roleLabel = user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Gerente' : user?.role === 'agent' ? 'Vendedor' : user?.role === 'support' ? 'Soporte' : 'Observador';
 
   if (loading) {
     return (
@@ -111,7 +111,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Sidebar */}
           <aside className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-72 sidebar flex flex-col transform transition-all duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
             
-            {/* Logo Header con Elisa */}
             <div className="h-20 flex items-center justify-between px-5 border-b border-[var(--border-primary)]">
               <Link href="/dashboard" className="flex items-center gap-3">
                 <img src="/elisa.png" alt="Elisa IA" className="logo-img" />
@@ -125,7 +124,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </button>
             </div>
 
-            {/* Navigation */}
             <nav className="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar">
               {navigation.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -147,7 +145,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="avatar">{user?.name?.[0] || 'U'}</div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-white truncate">{user?.name || 'Usuario'}</p>
-                  <p className="text-xs text-[var(--text-muted)] truncate">{user?.email}</p>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+                    <p className="text-xs text-[var(--text-muted)] truncate">{roleLabel}</p>
+                  </div>
                 </div>
               </div>
               
@@ -157,7 +158,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </button>
             </div>
 
-            {/* Branding Footer con Elisa */}
             <div className="px-4 pb-4">
               <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20">
                 <img src="/elisa.png" alt="Elisa" className="w-5 h-5 rounded" />
@@ -168,7 +168,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
           {/* Main Content */}
           <main className="flex-1 flex flex-col min-h-screen">
-            {/* Top Header */}
             <header className="sticky top-0 z-30 h-20 px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
               <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
                 <Menu className="w-6 h-6" />
@@ -182,6 +181,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
 
               <div className="flex items-center gap-3">
+                {user?.isSubUser && (
+                  <span className="text-xs bg-blue-500/20 text-blue-400 px-2.5 py-1 rounded-full hidden md:inline">
+                    {roleLabel}
+                  </span>
+                )}
                 <button className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
                   <Bell className="w-5 h-5" />
                   <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--accent-primary)] rounded-full animate-pulse" />

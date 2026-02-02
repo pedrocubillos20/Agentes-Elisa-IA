@@ -12,12 +12,15 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
-  const [stats, setStats] = useState<any>(null);
+  const [dashboard, setDashboard] = useState<any>(null);
   const [whatsappStatus, setWhatsappStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
+    // Auto-refresh cada 30 segundos
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchData = async () => {
@@ -25,20 +28,32 @@ export default function DashboardPage() {
     if (!token) return;
 
     try {
-      const [userRes, statsRes, whatsappRes] = await Promise.all([
+      const [userRes, dashRes, whatsappRes] = await Promise.all([
         fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations/stats`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`${API_URL}/api/conversations/dashboard`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
         fetch(`${API_URL}/api/whatsapp/status`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
       ]);
 
       if (userRes.ok) setUser((await userRes.json()).user);
-      if (statsRes?.ok) setStats(await statsRes.json());
+      if (dashRes?.ok) setDashboard(await dashRes.json());
       if (whatsappRes?.ok) setWhatsappStatus(await whatsappRes.json());
     } catch (error) {
       console.error('Error:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Formatear tiempo relativo
+  const timeAgo = (dateStr: string) => {
+    const now = new Date().getTime();
+    const date = new Date(dateStr).getTime();
+    const diff = Math.floor((now - date) / 1000);
+    
+    if (diff < 60) return 'Hace un momento';
+    if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} hora${Math.floor(diff / 3600) > 1 ? 's' : ''}`;
+    return `Hace ${Math.floor(diff / 86400)} día${Math.floor(diff / 86400) > 1 ? 's' : ''}`;
   };
 
   if (loading) {
@@ -50,25 +65,52 @@ export default function DashboardPage() {
     );
   }
 
+  const totalMessages = dashboard?.totalMessages || 0;
+  const totalConversations = dashboard?.totalConversations || 0;
+  const totalAppointments = dashboard?.totalAppointments || 0;
+  const pendingAppointments = dashboard?.pendingAppointments || 0;
+  const todayMessages = dashboard?.todayMessages || 0;
+  const totalClients = dashboard?.totalClients || 0;
+  const conversionRate = dashboard?.conversionRate || '0';
+  const weeklyActivity = dashboard?.weeklyActivity || [0, 0, 0, 0, 0, 0, 0];
+  const recentActivity = dashboard?.recentActivity || [];
+
   const statCards = [
-    { title: 'Mensajes Totales', value: stats?.totalMessages || 0, change: '+12.5%', trend: 'up', icon: MessageSquare, color: 'emerald' },
-    { title: 'Conversaciones', value: stats?.totalConversations || 0, change: '+8.2%', trend: 'up', icon: Users, color: 'blue' },
-    { title: 'Respuesta Promedio', value: '2.3s', change: '-15%', trend: 'up', icon: Clock, color: 'purple' },
-    { title: 'Citas Agendadas', value: 24, change: '+5', trend: 'up', icon: Calendar, color: 'orange' }
+    { 
+      title: 'Mensajes Totales', 
+      value: totalMessages, 
+      sub: todayMessages > 0 ? `${todayMessages} hoy` : 'Sin mensajes hoy',
+      icon: MessageSquare, 
+      color: 'emerald' 
+    },
+    { 
+      title: 'Conversaciones', 
+      value: totalConversations, 
+      sub: `${dashboard?.convertedCount || 0} convertidos`,
+      icon: Users, 
+      color: 'blue' 
+    },
+    { 
+      title: 'Clientes CRM', 
+      value: totalClients, 
+      sub: `${conversionRate}% conversión`,
+      icon: Clock, 
+      color: 'purple' 
+    },
+    { 
+      title: 'Citas/Pedidos', 
+      value: totalAppointments, 
+      sub: pendingAppointments > 0 ? `${pendingAppointments} pendientes` : 'Sin pendientes',
+      icon: Calendar, 
+      color: 'orange' 
+    }
   ];
 
-  const chartData = [40, 65, 45, 80, 55, 90, 70];
-  const maxValue = Math.max(...chartData);
-
-  const recentActivity = [
-    { type: 'message', user: 'María García', action: 'Nuevo mensaje recibido', time: 'Hace 2 min' },
-    { type: 'appointment', user: 'Carlos López', action: 'Cita agendada', time: 'Hace 15 min' },
-    { type: 'sale', user: 'Ana Martínez', action: 'Pedido confirmado - $150.000', time: 'Hace 1 hora' },
-  ];
+  const maxChart = Math.max(...weeklyActivity, 1);
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
-      {/* Welcome Header con Elisa */}
+      {/* Welcome Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
           <img src="/elisa.png" alt="Elisa IA" className="w-16 h-16 rounded-2xl shadow-lg animate-float hidden md:block" />
@@ -77,7 +119,9 @@ export default function DashboardPage() {
               ¡Hola, {user?.name?.split(' ')[0] || 'Usuario'}! 👋
             </h1>
             <p className="text-[var(--text-muted)] mt-1">
-              {whatsappStatus?.connected ? 'Tu chatbot está activo' : 'Conecta WhatsApp para activar Elisa'}
+              {whatsappStatus?.connected 
+                ? `Tu chatbot está activo • +${whatsappStatus.phone || ''}` 
+                : 'Conecta WhatsApp para activar Elisa'}
             </p>
           </div>
         </div>
@@ -125,14 +169,13 @@ export default function DashboardPage() {
                   stat.color === 'purple' ? 'text-purple-400' : 'text-orange-400'
                 }`} />
               </div>
-              <div className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
-                stat.trend === 'up' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-              }`}>
-                {stat.trend === 'up' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {stat.change}
-              </div>
+              {stat.sub && (
+                <span className="text-xs text-[var(--text-muted)] bg-white/5 px-2 py-1 rounded-full">
+                  {stat.sub}
+                </span>
+              )}
             </div>
-            <div className="stat-value">{stat.value}</div>
+            <div className="stat-value">{typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}</div>
             <div className="stat-label">{stat.title}</div>
           </div>
         ))}
@@ -140,30 +183,40 @@ export default function DashboardPage() {
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart */}
+        {/* Chart - Actividad Semanal REAL */}
         <div className="lg:col-span-2 card animate-fade-in stagger-2">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-lg font-semibold text-white">Actividad Semanal</h3>
-              <p className="text-sm text-[var(--text-muted)]">Mensajes procesados</p>
+              <p className="text-sm text-[var(--text-muted)]">{dashboard?.weekMessages || 0} mensajes esta semana</p>
             </div>
-            <button className="btn-secondary text-sm py-2"><BarChart3 className="w-4 h-4" />Reportes</button>
+            <Link href="/conversaciones" className="btn-secondary text-sm py-2">
+              <BarChart3 className="w-4 h-4" />Ver Chats
+            </Link>
           </div>
           
           <div className="h-48 flex items-end justify-between gap-3 px-4">
-            {chartData.map((value, index) => (
+            {weeklyActivity.map((value: number, index: number) => (
               <div key={index} className="flex-1 flex flex-col items-center gap-2">
-                <div className="w-full bg-gradient-to-t from-[var(--accent-primary)] to-[var(--accent-secondary)] rounded-t-lg transition-all duration-500 hover:opacity-80"
-                  style={{ height: `${(value / maxValue) * 100}%` }} />
+                <span className="text-xs text-[var(--text-muted)]">{value}</span>
+                <div 
+                  className="w-full rounded-t-lg transition-all duration-500 hover:opacity-80"
+                  style={{ 
+                    height: `${Math.max((value / maxChart) * 100, 4)}%`,
+                    background: value > 0 
+                      ? 'linear-gradient(to top, var(--accent-primary), var(--accent-secondary))' 
+                      : 'rgba(255,255,255,0.05)'
+                  }} 
+                />
                 <span className="text-xs text-[var(--text-muted)]">
-                  {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'][index]}
+                  {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][index]}
                 </span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Activity Feed */}
+        {/* Activity Feed REAL */}
         <div className="card animate-fade-in stagger-3">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-white">Actividad Reciente</h3>
@@ -171,9 +224,9 @@ export default function DashboardPage() {
           </div>
           
           <div className="space-y-4">
-            {recentActivity.map((activity, index) => (
+            {recentActivity.length > 0 ? recentActivity.map((activity: any, index: number) => (
               <div key={index} className="flex items-start gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                   activity.type === 'message' ? 'bg-blue-500/20' :
                   activity.type === 'appointment' ? 'bg-purple-500/20' : 'bg-emerald-500/20'
                 }`}>
@@ -185,9 +238,15 @@ export default function DashboardPage() {
                   <p className="text-sm font-medium text-white truncate">{activity.user}</p>
                   <p className="text-xs text-[var(--text-muted)] truncate">{activity.action}</p>
                 </div>
-                <span className="text-xs text-[var(--text-muted)]">{activity.time}</span>
+                <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{timeAgo(activity.time)}</span>
               </div>
-            ))}
+            )) : (
+              <div className="text-center py-8 text-[var(--text-muted)]">
+                <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Sin actividad reciente</p>
+                <p className="text-xs mt-1">Los mensajes nuevos aparecerán aquí</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -217,7 +276,11 @@ export default function DashboardPage() {
             <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
               <Users className="w-6 h-6 text-blue-400" />
             </div>
-            <span className="badge-new">Nuevo</span>
+            {totalClients > 0 && (
+              <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full font-medium">
+                {totalClients} clientes
+              </span>
+            )}
           </div>
           <h3 className="text-lg font-semibold text-white mb-1">CRM</h3>
           <p className="text-sm text-[var(--text-muted)] mb-4">Gestiona clientes y productos</p>
@@ -231,7 +294,11 @@ export default function DashboardPage() {
             <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
               <Calendar className="w-6 h-6 text-purple-400" />
             </div>
-            <span className="badge-new">Nuevo</span>
+            {pendingAppointments > 0 && (
+              <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded-full font-medium">
+                {pendingAppointments} pendientes
+              </span>
+            )}
           </div>
           <h3 className="text-lg font-semibold text-white mb-1">Agenda</h3>
           <p className="text-sm text-[var(--text-muted)] mb-4">Citas y pedidos programados</p>
@@ -241,7 +308,7 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Elisa Footer */}
+      {/* Footer */}
       <div className="flex items-center justify-center py-8">
         <div className="flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/10">
           <img src="/elisa.png" alt="Elisa IA" className="w-8 h-8 rounded-lg" />

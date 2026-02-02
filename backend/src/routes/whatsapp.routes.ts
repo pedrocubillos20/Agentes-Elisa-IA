@@ -15,85 +15,93 @@ const getWahaHeaders = () => {
 };
 
 // =====================================================
-// MULTI-TENANT: Cada usuario tiene su propia sesión WAHA
-// Nombre de sesión = "user_{userId}"
-// El webhook identifica al usuario por el campo "session"
+// MULTI-TENANT SESSION MANAGEMENT
+// Sesiones: "user_{userId}" (nuevo) o "default" (legacy)
 // =====================================================
 
 const getUserSessionName = (userId: string): string => `user_${userId}`;
 
-const getUserIdFromSession = (sessionName: string): string | null => {
-  if (sessionName.startsWith('user_')) {
-    return sessionName.replace('user_', '');
-  }
-  // Compatibilidad con sesión "default" legacy
+// Buscar la sesión activa de un usuario (puede ser user_{id} o default)
+const findActiveSession = async (userId: string): Promise<{ name: string; data: any } | null> => {
+  const sessionName = getUserSessionName(userId);
+
+  // 1. Intentar sesión propia del usuario
+  try {
+    const res = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
+    if (res.ok) {
+      const data = await res.json() as any;
+      if (data.status === 'WORKING' || data.status === 'CONNECTED' || data.status === 'SCAN_QR_CODE' || data.status === 'STARTING') {
+        return { name: sessionName, data };
+      }
+    }
+  } catch {}
+
+  // 2. Fallback: sesión "default" (legacy / compartida)
+  try {
+    const res = await fetch(`${WAHA_API_URL}/api/sessions/default`, { headers: getWahaHeaders() });
+    if (res.ok) {
+      const data = await res.json() as any;
+      if (data.status === 'WORKING' || data.status === 'CONNECTED' || data.status === 'SCAN_QR_CODE' || data.status === 'STARTING') {
+        return { name: 'default', data };
+      }
+    }
+  } catch {}
+
   return null;
 };
 
-// ===== RESOLVER USUARIO DESDE WEBHOOK =====
+// Resolver usuario desde webhook por nombre de sesión
 const resolveUserFromWebhook = async (sessionName: string, recipientId: string): Promise<string | null> => {
-  // 1. Extraer userId del nombre de sesión (user_{userId})
-  const userIdFromSession = getUserIdFromSession(sessionName);
-  if (userIdFromSession) {
-    const user = await prisma.user.findUnique({ where: { id: userIdFromSession }, select: { id: true } });
-    if (user) {
-      console.log(`👤 Usuario identificado por sesión: ${userIdFromSession}`);
-      return user.id;
-    }
+  // 1. Sesión user_{userId} → extraer userId directo
+  if (sessionName.startsWith('user_')) {
+    const uid = sessionName.replace('user_', '');
+    const user = await prisma.user.findUnique({ where: { id: uid }, select: { id: true } });
+    if (user) return user.id;
   }
 
-  // 2. Buscar por número de teléfono conectado
-  const userByPhone = await prisma.user.findFirst({
-    where: {
-      phone: { contains: recipientId.slice(-10) }
-    },
-    select: { id: true, email: true }
-  });
-  if (userByPhone) {
-    console.log(`👤 Usuario identificado por teléfono: ${userByPhone.email}`);
-    return userByPhone.id;
-  }
-
-  // 3. Buscar por conversación existente
+  // 2. Buscar por conversación existente con ese número
   const existingConv = await prisma.conversation.findFirst({
     where: { recipientId },
     select: { userId: true }
   });
-  if (existingConv) {
-    console.log(`👤 Usuario identificado por conversación existente`);
-    return existingConv.userId;
-  }
+  if (existingConv) return existingConv.userId;
 
-  // 4. Fallback legacy: si la sesión es "default", buscar usuario con API key
-  if (sessionName === 'default') {
-    const defaultUser = await prisma.user.findFirst({
-      where: { apiKeyConnected: true },
-      select: { id: true, email: true }
-    });
-    if (defaultUser) {
-      console.log(`👤 Usuario fallback (sesión default): ${defaultUser.email}`);
-      return defaultUser.id;
-    }
-  }
+  // 3. Buscar usuario con asistente activo + API Key
+  const userWithAssistant = await prisma.user.findFirst({
+    where: {
+      apiKeyConnected: true,
+      apiKey: { not: null },
+      assistants: { some: { isActive: true } }
+    },
+    select: { id: true }
+  });
+  if (userWithAssistant) return userWithAssistant.id;
 
-  return null;
+  // 4. Cualquier usuario con API Key
+  const anyUser = await prisma.user.findFirst({
+    where: { apiKeyConnected: true },
+    select: { id: true }
+  });
+  if (anyUser) return anyUser.id;
+
+  // 5. Primer usuario
+  const first = await prisma.user.findFirst({ select: { id: true }, orderBy: { createdAt: 'asc' } });
+  return first?.id || null;
 };
 
 // ===== GENERAR RESPUESTA IA =====
 const generateAIResponse = async (userId: string, message: string, conversationId: string): Promise<string | null> => {
   try {
-    // 1. API Key del usuario
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { apiKey: true, apiKeyConnected: true, email: true }
     });
 
     if (!user?.apiKey || !user.apiKeyConnected) {
-      console.log(`⚠️ Usuario ${user?.email} sin API Key de OpenAI`);
+      console.log(`⚠️ Usuario ${user?.email} sin API Key`);
       return null;
     }
 
-    // 2. Asistente activo DEL usuario
     let assistant = await prisma.assistant.findFirst({
       where: { userId, isActive: true },
       orderBy: { updatedAt: 'desc' }
@@ -106,70 +114,55 @@ const generateAIResponse = async (userId: string, message: string, conversationI
       });
       if (assistant) {
         await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
-        console.log(`✅ Asistente "${assistant.name}" auto-activado`);
       } else {
-        console.log(`❌ Usuario ${user.email} sin asistente configurado`);
+        console.log(`❌ Sin asistente para ${user.email}`);
         return null;
       }
     }
 
     console.log(`📋 Asistente: "${assistant.name}" (context: ${assistant.context?.length || 0} chars)`);
 
-    // 3. Historial de conversación
     const history = await prisma.message.findMany({
       where: { conversationId },
       orderBy: { timestamp: 'desc' },
       take: 15
     });
 
-    // 4. System prompt completo
-    const systemParts: string[] = [];
-    if (assistant.name) systemParts.push(`Eres ${assistant.name}.`);
-    if (assistant.personality?.trim()) systemParts.push(assistant.personality);
-    if (assistant.context?.trim()) systemParts.push(assistant.context);
-    if (assistant.businessInfo?.trim()) systemParts.push(`Información del negocio: ${assistant.businessInfo}`);
-    if (assistant.instructions?.trim()) systemParts.push(`Instrucciones: ${assistant.instructions}`);
+    // System prompt
+    const parts: string[] = [];
+    if (assistant.name) parts.push(`Eres ${assistant.name}.`);
+    if (assistant.personality?.trim()) parts.push(assistant.personality);
+    if (assistant.context?.trim()) parts.push(assistant.context);
+    if (assistant.businessInfo?.trim()) parts.push(`Información del negocio: ${assistant.businessInfo}`);
+    if (assistant.instructions?.trim()) parts.push(`Instrucciones: ${assistant.instructions}`);
 
-    // Knowledge Items
     const knowledge = assistant.knowledgeItems as any;
     if (knowledge) {
-      let knowledgeText = '';
+      let kt = '';
       if (typeof knowledge === 'string') {
         try {
-          const parsed = JSON.parse(knowledge);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            knowledgeText = parsed.map((item: any) => typeof item === 'string' ? item : `${item.title || ''}: ${item.content || item.text || ''}`).filter(Boolean).join('\n');
-          }
-        } catch {
-          if (knowledge.trim() && knowledge !== '[]') knowledgeText = knowledge;
-        }
+          const p = JSON.parse(knowledge);
+          if (Array.isArray(p) && p.length > 0) kt = p.map((i: any) => typeof i === 'string' ? i : `${i.title||''}: ${i.content||i.text||''}`).filter(Boolean).join('\n');
+        } catch { if (knowledge.trim() && knowledge !== '[]') kt = knowledge; }
       } else if (Array.isArray(knowledge) && knowledge.length > 0) {
-        knowledgeText = knowledge.map((item: any) => typeof item === 'string' ? item : `${item.title || ''}: ${item.content || item.text || ''}`).filter(Boolean).join('\n');
+        kt = knowledge.map((i: any) => typeof i === 'string' ? i : `${i.title||''}: ${i.content||i.text||''}`).filter(Boolean).join('\n');
       }
-      if (knowledgeText) systemParts.push(`Base de conocimiento adicional:\n${knowledgeText}`);
+      if (kt) parts.push(`Base de conocimiento adicional:\n${kt}`);
     }
 
-    const systemPrompt = systemParts.length > 0
-      ? systemParts.join('\n\n')
-      : 'Eres un asistente virtual amable. Responde conciso y profesional.';
+    const systemPrompt = parts.length > 0 ? parts.join('\n\n') : 'Eres un asistente virtual amable.';
+    console.log(`🧠 System prompt: ${systemPrompt.length} chars (${Math.ceil(systemPrompt.length / 4)} tokens)`);
 
-    console.log(`🧠 System prompt: ${systemPrompt.length} chars (${Math.ceil(systemPrompt.length / 4)} tokens aprox.)`);
-
-    // 5. Mensajes para OpenAI
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
-    const reversed = [...history].reverse();
-    for (const msg of reversed) {
-      messages.push({ role: msg.fromMe ? 'assistant' : 'user', content: msg.content });
-    }
+    [...history].reverse().forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content }));
     messages.push({ role: 'user', content: message });
 
-    console.log(`🤖 Llamando a OpenAI (modelo: ${assistant.model || 'gpt-4-turbo-preview'}, ${messages.length} mensajes)...`);
+    console.log(`🤖 Llamando OpenAI (${assistant.model || 'gpt-4-turbo-preview'}, ${messages.length} msgs)...`);
 
-    // 6. Llamar a OpenAI con la API Key DEL USUARIO
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 30000);
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
       body: JSON.stringify({
@@ -178,182 +171,133 @@ const generateAIResponse = async (userId: string, message: string, conversationI
         temperature: assistant.temperature || 0.7,
         max_tokens: assistant.maxTokens || 500
       }),
-      signal: controller.signal
+      signal: ctrl.signal
     });
 
-    clearTimeout(timeoutId);
+    clearTimeout(timeout);
+    if (!res.ok) { console.error('❌ OpenAI:', res.status); return null; }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`❌ Error OpenAI (${response.status}):`, errorText);
-      return null;
-    }
-
-    const data = await response.json() as any;
-    const aiResponse = data.choices?.[0]?.message?.content;
-    if (aiResponse) console.log(`✅ Respuesta IA generada (${aiResponse.length} chars): ${aiResponse.substring(0, 100)}...`);
-    return aiResponse || null;
-  } catch (error: any) {
-    if (error.name === 'AbortError') console.error('❌ Timeout OpenAI (30s)');
-    else console.error('❌ Error IA:', error.message);
+    const data = await res.json() as any;
+    const reply = data.choices?.[0]?.message?.content;
+    if (reply) console.log(`✅ Respuesta IA (${reply.length} chars): ${reply.substring(0, 100)}...`);
+    return reply || null;
+  } catch (e: any) {
+    console.error('❌ Error IA:', e.message);
     return null;
   }
 };
 
-// ===== ENVIAR MENSAJE POR WAHA =====
-const sendWahaMessage = async (sessionName: string, chatId: string, text: string): Promise<boolean> => {
+// ===== ENVIAR MENSAJE WAHA =====
+const sendWahaMessage = async (session: string, chatId: string, text: string): Promise<boolean> => {
   try {
-    const response = await fetch(`${WAHA_API_URL}/api/sendText`, {
-      method: 'POST',
-      headers: getWahaHeaders(),
-      body: JSON.stringify({ session: sessionName, chatId, text })
+    const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
+      method: 'POST', headers: getWahaHeaders(),
+      body: JSON.stringify({ session, chatId, text })
     });
-    return response.ok;
-  } catch (error) {
-    console.error('❌ Error enviando WAHA:', error);
-    return false;
-  }
+    return r.ok;
+  } catch { return false; }
 };
 
 // =====================================================
-// RUTAS AUTENTICADAS (cada usuario accede a SU sesión)
+// RUTAS AUTENTICADAS
 // =====================================================
 
-// STATUS - Estado de la sesión WAHA del usuario
+// STATUS - Detecta sesión user_{id} O default
 router.get('/status', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const sessionName = getUserSessionName(userId);
+    const session = await findActiveSession(userId);
 
-    try {
-      const response = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
-
-      if (response.status === 404) {
-        // También verificar sesión "default" para migración
-        const defaultRes = await fetch(`${WAHA_API_URL}/api/sessions/default`, { headers: getWahaHeaders() });
-        if (defaultRes.ok) {
-          const defaultData = await defaultRes.json() as any;
-          if (defaultData.status === 'WORKING' || defaultData.status === 'CONNECTED') {
-            // Hay una sesión default activa - informar al usuario
-            res.json({
-              connected: true,
-              status: defaultData.status?.toLowerCase(),
-              phone: defaultData.me?.id?.replace('@c.us', '') || null,
-              name: defaultData.me?.pushName || null,
-              hasQR: false,
-              legacy: true // Indicar que es sesión legacy
-            });
-            return;
-          }
-        }
-        res.json({ connected: false, status: 'disconnected', phone: null, hasQR: false });
-        return;
-      }
-
-      const data = await response.json() as any;
-      const isConnected = data.status === 'WORKING' || data.status === 'CONNECTED';
-
-      // Guardar número de teléfono del usuario cuando se conecta
-      if (isConnected && data.me?.id) {
-        const phone = data.me.id.replace('@c.us', '');
-        await prisma.user.update({
-          where: { id: userId },
-          data: { phone }
-        }).catch(() => {}); // Silencioso si falla
-      }
-
-      res.json({
-        connected: isConnected,
-        status: data.status?.toLowerCase() || 'disconnected',
-        phone: data.me?.id?.replace('@c.us', '') || null,
-        name: data.me?.pushName || null,
-        hasQR: data.status === 'SCAN_QR_CODE' || data.status === 'STARTING'
-      });
-    } catch {
-      res.json({ connected: false, status: 'error', phone: null, hasQR: false });
+    if (!session) {
+      res.json({ connected: false, status: 'disconnected', phone: null, hasQR: false });
+      return;
     }
+
+    const isConnected = session.data.status === 'WORKING' || session.data.status === 'CONNECTED';
+    const hasQR = session.data.status === 'SCAN_QR_CODE' || session.data.status === 'STARTING';
+
+    // Guardar teléfono si está conectado
+    if (isConnected && session.data.me?.id) {
+      const phone = session.data.me.id.replace('@c.us', '');
+      await prisma.user.update({ where: { id: userId }, data: { phone } }).catch(() => {});
+    }
+
+    res.json({
+      connected: isConnected,
+      status: session.data.status?.toLowerCase() || 'disconnected',
+      phone: session.data.me?.id?.replace('@c.us', '') || null,
+      name: session.data.me?.pushName || null,
+      hasQR,
+      session: session.name
+    });
   } catch {
     res.json({ connected: false, status: 'error', phone: null, hasQR: false });
   }
 });
 
-// CONNECT - Crear sesión WAHA propia del usuario
+// CONNECT
 router.post('/connect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
+    // Primero revisar si ya hay sesión activa (default o user_)
+    const existing = await findActiveSession(userId);
+    if (existing) {
+      const isConnected = existing.data.status === 'WORKING' || existing.data.status === 'CONNECTED';
+      if (isConnected) {
+        res.json({ success: true, message: 'Ya conectado', session: existing.name });
+        return;
+      }
+    }
+
     const sessionName = getUserSessionName(userId);
     const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
 
-    console.log(`📱 Conectando WhatsApp para usuario ${userId} (sesión: ${sessionName})`);
+    // Verificar si existe la sesión
+    const check = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
 
-    // Verificar si ya existe la sesión
-    const checkResponse = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
-
-    if (checkResponse.status === 404) {
-      // Crear nueva sesión para este usuario
-      const createRes = await fetch(`${WAHA_API_URL}/api/sessions`, {
-        method: 'POST',
-        headers: getWahaHeaders(),
+    if (check.status === 404) {
+      // Crear nueva sesión
+      await fetch(`${WAHA_API_URL}/api/sessions`, {
+        method: 'POST', headers: getWahaHeaders(),
         body: JSON.stringify({
           name: sessionName,
-          config: {
-            webhooks: [{
-              url: webhookUrl,
-              events: ['message', 'message.any', 'session.status']
-            }]
-          }
+          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }] }
         })
       });
-
-      if (createRes.ok) {
-        console.log(`✅ Sesión ${sessionName} creada`);
-        res.json({ success: true, message: 'Sesión creada. Escanea el código QR.' });
-      } else {
-        const error = await createRes.text();
-        console.error(`❌ Error creando sesión: ${error}`);
-        res.status(500).json({ success: false, message: 'Error creando sesión' });
-      }
+      res.json({ success: true, message: 'Sesión creada' });
     } else {
-      // La sesión ya existe
-      const sessionData = await checkResponse.json() as any;
-
-      if (sessionData.status === 'STOPPED' || sessionData.status === 'FAILED') {
-        // Reiniciar sesión
-        await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/start`, {
-          method: 'POST',
-          headers: getWahaHeaders()
-        });
-        console.log(`🔄 Sesión ${sessionName} reiniciada`);
+      const data = await check.json() as any;
+      if (data.status === 'STOPPED' || data.status === 'FAILED') {
+        await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
       }
-
       res.json({ success: true, message: 'Sesión activada' });
     }
-  } catch (error: any) {
-    console.error('❌ Error connect:', error.message);
-    res.status(500).json({ success: false, message: error.message || 'Error' });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: e.message });
   }
 });
 
-// QR - Obtener QR de la sesión del usuario
+// QR - Busca QR de sesión activa
 router.get('/qr', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const sessionName = getUserSessionName(userId);
+    // Intentar obtener QR de la sesión activa
+    const session = await findActiveSession(userId);
+    const sessionName = session?.name || getUserSessionName(userId);
 
     try {
-      const response = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/auth/qr`, {
+      const r = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/auth/qr`, {
         headers: { ...getWahaHeaders(), 'Accept': 'application/json' }
       });
+      if (!r.ok) { res.json({ qr: null, available: false }); return; }
 
-      if (!response.ok) { res.json({ qr: null, available: false }); return; }
-
-      const data = await response.json() as any;
+      const data = await r.json() as any;
       if (data.value) {
         res.json({ qr: data.value.startsWith('data:') ? data.value : `data:image/png;base64,${data.value}`, available: true });
       } else if (data.mimetype && data.data) {
@@ -361,297 +305,166 @@ router.get('/qr', async (req: Request, res: Response) => {
       } else {
         res.json({ qr: null, available: false });
       }
-    } catch {
-      res.json({ qr: null, available: false });
-    }
-  } catch {
-    res.status(500).json({ error: 'Error QR', qr: null, available: false });
-  }
+    } catch { res.json({ qr: null, available: false }); }
+  } catch { res.json({ qr: null, available: false }); }
 });
 
-// DISCONNECT - Desconectar la sesión del usuario
+// DISCONNECT
 router.post('/disconnect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const sessionName = getUserSessionName(userId);
+    const session = await findActiveSession(userId);
+    if (session) {
+      await fetch(`${WAHA_API_URL}/api/sessions/${session.name}/stop`, { method: 'POST', headers: getWahaHeaders() });
+    }
 
-    await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/stop`, {
-      method: 'POST',
-      headers: getWahaHeaders()
-    });
-
-    // Limpiar número de teléfono
-    await prisma.user.update({
-      where: { id: userId },
-      data: { phone: null }
-    }).catch(() => {});
-
-    console.log(`📴 Sesión ${sessionName} desconectada`);
+    await prisma.user.update({ where: { id: userId }, data: { phone: null } }).catch(() => {});
     res.json({ success: true, message: 'Desconectado' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'Error' });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: e.message });
   }
 });
 
-// SEND - Enviar mensaje desde la sesión del usuario
+// SEND
 router.post('/send', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { to, message } = req.body;
-
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     if (!to || !message) { res.status(400).json({ error: 'Faltan datos' }); return; }
 
-    const sessionName = getUserSessionName(userId);
+    // Encontrar sesión activa del usuario
+    const session = await findActiveSession(userId);
+    const sessionName = session?.name || getUserSessionName(userId);
     const chatId = to.includes('@') ? to : `${to.replace(/\D/g, '')}@c.us`;
 
-    const response = await fetch(`${WAHA_API_URL}/api/sendText`, {
-      method: 'POST',
-      headers: getWahaHeaders(),
+    const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
+      method: 'POST', headers: getWahaHeaders(),
       body: JSON.stringify({ session: sessionName, chatId, text: message })
     });
 
-    const result = await response.json() as any;
+    const result = await r.json() as any;
 
-    if (response.ok) {
+    if (r.ok) {
       const recipientId = to.replace(/\D/g, '');
-
-      let conversation = await prisma.conversation.findFirst({
-        where: { userId, recipientId }
-      });
-
-      if (!conversation) {
-        conversation = await prisma.conversation.create({
-          data: { userId, recipientId, lastMessage: message, stage: 'new' }
-        });
+      let conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
+      if (!conv) {
+        conv = await prisma.conversation.create({ data: { userId, recipientId, lastMessage: message, stage: 'new' } });
       }
-
-      await prisma.message.create({
-        data: { conversationId: conversation.id, content: message, fromMe: true, userId, role: 'assistant' }
-      });
-
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { lastMessage: message }
-      });
-
+      await prisma.message.create({ data: { conversationId: conv.id, content: message, fromMe: true, userId, role: 'assistant' } });
+      await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: message } });
       res.json({ success: true, messageId: result.id });
     } else {
-      res.json({ success: false, message: result.message || 'Error enviando' });
+      res.json({ success: false, message: result.message || 'Error' });
     }
-  } catch (error: any) {
-    res.status(500).json({ success: false, message: error.message || 'Error' });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: e.message });
   }
 });
 
-// DEBUG - Información del usuario y su asistente
+// DEBUG
 router.get('/debug', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const sessionName = getUserSessionName(userId);
-
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, phone: true, apiKey: true, apiKeyConnected: true }
+      select: { id: true, email: true, phone: true, apiKeyConnected: true }
     });
 
-    const assistants = await prisma.assistant.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' }
-    });
-
-    const active = assistants.find(a => a.isActive);
-
-    // Estado de WAHA
-    let wahaStatus = 'unknown';
-    try {
-      const wahaRes = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
-      if (wahaRes.ok) {
-        const wahaData = await wahaRes.json() as any;
-        wahaStatus = wahaData.status;
-      } else {
-        wahaStatus = 'no_session';
-      }
-    } catch { wahaStatus = 'error'; }
+    const session = await findActiveSession(userId);
+    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
 
     res.json({
-      user: {
-        id: user?.id,
-        email: user?.email,
-        phone: user?.phone,
-        hasApiKey: !!user?.apiKey,
-        apiKeyConnected: user?.apiKeyConnected
-      },
-      wahaSession: {
-        name: sessionName,
-        status: wahaStatus
-      },
-      assistant: active ? {
-        id: active.id,
-        name: active.name,
-        isActive: active.isActive,
-        contextLength: active.context?.length || 0,
-        contextPreview: active.context?.substring(0, 300) || 'VACÍO',
-        model: active.model
-      } : 'NINGUNO ACTIVO',
-      totalAssistants: assistants.length,
+      user,
+      session: session ? { name: session.name, status: session.data.status } : null,
+      assistant: assistant ? { id: assistant.id, name: assistant.name, contextLength: assistant.context?.length || 0 } : null,
       conversations: await prisma.conversation.count({ where: { userId } })
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // =====================================================
-// WEBHOOK PÚBLICO - Recibe TODOS los mensajes de WAHA
-// Identifica al usuario por el campo "session" del payload
+// WEBHOOK PÚBLICO - Recibe todos los mensajes de WAHA
 // =====================================================
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
     const { event, session, payload } = req.body;
+    const sessionName = session || 'default';
 
-    console.log(`📩 Webhook recibido: event=${event}, session=${session || 'unknown'}`);
+    console.log(`📩 Webhook: event=${event}, session=${sessionName}`);
 
-    // Solo procesar mensajes
     if (!event || (event !== 'message' && event !== 'message.any')) {
-      res.json({ success: true, ignored: true });
-      return;
+      res.json({ success: true, ignored: true }); return;
     }
-
-    // Ignorar mensajes propios
-    if (payload?.fromMe) {
-      res.json({ success: true, ignored: true });
-      return;
-    }
+    if (payload?.fromMe) { res.json({ success: true, ignored: true }); return; }
 
     const from = payload?.from || payload?.chatId || '';
     const body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
-    if (!from || !body) {
-      res.json({ success: true, ignored: true });
-      return;
-    }
-
-    // Ignorar grupos
-    if (from.includes('@g.us')) {
-      res.json({ success: true, ignored: true, reason: 'group' });
-      return;
-    }
+    if (!from || !body) { res.json({ success: true, ignored: true }); return; }
+    if (from.includes('@g.us')) { res.json({ success: true, ignored: true }); return; }
 
     const recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '');
     const senderName = notifyName || recipientId;
-    const sessionName = session || 'default';
 
-    // ===== MULTI-TENANT: Identificar usuario por sesión =====
+    // Resolver usuario
     const userId = await resolveUserFromWebhook(sessionName, recipientId);
-
     if (!userId) {
-      console.log(`❌ No se pudo identificar usuario para sesión "${sessionName}"`);
-      res.status(400).json({ error: 'Usuario no identificado' });
-      return;
+      console.log('❌ No se identificó usuario');
+      res.status(400).json({ error: 'No user' }); return;
     }
 
-    console.log(`💬 Mensaje de ${senderName} (${recipientId}) → sesión: ${sessionName}`);
-    console.log(`   Usuario: ${userId} | Mensaje: ${body.substring(0, 80)}...`);
+    console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName} | user: ${userId}`);
 
-    // Buscar o crear conversación para ESTE usuario
-    let conversation = await prisma.conversation.findFirst({
-      where: { userId, recipientId }
-    });
-
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          userId,
-          recipientId,
-          recipientName: senderName,
-          lastMessage: body,
-          stage: 'new'
-        }
+    let conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
+    if (!conv) {
+      conv = await prisma.conversation.create({
+        data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new' }
       });
-      console.log(`📝 Nueva conversación creada`);
     }
 
-    // Comandos especiales: ".." pausa IA, "." reactiva IA
+    // Comandos: ".." pausa, "." reactiva
     if (body.trim() === '..') {
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { aiPaused: true }
-      });
-      console.log(`⏸️ IA pausada para ${senderName}`);
-      res.json({ success: true, action: 'ai_paused' });
-      return;
+      await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: true } });
+      console.log(`⏸️ IA pausada`); res.json({ success: true }); return;
+    }
+    if (body.trim() === '.' && conv.aiPaused) {
+      await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: false } });
+      console.log(`▶️ IA reactivada`); res.json({ success: true }); return;
     }
 
-    if (body.trim() === '.' && conversation.aiPaused) {
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: { aiPaused: false }
-      });
-      console.log(`▶️ IA reactivada para ${senderName}`);
-      res.json({ success: true, action: 'ai_resumed' });
-      return;
-    }
-
-    // Guardar mensaje recibido
+    // Guardar mensaje
     await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        content: body,
-        fromMe: false,
-        userId,
-        role: 'user'
-      }
+      data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user' }
     });
-
     await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { lastMessage: body, recipientName: senderName }
+      where: { id: conv.id }, data: { lastMessage: body, recipientName: senderName }
     });
 
-    console.log(`💾 Mensaje guardado en conversación ${conversation.id}`);
-
-    // Generar respuesta IA (si no está pausada)
-    if (!conversation.aiPaused) {
-      const aiResponse = await generateAIResponse(userId, body, conversation.id);
-
+    // IA
+    if (!conv.aiPaused) {
+      const aiResponse = await generateAIResponse(userId, body, conv.id);
       if (aiResponse) {
         const sent = await sendWahaMessage(sessionName, from, aiResponse);
-
         if (sent) {
           await prisma.message.create({
-            data: {
-              conversationId: conversation.id,
-              content: aiResponse,
-              fromMe: true,
-              userId,
-              role: 'assistant'
-            }
+            data: { conversationId: conv.id, content: aiResponse, fromMe: true, userId, role: 'assistant' }
           });
-
-          await prisma.conversation.update({
-            where: { id: conversation.id },
-            data: { lastMessage: aiResponse }
-          });
-
-          console.log(`🤖 Respuesta IA enviada a ${senderName}`);
-        } else {
-          console.error(`❌ Error enviando respuesta a ${senderName}`);
+          await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: aiResponse } });
+          console.log(`🤖 Respuesta enviada a ${senderName}`);
         }
       }
-    } else {
-      console.log(`⏸️ IA pausada para ${senderName}, no se genera respuesta`);
     }
 
     res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error webhook:', error);
-    res.status(500).json({ error: 'Error procesando webhook' });
+    console.error('❌ Webhook error:', error);
+    res.status(500).json({ error: 'Error' });
   }
 });
 

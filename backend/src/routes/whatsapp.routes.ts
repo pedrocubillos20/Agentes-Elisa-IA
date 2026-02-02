@@ -14,6 +14,21 @@ const getWahaHeaders = () => {
   return h;
 };
 
+// ====================================================
+// 📦 MESSAGE BUFFER — Agrupa mensajes enviados en ráfaga
+// Si el usuario manda 3 líneas rápido, espera y responde UNA vez
+// ====================================================
+const BUFFER_WAIT_MS = 3000; // Esperar 3 segundos por más mensajes
+const messageBuffer: Map<string, {
+  messages: string[];
+  timer: ReturnType<typeof setTimeout>;
+  sessionName: string;
+  from: string;
+  senderName: string;
+  userId: string;
+  convId: string;
+}> = new Map();
+
 // ===== SESSION MANAGEMENT (multi-tenant) =====
 const getUserSessionName = (userId: string): string => `user_${userId}`;
 
@@ -48,49 +63,36 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
   return u?.id || null;
 };
 
-// ====================================================
-// 🔥 PRESENCE: TYPING & RECORDING INDICATORS
-// Muestra "escribiendo..." o "grabando audio..." en WhatsApp
-// ====================================================
+// ===== PRESENCE: TYPING & RECORDING =====
 const setPresence = async (session: string, chatId: string, mode: 'typing' | 'recording'): Promise<void> => {
   const endpoints = [
     { url: `${WAHA_API_URL}/api/startTyping`, body: { session, chatId } },
     { url: `${WAHA_API_URL}/api/${session}/sendPresence`, body: { chatId, presence: mode === 'recording' ? 'recording' : 'typing' } },
     { url: `${WAHA_API_URL}/api/sendPresence`, body: { session, chatId, presence: mode === 'recording' ? 'recording' : 'typing' } },
   ];
-
   if (mode === 'recording') {
     endpoints.unshift({ url: `${WAHA_API_URL}/api/startRecording`, body: { session, chatId } });
   }
-
   for (const ep of endpoints) {
     try {
       const r = await fetch(ep.url, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(ep.body) });
-      if (r.ok) {
-        console.log(`${mode === 'recording' ? '🎙️' : '⌨️'} ${mode} ON → ${chatId.substring(0, 12)}...`);
-        return;
-      }
+      if (r.ok) { console.log(`${mode === 'recording' ? '🎙️' : '⌨️'} ${mode} ON`); return; }
     } catch {}
   }
-  console.log(`⌨️ Presence (${mode}) no disponible en esta versión de WAHA`);
 };
 
 const stopPresence = async (session: string, chatId: string): Promise<void> => {
-  try {
-    await fetch(`${WAHA_API_URL}/api/stopTyping`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ session, chatId }) });
-  } catch {}
-  try {
-    await fetch(`${WAHA_API_URL}/api/${session}/sendPresence`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ chatId, presence: 'available' }) });
-  } catch {}
+  try { await fetch(`${WAHA_API_URL}/api/stopTyping`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ session, chatId }) }); } catch {}
+  try { await fetch(`${WAHA_API_URL}/api/${session}/sendPresence`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ chatId, presence: 'available' }) }); } catch {}
 };
 
-// Delay natural que simula escritura humana
+// ⚡ Delay natural REDUCIDO (0.8s - 2s máx para respuesta rápida)
 const humanDelay = (textLength: number): Promise<void> => {
-  const ms = Math.min(Math.max(textLength * 20, 1500), 3500); // 1.5s mín, 3.5s máx
+  const ms = Math.min(Math.max(textLength * 10, 800), 2000);
   return new Promise(r => setTimeout(r, ms));
 };
 
-// ===== MEDIA TRIGGER: Busca si el mensaje activa un multimedia =====
+// ===== MEDIA TRIGGER =====
 const findMediaTrigger = (message: string, mediaItems: any[]): any | null => {
   if (!mediaItems?.length) return null;
   const norm = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -102,89 +104,36 @@ const findMediaTrigger = (message: string, mediaItems: any[]): any | null => {
   return null;
 };
 
-// ===== SEND MEDIA via WAHA (con fallback endpoints) =====
+// ===== SEND MEDIA via WAHA =====
 const sendWahaMedia = async (session: string, chatId: string, media: any, caption?: string): Promise<boolean> => {
   try {
     const url = media.url || '';
     const isBase64 = url.startsWith('data:');
-
-    console.log(`📎 Enviando ${media.type}: "${media.name}" (base64: ${isBase64}, size: ~${Math.round((url.length * 3/4) / 1024)}KB)`);
-
     let fileData: any = null;
     if (isBase64) {
       const match = url.match(/^data:(.+?);base64,(.+)$/s);
-      if (match) {
-        fileData = { mimetype: match[1], filename: media.name || 'file', data: match[2] };
-        console.log(`   mimetype: ${match[1]}, data length: ${match[2].length}`);
-      } else {
-        console.error('❌ No se pudo extraer base64 del URL');
-        return false;
-      }
+      if (match) fileData = { mimetype: match[1], filename: media.name || 'file', data: match[2] };
+      else return false;
     }
-
-    // Determinar endpoint
-    let endpoint = '/api/sendFile';
-    if (media.type === 'image') endpoint = '/api/sendImage';
-    else if (media.type === 'video') endpoint = '/api/sendVideo';
-
+    let endpoint = media.type === 'image' ? '/api/sendImage' : media.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
     const body: any = { session, chatId };
     if (fileData) body.file = fileData;
     else if (media.url) body.file = { url: media.url };
     if (caption) body.caption = caption;
 
-    // Intento 1: endpoint principal
-    console.log(`📤 POST ${WAHA_API_URL}${endpoint} (session: ${session})`);
-    const r = await fetch(`${WAHA_API_URL}${endpoint}`, {
-      method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body)
-    });
-
-    if (r.ok) {
-      console.log(`✅ ${media.type} enviado OK via ${endpoint}`);
-      return true;
-    }
-
-    const errText = await r.text().catch(() => 'no body');
-    console.error(`❌ ${endpoint} falló (${r.status}): ${errText.substring(0, 300)}`);
-
-    // Intento 2: fallback con /api/sendFile
+    const r = await fetch(`${WAHA_API_URL}${endpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
+    if (r.ok) { console.log(`✅ ${media.type} enviado OK`); return true; }
+    const errText = await r.text().catch(() => '');
+    console.error(`❌ ${endpoint} (${r.status}): ${errText.substring(0, 200)}`);
     if (endpoint !== '/api/sendFile') {
-      console.log(`⚠️ Intentando fallback con /api/sendFile...`);
-      const r2 = await fetch(`${WAHA_API_URL}/api/sendFile`, {
-        method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body)
-      });
-      if (r2.ok) {
-        console.log(`✅ ${media.type} enviado OK via /api/sendFile (fallback)`);
-        return true;
-      }
-      const err2 = await r2.text().catch(() => '');
-      console.error(`❌ Fallback /api/sendFile también falló (${r2.status}): ${err2.substring(0, 300)}`);
+      const r2 = await fetch(`${WAHA_API_URL}/api/sendFile`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
+      if (r2.ok) return true;
     }
-
-    // Intento 3: endpoint alternativo WAHA v2
-    if (isBase64 && fileData) {
-      console.log(`⚠️ Intentando endpoint WAHA v2 /api/${session}/sendImage...`);
-      try {
-        const r3 = await fetch(`${WAHA_API_URL}/api/${session}/sendImage`, {
-          method: 'POST', headers: getWahaHeaders(),
-          body: JSON.stringify({ chatId, file: fileData, caption: caption || '' })
-        });
-        if (r3.ok) {
-          console.log(`✅ ${media.type} enviado OK via /api/${session}/sendImage`);
-          return true;
-        }
-        const err3 = await r3.text().catch(() => '');
-        console.error(`❌ Endpoint v2 falló (${r3.status}): ${err3.substring(0, 300)}`);
-      } catch {}
-    }
-
     return false;
-  } catch (e: any) {
-    console.error('❌ Error enviando media:', e.message);
-    return false;
-  }
+  } catch (e: any) { console.error('❌ Media error:', e.message); return false; }
 };
 
-// ===== SEND TEXT via WAHA =====
+// ===== SEND TEXT =====
 const sendWahaMessage = async (session: string, chatId: string, text: string): Promise<boolean> => {
   try {
     const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
@@ -195,7 +144,7 @@ const sendWahaMessage = async (session: string, chatId: string, text: string): P
   } catch { return false; }
 };
 
-// ===== AI RESPONSE (con fallback GPT-3.5) =====
+// ===== AI RESPONSE (⚡ OPTIMIZADA para velocidad 7-10s) =====
 const generateAIResponse = async (ownerId: string, message: string, conversationId: string): Promise<string | null> => {
   try {
     const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, apiKeyConnected: true } });
@@ -210,9 +159,9 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 
     console.log(`📋 Asistente: "${assistant.name}" (contexto: ${assistant.context?.length || 0} chars)`);
 
-    const history = await prisma.message.findMany({ where: { conversationId }, orderBy: { timestamp: 'desc' }, take: 8 });
+    // ⚡ Solo 5 mensajes de historial (antes 8) — menos tokens = más rápido
+    const history = await prisma.message.findMany({ where: { conversationId }, orderBy: { timestamp: 'desc' }, take: 5 });
 
-    // Construir system prompt
     const parts: string[] = [];
     if (assistant.name) parts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
     if (assistant.personality?.trim()) parts.push(assistant.personality);
@@ -220,7 +169,6 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     if (assistant.businessInfo?.trim()) parts.push(`Info del negocio: ${assistant.businessInfo}`);
     if (assistant.instructions?.trim()) parts.push(`Instrucciones: ${assistant.instructions}`);
 
-    // Knowledge base
     const knowledge = assistant.knowledgeItems as any;
     if (knowledge) {
       let kt = '';
@@ -233,37 +181,38 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       if (kt) parts.push(`Base de conocimiento:\n${kt}`);
     }
 
-    // Media awareness
     const mediaItems = assistant.mediaItems as any[];
     if (mediaItems?.length) {
       const ml = mediaItems.filter(m => m.trigger).map(m => `- ${m.type}: "${m.name}" (activadores: ${m.trigger})`).join('\n');
       if (ml) parts.push(`\nArchivos multimedia disponibles:\n${ml}\nSi el cliente pregunta por algo relacionado, menciona que se lo envías.`);
     }
 
-    parts.push(`\nIMPORTANTE: Responde de forma concisa y natural, como un humano por WhatsApp. Usa emojis moderadamente.`);
+    // ⚡ Pedir respuestas más cortas
+    parts.push(`\nIMPORTANTE: Responde de forma concisa y natural, como un humano por WhatsApp. Máximo 2-3 oraciones. Usa emojis moderadamente.`);
 
     const systemPrompt = parts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     console.log(`🧠 Prompt: ${systemPrompt.length} chars`);
 
-    const recent = [...history].reverse().slice(-8);
+    // ⚡ Menos mensajes, truncados a 300 chars (antes 500)
+    const recent = [...history].reverse().slice(-5);
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
-    recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
+    recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 300) }));
     messages.push({ role: 'user', content: message });
 
-    // Llamar a OpenAI con fallback
+    // ⚡ Timeout 15s (antes 30s), max_tokens reducido
     const primaryModel = assistant.model || 'gpt-4-turbo-preview';
     for (const model of [primaryModel, 'gpt-3.5-turbo']) {
       try {
         console.log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 30000);
+        const to = setTimeout(() => ctrl.abort(), 15000);
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: Math.min(assistant.maxTokens || 500, model === 'gpt-3.5-turbo' ? 400 : 500)
+            max_tokens: model === 'gpt-3.5-turbo' ? 250 : 350
           }),
           signal: ctrl.signal
         });
@@ -277,11 +226,8 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
           const st = res.status;
           const errBody = await res.text().catch(() => '');
           console.error(`❌ OpenAI ${model}: ${st} - ${errBody.substring(0, 200)}`);
-          if ((st === 429 || st === 402) && model !== 'gpt-3.5-turbo') {
-            console.log('⚠️ Rate limit/sin créditos, intentando fallback gpt-3.5...');
-            continue;
-          }
-          if (st === 401) return null; // API key inválida
+          if ((st === 429 || st === 402) && model !== 'gpt-3.5-turbo') { console.log('⚠️ Fallback gpt-3.5...'); continue; }
+          if (st === 401) return null;
           if (model !== 'gpt-3.5-turbo') continue;
         }
       } catch (e: any) {
@@ -293,9 +239,78 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
   } catch (e: any) { console.error('❌ AI Error:', e.message); return null; }
 };
 
-// =====================================================
-// ===== RUTAS AUTENTICADAS (requieren JWT) =====
-// =====================================================
+// ====================================================
+// 🔥 PROCESAR MENSAJES AGRUPADOS
+// Se ejecuta después de 3 seg sin nuevos mensajes
+// Combina todas las líneas y genera UNA respuesta
+// ====================================================
+const processBufferedMessages = async (bufferKey: string) => {
+  const buf = messageBuffer.get(bufferKey);
+  if (!buf) return;
+  messageBuffer.delete(bufferKey);
+
+  const { messages: msgs, sessionName, from, senderName, userId, convId } = buf;
+  const combinedMessage = msgs.join('\n');
+
+  console.log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..."`);
+
+  try {
+    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
+    const mediaItems = (assistant?.mediaItems as any[]) || [];
+    const matchedMedia = findMediaTrigger(combinedMessage, mediaItems);
+
+    // ⌨️🎙️ Typing/Recording (refrescar porque ya pasaron 3 seg)
+    if (isVoiceMode) {
+      await setPresence(sessionName, from, 'recording');
+    } else {
+      await setPresence(sessionName, from, 'typing');
+    }
+
+    if (matchedMedia) {
+      console.log(`📎 Trigger multimedia: "${matchedMedia.name}"`);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId);
+      await stopPresence(sessionName, from);
+
+      if (aiResponse) {
+        await humanDelay(aiResponse.length);
+        await sendWahaMessage(sessionName, from, aiResponse);
+        await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
+      }
+
+      const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
+      if (sent) {
+        await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
+      } else {
+        const fallbackText = matchedMedia.caption
+          ? `📎 ${matchedMedia.caption}`
+          : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles 😊`;
+        await sendWahaMessage(sessionName, from, fallbackText);
+        await prisma.message.create({ data: { conversationId: convId, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
+      }
+      await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse || `📎 ${matchedMedia.name}` } });
+
+    } else {
+      // 🤖 Respuesta IA con mensaje combinado
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId);
+      await stopPresence(sessionName, from);
+
+      if (aiResponse) {
+        await humanDelay(aiResponse.length);
+        const sent = await sendWahaMessage(sessionName, from, aiResponse);
+        if (sent) {
+          await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
+          await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse } });
+          console.log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
+        }
+      }
+    }
+  } catch (e: any) {
+    console.error(`❌ Error procesando buffer de ${senderName}:`, e.message);
+  }
+};
+
+// ===== RUTAS AUTENTICADAS =====
 
 router.get('/status', async (req: Request, res: Response) => {
   try {
@@ -330,15 +345,11 @@ router.post('/connect', async (req: Request, res: Response) => {
     }
     const sessionName = getUserSessionName(ownerId);
     const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
-
     const check = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
     if (check.status === 404) {
       await fetch(`${WAHA_API_URL}/api/sessions`, {
         method: 'POST', headers: getWahaHeaders(),
-        body: JSON.stringify({
-          name: sessionName,
-          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }] }
-        })
+        body: JSON.stringify({ name: sessionName, config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }] } })
       });
       res.json({ success: true, message: 'Sesión creada' });
     } else {
@@ -415,13 +426,14 @@ router.get('/debug', async (req: Request, res: Response) => {
       session: session ? { name: session.name, status: session.data.status } : null,
       assistant: assistant ? { id: assistant.id, name: assistant.name, contextLength: assistant.context?.length || 0 } : null,
       conversations: await prisma.conversation.count({ where: { userId: ownerId } }),
-      teamMembers: team
+      teamMembers: team,
+      activeBuffers: messageBuffer.size
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // =====================================================
-// ===== WEBHOOK PÚBLICO (recibe mensajes de WhatsApp) =====
+// ===== WEBHOOK PÚBLICO (recibe mensajes WhatsApp) =====
 // =====================================================
 router.post('/webhook', async (req: Request, res: Response) => {
   try {
@@ -450,18 +462,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       conv = await prisma.conversation.create({ data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new' } });
     }
 
-    // ====================================================
-    // ⏸️ COMANDO: ".." = PAUSAR IA (hablar con humano)
-    // ====================================================
+    // ⏸️ COMANDO ".." = PAUSAR IA — inmediato
     if (body.trim() === '..') {
       await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: true } });
       await prisma.message.create({ data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user' } });
-
-      // Simular "escribiendo..." antes de responder
       await setPresence(sessionName, from, 'typing');
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1000));
       await stopPresence(sessionName, from);
-
       const pauseMsg = '🙋‍♂️ Te conecto con un asesor humano. En un momento te atienden.';
       await sendWahaMessage(sessionName, from, pauseMsg);
       await prisma.message.create({ data: { conversationId: conv.id, content: pauseMsg, fromMe: true, userId, role: 'assistant' } });
@@ -470,18 +477,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    // ====================================================
-    // ▶️ COMANDO: "." = REACTIVAR IA
-    // ====================================================
+    // ▶️ COMANDO "." = REACTIVAR IA — inmediato
     if (body.trim() === '.') {
       if (conv.aiPaused) {
         await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: false } });
         await prisma.message.create({ data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user' } });
-
         await setPresence(sessionName, from, 'typing');
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 800));
         await stopPresence(sessionName, from);
-
         const resumeMsg = '🤖 ¡Hola de nuevo! Soy tu asistente virtual. ¿En qué puedo ayudarte?';
         await sendWahaMessage(sessionName, from, resumeMsg);
         await prisma.message.create({ data: { conversationId: conv.id, content: resumeMsg, fromMe: true, userId, role: 'assistant' } });
@@ -491,85 +494,57 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    // Guardar mensaje entrante
+    // Guardar mensaje en DB
     await prisma.message.create({ data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user' } });
     await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: body, recipientName: senderName } });
 
-    // Si IA pausada, no responder automáticamente
+    // Si IA pausada, solo guardar
     if (conv.aiPaused) {
-      console.log(`⏸️ IA pausada → ${senderName} (no responde)`);
+      console.log(`⏸️ IA pausada → ${senderName} (guardado, no responde)`);
       res.json({ success: true }); return;
     }
 
     // ====================================================
-    // 🔥 DETECTAR MODO VOZ + MEDIA TRIGGERS
+    // 📦 MESSAGE BUFFER — Agrupar mensajes en ráfaga
+    // Usuario manda varias líneas rápido → espera 3s → responde UNA vez
     // ====================================================
-    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
-    const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
-    const mediaItems = (assistant?.mediaItems as any[]) || [];
-    const matchedMedia = findMediaTrigger(body, mediaItems);
+    const bufferKey = `${userId}_${recipientId}`;
+    const existing = messageBuffer.get(bufferKey);
 
-    // ====================================================
-    // ⌨️🎙️ TYPING / RECORDING INDICATOR
-    // Se muestra ANTES de generar la respuesta IA
-    // El cliente ve "escribiendo..." o "grabando audio..."
-    // ====================================================
-    if (isVoiceMode) {
-      await setPresence(sessionName, from, 'recording');  // 🎙️ "Grabando audio..."
+    if (existing) {
+      // Ya hay mensajes en buffer → agregar y resetear timer
+      existing.messages.push(body);
+      clearTimeout(existing.timer);
+      existing.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      console.log(`📦 Buffer: +1 de ${senderName} (total: ${existing.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
     } else {
-      await setPresence(sessionName, from, 'typing');     // ⌨️ "Escribiendo..."
-    }
+      // Primer mensaje → crear buffer, mostrar typing inmediato
+      const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { voiceEnabled: true, elevenLabsKey: true, selectedVoice: true } });
+      const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
 
-    // ====================================================
-    // 📎 RUTA CON MEDIA TRIGGER
-    // ====================================================
-    if (matchedMedia) {
-      console.log(`📎 Trigger multimedia: "${matchedMedia.name}" (${matchedMedia.trigger})`);
-
-      const aiResponse = await generateAIResponse(userId, body, conv.id);
-      await stopPresence(sessionName, from);
-
-      if (aiResponse) {
-        await humanDelay(aiResponse.length);
-        await sendWahaMessage(sessionName, from, aiResponse);
-        await prisma.message.create({ data: { conversationId: conv.id, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
-      }
-
-      // Intentar enviar multimedia
-      const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
-      if (sent) {
-        await prisma.message.create({ data: { conversationId: conv.id, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
-        console.log(`✅ Media enviada: ${matchedMedia.name}`);
+      // Fire-and-forget: el usuario ve "escribiendo..." mientras espera
+      if (isVoiceMode) {
+        setPresence(sessionName, from, 'recording');
       } else {
-        // FALLBACK: WAHA gratis no soporta media → enviar texto descriptivo
-        console.log(`⚠️ Media no enviada (WAHA free no soporta media). Enviando fallback texto...`);
-        const fallbackText = matchedMedia.caption
-          ? `📎 ${matchedMedia.caption}`
-          : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles o visita nuestro catálogo para verlo. 😊`;
-        await sendWahaMessage(sessionName, from, fallbackText);
-        await prisma.message.create({ data: { conversationId: conv.id, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
+        setPresence(sessionName, from, 'typing');
       }
-      await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: aiResponse || `📎 ${matchedMedia.name}` } });
 
-    } else {
-      // ====================================================
-      // 🤖 RESPUESTA IA NORMAL (sin media)
-      // ====================================================
-      const aiResponse = await generateAIResponse(userId, body, conv.id);
-      await stopPresence(sessionName, from);
-
-      if (aiResponse) {
-        await humanDelay(aiResponse.length);
-        const sent = await sendWahaMessage(sessionName, from, aiResponse);
-        if (sent) {
-          await prisma.message.create({ data: { conversationId: conv.id, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
-          await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: aiResponse } });
-          console.log(`🤖 Respuesta → ${senderName}`);
-        }
-      }
+      const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      messageBuffer.set(bufferKey, {
+        messages: [body],
+        timer,
+        sessionName,
+        from,
+        senderName,
+        userId,
+        convId: conv.id
+      });
+      console.log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
     }
 
+    // Responder inmediatamente al webhook (WAHA no espera)
     res.json({ success: true });
+
   } catch (error) {
     console.error('❌ Webhook error:', error);
     res.status(500).json({ error: 'Error' });

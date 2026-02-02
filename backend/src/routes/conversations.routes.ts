@@ -9,60 +9,40 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { stage } = req.query;
-
     const where: any = { userId };
-    if (stage && stage !== 'all') {
-      where.stage = stage as string;
-    }
+    if (stage && stage !== 'all') where.stage = stage as string;
 
     const conversations = await prisma.conversation.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        messages: {
-          orderBy: { timestamp: 'desc' },
-          take: 1
-        }
-      }
+      where, orderBy: { updatedAt: 'desc' },
+      include: { messages: { orderBy: { timestamp: 'desc' }, take: 1 } }
     });
 
-    const formattedConversations = conversations.map(conv => ({
-      ...conv,
-      lastMessage: conv.messages[0]?.content || conv.lastMessage || null,
-      messages: undefined
-    }));
-
-    res.json({ conversations: formattedConversations });
+    res.json({
+      conversations: conversations.map(c => ({
+        ...c, lastMessage: c.messages[0]?.content || c.lastMessage || null, messages: undefined
+      }))
+    });
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: 'Error al obtener conversaciones' });
   }
 });
 
-// GET /api/conversations/stats - Stats básicas
+// GET /api/conversations/stats
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-
-    const stats = await prisma.conversation.groupBy({
-      by: ['stage'],
-      where: { userId },
-      _count: { id: true }
-    });
-
-    const total = await prisma.conversation.count({ where: { userId } });
-
-    res.json({ 
-      stats: stats.map(s => ({ stage: s.stage || 'new', count: s._count.id })),
-      total 
-    });
+    const [stats, total] = await Promise.all([
+      prisma.conversation.groupBy({ by: ['stage'], where: { userId }, _count: { id: true } }),
+      prisma.conversation.count({ where: { userId } })
+    ]);
+    res.json({ stats: stats.map(s => ({ stage: s.stage || 'new', count: s._count.id })), total });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Error al obtener estadísticas' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
-// GET /api/conversations/dashboard - Dashboard completo con datos reales
+// GET /api/conversations/dashboard - OPTIMIZADO con queries paralelas
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -71,90 +51,63 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekStart = new Date(todayStart);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Inicio de semana (domingo)
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
-    // Total conversaciones del usuario
-    const totalConversations = await prisma.conversation.count({ where: { userId } });
+    // ===== TODAS LAS QUERIES EN PARALELO =====
+    const [
+      totalConversations,
+      totalMessages,
+      todayMessages,
+      weekMessages,
+      totalAppointments,
+      pendingAppointments,
+      totalClients,
+      stageStats,
+      recentMessages,
+      recentAppointments,
+      // Actividad semanal con raw query (1 sola query en vez de 7)
+      weeklyRaw
+    ] = await Promise.all([
+      prisma.conversation.count({ where: { userId } }),
+      prisma.message.count({ where: { conversation: { userId } } }),
+      prisma.message.count({ where: { conversation: { userId }, timestamp: { gte: todayStart } } }),
+      prisma.message.count({ where: { conversation: { userId }, timestamp: { gte: weekStart } } }),
+      prisma.appointment.count({ where: { userId } }),
+      prisma.appointment.count({ where: { userId, status: 'pending' } }),
+      prisma.client.count({ where: { userId } }),
+      prisma.conversation.groupBy({ by: ['stage'], where: { userId }, _count: { id: true } }),
+      prisma.message.findMany({
+        where: { conversation: { userId }, fromMe: false },
+        orderBy: { timestamp: 'desc' }, take: 5,
+        include: { conversation: { select: { recipientName: true, recipientId: true } } }
+      }),
+      prisma.appointment.findMany({
+        where: { userId }, orderBy: { createdAt: 'desc' }, take: 3
+      }),
+      // Actividad semanal: 1 query agrupa por día
+      prisma.$queryRaw`
+        SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
+        FROM "Message" m
+        JOIN "Conversation" c ON m."conversationId" = c.id
+        WHERE c."userId" = ${userId} AND m."timestamp" >= ${weekStart}
+        GROUP BY EXTRACT(DOW FROM m."timestamp")
+        ORDER BY dow
+      ` as Promise<Array<{ dow: number; count: number }>>
+    ]);
 
-    // Total mensajes del usuario
-    const totalMessages = await prisma.message.count({
-      where: { conversation: { userId } }
-    });
-
-    // Mensajes de hoy
-    const todayMessages = await prisma.message.count({
-      where: {
-        conversation: { userId },
-        timestamp: { gte: todayStart }
-      }
-    });
-
-    // Mensajes esta semana
-    const weekMessages = await prisma.message.count({
-      where: {
-        conversation: { userId },
-        timestamp: { gte: weekStart }
-      }
-    });
-
-    // Citas agendadas del usuario
-    const totalAppointments = await prisma.appointment.count({ where: { userId } });
-    const pendingAppointments = await prisma.appointment.count({
-      where: { userId, status: 'pending' }
-    });
-
-    // Clientes en CRM
-    const totalClients = await prisma.client.count({ where: { userId } });
-
-    // Conversaciones por etapa
-    const stageStats = await prisma.conversation.groupBy({
-      by: ['stage'],
-      where: { userId },
-      _count: { id: true }
-    });
-
-    const convertedCount = stageStats.find(s => s.stage === 'converted')?._count?.id || 0;
-
-    // Actividad semanal (mensajes por día de la semana)
-    const weeklyActivity: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      const dayStart = new Date(weekStart);
-      dayStart.setDate(dayStart.getDate() + i);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setDate(dayEnd.getDate() + 1);
-
-      const count = await prisma.message.count({
-        where: {
-          conversation: { userId },
-          timestamp: { gte: dayStart, lt: dayEnd }
-        }
+    // Procesar actividad semanal (0=Dom, 1=Lun... 6=Sáb)
+    const weeklyActivity = [0, 0, 0, 0, 0, 0, 0];
+    if (Array.isArray(weeklyRaw)) {
+      weeklyRaw.forEach((r: any) => {
+        const idx = Number(r.dow);
+        if (idx >= 0 && idx <= 6) weeklyActivity[idx] = Number(r.count) || 0;
       });
-      weeklyActivity.push(count);
     }
 
-    // Actividad reciente: últimos 5 eventos (mensajes recibidos + citas)
-    const recentMessages = await prisma.message.findMany({
-      where: {
-        conversation: { userId },
-        fromMe: false
-      },
-      orderBy: { timestamp: 'desc' },
-      take: 5,
-      include: {
-        conversation: {
-          select: { recipientName: true, recipientId: true }
-        }
-      }
-    });
+    const convertedCount = stageStats.find(s => s.stage === 'converted')?._count?.id || 0;
+    const conversionRate = totalConversations > 0 ? ((convertedCount / totalConversations) * 100).toFixed(1) : '0';
 
-    const recentAppointments = await prisma.appointment.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 3
-    });
-
-    // Combinar y ordenar actividad reciente
+    // Combinar actividad reciente
     const recentActivity = [
       ...recentMessages.map(m => ({
         type: 'message' as const,
@@ -166,45 +119,23 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       ...recentAppointments.map(a => ({
         type: (a.type === 'order' ? 'sale' : 'appointment') as 'sale' | 'appointment',
         user: a.clientName,
-        action: a.type === 'order' 
-          ? `Pedido${a.total ? ` - $${a.total.toLocaleString()}` : ''}` 
+        action: a.type === 'order'
+          ? `Pedido${a.total ? ` - $${Number(a.total).toLocaleString()}` : ''}`
           : `Cita ${a.status === 'pending' ? 'pendiente' : a.status}`,
         time: a.createdAt.toISOString(),
         timestamp: a.createdAt.getTime()
       }))
-    ]
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, 5);
+    ].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
 
-    // Tasa de conversión
-    const conversionRate = totalConversations > 0 
-      ? ((convertedCount / totalConversations) * 100).toFixed(1) 
-      : '0';
-
-    // Respuesta promedio (calcular basado en mensajes)
-    // Simplificado: usar el conteo de mensajes de IA vs usuario
-    const aiMessages = await prisma.message.count({
-      where: { conversation: { userId }, fromMe: true }
-    });
-    const userMessages = await prisma.message.count({
-      where: { conversation: { userId }, fromMe: false }
-    });
+    // Clientes potenciales por etapa
+    const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
 
     res.json({
-      totalConversations,
-      totalMessages,
-      todayMessages,
-      weekMessages,
-      totalAppointments,
-      pendingAppointments,
-      totalClients,
-      convertedCount,
-      conversionRate,
-      aiMessages,
-      userMessages,
-      weeklyActivity,
-      recentActivity,
-      stageStats: stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }))
+      totalConversations, totalMessages, todayMessages, weekMessages,
+      totalAppointments, pendingAppointments, totalClients,
+      convertedCount, conversionRate,
+      weeklyActivity, recentActivity, funnelData,
+      stageStats: funnelData
     });
   } catch (error) {
     console.error('Error dashboard:', error);
@@ -219,25 +150,15 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
     const { id } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
 
-    const conversation = await prisma.conversation.findFirst({
-      where: { id, userId }
-    });
-
-    if (!conversation) {
-      res.status(404).json({ error: 'Conversación no encontrada' });
-      return;
-    }
+    const conversation = await prisma.conversation.findFirst({ where: { id, userId } });
+    if (!conversation) { res.status(404).json({ error: 'No encontrada' }); return; }
 
     const messages = await prisma.message.findMany({
-      where: { conversationId: id },
-      orderBy: { timestamp: 'asc' },
-      take: limit
+      where: { conversationId: id }, orderBy: { timestamp: 'asc' }, take: limit
     });
-
     res.json({ messages });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Error al obtener mensajes' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
@@ -247,25 +168,12 @@ router.put('/:id/stage', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
     const { stage } = req.body;
-
-    const existing = await prisma.conversation.findFirst({
-      where: { id, userId }
-    });
-
-    if (!existing) {
-      res.status(404).json({ error: 'Conversación no encontrada' });
-      return;
-    }
-
-    const conversation = await prisma.conversation.update({
-      where: { id },
-      data: { stage }
-    });
-
+    const existing = await prisma.conversation.findFirst({ where: { id, userId } });
+    if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
+    const conversation = await prisma.conversation.update({ where: { id }, data: { stage } });
     res.json({ conversation, message: 'Etapa actualizada' });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Error al actualizar etapa' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
@@ -275,25 +183,12 @@ router.put('/:id/ai-pause', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
     const { paused } = req.body;
-
-    const existing = await prisma.conversation.findFirst({
-      where: { id, userId }
-    });
-
-    if (!existing) {
-      res.status(404).json({ error: 'Conversación no encontrada' });
-      return;
-    }
-
-    const conversation = await prisma.conversation.update({
-      where: { id },
-      data: { aiPaused: paused }
-    });
-
+    const existing = await prisma.conversation.findFirst({ where: { id, userId } });
+    if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
+    const conversation = await prisma.conversation.update({ where: { id }, data: { aiPaused: paused } });
     res.json({ conversation, message: paused ? 'IA pausada' : 'IA reactivada' });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Error al actualizar estado' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 

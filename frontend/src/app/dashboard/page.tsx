@@ -1,15 +1,134 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { 
-  Smartphone, Bot, MessageSquare, CheckCircle, XCircle, AlertCircle,
-  TrendingUp, TrendingDown, Users, Calendar, Clock, Activity, BarChart3,
-  ArrowUpRight, Zap
+  Smartphone, MessageSquare, CheckCircle, XCircle, AlertCircle,
+  Users, Calendar, Clock, Activity, BarChart3, ArrowUpRight, Zap
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
+// ===== GRÁFICO LINEAL SVG PURO =====
+function LineChart({ data, labels }: { data: number[]; labels: string[] }) {
+  const width = 500;
+  const height = 160;
+  const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+
+  const maxVal = Math.max(...data, 1);
+  const points = data.map((v, i) => ({
+    x: padding.left + (i / Math.max(data.length - 1, 1)) * chartW,
+    y: padding.top + chartH - (v / maxVal) * chartH,
+    val: v
+  }));
+
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const areaD = `${pathD} L ${points[points.length - 1]?.x || 0} ${padding.top + chartH} L ${points[0]?.x || 0} ${padding.top + chartH} Z`;
+
+  // Líneas horizontales de guía
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(pct => ({
+    y: padding.top + chartH - pct * chartH,
+    label: Math.round(pct * maxVal)
+  }));
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#10b981" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
+        </linearGradient>
+        <linearGradient id="strokeGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#10b981" />
+          <stop offset="100%" stopColor="#06d6a0" />
+        </linearGradient>
+      </defs>
+
+      {/* Grid lines */}
+      {gridLines.map((g, i) => (
+        <g key={i}>
+          <line x1={padding.left} y1={g.y} x2={width - padding.right} y2={g.y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+          <text x={padding.left - 8} y={g.y + 4} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="10">{g.label}</text>
+        </g>
+      ))}
+
+      {/* Area fill */}
+      {points.length > 1 && <path d={areaD} fill="url(#lineGrad)" />}
+
+      {/* Line */}
+      {points.length > 1 && (
+        <path d={pathD} fill="none" stroke="url(#strokeGrad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+
+      {/* Dots + Labels */}
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r={p.val > 0 ? 4 : 2.5} fill={p.val > 0 ? '#10b981' : 'rgba(255,255,255,0.15)'} stroke={p.val > 0 ? '#064e3b' : 'none'} strokeWidth="1.5" />
+          {p.val > 0 && (
+            <text x={p.x} y={p.y - 10} textAnchor="middle" fill="#10b981" fontSize="11" fontWeight="600">{p.val}</text>
+          )}
+          <text x={p.x} y={height - 6} textAnchor="middle" fill="rgba(255,255,255,0.4)" fontSize="10">{labels[i]}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+// ===== EMBUDO DE CLIENTES POTENCIALES =====
+function FunnelChart({ data }: { data: Array<{ stage: string; count: number }> }) {
+  const stages: Record<string, { label: string; color: string }> = {
+    new: { label: 'Nuevos', color: '#3b82f6' },
+    interested: { label: 'Interesados', color: '#06b6d4' },
+    quoting: { label: 'Cotización', color: '#eab308' },
+    negotiating: { label: 'Negociando', color: '#f97316' },
+    pending_confirm: { label: 'Por confirmar', color: '#a855f7' },
+    converted: { label: 'Convertidos', color: '#10b981' },
+    follow_up: { label: 'Seguimiento', color: '#ec4899' },
+    lost: { label: 'Perdidos', color: '#ef4444' },
+  };
+
+  const sorted = data
+    .filter(d => d.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  const maxCount = Math.max(...sorted.map(d => d.count), 1);
+
+  if (sorted.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-[var(--text-muted)]">
+        <Users className="w-10 h-10 opacity-30 mb-3" />
+        <p className="text-sm">Sin datos de embudo</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2.5">
+      {sorted.map((d, i) => {
+        const info = stages[d.stage] || { label: d.stage, color: '#6b7280' };
+        const pct = (d.count / maxCount) * 100;
+        return (
+          <div key={d.stage} className="group">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-[var(--text-secondary)]">{info.label}</span>
+              <span className="text-xs font-semibold" style={{ color: info.color }}>{d.count}</span>
+            </div>
+            <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+              <div 
+                className="h-full rounded-full transition-all duration-700 ease-out group-hover:opacity-80"
+                style={{ width: `${Math.max(pct, 4)}%`, backgroundColor: info.color, opacity: 0.8 }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ===== DASHBOARD PRINCIPAL =====
 export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [dashboard, setDashboard] = useState<any>(null);
@@ -18,7 +137,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    // Auto-refresh cada 30 segundos
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -28,15 +146,16 @@ export default function DashboardPage() {
     if (!token) return;
 
     try {
-      const [userRes, dashRes, whatsappRes] = await Promise.all([
+      // Cargar user + whatsapp primero (rápidos), dashboard en paralelo
+      const [userRes, whatsappRes, dashRes] = await Promise.all([
         fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations/dashboard`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
-        fetch(`${API_URL}/api/whatsapp/status`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
+        fetch(`${API_URL}/api/whatsapp/status`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`${API_URL}/api/conversations/dashboard`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
       ]);
 
       if (userRes.ok) setUser((await userRes.json()).user);
-      if (dashRes?.ok) setDashboard(await dashRes.json());
       if (whatsappRes?.ok) setWhatsappStatus(await whatsappRes.json());
+      if (dashRes?.ok) setDashboard(await dashRes.json());
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -44,16 +163,12 @@ export default function DashboardPage() {
     }
   };
 
-  // Formatear tiempo relativo
   const timeAgo = (dateStr: string) => {
-    const now = new Date().getTime();
-    const date = new Date(dateStr).getTime();
-    const diff = Math.floor((now - date) / 1000);
-    
+    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
     if (diff < 60) return 'Hace un momento';
     if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
-    if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} hora${Math.floor(diff / 3600) > 1 ? 's' : ''}`;
-    return `Hace ${Math.floor(diff / 86400)} día${Math.floor(diff / 86400) > 1 ? 's' : ''}`;
+    if (diff < 86400) return `Hace ${Math.floor(diff / 3600)}h`;
+    return `Hace ${Math.floor(diff / 86400)}d`;
   };
 
   if (loading) {
@@ -65,55 +180,25 @@ export default function DashboardPage() {
     );
   }
 
-  const totalMessages = dashboard?.totalMessages || 0;
-  const totalConversations = dashboard?.totalConversations || 0;
-  const totalAppointments = dashboard?.totalAppointments || 0;
-  const pendingAppointments = dashboard?.pendingAppointments || 0;
-  const todayMessages = dashboard?.todayMessages || 0;
-  const totalClients = dashboard?.totalClients || 0;
-  const conversionRate = dashboard?.conversionRate || '0';
-  const weeklyActivity = dashboard?.weeklyActivity || [0, 0, 0, 0, 0, 0, 0];
-  const recentActivity = dashboard?.recentActivity || [];
+  const d = dashboard || {};
+  const weeklyActivity = d.weeklyActivity || [0,0,0,0,0,0,0];
+  const dayLabels = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const funnelData = d.funnelData || d.stageStats || [];
+  const recentActivity = d.recentActivity || [];
 
   const statCards = [
-    { 
-      title: 'Mensajes Totales', 
-      value: totalMessages, 
-      sub: todayMessages > 0 ? `${todayMessages} hoy` : 'Sin mensajes hoy',
-      icon: MessageSquare, 
-      color: 'emerald' 
-    },
-    { 
-      title: 'Conversaciones', 
-      value: totalConversations, 
-      sub: `${dashboard?.convertedCount || 0} convertidos`,
-      icon: Users, 
-      color: 'blue' 
-    },
-    { 
-      title: 'Clientes CRM', 
-      value: totalClients, 
-      sub: `${conversionRate}% conversión`,
-      icon: Clock, 
-      color: 'purple' 
-    },
-    { 
-      title: 'Citas/Pedidos', 
-      value: totalAppointments, 
-      sub: pendingAppointments > 0 ? `${pendingAppointments} pendientes` : 'Sin pendientes',
-      icon: Calendar, 
-      color: 'orange' 
-    }
+    { title: 'MENSAJES TOTALES', value: d.totalMessages || 0, sub: d.todayMessages > 0 ? `${d.todayMessages} hoy` : null, icon: MessageSquare, color: 'emerald' },
+    { title: 'CONVERSACIONES', value: d.totalConversations || 0, sub: d.convertedCount > 0 ? `${d.convertedCount} convertidos` : null, icon: Users, color: 'blue' },
+    { title: 'CLIENTES CRM', value: d.totalClients || 0, sub: d.conversionRate > 0 ? `${d.conversionRate}% conversión` : null, icon: Clock, color: 'purple' },
+    { title: 'CITAS/PEDIDOS', value: d.totalAppointments || 0, sub: d.pendingAppointments > 0 ? `${d.pendingAppointments} pendientes` : null, icon: Calendar, color: 'orange' }
   ];
 
-  const maxChart = Math.max(...weeklyActivity, 1);
-
   return (
-    <div className="max-w-7xl mx-auto space-y-8">
-      {/* Welcome Header */}
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <img src="/elisa.png" alt="Elisa IA" className="w-16 h-16 rounded-2xl shadow-lg animate-float hidden md:block" />
+          <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-2xl shadow-lg hidden md:block" />
           <div>
             <h1 className="text-3xl font-bold text-white">
               ¡Hola, {user?.name?.split(' ')[0] || 'Usuario'}! 👋
@@ -126,53 +211,45 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex gap-3">
-          <Link href="/conversaciones" className="btn-secondary">
-            <MessageSquare className="w-4 h-4" />Ver Chats
-          </Link>
-          <Link href="/crm" className="btn-primary">
-            <Users className="w-4 h-4" />Abrir CRM
-          </Link>
+          <Link href="/conversaciones" className="btn-secondary"><MessageSquare className="w-4 h-4" />Ver Chats</Link>
+          <Link href="/crm" className="btn-primary"><Users className="w-4 h-4" />Abrir CRM</Link>
         </div>
       </div>
 
-      {/* Setup Banner */}
+      {/* Banner de conexión */}
       {!whatsappStatus?.connected && (
-        <div className="card p-6 border-yellow-500/30 animate-fade-in stagger-1">
+        <div className="card p-5 border-yellow-500/30">
           <div className="flex flex-col md:flex-row md:items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-yellow-500/20 flex items-center justify-center">
-              <AlertCircle className="w-7 h-7 text-yellow-400" />
+            <div className="w-12 h-12 rounded-2xl bg-yellow-500/20 flex items-center justify-center">
+              <AlertCircle className="w-6 h-6 text-yellow-400" />
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-white">Completa la configuración</h3>
               <p className="text-[var(--text-muted)]">Conecta WhatsApp para que Elisa comience a responder.</p>
             </div>
-            <Link href="/whatsapp" className="btn-primary">
-              <Smartphone className="w-4 h-4" />Conectar WhatsApp
-            </Link>
+            <Link href="/whatsapp" className="btn-primary"><Smartphone className="w-4 h-4" />Conectar WhatsApp</Link>
           </div>
         </div>
       )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat, index) => (
-          <div key={stat.title} className="stat-card animate-fade-in" style={{ animationDelay: `${(index + 1) * 100}ms` }}>
-            <div className="flex items-start justify-between mb-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((stat, i) => (
+          <div key={stat.title} className="stat-card">
+            <div className="flex items-start justify-between mb-3">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${
                 stat.color === 'emerald' ? 'bg-emerald-500/20' :
                 stat.color === 'blue' ? 'bg-blue-500/20' :
                 stat.color === 'purple' ? 'bg-purple-500/20' : 'bg-orange-500/20'
               }`}>
-                <stat.icon className={`w-6 h-6 ${
+                <stat.icon className={`w-5 h-5 ${
                   stat.color === 'emerald' ? 'text-emerald-400' :
                   stat.color === 'blue' ? 'text-blue-400' :
                   stat.color === 'purple' ? 'text-purple-400' : 'text-orange-400'
                 }`} />
               </div>
               {stat.sub && (
-                <span className="text-xs text-[var(--text-muted)] bg-white/5 px-2 py-1 rounded-full">
-                  {stat.sub}
-                </span>
+                <span className="text-[10px] text-[var(--text-muted)] bg-white/5 px-2 py-0.5 rounded-full">{stat.sub}</span>
               )}
             </div>
             <div className="stat-value">{typeof stat.value === 'number' ? stat.value.toLocaleString() : stat.value}</div>
@@ -181,138 +258,123 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Chart - Actividad Semanal REAL */}
-        <div className="lg:col-span-2 card animate-fade-in stagger-2">
-          <div className="flex items-center justify-between mb-6">
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Gráfico Lineal - Actividad Semanal */}
+        <div className="lg:col-span-2 card">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-lg font-semibold text-white">Actividad Semanal</h3>
-              <p className="text-sm text-[var(--text-muted)]">{dashboard?.weekMessages || 0} mensajes esta semana</p>
+              <p className="text-sm text-[var(--text-muted)]">{d.weekMessages || 0} mensajes esta semana</p>
             </div>
             <Link href="/conversaciones" className="btn-secondary text-sm py-2">
               <BarChart3 className="w-4 h-4" />Ver Chats
             </Link>
           </div>
-          
-          <div className="h-48 flex items-end justify-between gap-3 px-4">
-            {weeklyActivity.map((value: number, index: number) => (
-              <div key={index} className="flex-1 flex flex-col items-center gap-2">
-                <span className="text-xs text-[var(--text-muted)]">{value}</span>
-                <div 
-                  className="w-full rounded-t-lg transition-all duration-500 hover:opacity-80"
-                  style={{ 
-                    height: `${Math.max((value / maxChart) * 100, 4)}%`,
-                    background: value > 0 
-                      ? 'linear-gradient(to top, var(--accent-primary), var(--accent-secondary))' 
-                      : 'rgba(255,255,255,0.05)'
-                  }} 
-                />
-                <span className="text-xs text-[var(--text-muted)]">
-                  {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][index]}
-                </span>
-              </div>
-            ))}
+          <div className="h-44">
+            <LineChart data={weeklyActivity} labels={dayLabels} />
           </div>
         </div>
 
-        {/* Activity Feed REAL */}
-        <div className="card animate-fade-in stagger-3">
-          <div className="flex items-center justify-between mb-6">
+        {/* Embudo de Clientes Potenciales */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">Embudo de Ventas</h3>
+            <Link href="/conversaciones" className="text-[var(--accent-primary)]">
+              <ArrowUpRight className="w-5 h-5" />
+            </Link>
+          </div>
+          <FunnelChart data={funnelData} />
+        </div>
+      </div>
+
+      {/* Actividad + Accesos rápidos */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Actividad Reciente */}
+        <div className="lg:col-span-2 card">
+          <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-white">Actividad Reciente</h3>
             <Activity className="w-5 h-5 text-[var(--accent-primary)]" />
           </div>
-          
-          <div className="space-y-4">
-            {recentActivity.length > 0 ? recentActivity.map((activity: any, index: number) => (
-              <div key={index} className="flex items-start gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                  activity.type === 'message' ? 'bg-blue-500/20' :
-                  activity.type === 'appointment' ? 'bg-purple-500/20' : 'bg-emerald-500/20'
-                }`}>
-                  {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-blue-400" />}
-                  {activity.type === 'appointment' && <Calendar className="w-5 h-5 text-purple-400" />}
-                  {activity.type === 'sale' && <Zap className="w-5 h-5 text-emerald-400" />}
+          {recentActivity.length > 0 ? (
+            <div className="space-y-3">
+              {recentActivity.map((a: any, i: number) => (
+                <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/5 transition-colors">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    a.type === 'message' ? 'bg-blue-500/20' : a.type === 'appointment' ? 'bg-purple-500/20' : 'bg-emerald-500/20'
+                  }`}>
+                    {a.type === 'message' && <MessageSquare className="w-4 h-4 text-blue-400" />}
+                    {a.type === 'appointment' && <Calendar className="w-4 h-4 text-purple-400" />}
+                    {a.type === 'sale' && <Zap className="w-4 h-4 text-emerald-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{a.user}</p>
+                    <p className="text-xs text-[var(--text-muted)] truncate">{a.action}</p>
+                  </div>
+                  <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{timeAgo(a.time)}</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{activity.user}</p>
-                  <p className="text-xs text-[var(--text-muted)] truncate">{activity.action}</p>
-                </div>
-                <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">{timeAgo(activity.time)}</span>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[var(--text-muted)]">
+              <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Sin actividad reciente</p>
+            </div>
+          )}
+        </div>
+
+        {/* Accesos Rápidos */}
+        <div className="space-y-4">
+          <Link href="/whatsapp" className="card glass-hover group block">
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${whatsappStatus?.connected ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+                <Smartphone className={`w-5 h-5 ${whatsappStatus?.connected ? 'text-emerald-400' : 'text-red-400'}`} />
               </div>
-            )) : (
-              <div className="text-center py-8 text-[var(--text-muted)]">
-                <Activity className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">Sin actividad reciente</p>
-                <p className="text-xs mt-1">Los mensajes nuevos aparecerán aquí</p>
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold text-white">WhatsApp</h4>
+                <p className="text-xs text-[var(--text-muted)]">
+                  {whatsappStatus?.connected ? `+${whatsappStatus.phone || ''}` : 'Desconectado'}
+                </p>
               </div>
-            )}
-          </div>
+              <div className={`badge text-[10px] ${whatsappStatus?.connected ? 'badge-success' : 'badge-danger'}`}>
+                {whatsappStatus?.connected ? <><CheckCircle className="w-3 h-3" />ON</> : <><XCircle className="w-3 h-3" />OFF</>}
+              </div>
+            </div>
+          </Link>
+
+          <Link href="/crm" className="card glass-hover group block">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                <Users className="w-5 h-5 text-blue-400" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold text-white">CRM</h4>
+                <p className="text-xs text-[var(--text-muted)]">{d.totalClients || 0} clientes</p>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-[var(--text-muted)]" />
+            </div>
+          </Link>
+
+          <Link href="/agenda" className="card glass-hover group block">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                <Calendar className="w-5 h-5 text-purple-400" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-sm font-semibold text-white">Agenda</h4>
+                <p className="text-xs text-[var(--text-muted)]">{d.pendingAppointments || 0} pendientes</p>
+              </div>
+              <ArrowUpRight className="w-4 h-4 text-[var(--text-muted)]" />
+            </div>
+          </Link>
         </div>
       </div>
 
-      {/* Quick Access Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Link href="/whatsapp" className="card glass-hover group animate-fade-in stagger-2">
-          <div className="flex items-center justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${whatsappStatus?.connected ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-              <Smartphone className={`w-6 h-6 ${whatsappStatus?.connected ? 'text-emerald-400' : 'text-red-400'}`} />
-            </div>
-            <div className={`badge ${whatsappStatus?.connected ? 'badge-success' : 'badge-danger'}`}>
-              {whatsappStatus?.connected ? <><CheckCircle className="w-3 h-3" />Conectado</> : <><XCircle className="w-3 h-3" />Desconectado</>}
-            </div>
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">WhatsApp</h3>
-          <p className="text-sm text-[var(--text-muted)] mb-4">
-            {whatsappStatus?.connected ? `+${whatsappStatus.phone || 'Conectado'}` : 'Escanea QR para conectar'}
-          </p>
-          <div className="flex items-center gap-2 text-[var(--accent-primary)] text-sm font-medium group-hover:gap-3 transition-all">
-            {whatsappStatus?.connected ? 'Ver estado' : 'Conectar'}<ArrowUpRight className="w-4 h-4" />
-          </div>
-        </Link>
-
-        <Link href="/crm" className="card glass-hover group animate-fade-in stagger-3">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-400" />
-            </div>
-            {totalClients > 0 && (
-              <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full font-medium">
-                {totalClients} clientes
-              </span>
-            )}
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">CRM</h3>
-          <p className="text-sm text-[var(--text-muted)] mb-4">Gestiona clientes y productos</p>
-          <div className="flex items-center gap-2 text-[var(--accent-primary)] text-sm font-medium group-hover:gap-3 transition-all">
-            Abrir CRM<ArrowUpRight className="w-4 h-4" />
-          </div>
-        </Link>
-
-        <Link href="/agenda" className="card glass-hover group animate-fade-in stagger-4">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-purple-400" />
-            </div>
-            {pendingAppointments > 0 && (
-              <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded-full font-medium">
-                {pendingAppointments} pendientes
-              </span>
-            )}
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-1">Agenda</h3>
-          <p className="text-sm text-[var(--text-muted)] mb-4">Citas y pedidos programados</p>
-          <div className="flex items-center gap-2 text-[var(--accent-primary)] text-sm font-medium group-hover:gap-3 transition-all">
-            Ver agenda<ArrowUpRight className="w-4 h-4" />
-          </div>
-        </Link>
-      </div>
-
       {/* Footer */}
-      <div className="flex items-center justify-center py-8">
-        <div className="flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/10">
-          <img src="/elisa.png" alt="Elisa IA" className="w-8 h-8 rounded-lg" />
-          <span className="text-sm text-[var(--text-muted)]">
+      <div className="flex items-center justify-center py-6">
+        <div className="flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/10">
+          <img src="/elisa.png" alt="Elisa IA" className="w-7 h-7 rounded-lg" />
+          <span className="text-xs text-[var(--text-muted)]">
             Potenciado por <span className="text-white font-semibold">Elisa IA</span>
           </span>
         </div>

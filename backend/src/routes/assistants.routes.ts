@@ -4,68 +4,37 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// GET /api/assistants - Obtener asistente del usuario
-// FIX: Devuelve TANTO { assistant } como { assistants } para compatibilidad
+// GET /api/assistants
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    // Obtener TODOS los asistentes del usuario, ordenados por más reciente
-    const allAssistants = await prisma.assistant.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' }
-    });
-
-    // Buscar el activo
-    let active = allAssistants.find(a => a.isActive);
-
-    // Si no hay activo pero hay asistentes, activar el más reciente
-    if (!active && allAssistants.length > 0) {
-      active = await prisma.assistant.update({
-        where: { id: allAssistants[0].id },
-        data: { isActive: true }
-      });
+    let assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    if (!assistant) {
+      assistant = await prisma.assistant.findFirst({ where: { userId } });
+      if (assistant) {
+        assistant = await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
+      }
     }
-
-    // Si hay más de un asistente activo, desactivar los demás
-    const activeOnes = allAssistants.filter(a => a.isActive);
-    if (activeOnes.length > 1) {
-      const keepId = active?.id || activeOnes[0].id;
-      await prisma.assistant.updateMany({
-        where: { userId, id: { not: keepId } },
-        data: { isActive: false }
-      });
-    }
-
-    // Devolver en AMBOS formatos para compatibilidad
-    res.json({ 
-      assistant: active || null,
-      assistants: allAssistants 
-    });
+    res.json({ assistant });
   } catch (error) {
-    console.error('Error obteniendo asistente:', error);
+    console.error('Error:', error);
     res.status(500).json({ error: 'Error' });
   }
 });
 
-// POST /api/assistants - Crear o actualizar asistente
+// POST /api/assistants
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
     const body = req.body;
-
-    console.log(`💾 Guardando asistente para usuario ${userId}:`);
-    console.log(`   - name: ${body.name || 'Sin nombre'}`);
-    console.log(`   - context: ${body.context ? `${body.context.length} chars` : 'VACÍO'}`);
-    console.log(`   - personality: ${body.personality ? `${body.personality.length} chars` : 'VACÍO'}`);
-    console.log(`   - businessInfo: ${body.businessInfo ? `${body.businessInfo.length} chars` : 'VACÍO'}`);
-    console.log(`   - instructions: ${body.instructions ? `${body.instructions.length} chars` : 'VACÍO'}`);
+    console.log(`💾 Guardando asistente para ${userId}: context=${body.context?.length || 0} chars, media=${body.mediaItems?.length || 0}`);
 
     const data: any = {
-      name: body.name || 'Asistente Principal',
+      name: body.name || 'Asistente',
       context: body.context || null,
       personality: body.personality || null,
       businessInfo: body.businessInfo || null,
@@ -76,76 +45,48 @@ router.post('/', async (req: Request, res: Response) => {
       selectedVoice: body.selectedVoice || null,
       voiceEnabled: body.voiceEnabled || false,
       autoLearn: body.autoLearn !== false,
+      learningHistory: body.learningHistory || [],
       model: body.model || 'gpt-4-turbo-preview',
       temperature: body.temperature || 0.7,
       maxTokens: body.maxTokens || 500,
       isActive: true
     };
 
-    // FIX: Desactivar TODOS primero
-    await prisma.assistant.updateMany({
-      where: { userId },
-      data: { isActive: false }
-    });
-
-    // Buscar asistente existente - el más reciente con contexto O el primero
-    let assistant = await prisma.assistant.findFirst({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' }
-    });
+    let assistant = await prisma.assistant.findFirst({ where: { userId } });
 
     if (assistant) {
-      assistant = await prisma.assistant.update({
-        where: { id: assistant.id },
-        data
-      });
-      console.log(`✅ Asistente actualizado: ${assistant.name} (ID: ${assistant.id}, context: ${assistant.context?.length || 0} chars)`);
+      await prisma.assistant.updateMany({ where: { userId, id: { not: assistant.id } }, data: { isActive: false } });
+      assistant = await prisma.assistant.update({ where: { id: assistant.id }, data });
     } else {
-      assistant = await prisma.assistant.create({
-        data: { ...data, userId }
-      });
-      console.log(`✅ Asistente creado: ${assistant.name} (ID: ${assistant.id})`);
+      assistant = await prisma.assistant.create({ data: { ...data, userId } });
     }
 
+    console.log(`✅ Asistente guardado: ${assistant.name}`);
     res.json({ assistant, message: 'Guardado correctamente' });
   } catch (error: any) {
-    console.error('❌ Error guardando asistente:', error);
-    res.status(500).json({ error: error.message || 'Error guardando asistente' });
+    console.error('❌ Error:', error);
+    res.status(500).json({ error: error.message || 'Error' });
   }
 });
 
-// PUT /api/assistants/:id - Actualizar asistente específico
+// PUT /api/assistants/:id
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-
     const { id } = req.params;
-    const body = req.body;
-
     const existing = await prisma.assistant.findFirst({ where: { id, userId } });
-    if (!existing) { res.status(404).json({ error: 'Asistente no encontrado' }); return; }
+    if (!existing) { res.status(404).json({ error: 'No encontrado' }); return; }
 
+    const body = req.body;
     const data: any = {};
-    if (body.name !== undefined) data.name = body.name;
-    if (body.context !== undefined) data.context = body.context;
-    if (body.personality !== undefined) data.personality = body.personality;
-    if (body.businessInfo !== undefined) data.businessInfo = body.businessInfo;
-    if (body.instructions !== undefined) data.instructions = body.instructions;
-    if (body.knowledgeItems !== undefined) data.knowledgeItems = body.knowledgeItems;
-    if (body.mediaItems !== undefined) data.mediaItems = body.mediaItems;
-    if (body.elevenLabsKey !== undefined) data.elevenLabsKey = body.elevenLabsKey;
-    if (body.selectedVoice !== undefined) data.selectedVoice = body.selectedVoice;
-    if (body.voiceEnabled !== undefined) data.voiceEnabled = body.voiceEnabled;
-    if (body.autoLearn !== undefined) data.autoLearn = body.autoLearn;
-    if (body.model !== undefined) data.model = body.model;
-    if (body.temperature !== undefined) data.temperature = body.temperature;
-    if (body.maxTokens !== undefined) data.maxTokens = body.maxTokens;
+    const fields = ['name', 'context', 'personality', 'businessInfo', 'instructions', 'knowledgeItems',
+      'mediaItems', 'elevenLabsKey', 'selectedVoice', 'voiceEnabled', 'autoLearn', 'learningHistory',
+      'model', 'temperature', 'maxTokens', 'isActive'];
+    fields.forEach(f => { if (body[f] !== undefined) data[f] = body[f]; });
     data.isActive = true;
 
     const assistant = await prisma.assistant.update({ where: { id }, data });
-    console.log(`✅ Asistente ${assistant.name} actualizado (context: ${assistant.context?.length || 0} chars)`);
-
     res.json({ assistant, message: 'Actualizado' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Error' });
@@ -157,7 +98,6 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-
     await prisma.assistant.updateMany({ where: { userId }, data: { isActive: false } });
     const assistant = await prisma.assistant.update({ where: { id: req.params.id }, data: { isActive: true } });
     res.json({ assistant, message: 'Activado' });
@@ -166,13 +106,193 @@ router.post('/:id/activate', async (req: Request, res: Response) => {
   }
 });
 
+// ===== AUTO-APRENDIZAJE =====
+// POST /api/assistants/learn - Analizar conversaciones y generar sugerencias
+router.post('/learn', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, apiKeyConnected: true } });
+    if (!user?.apiKey) { res.status(400).json({ error: 'Configura tu API Key de OpenAI primero' }); return; }
+
+    // Obtener últimas 20 conversaciones con mensajes
+    const conversations = await prisma.conversation.findMany({
+      where: { userId },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      include: {
+        messages: { orderBy: { timestamp: 'desc' }, take: 10 }
+      }
+    });
+
+    if (conversations.length === 0) {
+      res.json({ suggestions: [], message: 'Sin conversaciones para analizar' }); return;
+    }
+
+    // Obtener asistente actual
+    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    const currentContext = assistant?.context || '';
+
+    // Construir resumen de conversaciones para análisis
+    const convSummaries = conversations.map(c => {
+      const msgs = [...c.messages].reverse();
+      return {
+        contact: c.recipientName || c.recipientId,
+        stage: c.stage,
+        messages: msgs.map(m => `${m.fromMe ? 'BOT' : 'CLIENTE'}: ${m.content}`).join('\n')
+      };
+    });
+
+    const analysisPrompt = `Eres un experto en optimización de chatbots de ventas. Analiza estas conversaciones reales y el contexto actual del asistente para generar sugerencias de mejora.
+
+CONTEXTO ACTUAL DEL ASISTENTE (primeros 2000 chars):
+${currentContext.substring(0, 2000)}
+
+ÚLTIMAS CONVERSACIONES:
+${convSummaries.slice(0, 10).map((c, i) => 
+  `--- Conversación ${i+1} con ${c.contact} (etapa: ${c.stage}) ---\n${c.messages}`
+).join('\n\n')}
+
+Genera exactamente 3-5 sugerencias concretas en JSON. Cada sugerencia debe ser una mejora específica al contexto del asistente basada en patrones reales de las conversaciones.
+
+Enfócate en:
+1. Preguntas frecuentes que el bot no supo responder bien
+2. Información que los clientes piden pero no está en el contexto
+3. Patrones de conversación que se pueden mejorar
+4. Respuestas que fueron muy largas o confusas
+5. Oportunidades de venta perdidas
+
+RESPONDE SOLO con un JSON array así:
+[
+  {
+    "type": "add_faq",
+    "title": "Título corto de la sugerencia",
+    "suggestion": "Texto exacto que se debe agregar al contexto",
+    "reason": "Por qué se sugiere esto basado en las conversaciones"
+  }
+]
+
+Tipos válidos: add_faq, improve_response, add_info, fix_error, add_greeting`;
+
+    console.log(`🧠 Analizando ${conversations.length} conversaciones para auto-aprendizaje...`);
+
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
+      body: JSON.stringify({
+        model: assistant?.model || 'gpt-4-turbo-preview',
+        messages: [{ role: 'user', content: analysisPrompt }],
+        temperature: 0.3,
+        max_tokens: 2000
+      })
+    });
+
+    if (!aiRes.ok) {
+      const err = await aiRes.text();
+      console.error('❌ OpenAI error:', err);
+      res.status(500).json({ error: 'Error al analizar con OpenAI' }); return;
+    }
+
+    const aiData = await aiRes.json() as any;
+    const raw = aiData.choices?.[0]?.message?.content || '[]';
+
+    // Parse JSON (tolerante a markdown backticks)
+    let suggestions: any[] = [];
+    try {
+      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      suggestions = JSON.parse(cleaned);
+    } catch {
+      console.error('❌ Error parsing suggestions:', raw);
+      suggestions = [];
+    }
+
+    // Agregar metadata
+    const now = new Date().toISOString();
+    suggestions = suggestions.map((s: any, i: number) => ({
+      id: `learn_${Date.now()}_${i}`,
+      ...s,
+      date: now,
+      applied: false,
+      dismissed: false
+    }));
+
+    // Guardar en learningHistory
+    if (assistant && suggestions.length > 0) {
+      const existingHistory = (assistant.learningHistory as any[]) || [];
+      await prisma.assistant.update({
+        where: { id: assistant.id },
+        data: { learningHistory: [...suggestions, ...existingHistory].slice(0, 50) }
+      });
+    }
+
+    console.log(`✅ Auto-aprendizaje: ${suggestions.length} sugerencias generadas`);
+    res.json({ suggestions, message: `${suggestions.length} sugerencias generadas` });
+  } catch (error: any) {
+    console.error('❌ Error learn:', error);
+    res.status(500).json({ error: error.message || 'Error' });
+  }
+});
+
+// POST /api/assistants/learn/apply - Aplicar una sugerencia al contexto
+router.post('/learn/apply', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const { suggestionId, suggestion } = req.body;
+
+    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
+
+    // Agregar sugerencia al final del contexto
+    const newContext = (assistant.context || '') + '\n\n' + suggestion;
+
+    // Marcar como aplicada en learningHistory
+    const history = (assistant.learningHistory as any[]) || [];
+    const updatedHistory = history.map((h: any) => 
+      h.id === suggestionId ? { ...h, applied: true, appliedAt: new Date().toISOString() } : h
+    );
+
+    await prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { context: newContext, learningHistory: updatedHistory }
+    });
+
+    console.log(`✅ Sugerencia aplicada al contexto (+${suggestion.length} chars)`);
+    res.json({ success: true, message: 'Sugerencia aplicada al contexto' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Error' });
+  }
+});
+
+// POST /api/assistants/learn/dismiss - Descartar sugerencia
+router.post('/learn/dismiss', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const { suggestionId } = req.body;
+    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
+
+    const history = (assistant.learningHistory as any[]) || [];
+    const updatedHistory = history.map((h: any) => 
+      h.id === suggestionId ? { ...h, dismissed: true } : h
+    );
+
+    await prisma.assistant.update({ where: { id: assistant.id }, data: { learningHistory: updatedHistory } });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Error' });
+  }
+});
+
 // POST /api/assistants/elevenlabs/voices
 router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
-    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
-      headers: { 'xi-api-key': apiKey }
-    });
+    const response = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': apiKey } });
     if (response.ok) {
       const data = await response.json() as any;
       res.json({ voices: data.voices });
@@ -181,43 +301,6 @@ router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
     }
   } catch (error) {
     res.status(500).json({ error: 'Error' });
-  }
-});
-
-// DELETE - Limpiar asistentes duplicados (utilidad)
-router.delete('/cleanup', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-
-    const assistants = await prisma.assistant.findMany({
-      where: { userId },
-      orderBy: { updatedAt: 'desc' }
-    });
-
-    if (assistants.length <= 1) {
-      res.json({ message: 'No hay duplicados', count: assistants.length });
-      return;
-    }
-
-    // Mantener el más reciente, eliminar el resto
-    const keep = assistants[0];
-    const toDelete = assistants.slice(1).map(a => a.id);
-
-    await prisma.assistant.deleteMany({
-      where: { id: { in: toDelete } }
-    });
-
-    // Asegurar que el que queda está activo
-    await prisma.assistant.update({
-      where: { id: keep.id },
-      data: { isActive: true }
-    });
-
-    console.log(`🧹 Limpiados ${toDelete.length} asistentes duplicados. Quedó: ${keep.name} (${keep.id})`);
-    res.json({ message: `Eliminados ${toDelete.length} duplicados`, kept: keep.name });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
   }
 });
 

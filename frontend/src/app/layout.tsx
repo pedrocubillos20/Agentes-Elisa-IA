@@ -60,9 +60,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
+    { name: 'Admin', href: '/admin', icon: Shield, perm: 'config', adminOnly: true },
   ];
 
-  const navigation = allNavigation.filter(item => hasPerm(item.perm));
+  const navigation = allNavigation.filter(item => {
+    if ((item as any).adminOnly && !isAdmin) return false;
+    return hasPerm(item.perm);
+  });
 
   // Rol label
   const roleLabel = user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Gerente' : user?.role === 'agent' ? 'Vendedor' : user?.role === 'support' ? 'Soporte' : 'Observador';

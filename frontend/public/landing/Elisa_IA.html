@@ -201,6 +201,14 @@
     .check-dim { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text-dim); }
     .pricing-note { margin-top: 16px; padding: 14px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; font-size: 12px; color: var(--orange); line-height: 1.6; }
 
+    /* Period Toggle */
+    .pricing-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 48px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 100px; padding: 5px; max-width: 480px; margin-left: auto; margin-right: auto; }
+    .pricing-toggle-btn { padding: 10px 24px; border-radius: 100px; border: none; background: transparent; color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; position: relative; }
+    .pricing-toggle-btn.active { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; box-shadow: 0 4px 15px rgba(99,102,241,0.3); }
+    .pricing-toggle-btn .discount-tag { position: absolute; top: -10px; right: -6px; background: linear-gradient(135deg, var(--green), #059669); color: white; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 100px; white-space: nowrap; }
+    .pricing-save { display: inline-block; background: var(--green-glow); color: var(--green); font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 100px; margin-top: 4px; border: 1px solid rgba(16,185,129,0.2); }
+    .pricing-original { text-decoration: line-through; color: var(--text-dim); font-size: 14px; margin-right: 4px; }
+
     /* FAQ */
     .faq { padding: 120px 0; }
     .faq-list { max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
@@ -510,8 +518,15 @@
       <p>Simple, transparente y con 20 días gratis en ambos planes.</p>
     </div>
 
+    <!-- Toggle de Período -->
+    <div class="pricing-toggle">
+      <button class="pricing-toggle-btn active" onclick="switchPeriod('monthly')">Mensual</button>
+      <button class="pricing-toggle-btn" onclick="switchPeriod('semiannual')">6 Meses <span class="discount-tag">-17%</span></button>
+      <button class="pricing-toggle-btn" onclick="switchPeriod('annual')">Anual <span class="discount-tag">-30%</span></button>
+    </div>
+
     <div class="pricing-grid">
-      <!-- PLAN STANDARD -->
+      <!-- PLAN STARTER -->
       <div class="pricing-card">
         <div class="pricing-trial">🎁 20 DÍAS GRATIS</div>
         <div class="pricing-badge pricing-badge-standard">STANDARD</div>
@@ -519,9 +534,10 @@
         <div class="pricing-desc">Ideal para emprendedores y negocios que arrancan con WhatsApp</div>
         <div class="pricing-amount">
           <span class="pricing-currency">USD$</span>
-          <span class="pricing-value">30</span>
+          <span class="pricing-value" id="starter-price">30</span>
         </div>
-        <div class="pricing-period">por mes</div>
+        <div class="pricing-period" id="starter-period">por mes</div>
+        <div id="starter-save" style="margin-bottom:20px;display:none;"></div>
         <ul class="pricing-features">
           <li><span class="check check-green">✓</span> Asistente IA con WhatsApp</li>
           <li><span class="check check-green">✓</span> Hasta <strong style="color:var(--text);">3 líneas</strong> de WhatsApp</li>
@@ -546,9 +562,10 @@
         <div class="pricing-desc">Para negocios serios que quieren CRM, equipo y todas las herramientas</div>
         <div class="pricing-amount">
           <span class="pricing-currency">USD$</span>
-          <span class="pricing-value">50</span>
+          <span class="pricing-value" id="business-price">50</span>
         </div>
-        <div class="pricing-period">por mes</div>
+        <div class="pricing-period" id="business-period">por mes</div>
+        <div id="business-save" style="margin-bottom:20px;display:none;"></div>
         <ul class="pricing-features">
           <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Todo de Starter +</strong></li>
           <li><span class="check check-green">✓</span> Líneas de WhatsApp <strong style="color:var(--text);">ilimitadas</strong></li>
@@ -566,6 +583,8 @@
         <div class="pricing-note">⚡ <strong>Sobre las integraciones:</strong> Cada usuario conecta su propia API Key de OpenAI y/o ElevenLabs. Tú controlas cuánto gastas. GPT-4o-mini cuesta ~$0.01 por cada 100 mensajes.</div>
       </div>
     </div>
+
+    <p style="text-align:center; color:var(--text-dim); font-size:13px; margin-top:32px;">💳 Aceptamos tarjetas de crédito/débito, PSE, Nequi y Bancolombia · Pagos procesados por <strong style="color:var(--text-muted);">Wompi</strong></p>
   </div>
 </section>
 
@@ -611,7 +630,7 @@
       </div>
       <div class="faq-item">
         <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Puedo cancelar en cualquier momento?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>Sí, sin compromisos ni penalidades. Durante los 20 días gratis no se cobra nada. Si decides continuar, el pago es mensual y puedes cancelar cuando quieras.</p></div>
+        <div class="faq-answer"><p>Sí, sin compromisos ni penalidades. Durante los 20 días gratis no se cobra nada. Puedes pagar mensual, semestral (17% de descuento) o anual (30% de descuento). Aceptamos tarjetas, PSE, Nequi y Bancolombia.</p></div>
       </div>
     </div>
   </div>
@@ -640,11 +659,52 @@
       <div class="logo-text" style="font-size: 20px;">Elisa<span> IA</span></div>
     </div>
     <p>© 2026 Elisa IA · Automatización inteligente para WhatsApp</p>
-    <p style="margin-top: 8px;"><a href="mailto:soporte@elisaia.com">soporte@elisaia.com</a></p>
+    <p style="margin-top: 8px;"><a href="/cdn-cgi/l/email-protection#e4978b948b969081a481888d97858d85ca878b89"><span class="__cf_email__" data-cfemail="bfccd0cfd0cdcbdaffdad3d6ccded6de91dcd0d2">[email&#160;protected]</span></a></p>
   </div>
 </footer>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+  // Pricing period toggle
+  const pricingData = {
+    starter: { monthly: 30, semiannual: 25, annual: 21 },
+    business: { monthly: 50, semiannual: 42, annual: 35 }
+  };
+  const periodLabels = { monthly: 'por mes', semiannual: 'por mes · facturado cada 6 meses', annual: 'por mes · facturado anualmente' };
+  const totalLabels = { monthly: null, semiannual: { starter: 150, business: 250 }, annual: { starter: 252, business: 420 } };
+
+  function switchPeriod(period) {
+    // Toggle buttons
+    document.querySelectorAll('.pricing-toggle-btn').forEach(b => b.classList.remove('active'));
+    event.target.closest('.pricing-toggle-btn').classList.add('active');
+
+    // Update Starter
+    document.getElementById('starter-price').textContent = pricingData.starter[period];
+    document.getElementById('starter-period').textContent = periodLabels[period];
+    const starterSave = document.getElementById('starter-save');
+    if (period !== 'monthly') {
+      const discount = period === 'semiannual' ? '17%' : '30%';
+      const total = totalLabels[period].starter;
+      starterSave.innerHTML = '<span class="pricing-save">🔥 Ahorras ' + discount + ' · Total USD$' + total + '</span>';
+      starterSave.style.display = 'block';
+    } else {
+      starterSave.style.display = 'none';
+    }
+
+    // Update Business
+    document.getElementById('business-price').textContent = pricingData.business[period];
+    document.getElementById('business-period').textContent = periodLabels[period];
+    const businessSave = document.getElementById('business-save');
+    if (period !== 'monthly') {
+      const discount = period === 'semiannual' ? '17%' : '30%';
+      const total = totalLabels[period].business;
+      businessSave.innerHTML = '<span class="pricing-save">🔥 Ahorras ' + discount + ' · Total USD$' + total + '</span>';
+      businessSave.style.display = 'block';
+    } else {
+      businessSave.style.display = 'none';
+    }
+  }
+
+  // Animations
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (entry.isIntersecting) { entry.target.style.animationPlayState = 'running'; observer.unobserve(entry.target); }
@@ -655,10 +715,10 @@
     observer.observe(el);
   });
   document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-    anchor.addEventListener('click', function(e) {
+    anchor.addEventListener('click', function (e) {
       e.preventDefault();
       const target = document.querySelector(this.getAttribute('href'));
-      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (target) target.scrollIntoView({ behavior: 'smooth' });
     });
   });
 </script>

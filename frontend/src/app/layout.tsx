@@ -60,7 +60,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
-    { name: 'Admin', href: '/admin', icon: Shield, perm: 'config', adminOnly: true },
   ];
 
   const navigation = allNavigation.filter(item => {

@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Elisa IA — Tu Vendedor Virtual por WhatsApp 24/7</title>
+  <meta name="description" content="Automatiza tu atención al cliente con inteligencia artificial en WhatsApp. Elisa IA responde, vende y agenda por ti las 24 horas.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #06060b;
+      --bg-card: #0d0d15;
+      --bg-card-hover: #12121f;
+      --border: rgba(255,255,255,0.06);
+      --border-accent: rgba(99,102,241,0.3);
+      --text: #f0f0f5;
+      --text-muted: #8888a4;
+      --text-dim: #55556a;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --accent-glow: rgba(99,102,241,0.15);
+      --green: #10b981;
+      --green-glow: rgba(16,185,129,0.15);
+      --orange: #f59e0b;
+      --pink: #ec4899;
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Sora', sans-serif; background: var(--bg); color: var(--text); overflow-x: hidden; line-height: 1.6; }
+    body::before { content: ''; position: fixed; inset: 0; opacity: 0.03; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); pointer-events: none; z-index: 0; }
+    .grid-bg { position: fixed; inset: 0; background-image: linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; z-index: 0; }
+    section, header, footer { position: relative; z-index: 1; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
+    @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
+    @keyframes gradient-shift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+    @keyframes typing-dot { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
+    @keyframes count-up { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
+    @keyframes slide-left { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    .animate-up { animation: fadeUp 0.8s ease-out both; }
+    .delay-1 { animation-delay: 0.1s; } .delay-2 { animation-delay: 0.2s; } .delay-3 { animation-delay: 0.3s; }
+    .delay-4 { animation-delay: 0.4s; } .delay-5 { animation-delay: 0.5s; } .delay-6 { animation-delay: 0.6s; }
+
+    /* NAV */
+    nav { position: fixed; top: 0; width: 100%; z-index: 100; padding: 16px 0; backdrop-filter: blur(20px); background: rgba(6,6,11,0.8); border-bottom: 1px solid var(--border); }
+    nav .container { display: flex; align-items: center; justify-content: space-between; }
+    .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    .logo-icon { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), #a855f7); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 0 20px rgba(99,102,241,0.3); }
+    .logo-text { font-family: 'Outfit', sans-serif; font-size: 24px; font-weight: 800; color: var(--text); }
+    .logo-text span { color: var(--accent-light); font-weight: 300; }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.3s; }
+    .nav-links a:hover { color: var(--text); }
+
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 28px; border-radius: 12px; font-family: 'Sora', sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: all 0.3s; }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; box-shadow: 0 4px 20px rgba(99,102,241,0.3); }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,0.4); }
+    .btn-whatsapp { background: linear-gradient(135deg, #25d366, #128c7e); color: white; box-shadow: 0 4px 20px rgba(37,211,102,0.3); }
+    .btn-whatsapp:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(37,211,102,0.4); }
+    .btn-secondary { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); }
+    .btn-large { padding: 18px 40px; font-size: 17px; border-radius: 16px; }
+    .btn-glow { position: relative; overflow: hidden; }
+    .btn-glow::before { content: ''; position: absolute; inset: -2px; background: linear-gradient(135deg, var(--accent), #a855f7, var(--pink), var(--accent)); background-size: 400% 400%; animation: gradient-shift 3s ease infinite; border-radius: inherit; z-index: -1; filter: blur(8px); opacity: 0.6; }
+
+    /* HERO */
+    .hero { padding: 160px 0 100px; text-align: center; position: relative; }
+    .hero-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15; pointer-events: none; }
+    .hero-orb-1 { width: 500px; height: 500px; background: var(--accent); top: -100px; left: -150px; }
+    .hero-orb-2 { width: 400px; height: 400px; background: #a855f7; top: 0; right: -100px; }
+    .hero-orb-3 { width: 300px; height: 300px; background: var(--green); bottom: -50px; left: 30%; }
+    .hero-badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 20px; background: var(--green-glow); border: 1px solid rgba(16,185,129,0.3); border-radius: 100px; color: var(--green); font-size: 13px; font-weight: 600; margin-bottom: 32px; }
+    .hero-badge .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; position: relative; }
+    .hero-badge .dot::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--green); animation: pulse-ring 1.5s ease-out infinite; }
+    .hero h1 { font-family: 'Outfit', sans-serif; font-size: clamp(42px, 6vw, 76px); font-weight: 900; line-height: 1.05; margin-bottom: 24px; letter-spacing: -2px; }
+    .hero h1 .gradient-text { background: linear-gradient(135deg, var(--accent-light), #a855f7, var(--pink)); background-size: 200% 200%; animation: gradient-shift 4s ease infinite; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .hero p.hero-sub { font-size: clamp(17px, 2vw, 21px); color: var(--text-muted); max-width: 640px; margin: 0 auto 16px; line-height: 1.7; }
+    /* Diferenciador único */
+    .hero-differentiator { display: inline-block; padding: 10px 24px; background: rgba(236,72,153,0.08); border: 1px solid rgba(236,72,153,0.25); border-radius: 12px; color: var(--pink); font-size: 15px; font-weight: 600; margin-bottom: 36px; }
+    .hero-actions { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .hero-trial { display: block; color: var(--text-dim); font-size: 14px; }
+    .hero-trial strong { color: var(--green); }
+
+    /* PHONE MOCKUP */
+    .hero-mockup { margin-top: 80px; display: flex; justify-content: center; }
+    .phone-frame { width: 340px; background: #111; border-radius: 36px; border: 2px solid rgba(255,255,255,0.1); overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 60px rgba(99,102,241,0.1); animation: float 6s ease-in-out infinite; }
+    .phone-header { background: linear-gradient(135deg, #075e54, #128c7e); padding: 20px 16px 12px; display: flex; align-items: center; gap: 12px; }
+    .phone-avatar { width: 36px; height: 36px; background: linear-gradient(135deg, var(--accent), #a855f7); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .phone-name { font-size: 15px; font-weight: 600; color: white; }
+    .phone-status { font-size: 11px; color: rgba(255,255,255,0.7); display: flex; align-items: center; gap: 4px; }
+    .typing-dots span { display: inline-block; width: 4px; height: 4px; background: rgba(255,255,255,0.7); border-radius: 50%; margin: 0 1px; }
+    .typing-dots span:nth-child(1) { animation: typing-dot 1.4s infinite 0s; }
+    .typing-dots span:nth-child(2) { animation: typing-dot 1.4s infinite 0.2s; }
+    .typing-dots span:nth-child(3) { animation: typing-dot 1.4s infinite 0.4s; }
+    .phone-chat { background: #0b1014; padding: 16px 12px; min-height: 320px; display: flex; flex-direction: column; gap: 8px; }
+    .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+    .msg-in { background: #1a2332; align-self: flex-start; border-bottom-left-radius: 4px; color: #e8e8e8; }
+    .msg-out { background: #054640; align-self: flex-end; border-bottom-right-radius: 4px; color: #e8e8e8; }
+    .msg-time { font-size: 10px; color: rgba(255,255,255,0.4); text-align: right; margin-top: 4px; }
+
+    /* SOCIAL PROOF BAR */
+    .social-proof { padding: 60px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; }
+    .social-proof-header { text-align: center; margin-bottom: 40px; }
+    .social-proof-header p { color: var(--text-dim); font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+    .social-proof-header h3 { font-family: 'Outfit', sans-serif; font-size: 28px; font-weight: 800; margin-top: 8px; }
+    .social-proof-header h3 em { font-style: normal; color: var(--accent-light); }
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; text-align: center; margin-bottom: 48px; }
+    .stat-item h3 { font-family: 'Outfit', sans-serif; font-size: 42px; font-weight: 800; background: linear-gradient(135deg, var(--accent-light), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .stat-item p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+
+    /* TESTIMONIALS */
+    .testimonials-track { display: flex; gap: 24px; animation: slide-left 30s linear infinite; width: max-content; }
+    .testimonial-card { flex-shrink: 0; width: 340px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 28px; }
+    .testimonial-card .stars { color: var(--orange); font-size: 14px; margin-bottom: 12px; letter-spacing: 2px; }
+    .testimonial-card .quote { color: var(--text-muted); font-size: 14px; line-height: 1.7; margin-bottom: 16px; font-style: italic; }
+    .testimonial-card .author { display: flex; align-items: center; gap: 12px; }
+    .testimonial-card .author-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
+    .testimonial-card .author-name { font-size: 14px; font-weight: 600; color: var(--text); }
+    .testimonial-card .author-role { font-size: 12px; color: var(--text-dim); }
+
+    /* SECTION HEADERS */
+    .section-header { text-align: center; margin-bottom: 64px; }
+    .section-tag { display: inline-block; padding: 6px 16px; background: var(--accent-glow); border: 1px solid var(--border-accent); border-radius: 100px; color: var(--accent-light); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 20px; }
+    .section-header h2 { font-family: 'Outfit', sans-serif; font-size: clamp(32px, 4vw, 48px); font-weight: 800; letter-spacing: -1px; line-height: 1.15; margin-bottom: 16px; }
+    .section-header p { color: var(--text-muted); font-size: 18px; max-width: 560px; margin: 0 auto; }
+
+    /* FEATURES */
+    .features { padding: 120px 0; }
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .feature-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 36px 28px; transition: all 0.4s; position: relative; overflow: hidden; }
+    .feature-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0; transition: opacity 0.4s; }
+    .feature-card:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.1); transform: translateY(-4px); }
+    .feature-card:hover::before { opacity: 1; }
+    .feature-icon { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 20px; }
+    .feature-card h3 { font-family: 'Outfit', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+    .feature-card p { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
+
+    /* USE CASES (estilo Kommo) */
+    .use-cases { padding: 120px 0; }
+    .use-cases-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .use-case-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 24px; padding: 40px 32px; transition: all 0.4s; position: relative; overflow: hidden; }
+    .use-case-card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-6px); }
+    .use-case-card .uc-icon { width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 24px; }
+    .use-case-card h3 { font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 800; margin-bottom: 12px; }
+    .use-case-card .uc-desc { color: var(--text-muted); font-size: 15px; line-height: 1.7; margin-bottom: 24px; }
+    .use-case-card ul { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+    .use-case-card ul li { display: flex; align-items: flex-start; gap: 10px; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+    .use-case-card ul li .bullet { width: 6px; height: 6px; border-radius: 50%; margin-top: 7px; flex-shrink: 0; }
+
+    /* HOW IT WORKS */
+    .how-it-works { padding: 120px 0; }
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; position: relative; }
+    .steps::before { content: ''; position: absolute; top: 40px; left: 12.5%; right: 12.5%; height: 2px; background: linear-gradient(90deg, var(--accent), var(--green), var(--orange), var(--pink)); opacity: 0.3; }
+    .step { text-align: center; position: relative; }
+    .step-number { width: 56px; height: 56px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 800; color: var(--accent-light); margin: 0 auto 20px; position: relative; z-index: 1; }
+    .step h3 { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .step p { color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+
+    /* INTEGRATIONS */
+    .integrations { padding: 120px 0; }
+    .integrations-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 800px; margin: 0 auto; }
+    .integration-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 36px; text-align: center; transition: all 0.4s; }
+    .integration-card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-4px); }
+    .integration-logo { width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px; }
+    .integration-card h3 { font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .integration-card p { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
+    .integration-card .tag { display: inline-block; margin-top: 16px; padding: 6px 14px; background: rgba(255,255,255,0.05); border-radius: 100px; font-size: 12px; color: var(--text-muted); }
+
+    /* PRICING */
+    .pricing { padding: 120px 0; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 900px; margin: 0 auto; }
+    .pricing-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 28px; padding: 44px 36px; position: relative; overflow: hidden; transition: all 0.4s; }
+    .pricing-card:hover { transform: translateY(-4px); }
+    .pricing-card.popular { border: 2px solid var(--accent); }
+    .pricing-card.popular::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: conic-gradient(from 0deg, transparent, var(--accent-glow), transparent, var(--accent-glow), transparent); animation: gradient-shift 8s linear infinite; opacity: 0.2; }
+    .pricing-card > * { position: relative; z-index: 1; }
+    .pricing-badge { display: inline-block; padding: 6px 18px; border-radius: 100px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+    .pricing-badge-standard { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+    .pricing-badge-popular { background: linear-gradient(135deg, var(--accent), #a855f7); color: white; }
+    .pricing-trial { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: var(--green-glow); border: 1px solid rgba(16,185,129,0.3); border-radius: 100px; color: var(--green); font-size: 12px; font-weight: 700; margin-bottom: 16px; }
+    .pricing-name { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; margin-bottom: 6px; }
+    .pricing-desc { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
+    .pricing-amount { display: flex; align-items: baseline; gap: 4px; margin-bottom: 4px; }
+    .pricing-currency { font-size: 22px; font-weight: 600; color: var(--text-muted); }
+    .pricing-value { font-family: 'Outfit', sans-serif; font-size: 64px; font-weight: 900; line-height: 1; }
+    .pricing-card.popular .pricing-value { background: linear-gradient(135deg, var(--text), var(--accent-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .pricing-period { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; }
+    .pricing-features { list-style: none; display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+    .pricing-features li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-muted); }
+    .pricing-features li .check { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+    .check-green { background: var(--green-glow); border: 1px solid rgba(16,185,129,0.3); color: var(--green); }
+    .check-dim { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text-dim); }
+    .pricing-note { margin-top: 16px; padding: 14px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; font-size: 12px; color: var(--orange); line-height: 1.6; }
+
+    /* FAQ */
+    .faq { padding: 120px 0; }
+    .faq-list { max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+    .faq-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: all 0.3s; }
+    .faq-item:hover { border-color: rgba(255,255,255,0.1); }
+    .faq-question { padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-weight: 600; font-size: 15px; user-select: none; transition: color 0.3s; }
+    .faq-question:hover { color: var(--accent-light); }
+    .faq-arrow { font-size: 18px; transition: transform 0.3s; color: var(--text-dim); }
+    .faq-item.open .faq-arrow { transform: rotate(45deg); color: var(--accent-light); }
+    .faq-answer { max-height: 0; overflow: hidden; transition: max-height 0.4s ease, padding 0.4s ease; }
+    .faq-item.open .faq-answer { max-height: 400px; padding: 0 28px 22px; }
+    .faq-answer p { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
+
+    /* CTA SECTION */
+    .cta-section { padding: 120px 0; text-align: center; position: relative; }
+    .cta-section::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); pointer-events: none; }
+    .cta-section h2 { font-family: 'Outfit', sans-serif; font-size: clamp(36px, 5vw, 56px); font-weight: 900; letter-spacing: -1.5px; margin-bottom: 20px; position: relative; }
+    .cta-section p { color: var(--text-muted); font-size: 18px; margin-bottom: 40px; position: relative; }
+    .cta-buttons { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; position: relative; }
+
+    /* FOOTER */
+    footer { padding: 48px 0; border-top: 1px solid var(--border); text-align: center; }
+    footer p { color: var(--text-dim); font-size: 13px; }
+    footer a { color: var(--accent-light); text-decoration: none; }
+
+    /* RESPONSIVE */
+    @media (max-width: 900px) {
+      .features-grid, .use-cases-grid { grid-template-columns: repeat(2, 1fr); }
+      .steps { grid-template-columns: repeat(2, 1fr); }
+      .steps::before { display: none; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 480px; }
+      .nav-links { display: none; }
+    }
+    @media (max-width: 600px) {
+      .features-grid, .use-cases-grid { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .integrations-grid { grid-template-columns: 1fr; }
+      .pricing-card { padding: 32px 24px; }
+      .hero { padding: 130px 0 60px; }
+      .testimonial-card { width: 280px; }
+    }
+  </style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<!-- NAV -->
+<nav>
+  <div class="container">
+    <a href="#" class="logo">
+      <div class="logo-icon">🤖</div>
+      <div class="logo-text">Elisa<span> IA</span></div>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#features">Funciones</a></li>
+      <li><a href="#usecases">Soluciones</a></li>
+      <li><a href="#pricing">Precios</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+    <a href="https://wa.me/573001234567?text=Hola%20quiero%20probar%20Elisa%20IA" class="btn btn-whatsapp" target="_blank">💬 Pruébala en WhatsApp</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-orb hero-orb-1"></div>
+  <div class="hero-orb hero-orb-2"></div>
+  <div class="hero-orb hero-orb-3"></div>
+  <div class="container">
+    <div class="hero-badge animate-up">
+      <span class="dot"></span>
+      🎉 20 días GRATIS — Sin tarjeta de crédito
+    </div>
+    <h1 class="animate-up delay-1">
+      Tu vendedor virtual<br><span class="gradient-text">con IA en WhatsApp</span>
+    </h1>
+    <p class="hero-sub animate-up delay-2">
+      Elisa IA atiende a tus clientes, responde preguntas, envía catálogos, agenda citas y vende por ti — las 24 horas del día, los 7 días de la semana.
+    </p>
+    <!-- DIFERENCIADOR ÚNICO -->
+    <div class="hero-differentiator animate-up delay-3">
+      🧠 A diferencia de otros bots, Elisa <strong>entiende intención, no palabras clave.</strong> Responde como un humano real.
+    </div>
+    <div class="hero-actions animate-up delay-4">
+      <a href="https://wa.me/573001234567?text=Hola%20quiero%20probar%20Elisa%20IA" class="btn btn-whatsapp btn-large" target="_blank">💬 Habla con Elisa IA ahora</a>
+      <a href="#pricing" class="btn btn-primary btn-large btn-glow">🚀 Comenzar 20 Días Gratis</a>
+    </div>
+    <span class="hero-trial animate-up delay-5">✨ Sin compromisos · <strong>20 días gratis</strong> · Cancela cuando quieras</span>
+
+    <div class="hero-mockup animate-up delay-6">
+      <div class="phone-frame">
+        <div class="phone-header">
+          <div class="phone-avatar">🤖</div>
+          <div>
+            <div class="phone-name">Elisa IA</div>
+            <div class="phone-status"><span class="typing-dots"><span></span><span></span><span></span></span> escribiendo...</div>
+          </div>
+        </div>
+        <div class="phone-chat">
+          <div class="msg msg-in">Hola, quiero saber los precios 👋<div class="msg-time">2:30 PM</div></div>
+          <div class="msg msg-out">¡Hola! 😊 Claro, te cuento. Tenemos 3 planes. ¿Te envío el catálogo completo?<div class="msg-time">2:30 PM ✓✓</div></div>
+          <div class="msg msg-in">Sí por favor, y quiero agendar una cita<div class="msg-time">2:31 PM</div></div>
+          <div class="msg msg-out">¡Perfecto! 📎 Te envío el catálogo. Para la cita, ¿qué día y hora te quedan mejor? 📅<div class="msg-time">2:31 PM ✓✓</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SOCIAL PROOF -->
+<section class="social-proof">
+  <div class="container">
+    <div class="social-proof-header">
+      <p>Confianza de los que ya venden con IA</p>
+      <h3>Más de <em>150+ negocios</em> ya usan Elisa IA</h3>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-item"><h3>24/7</h3><p>Atención sin descanso</p></div>
+      <div class="stat-item"><h3>&lt;10s</h3><p>Tiempo de respuesta</p></div>
+      <div class="stat-item"><h3>50K+</h3><p>Mensajes procesados</p></div>
+      <div class="stat-item"><h3>85%</h3><p>Consultas resueltas por IA</p></div>
+    </div>
+
+    <!-- TESTIMONIALS CAROUSEL -->
+    <div style="overflow: hidden;">
+      <div class="testimonials-track">
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"Antes perdíamos clientes por no responder rápido. Desde que activamos Elisa, vendemos un 40% más porque responde al instante."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(99,102,241,0.2); color: var(--accent-light);">M</div>
+            <div><div class="author-name">María González</div><div class="author-role">Tienda de Ropa — Bogotá</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"Mis clientes creen que tienen un asesor personal. No saben que es IA. Eso dice todo de la calidad de las respuestas."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(16,185,129,0.2); color: var(--green);">C</div>
+            <div><div class="author-name">Carlos Ramírez</div><div class="author-role">Clínica Dental — Medellín</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"La función de pausar la IA con '..' es genial. Puedo intervenir cuando quiero y la IA se encarga del resto."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(168,85,247,0.2); color: #a855f7;">L</div>
+            <div><div class="author-name">Laura Mendoza</div><div class="author-role">Inmobiliaria — Lima</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"Tengo 3 vendedores usando Elisa IA con sus propios accesos. Yo veo todo desde el dashboard. Es como tener un call center."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(245,158,11,0.2); color: var(--orange);">R</div>
+            <div><div class="author-name">Roberto Silva</div><div class="author-role">Agencia de Viajes — CDMX</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"Cobro $30 USD al mes y ahorro más de $500 en personal. La mejor inversión que he hecho para mi negocio."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(236,72,153,0.2); color: var(--pink);">A</div>
+            <div><div class="author-name">Andrea Parra</div><div class="author-role">E-commerce — Quito</div></div>
+          </div>
+        </div>
+        <!-- Duplicados para loop infinito -->
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"Antes perdíamos clientes por no responder rápido. Desde que activamos Elisa, vendemos un 40% más."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(99,102,241,0.2); color: var(--accent-light);">M</div>
+            <div><div class="author-name">María González</div><div class="author-role">Tienda de Ropa — Bogotá</div></div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="stars">★★★★★</div>
+          <div class="quote">"Mis clientes creen que tienen un asesor personal. Eso dice todo de la calidad de Elisa."</div>
+          <div class="author">
+            <div class="author-avatar" style="background: rgba(16,185,129,0.2); color: var(--green);">C</div>
+            <div><div class="author-name">Carlos Ramírez</div><div class="author-role">Clínica Dental — Medellín</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Funciones</div>
+      <h2>Todo lo que necesitas para<br>vender por WhatsApp</h2>
+      <p>Una plataforma completa con IA que trabaja mientras duermes.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon" style="background: rgba(99,102,241,0.15); color: #818cf8;">🤖</div><h3>Asistente IA Inteligente</h3><p>Responde preguntas, maneja objeciones y guía al cliente hasta la compra. Entiende contexto, no solo palabras clave.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background: rgba(16,185,129,0.15); color: #10b981;">💬</div><h3>WhatsApp Automatizado</h3><p>Conecta tu número real. Respuestas instantáneas con indicador de "escribiendo..." que parece humano.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background: rgba(245,158,11,0.15); color: #f59e0b;">📊</div><h3>Dashboard en Tiempo Real</h3><p>Métricas de ventas, embudo de conversión y rendimiento del equipo. Todo en un solo lugar.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background: rgba(236,72,153,0.15); color: #ec4899;">👥</div><h3>Equipo Multi-usuario</h3><p>Sub-cuentas para vendedores, soporte y gerentes. Permisos personalizados y chats asignados.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background: rgba(168,85,247,0.15); color: #a855f7;">📅</div><h3>CRM + Agenda</h3><p>Gestiona clientes, programa citas y da seguimiento a cada prospecto desde el mismo panel.</p></div>
+      <div class="feature-card"><div class="feature-icon" style="background: rgba(20,184,166,0.15); color: #14b8a6;">⏸️</div><h3>Pausa IA Instantánea</h3><p>Envía ".." para pausar la IA y tomar el control. Envía "." para reactivarla. Tú mandas.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- USE CASES (tipo Kommo) -->
+<section class="use-cases" id="usecases">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Soluciones</div>
+      <h2>WhatsApp CRM con IA<br>para cada necesidad</h2>
+      <p>Ya sea que vendas, atiendas o gestiones un equipo, Elisa se adapta.</p>
+    </div>
+    <div class="use-cases-grid">
+      <div class="use-case-card">
+        <div class="uc-icon" style="background: rgba(99,102,241,0.12);">💰</div>
+        <h3>Para Ventas</h3>
+        <div class="uc-desc">Convierte cada mensaje en una oportunidad. La IA califica leads, responde objeciones y cierra ventas mientras duermes.</div>
+        <ul>
+          <li><span class="bullet" style="background: var(--accent);"></span>Respuestas automáticas 24/7</li>
+          <li><span class="bullet" style="background: var(--accent);"></span>Envío de catálogos y precios</li>
+          <li><span class="bullet" style="background: var(--accent);"></span>Seguimiento inteligente de leads</li>
+          <li><span class="bullet" style="background: var(--accent);"></span>Embudo de ventas automatizado</li>
+        </ul>
+      </div>
+      <div class="use-case-card">
+        <div class="uc-icon" style="background: rgba(16,185,129,0.12);">👥</div>
+        <h3>Para Equipos</h3>
+        <div class="uc-desc">Agiliza la rapidez de respuesta distribuyendo conversaciones entre tu equipo con un CRM compartido.</div>
+        <ul>
+          <li><span class="bullet" style="background: var(--green);"></span>Conecta hasta 3 líneas de WhatsApp</li>
+          <li><span class="bullet" style="background: var(--green);"></span>Asigna chats a vendedores</li>
+          <li><span class="bullet" style="background: var(--green);"></span>Controla el acceso a la bandeja</li>
+          <li><span class="bullet" style="background: var(--green);"></span>Chat interno entre compañeros</li>
+        </ul>
+      </div>
+      <div class="use-case-card">
+        <div class="uc-icon" style="background: rgba(168,85,247,0.12);">📋</div>
+        <h3>Para Directivos</h3>
+        <div class="uc-desc">¿No sabes si alguien atendió a ese cliente nuevo? Con Elisa IA, los gerentes ven todo sin preguntar.</div>
+        <ul>
+          <li><span class="bullet" style="background: #a855f7;"></span>Dashboard con métricas del equipo</li>
+          <li><span class="bullet" style="background: #a855f7;"></span>Establece objetivos y mide resultados</li>
+          <li><span class="bullet" style="background: #a855f7;"></span>Controla quién tiene acceso a qué</li>
+          <li><span class="bullet" style="background: #a855f7;"></span>Reportes de rendimiento por vendedor</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how-it-works" id="how">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Cómo Funciona</div>
+      <h2>Activa tu vendedor virtual<br>en 4 pasos</h2>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="step-number" style="border-color: var(--accent);">1</div><h3>Crea tu cuenta</h3><p>Regístrate gratis. Sin tarjeta de crédito.</p></div>
+      <div class="step"><div class="step-number" style="border-color: var(--green);">2</div><h3>Conecta WhatsApp</h3><p>Escanea el QR y tu número queda listo.</p></div>
+      <div class="step"><div class="step-number" style="border-color: var(--orange);">3</div><h3>Entrena tu IA</h3><p>Sube tu info, productos y preguntas frecuentes.</p></div>
+      <div class="step"><div class="step-number" style="border-color: var(--pink);">4</div><h3>¡Ventas 24/7!</h3><p>Elisa responde a cada cliente automáticamente.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- INTEGRATIONS -->
+<section class="integrations" id="integrations">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Integraciones</div>
+      <h2>Conecta tus herramientas de IA</h2>
+      <p>Cada usuario conecta sus propias claves y controla sus costos.</p>
+    </div>
+    <div class="integrations-grid">
+      <div class="integration-card">
+        <div class="integration-logo" style="background: rgba(16,185,129,0.15);">🧠</div>
+        <h3>OpenAI (ChatGPT)</h3>
+        <p>El cerebro de tu asistente. Usa GPT-4o-mini para respuestas inteligentes a bajo costo. Conecta tu propia API Key.</p>
+        <span class="tag">💡 ~$0.01 por cada 100 mensajes</span>
+      </div>
+      <div class="integration-card">
+        <div class="integration-logo" style="background: rgba(168,85,247,0.15);">🎙️</div>
+        <h3>ElevenLabs</h3>
+        <p>Mensajes de voz ultra-realistas. Tu asistente envía audios que suenan como un humano real. Opcional.</p>
+        <span class="tag">🔊 Voces realistas opcionales</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing" id="pricing">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Precios</div>
+      <h2>Elige tu plan perfecto</h2>
+      <p>Simple, transparente y con 20 días gratis en ambos planes.</p>
+    </div>
+
+    <div class="pricing-grid">
+      <!-- PLAN STANDARD -->
+      <div class="pricing-card">
+        <div class="pricing-trial">🎁 20 DÍAS GRATIS</div>
+        <div class="pricing-badge pricing-badge-standard">STANDARD</div>
+        <div class="pricing-name">Elisa Starter</div>
+        <div class="pricing-desc">Ideal para emprendedores y negocios que arrancan con WhatsApp</div>
+        <div class="pricing-amount">
+          <span class="pricing-currency">USD$</span>
+          <span class="pricing-value">30</span>
+        </div>
+        <div class="pricing-period">por mes</div>
+        <ul class="pricing-features">
+          <li><span class="check check-green">✓</span> Asistente IA con WhatsApp</li>
+          <li><span class="check check-green">✓</span> Hasta <strong style="color:var(--text);">3 líneas</strong> de WhatsApp</li>
+          <li><span class="check check-green">✓</span> Respuestas automáticas 24/7</li>
+          <li><span class="check check-green">✓</span> Dashboard y métricas</li>
+          <li><span class="check check-green">✓</span> Base de conocimiento</li>
+          <li><span class="check check-green">✓</span> Multimedia (imágenes, videos)</li>
+          <li><span class="check check-green">✓</span> Pausa/Reactivación de IA</li>
+          <li><span class="check check-green">✓</span> Indicadores "escribiendo..."</li>
+          <li><span class="check check-dim">—</span> <span style="color:var(--text-dim);">CRM + Agenda</span></li>
+          <li><span class="check check-dim">—</span> <span style="color:var(--text-dim);">Equipo multi-usuario</span></li>
+          <li><span class="check check-dim">—</span> <span style="color:var(--text-dim);">Asignación de chats</span></li>
+        </ul>
+        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-secondary btn-large" style="width:100%; justify-content:center;">Comenzar Gratis</a>
+      </div>
+
+      <!-- PLAN BUSINESS -->
+      <div class="pricing-card popular">
+        <div class="pricing-trial">🎁 20 DÍAS GRATIS</div>
+        <div class="pricing-badge pricing-badge-popular">⭐ MÁS POPULAR</div>
+        <div class="pricing-name">Elisa Business</div>
+        <div class="pricing-desc">Para negocios serios que quieren CRM, equipo y todas las herramientas</div>
+        <div class="pricing-amount">
+          <span class="pricing-currency">USD$</span>
+          <span class="pricing-value">50</span>
+        </div>
+        <div class="pricing-period">por mes</div>
+        <ul class="pricing-features">
+          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Todo de Starter +</strong></li>
+          <li><span class="check check-green">✓</span> Líneas de WhatsApp <strong style="color:var(--text);">ilimitadas</strong></li>
+          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">CRM completo</strong> con base de datos</li>
+          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Agenda de citas</strong> integrada</li>
+          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Equipo multi-usuario</strong> (roles)</li>
+          <li><span class="check check-green">✓</span> Asignación de chats a vendedores</li>
+          <li><span class="check check-green">✓</span> Dashboard para directivos</li>
+          <li><span class="check check-green">✓</span> Permisos personalizados por rol</li>
+          <li><span class="check check-green">✓</span> Auto-aprendizaje con sugerencias</li>
+          <li><span class="check check-green">✓</span> Productos y catálogo</li>
+          <li><span class="check check-green">✓</span> Soporte prioritario</li>
+        </ul>
+        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary btn-large btn-glow" style="width:100%; justify-content:center;">🚀 Comenzar Gratis</a>
+        <div class="pricing-note">⚡ <strong>Sobre las integraciones:</strong> Cada usuario conecta su propia API Key de OpenAI y/o ElevenLabs. Tú controlas cuánto gastas. GPT-4o-mini cuesta ~$0.01 por cada 100 mensajes.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq" id="faq">
+  <div class="container">
+    <div class="section-header">
+      <div class="section-tag">Preguntas Frecuentes</div>
+      <h2>¿Tienes dudas?</h2>
+    </div>
+    <div class="faq-list">
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Qué incluyen los 20 días gratis?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>Todo. Acceso completo a todas las funciones del plan que elijas. No necesitas tarjeta de crédito. Solo tu API Key de OpenAI para que la IA funcione.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Es WhatsApp Web o API oficial? ¿Me pueden banear?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>Elisa IA usa una conexión tipo WhatsApp Web (no API oficial de Meta). Para evitar cualquier problema: no hagas spam masivo, no envíes mensajes a desconocidos sin su consentimiento, y usa un número exclusivo para el negocio. Siguiendo estas recomendaciones, el riesgo es mínimo. Miles de negocios lo usan diariamente sin problemas. <strong>Tip:</strong> Recomendamos usar un número dedicado para tu negocio, no tu número personal.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Qué es una API Key de OpenAI y cuánto cuesta?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>Es una clave que conecta con la inteligencia artificial de ChatGPT. La obtienes en platform.openai.com y solo pagas por uso. Con GPT-4o-mini, 100 mensajes cuestan ~$0.01 USD. Extremadamente económico.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Cuál es la diferencia entre Starter y Business?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p><strong>Starter ($30):</strong> Perfecto si trabajas solo. Tienes hasta 3 líneas de WhatsApp con IA, dashboard y multimedia. <strong>Business ($50):</strong> Agrega CRM con base de datos de clientes, agenda de citas, equipo multi-usuario con roles (vendedores, soporte, gerentes), asignación de chats y líneas ilimitadas. Ideal si tienes equipo o necesitas gestionar clientes.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Puedo intervenir manualmente cuando quiera?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>¡Sí! Envía ".." en cualquier conversación para pausar la IA y tomar el control. Cuando termines, envía "." para reactivarla. También ves todas las conversaciones en tiempo real.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Es obligatorio usar ElevenLabs?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>No, es totalmente opcional. Elisa funciona perfecto solo con texto. ElevenLabs permite enviar audios con voz realista si lo deseas.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Necesito un número nuevo de WhatsApp?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>No obligatoriamente, pero lo recomendamos. Puedes usar tu número actual escaneando el QR. Sin embargo, para mayor seguridad, es ideal tener un número dedicado al negocio.</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Cuántos mensajes puedo enviar al mes?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>Ilimitados. No hay límite de mensajes. Solo pagas el consumo de tu API Key de OpenAI, que con GPT-4o-mini es extremadamente económico (~$1 USD por 10,000 mensajes).</p></div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Puedo cancelar en cualquier momento?<span class="faq-arrow">+</span></div>
+        <div class="faq-answer"><p>Sí, sin compromisos ni penalidades. Durante los 20 días gratis no se cobra nada. Si decides continuar, el pago es mensual y puedes cancelar cuando quieras.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA FINAL -->
+<section class="cta-section">
+  <div class="container">
+    <h2>Deja de perder ventas<br>por no responder a tiempo</h2>
+    <p>Cada mensaje sin responder es un cliente que se va con tu competencia.<br>Activa tu vendedor virtual hoy — <strong>20 días gratis.</strong></p>
+    <div class="cta-buttons">
+      <a href="https://wa.me/573001234567?text=Hola%20quiero%20probar%20Elisa%20IA" class="btn btn-whatsapp btn-large" target="_blank">💬 Habla con Elisa IA ahora</a>
+      <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary btn-large btn-glow">🚀 Comenzar Gratis</a>
+    </div>
+    <br>
+    <span class="hero-trial">Sin tarjeta · Sin compromisos · <strong>Configuración en 5 minutos</strong></span>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px;">
+      <div class="logo-icon" style="width: 36px; height: 36px; font-size: 16px;">🤖</div>
+      <div class="logo-text" style="font-size: 20px;">Elisa<span> IA</span></div>
+    </div>
+    <p>© 2026 Elisa IA · Automatización inteligente para WhatsApp</p>
+    <p style="margin-top: 8px;"><a href="mailto:soporte@elisaia.com">soporte@elisaia.com</a></p>
+  </div>
+</footer>
+
+<script>
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) { entry.target.style.animationPlayState = 'running'; observer.unobserve(entry.target); }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.animate-up, .feature-card, .step, .integration-card, .use-case-card, .pricing-card').forEach(el => {
+    el.style.animationPlayState = 'paused';
+    observer.observe(el);
+  });
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function(e) {
+      e.preventDefault();
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+</script>
+</body>
+</html>

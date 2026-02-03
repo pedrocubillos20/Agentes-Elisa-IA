@@ -532,9 +532,17 @@ router.post('/send', async (req: Request, res: Response) => {
     const chatId = to.includes('@') ? to : `${to.replace(/\D/g, '')}@c.us`;
     const r = await fetch(`${WAHA_API_URL}/api/sendText`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ session: sn, chatId, text: message }) });
     if (r.ok) {
-      const recipientId = to.replace(/\D/g, '');
-      let conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId } });
-      if (!conv) conv = await prisma.conversation.create({ data: { userId: ownerId, recipientId, lastMessage: message, stage: 'new' } });
+      const cleanNumber = to.replace(/\D/g, '');
+      // 🔍 Búsqueda flexible: exacto, sin "+", últimos 10 dígitos
+      let conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: cleanNumber } });
+      if (!conv) conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: `+${cleanNumber}` } });
+      if (!conv) conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: to } });
+      if (!conv && cleanNumber.length >= 10) {
+        const last10 = cleanNumber.slice(-10);
+        conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: { endsWith: last10 } } });
+      }
+      if (!conv) conv = await prisma.conversation.create({ data: { userId: ownerId, recipientId: cleanNumber, lastMessage: message, stage: 'new' } });
+      
       await prisma.message.create({ data: { conversationId: conv.id, content: message, fromMe: true, userId, role: 'assistant' } });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: message } });
       res.json({ success: true });
@@ -585,7 +593,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    const recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '');
+    const recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
     const senderName = notifyName || recipientId;
 
     const userId = await resolveUserFromWebhook(sessionName, recipientId);
@@ -593,7 +601,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName}`);
 
+    // 🔍 Búsqueda flexible de conversación existente
     let conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
+    if (!conv && recipientId.length >= 10) {
+      const last10 = recipientId.slice(-10);
+      conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 } } });
+    }
     if (!conv) {
       conv = await prisma.conversation.create({ data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new' } });
     }

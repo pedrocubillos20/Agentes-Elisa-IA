@@ -16,8 +16,11 @@ router.post('/register', async (req: Request, res: Response) => {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
 
+    const trialEndsAt = new Date();
+    trialEndsAt.setDate(trialEndsAt.getDate() + 20);
+
     const user = await prisma.user.create({
-      data: { email, password: await bcrypt.hash(password, 10), name: name || null, role: 'admin' }
+      data: { email, password: await bcrypt.hash(password, 10), name: name || null, role: 'admin', plan: 'trial', trialEndsAt }
     });
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
@@ -72,10 +75,29 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, phone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true }
+      select: { id: true, email: true, name: true, phone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
     });
 
     if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
+
+    // Calcular estado de suscripción
+    let subscriptionStatus = 'active';
+    let daysRemaining = 0;
+    
+    if (user.plan === 'trial' && user.trialEndsAt) {
+      const now = new Date();
+      const diff = user.trialEndsAt.getTime() - now.getTime();
+      daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      if (daysRemaining <= 0) subscriptionStatus = 'expired';
+    } else if (user.plan !== 'trial') {
+      // Verificar suscripción activa
+      const sub = await prisma.subscription.findUnique({ where: { userId: user.parentUserId || userId } });
+      if (sub) {
+        subscriptionStatus = sub.status;
+        if (sub.currentPeriodEnd < new Date()) subscriptionStatus = 'expired';
+        daysRemaining = Math.max(0, Math.ceil((sub.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+      }
+    }
 
     // Para sub-usuarios, obtener info del padre (API key status, etc.)
     let parentInfo = null;
@@ -91,8 +113,10 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         ...user,
         isSubUser: !!user.parentUserId,
         parent: parentInfo,
-        // Sub-usuarios heredan el apiKeyConnected del padre
-        apiKeyConnected: user.parentUserId ? (parentInfo?.apiKeyConnected || false) : user.apiKeyConnected
+        apiKeyConnected: user.parentUserId ? (parentInfo?.apiKeyConnected || false) : user.apiKeyConnected,
+        subscriptionStatus,
+        daysRemaining,
+        isBlocked: subscriptionStatus === 'expired'
       }
     });
   } catch (error) {

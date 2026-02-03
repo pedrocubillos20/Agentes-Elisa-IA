@@ -23,6 +23,11 @@ model User {
   invitedBy       String?
   isActive        Boolean        @default(true)
   
+  // === SUBSCRIPTION ===
+  plan            String         @default("trial")    // trial, starter, business
+  trialEndsAt     DateTime?                            // Fecha fin trial (20 días desde registro)
+  subscriptionId  String?                              // ID suscripción activa
+  
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -31,6 +36,8 @@ model User {
   products        Product[]
   clients         Client[]
   appointments    Appointment[]
+  subscription    Subscription?
+  payments        Payment[]
 
   @@index([parentUserId])
   @@index([role])
@@ -164,4 +171,59 @@ model Appointment {
   updatedAt   DateTime @updatedAt
 
   @@index([userId, date])
+}
+
+model Subscription {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  plan          String                          // starter, business
+  period        String    @default("monthly")   // monthly, semiannual, annual
+  status        String    @default("active")    // active, cancelled, expired, past_due
+  
+  priceUsd      Float                           // Precio en USD
+  priceCop      Float                           // Precio en COP (al momento del pago)
+  
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  cancelledAt         DateTime?
+  
+  wompiSubscriptionId String?                   // ID de suscripción en Wompi
+  wompiTransactionId  String?                   // Último transaction ID
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model Payment {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type            String                          // subscription, upgrade, renewal
+  plan            String                          // starter, business
+  period          String                          // monthly, semiannual, annual
+  
+  amountUsd       Float                           // Monto en USD
+  amountCop       Float                           // Monto en COP
+  exchangeRate    Float                           // Tasa USD→COP usada
+  cardSurcharge   Float    @default(0)            // Recargo 5% tarjeta
+  totalCop        Float                           // Total final en COP
+  
+  status          String   @default("pending")    // pending, approved, declined, voided, error
+  method          String?                         // CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER
+  
+  wompiTransactionId  String?   @unique
+  wompiReference      String?
+  wompiPaymentMethod  String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([wompiTransactionId])
 }

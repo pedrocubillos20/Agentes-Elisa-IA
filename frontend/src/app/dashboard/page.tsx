@@ -186,6 +186,29 @@ export default function DashboardPage() {
   const funnelData = d.funnelData || d.stageStats || [];
   const recentActivity = d.recentActivity || [];
 
+  // 🔒 BLOQUEO POR SUSCRIPCIÓN EXPIRADA
+  const isBlocked = user?.isBlocked || user?.subscriptionStatus === 'expired';
+  const isTrial = user?.plan === 'trial';
+  const daysRemaining = user?.daysRemaining || 0;
+
+  if (isBlocked) {
+    return (
+      <div className="max-w-2xl mx-auto py-20 text-center">
+        <img src="/elisa.png" alt="Elisa IA" className="w-24 h-24 rounded-3xl mx-auto mb-8 opacity-50" />
+        <h1 className="text-3xl font-bold text-white mb-4">Tu período de prueba ha terminado</h1>
+        <p className="text-[var(--text-muted)] text-lg mb-8">
+          Para seguir usando Elisa IA, elige un plan. Tus datos, configuraciones y conversaciones están guardados y listos.
+        </p>
+        <div className="flex justify-center gap-4 mb-6">
+          <a href="/subscription" className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-2xl text-lg hover:shadow-lg hover:shadow-emerald-500/30 transition-all hover:scale-105">
+            🚀 Ver Planes y Precios
+          </a>
+        </div>
+        <p className="text-gray-600 text-sm">Desde USD$30/mes · Pagos seguros con Wompi · Cancela cuando quieras</p>
+      </div>
+    );
+  }
+
   const statCards = [
     { title: 'MENSAJES TOTALES', value: d.totalMessages || 0, sub: d.todayMessages > 0 ? `${d.todayMessages} hoy` : null, icon: MessageSquare, color: 'emerald' },
     { title: 'CONVERSACIONES', value: d.totalConversations || 0, sub: d.convertedCount > 0 ? `${d.convertedCount} convertidos` : null, icon: Users, color: 'blue' },
@@ -195,6 +218,24 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Trial Banner */}
+      {isTrial && daysRemaining > 0 && daysRemaining <= 20 && (
+        <a href="/subscription" className={`flex items-center justify-between p-4 rounded-2xl border transition-all hover:scale-[1.01] ${
+          daysRemaining <= 5 ? 'bg-red-500/10 border-red-500/30' : daysRemaining <= 10 ? 'bg-amber-500/10 border-amber-500/30' : 'bg-emerald-500/10 border-emerald-500/30'
+        }`}>
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{daysRemaining <= 5 ? '⚠️' : '⏰'}</span>
+            <div>
+              <span className={`font-bold text-sm ${daysRemaining <= 5 ? 'text-red-400' : daysRemaining <= 10 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                {daysRemaining <= 5 ? `¡Solo ${daysRemaining} días restantes!` : `Te quedan ${daysRemaining} días de prueba gratuita`}
+              </span>
+              <p className="text-gray-500 text-xs">Elige tu plan y no pierdas tu configuración</p>
+            </div>
+          </div>
+          <span className="text-xs bg-white/10 px-3 py-1.5 rounded-full text-white font-semibold">Ver Planes →</span>
+        </a>
+      )}
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">

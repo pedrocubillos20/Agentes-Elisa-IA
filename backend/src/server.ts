@@ -10,6 +10,7 @@ import productsRoutes from './routes/products.routes';
 import clientsRoutes from './routes/clients.routes';
 import appointmentsRoutes from './routes/appointments.routes';
 import teamRoutes from './routes/team.routes';
+import subscriptionRoutes from './routes/subscription.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 
 const app = express();
@@ -43,6 +44,17 @@ app.post('/api/whatsapp/webhook', (req, res, next) => {
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
+// Webhook Wompi (público)
+app.post('/api/subscription/webhook/wompi', (req, res, next) => {
+  console.log('💳 Webhook Wompi recibido');
+  req.url = '/webhook/wompi';
+  subscriptionRoutes(req, res, next);
+});
+// Planes públicos (sin auth)
+app.get('/api/subscription/plans', (req, res, next) => {
+  req.url = '/plans';
+  subscriptionRoutes(req, res, next);
+});
 
 // ===== RUTAS PROTEGIDAS =====
 app.use('/api/assistants', authMiddleware, assistantsRoutes);
@@ -52,6 +64,7 @@ app.use('/api/products', authMiddleware, productsRoutes);
 app.use('/api/clients', authMiddleware, clientsRoutes);
 app.use('/api/appointments', authMiddleware, appointmentsRoutes);
 app.use('/api/team', authMiddleware, teamRoutes);
+app.use('/api/subscription', authMiddleware, subscriptionRoutes);
 
 // ===== HEALTH CHECK =====
 app.get('/', (req, res) => {

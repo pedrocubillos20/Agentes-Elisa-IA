@@ -77,6 +77,7 @@ model Conversation {
   stage         String    @default("new")
   assignedTo    String?                      // userId del vendedor/soporte asignado
   assignedName  String?                      // Nombre visible del asignado
+  contextData   Json?                        // 🧠 Memoria persistente: nombre, talla, color, etc.
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

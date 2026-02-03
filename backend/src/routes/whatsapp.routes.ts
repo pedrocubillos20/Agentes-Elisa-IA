@@ -144,7 +144,7 @@ const sendWahaMessage = async (session: string, chatId: string, text: string): P
   } catch { return false; }
 };
 
-// ===== AI RESPONSE (⚡ OPTIMIZADA para velocidad 7-10s) =====
+// ===== AI RESPONSE (🧠 MEMORIA PERSISTENTE + AUTO-APRENDIZAJE) =====
 const generateAIResponse = async (ownerId: string, message: string, conversationId: string): Promise<string | null> => {
   try {
     const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, apiKeyConnected: true } });
@@ -159,16 +159,90 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 
     console.log(`📋 Asistente: "${assistant.name}" (contexto: ${assistant.context?.length || 0} chars)`);
 
-    // ⚡ Solo 5 mensajes de historial (antes 8) — menos tokens = más rápido
-    const history = await prisma.message.findMany({ where: { conversationId }, orderBy: { timestamp: 'desc' }, take: 5 });
+    // 🧠 CARGAR CONVERSACIÓN + MEMORIA PERSISTENTE
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { recipientName: true, recipientId: true, stage: true, contextData: true }
+    });
 
-    const parts: string[] = [];
-    if (assistant.name) parts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
-    if (assistant.personality?.trim()) parts.push(assistant.personality);
-    if (assistant.context?.trim()) parts.push(assistant.context);
-    if (assistant.businessInfo?.trim()) parts.push(`Info del negocio: ${assistant.businessInfo}`);
-    if (assistant.instructions?.trim()) parts.push(`Instrucciones: ${assistant.instructions}`);
+    const clientName = conversation?.recipientName || '';
+    const clientPhone = conversation?.recipientId || '';
+    const savedContext = (conversation?.contextData as Record<string, any>) || {};
 
+    // 🧠 Buscar datos del CRM
+    let crmInfo = '';
+    if (clientPhone) {
+      const client = await prisma.client.findFirst({
+        where: { userId: ownerId, phone: { contains: clientPhone.slice(-10) } },
+        select: { name: true, email: true, address: true, notes: true, tags: true, status: true, totalPurchases: true }
+      }).catch(() => null);
+
+      if (client) {
+        const parts: string[] = [];
+        if (client.name) parts.push(`Nombre CRM: ${client.name}`);
+        if (client.email) parts.push(`Email: ${client.email}`);
+        if (client.address) parts.push(`Dirección: ${client.address}`);
+        if (client.notes) parts.push(`Notas: ${client.notes}`);
+        if (client.tags?.length) parts.push(`Etiquetas: ${client.tags.join(', ')}`);
+        if (client.totalPurchases > 0) parts.push(`Compras previas: $${client.totalPurchases}`);
+        if (parts.length) crmInfo = parts.join('\n');
+      }
+    }
+
+    // 🧠 CARGAR HISTORIAL COMPLETO (hasta 30 mensajes para cubrir flujo de venta completo)
+    const history = await prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { timestamp: 'desc' },
+      take: 30
+    });
+
+    // ====== CONSTRUIR SYSTEM PROMPT ======
+    const promptParts: string[] = [];
+    if (assistant.name) promptParts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
+    if (assistant.personality?.trim()) promptParts.push(assistant.personality);
+    if (assistant.context?.trim()) promptParts.push(assistant.context);
+    if (assistant.businessInfo?.trim()) promptParts.push(`Info del negocio: ${assistant.businessInfo}`);
+    if (assistant.instructions?.trim()) promptParts.push(`Instrucciones: ${assistant.instructions}`);
+
+    // 🧠 INYECTAR MEMORIA PERSISTENTE DEL CLIENTE
+    const memoryBlock: string[] = [];
+    
+    // Datos guardados de conversaciones anteriores
+    if (Object.keys(savedContext).length > 0) {
+      memoryBlock.push('📋 MEMORIA GUARDADA DEL CLIENTE (datos de conversaciones anteriores):');
+      for (const [key, value] of Object.entries(savedContext)) {
+        if (value && value !== '' && value !== 'null' && value !== 'undefined') {
+          memoryBlock.push(`  - ${key}: ${value}`);
+        }
+      }
+      memoryBlock.push('⚠️ USA estos datos. NO vuelvas a preguntar nada que ya esté aquí.');
+    }
+
+    // Nombre del contacto de WhatsApp
+    if (clientName) {
+      memoryBlock.push(`\n🧠 CLIENTE ACTUAL: "${clientName}" (teléfono: ${clientPhone})`);
+      memoryBlock.push(`REGLA: Ya conoces su nombre. NUNCA le preguntes cómo se llama.`);
+    }
+
+    // Datos del CRM
+    if (crmInfo) {
+      memoryBlock.push(`\n📊 DATOS DEL CRM:\n${crmInfo}`);
+    }
+
+    // Estado de la conversación
+    if (conversation?.stage && conversation.stage !== 'new') {
+      const stageNames: Record<string, string> = {
+        interested: 'Interesado', quoting: 'En Cotización', negotiating: 'Negociando',
+        pending_confirm: 'Por Confirmar', converted: 'Convertido', follow_up: 'Seguimiento', lost: 'Perdido'
+      };
+      memoryBlock.push(`Estado del cliente en CRM: ${stageNames[conversation.stage] || conversation.stage}`);
+    }
+
+    if (memoryBlock.length > 0) {
+      promptParts.push(memoryBlock.join('\n'));
+    }
+
+    // Base de conocimiento
     const knowledge = assistant.knowledgeItems as any;
     if (knowledge) {
       let kt = '';
@@ -178,41 +252,63 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       } else if (Array.isArray(knowledge) && knowledge.length) {
         kt = knowledge.map((i: any) => typeof i === 'string' ? i : `${i.title||''}: ${i.content||i.text||''}`).filter(Boolean).join('\n');
       }
-      if (kt) parts.push(`Base de conocimiento:\n${kt}`);
+      if (kt) promptParts.push(`Base de conocimiento:\n${kt}`);
     }
 
+    // Media triggers
     const mediaItems = assistant.mediaItems as any[];
     if (mediaItems?.length) {
       const ml = mediaItems.filter(m => m.trigger).map(m => `- ${m.type}: "${m.name}" (activadores: ${m.trigger})`).join('\n');
-      if (ml) parts.push(`\nArchivos multimedia disponibles:\n${ml}\nSi el cliente pregunta por algo relacionado, menciona que se lo envías.`);
+      if (ml) promptParts.push(`\nArchivos multimedia disponibles:\n${ml}\nSi el cliente pregunta por algo relacionado, menciona que se lo envías.`);
     }
 
-    // ⚡ Pedir respuestas más cortas
-    parts.push(`\nIMPORTANTE: Responde de forma concisa y natural, como un humano por WhatsApp. Máximo 2-3 oraciones. Usa emojis moderadamente.`);
+    // 🧠 INSTRUCCIONES DE MEMORIA — Esto le dice a la IA que devuelva un bloque de datos
+    promptParts.push(`
+=== REGLAS DE MEMORIA (OBLIGATORIO) ===
 
-    const systemPrompt = parts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
-    console.log(`🧠 Prompt: ${systemPrompt.length} chars`);
+1. NUNCA preguntes algo que el cliente ya dijo en la conversación o que esté en la MEMORIA GUARDADA.
+2. Si ya sabes el nombre, talla, color, ciudad, cantidad, calidad u OTRO dato — ÚSALO, no lo vuelvas a preguntar.
+3. Lee TODO el historial antes de responder. Si el cliente mencionó algo antes, recuérdalo.
+4. Si el cliente vuelve después de días, salúdalo por su nombre y retoma donde quedaron.
+5. Responde de forma natural, como un humano por WhatsApp.
 
-    // ⚡ Menos mensajes, truncados a 300 chars (antes 500)
-    const recent = [...history].reverse().slice(-5);
+=== BLOQUE DE MEMORIA (OBLIGATORIO AL FINAL) ===
+
+AL FINAL de CADA respuesta, DEBES incluir un bloque de memoria con TODA la información que has recopilado del cliente.
+El formato EXACTO es (incluye la línea tal cual):
+
+<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","chaqueta":"","bordado":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","datos_envio":"","pedido":"","paso_actual":""}<<END_MEMORY>>
+
+REGLAS del bloque de memoria:
+- Llena SOLO los campos que ya conoces. Deja vacío "" lo que NO sabes aún.
+- "paso_actual" = en qué paso del flujo de venta estás (ej: "saludo", "pidiendo_nombre", "pidiendo_talla", "pidiendo_color", "resumen", "confirmado", etc.)
+- SIEMPRE incluye este bloque, incluso si no tienes datos nuevos.
+- El bloque va DESPUÉS de tu respuesta al cliente, en la última línea.
+- NO expliques el bloque al cliente, es interno.`);
+
+    const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
+    console.log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
+
+    // Construir mensajes para OpenAI (30 mensajes = cubre flujo completo de venta)
+    const recent = [...history].reverse().slice(-30);
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
-    recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 300) }));
+    recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
     messages.push({ role: 'user', content: message });
 
-    // ⚡ Timeout 15s (antes 30s), max_tokens reducido
+    // Llamar a OpenAI
     const primaryModel = assistant.model || 'gpt-4-turbo-preview';
     for (const model of [primaryModel, 'gpt-3.5-turbo']) {
       try {
         console.log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 15000);
+        const to = setTimeout(() => ctrl.abort(), 20000);
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: model === 'gpt-3.5-turbo' ? 250 : 350
+            max_tokens: model === 'gpt-3.5-turbo' ? 400 : 500
           }),
           signal: ctrl.signal
         });
@@ -220,8 +316,42 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 
         if (res.ok) {
           const d = await res.json() as any;
-          const reply = d.choices?.[0]?.message?.content;
-          if (reply) { console.log(`✅ IA (${model}): ${reply.length} chars`); return reply; }
+          let reply = d.choices?.[0]?.message?.content;
+          if (!reply) continue;
+
+          // 🧠 EXTRAER Y GUARDAR BLOQUE DE MEMORIA
+          const memoryMatch = reply.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/);
+          if (memoryMatch) {
+            try {
+              const memoryData = JSON.parse(memoryMatch[1].trim());
+              // Merge con datos existentes (no borrar datos previos si vienen vacíos)
+              const merged = { ...savedContext };
+              for (const [key, value] of Object.entries(memoryData)) {
+                if (value && value !== '' && value !== 'null' && value !== 'undefined') {
+                  merged[key] = value;
+                }
+              }
+              // Guardar en DB
+              await prisma.conversation.update({
+                where: { id: conversationId },
+                data: { contextData: merged }
+              });
+              console.log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
+            } catch (e) {
+              console.error('⚠️ Error parseando memoria:', e);
+            }
+            // Limpiar el bloque de memoria de la respuesta al cliente
+            reply = reply.replace(/<<MEMORY_JSON>>[\s\S]*?<<END_MEMORY>>/, '').trim();
+          }
+
+          // Limpiar también si la IA dejó otros formatos de memoria
+          reply = reply.replace(/\[MEMORY_UPDATE\][\s\S]*?\[\/MEMORY_UPDATE\]/g, '').trim();
+          reply = reply.replace(/<<CONTEXT:[\s\S]*?>>/g, '').trim();
+
+          if (reply) {
+            console.log(`✅ IA (${model}): ${reply.length} chars`);
+            return reply;
+          }
         } else {
           const st = res.status;
           const errBody = await res.text().catch(() => '');
@@ -447,7 +577,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
-    if (!from || !body || from.includes('@g.us')) { res.json({ success: true }); return; }
+    // 🚫 Filtrar: grupos, historias/estados de WhatsApp, broadcast
+    if (!from || !body || from.includes('@g.us') || from.includes('@broadcast') || from.includes('status@') || from === 'status@broadcast') {
+      if (from.includes('@broadcast') || from.includes('status@')) {
+        console.log(`🚫 Ignorado: historia/estado de WhatsApp de ${from}`);
+      }
+      res.json({ success: true }); return;
+    }
 
     const recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '');
     const senderName = notifyName || recipientId;

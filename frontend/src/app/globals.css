@@ -265,7 +265,10 @@ body {
 /* ========== INPUTS ========== */
 .input {
   width: 100%;
-  padding: 14px 18px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+  padding-left: 18px;
+  padding-right: 18px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: 12px;
@@ -274,6 +277,11 @@ body {
   font-family: inherit;
   transition: all 0.2s ease;
 }
+
+/* Cuando hay icono a la izquierda (pl-10, pl-12 de Tailwind) */
+.input.pl-10 { padding-left: 2.5rem !important; }
+.input.pl-12 { padding-left: 3rem !important; }
+.input.pr-12 { padding-right: 3rem !important; }
 
 .input::placeholder { color: var(--text-muted); }
 

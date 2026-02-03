@@ -418,13 +418,13 @@ export default function ConversacionesPage() {
         <div className="w-80 flex flex-col card p-0 overflow-hidden">
           <div className="p-4 border-b border-[var(--border-primary)]">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none z-10" />
               <input type="text" placeholder="Buscar..." value={searchTerm} 
-                onChange={(e) => setSearchTerm(e.target.value)} className="input pl-10 py-2 text-sm" />
+                onChange={(e) => setSearchTerm(e.target.value)} className="input py-2 text-sm" style={{paddingLeft: '2.5rem'}} />
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto no-scrollbar">
+          <div className="flex-1 overflow-y-auto" style={{maxHeight: 'calc(100vh - 240px)'}}>
             {filteredConversations.map((conv) => (
               <div key={conv.id} onClick={() => setSelectedConv(conv)}
                 className={`p-4 border-b border-[var(--border-primary)] cursor-pointer transition-all hover:bg-white/5 ${

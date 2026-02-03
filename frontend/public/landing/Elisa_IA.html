@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Elisa IA — Tu Vendedor Virtual por WhatsApp 24/7</title>
   <meta name="description" content="Automatiza tu atención al cliente con inteligencia artificial en WhatsApp. Elisa IA responde, vende y agenda por ti las 24 horas.">
+  <link rel="icon" type="image/png" href="../icons/icon-64.png">
+  <link rel="apple-touch-icon" href="../icons/icon-192x192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -48,7 +50,8 @@
     nav { position: fixed; top: 0; width: 100%; z-index: 100; padding: 16px 0; backdrop-filter: blur(20px); background: rgba(6,6,11,0.8); border-bottom: 1px solid var(--border); }
     nav .container { display: flex; align-items: center; justify-content: space-between; }
     .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
-    .logo-icon { width: 42px; height: 42px; border-radius: 12px; background: linear-gradient(135deg, var(--accent), #a855f7); display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 0 20px rgba(99,102,241,0.3); }
+    .logo-icon { width: 42px; height: 42px; border-radius: 12px; overflow: hidden; box-shadow: 0 0 20px rgba(99,102,241,0.3); }
+    .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
     .logo-text { font-family: 'Outfit', sans-serif; font-size: 24px; font-weight: 800; color: var(--text); }
     .logo-text span { color: var(--accent-light); font-weight: 300; }
     .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
@@ -85,7 +88,10 @@
     .hero-trial strong { color: var(--green); }
 
     /* PHONE MOCKUP */
-    .hero-mockup { margin-top: 80px; display: flex; justify-content: center; }
+    .hero-mockup { margin-top: 80px; display: flex; justify-content: center; align-items: center; gap: 0; position: relative; }
+    .elisa-hero-avatar { position: absolute; left: calc(50% - 340px); top: 50%; transform: translateY(-50%); z-index: 2; }
+    .elisa-hero-avatar img { width: 260px; height: 260px; object-fit: contain; filter: drop-shadow(0 0 40px rgba(99,102,241,0.3)) drop-shadow(0 0 80px rgba(168,85,247,0.15)); animation: float 6s ease-in-out infinite reverse; }
+    @media (max-width: 900px) { .elisa-hero-avatar { position: relative; left: auto; top: auto; transform: none; margin-bottom: -20px; } .hero-mockup { flex-direction: column; } .elisa-hero-avatar img { width: 180px; height: 180px; } }
     .phone-frame { width: 340px; background: #111; border-radius: 36px; border: 2px solid rgba(255,255,255,0.1); overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 60px rgba(99,102,241,0.1); animation: float 6s ease-in-out infinite; }
     .phone-header { background: linear-gradient(135deg, #075e54, #128c7e); padding: 20px 16px 12px; display: flex; align-items: center; gap: 12px; }
     .phone-avatar { width: 36px; height: 36px; background: linear-gradient(135deg, var(--accent), #a855f7); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; }
@@ -247,7 +253,7 @@
 <nav>
   <div class="container">
     <a href="#" class="logo">
-      <div class="logo-icon">🤖</div>
+      <div class="logo-icon"><img src="../elisa.png" alt="Elisa IA"></div>
       <div class="logo-text">Elisa<span> IA</span></div>
     </a>
     <ul class="nav-links">
@@ -286,10 +292,14 @@
     </div>
     <span class="hero-trial animate-up delay-5">✨ Sin compromisos · <strong>20 días gratis</strong> · Cancela cuando quieras</span>
 
-    <div class="hero-mockup animate-up delay-6">
+    <div class="hero-mockup animate-up delay-6" style="position: relative;">
+      <!-- Elisa Avatar flotante -->
+      <div class="elisa-hero-avatar">
+        <img src="../elisa.png" alt="Elisa IA - Tu asistente virtual">
+      </div>
       <div class="phone-frame">
         <div class="phone-header">
-          <div class="phone-avatar">🤖</div>
+          <div class="phone-avatar"><img src="../elisa.png" alt="Elisa" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
           <div>
             <div class="phone-name">Elisa IA</div>
             <div class="phone-status"><span class="typing-dots"><span></span><span></span><span></span></span> escribiendo...</div>
@@ -610,6 +620,7 @@
 <!-- CTA FINAL -->
 <section class="cta-section">
   <div class="container">
+    <img src="../elisa.png" alt="Elisa IA" style="width: 120px; height: 120px; object-fit: contain; margin: 0 auto 24px; display: block; filter: drop-shadow(0 0 30px rgba(99,102,241,0.4));">
     <h2>Deja de perder ventas<br>por no responder a tiempo</h2>
     <p>Cada mensaje sin responder es un cliente que se va con tu competencia.<br>Activa tu vendedor virtual hoy — <strong>20 días gratis.</strong></p>
     <div class="cta-buttons">
@@ -625,7 +636,7 @@
 <footer>
   <div class="container">
     <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px;">
-      <div class="logo-icon" style="width: 36px; height: 36px; font-size: 16px;">🤖</div>
+      <div class="logo-icon" style="width: 36px; height: 36px;"><img src="../elisa.png" alt="Elisa IA"></div>
       <div class="logo-text" style="font-size: 20px;">Elisa<span> IA</span></div>
     </div>
     <p>© 2026 Elisa IA · Automatización inteligente para WhatsApp</p>

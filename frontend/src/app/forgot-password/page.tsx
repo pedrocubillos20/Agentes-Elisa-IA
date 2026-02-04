@@ -245,10 +245,3 @@ export default function ForgotPasswordPage() {
     </div>
   );
 }
-```
-
-4. **Guarda el archivo**
-
-La estructura debe quedar:
-```
-frontend/src/app/forgot-password/page.tsx

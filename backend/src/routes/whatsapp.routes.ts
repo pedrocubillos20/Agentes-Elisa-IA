@@ -1426,17 +1426,31 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
-    // 🔍 Búsqueda flexible de conversación existente
-    let conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
-    if (!conv && recipientId.length >= 10) {
-      const last10 = recipientId.slice(-10);
-      conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 } } });
+    // 🔍 Búsqueda de conversación POR LÍNEA (cada línea tiene su propia conversación)
+    let conv = null;
+    
+    if (whatsappLineId) {
+      // Buscar conversación específica de esta línea
+      conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
+      if (!conv && recipientId.length >= 10) {
+        const last10 = recipientId.slice(-10);
+        conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 }, whatsappLineId } });
+      }
+    } else {
+      // Sin línea: buscar conversación global (legacy)
+      conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId: null } });
+      if (!conv && recipientId.length >= 10) {
+        const last10 = recipientId.slice(-10);
+        conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 }, whatsappLineId: null } });
+      }
     }
+    
+    // Crear nueva conversación si no existe
     if (!conv) {
-      conv = await prisma.conversation.create({ data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new', ...(whatsappLineId ? { whatsappLineId } : {}) } });
-    } else if (whatsappLineId && !conv.whatsappLineId) {
-      // Actualizar línea si no tenía
-      await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
+      conv = await prisma.conversation.create({ 
+        data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new', ...(whatsappLineId ? { whatsappLineId } : {}) } 
+      });
+      console.log(`🆕 Nueva conversación creada para línea ${whatsappLineId || 'global'}`);
     }
 
     // ⏸️ COMANDO ".." = PAUSAR IA — inmediato

@@ -177,30 +177,79 @@ const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<str
 };
 
 // ====================================================
-// 📥 DOWNLOAD MEDIA FROM WAHA
+// 📥 DOWNLOAD MEDIA FROM WAHA — Multiple strategies
 // ====================================================
-const downloadMediaFromWaha = async (session: string, messageId: string): Promise<{ buffer: Buffer; mimetype: string } | null> => {
-  // Intentar múltiples endpoints de WAHA para descargar media
-  const endpoints = [
-    `${WAHA_API_URL}/api/${session}/messages/${messageId}/download`,
-    `${WAHA_API_URL}/api/messages/${messageId}/download?session=${session}`,
-  ];
+const downloadMediaFromWaha = async (session: string, messageId: string, payload?: any): Promise<{ buffer: Buffer; mimetype: string } | null> => {
   
-  for (const url of endpoints) {
+  // STRATEGY 1: Direct mediaUrl from payload
+  if (payload?.mediaUrl) {
     try {
-      const r = await fetch(url, { headers: getWahaHeaders() });
+      console.log(`📥 Intentando mediaUrl directo: ${payload.mediaUrl.substring(0, 100)}`);
+      const r = await fetch(payload.mediaUrl, { headers: getWahaHeaders() });
       if (r.ok) {
-        const contentType = r.headers.get('content-type') || 'application/octet-stream';
-        const arrayBuf = await r.arrayBuffer();
-        const buffer = Buffer.from(arrayBuf);
-        if (buffer.length > 0) {
-          console.log(`📥 Media descargada: ${buffer.length} bytes (${contentType})`);
-          return { buffer, mimetype: contentType };
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length > 100) {
+          console.log(`✅ Media descargada via mediaUrl: ${buf.length} bytes`);
+          return { buffer: buf, mimetype: r.headers.get('content-type') || 'audio/ogg' };
         }
       }
-    } catch {}
+    } catch (e: any) { console.log(`⚠️ mediaUrl falló: ${e.message}`); }
+  }
+
+  // STRATEGY 2: media.url from payload
+  if (payload?.media?.url) {
+    try {
+      console.log(`📥 Intentando media.url: ${payload.media.url.substring(0, 100)}`);
+      const r = await fetch(payload.media.url, { headers: getWahaHeaders() });
+      if (r.ok) {
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length > 100) {
+          console.log(`✅ Media descargada via media.url: ${buf.length} bytes`);
+          return { buffer: buf, mimetype: payload.media.mimetype || r.headers.get('content-type') || 'audio/ogg' };
+        }
+      }
+    } catch (e: any) { console.log(`⚠️ media.url falló: ${e.message}`); }
+  }
+
+  // STRATEGY 3: Base64 data in payload
+  if (payload?.media?.data || payload?._data?.body) {
+    try {
+      const b64 = payload?.media?.data || payload?._data?.body;
+      const buf = Buffer.from(b64, 'base64');
+      if (buf.length > 100) {
+        console.log(`✅ Media extraída de base64: ${buf.length} bytes`);
+        return { buffer: buf, mimetype: payload?.mimetype || payload?.media?.mimetype || 'audio/ogg' };
+      }
+    } catch (e: any) { console.log(`⚠️ Base64 falló: ${e.message}`); }
+  }
+
+  // STRATEGY 4: WAHA API download endpoints
+  if (messageId) {
+    const endpoints = [
+      `${WAHA_API_URL}/api/${session}/messages/${messageId}/download`,
+      `${WAHA_API_URL}/api/messages/download?session=${session}&id=${messageId}`,
+      `${WAHA_API_URL}/api/${session}/messages/download/${messageId}`,
+    ];
+    
+    for (const url of endpoints) {
+      try {
+        console.log(`📥 Intentando endpoint: ${url}`);
+        const r = await fetch(url, { headers: getWahaHeaders() });
+        if (r.ok) {
+          const contentType = r.headers.get('content-type') || 'application/octet-stream';
+          const buf = Buffer.from(await r.arrayBuffer());
+          if (buf.length > 100) {
+            console.log(`✅ Media descargada via API: ${buf.length} bytes (${contentType})`);
+            return { buffer: buf, mimetype: contentType };
+          }
+        } else {
+          console.log(`⚠️ Endpoint ${r.status}: ${url}`);
+        }
+      } catch (e: any) { console.log(`⚠️ Endpoint falló: ${e.message}`); }
+    }
   }
   
+  console.error(`❌ No se pudo descargar media: session=${session}, messageId=${messageId}`);
   return null;
 };
 
@@ -215,26 +264,53 @@ const getMediaUrl = (session: string, messageId: string): string => {
 // 🔍 EXTRACT MEDIA INFO FROM WAHA PAYLOAD
 // ====================================================
 const extractMediaInfo = (payload: any): { hasMedia: boolean; mediaType: string; mimetype: string; messageId: string; caption: string; mediaUrl: string } => {
-  const hasMedia = !!(payload?.hasMedia || payload?.media || payload?.mediaUrl || payload?._data?.mediaData);
-  const mimetype = payload?.mimetype || payload?.media?.mimetype || payload?._data?.mimetype || '';
-  const messageId = payload?.id?._serialized || payload?.id?.id || payload?.key?.id || payload?.id || '';
-  const caption = payload?.caption || payload?.body || '';
+  const hasMedia = !!(
+    payload?.hasMedia || 
+    payload?.media || 
+    payload?.mediaUrl || 
+    payload?._data?.mediaData ||
+    payload?.type === 'ptt' ||
+    payload?.type === 'audio' ||
+    payload?.type === 'image' ||
+    payload?.type === 'video' ||
+    payload?.type === 'sticker' ||
+    payload?.type === 'document'
+  );
+  
+  const mimetype = payload?.mimetype || payload?.media?.mimetype || payload?._data?.mimetype || payload?.mediaData?.mimetype || '';
+  const messageId = payload?.id?._serialized || payload?.id?.id || payload?.key?.id || (typeof payload?.id === 'string' ? payload.id : '') || '';
+  const caption = payload?.caption || '';
+  const mediaUrl = payload?.mediaUrl || payload?.media?.url || '';
   
   let mediaType = 'unknown';
-  if (mimetype.startsWith('audio/') || mimetype.includes('ogg') || mimetype.includes('opus') || payload?.type === 'ptt' || payload?.type === 'audio') {
+  const typeField = payload?.type || payload?.messageType || '';
+  
+  // Check by WAHA type field first (most reliable)
+  if (typeField === 'ptt' || typeField === 'audio') {
     mediaType = 'audio';
-  } else if (mimetype.startsWith('image/') || payload?.type === 'image') {
+  } else if (typeField === 'image') {
     mediaType = 'image';
-  } else if (mimetype.startsWith('video/') || payload?.type === 'video') {
+  } else if (typeField === 'video') {
     mediaType = 'video';
-  } else if (mimetype.startsWith('application/') || payload?.type === 'document') {
+  } else if (typeField === 'document') {
     mediaType = 'document';
-  } else if (payload?.type === 'sticker') {
+  } else if (typeField === 'sticker') {
     mediaType = 'sticker';
   }
+  // Fallback to mimetype
+  else if (mimetype.startsWith('audio/') || mimetype.includes('ogg') || mimetype.includes('opus')) {
+    mediaType = 'audio';
+  } else if (mimetype.startsWith('image/')) {
+    mediaType = 'image';
+  } else if (mimetype.startsWith('video/')) {
+    mediaType = 'video';
+  } else if (mimetype.startsWith('application/')) {
+    mediaType = 'document';
+  }
   
-  // URL directa si WAHA la provee
-  const mediaUrl = payload?.mediaUrl || payload?.media?.url || '';
+  if (hasMedia) {
+    console.log(`🔍 Media detectada: type=${typeField}, mediaType=${mediaType}, mime=${mimetype}, id=${messageId}, hasMediaUrl=${!!mediaUrl}, hasMediaData=${!!(payload?.media?.data || payload?._data?.body)}`);
+  }
   
   return { hasMedia, mediaType, mimetype, messageId, caption, mediaUrl };
 };
@@ -774,7 +850,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
     let savedMediaType: string | null = null;
 
     if (media.hasMedia) {
-      console.log(`📎 Media recibida: tipo=${media.mediaType}, mime=${media.mimetype}, msgId=${media.messageId}`);
+      // 🔍 LOG COMPLETO del payload para debugging
+      console.log(`📎 === MEDIA PAYLOAD DEBUG ===`);
+      console.log(`📎 type: ${payload?.type}`);
+      console.log(`📎 hasMedia: ${payload?.hasMedia}`);
+      console.log(`📎 mimetype: ${payload?.mimetype}`);
+      console.log(`📎 mediaUrl: ${payload?.mediaUrl?.substring(0, 100) || 'N/A'}`);
+      console.log(`📎 media: ${JSON.stringify(payload?.media || {}).substring(0, 200)}`);
+      console.log(`📎 id: ${JSON.stringify(payload?.id || '').substring(0, 200)}`);
+      console.log(`📎 _data keys: ${payload?._data ? Object.keys(payload._data).join(', ') : 'N/A'}`);
+      console.log(`📎 === END DEBUG ===`);
       
       // 🎤 AUDIO → Transcribir con Whisper
       if (media.mediaType === 'audio') {
@@ -782,34 +867,44 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
         if (userIdTemp) {
           const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
-          if (user?.apiKey && media.messageId) {
-            const downloaded = await downloadMediaFromWaha(sessionName, media.messageId);
+          if (user?.apiKey) {
+            const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
             if (downloaded) {
               const transcript = await transcribeAudio(downloaded.buffer, user.apiKey);
               if (transcript) {
-                body = `🎤 [Audio transcrito]: ${transcript}`;
+                body = transcript; // Solo la transcripción para el body/buffer
+                savedMediaType = 'audio';
                 console.log(`🎤 Audio transcrito: "${transcript.substring(0, 100)}"`);
               } else {
-                body = '🎤 [Audio recibido - no se pudo transcribir]';
+                body = body || '🎤 [Audio - no se pudo transcribir]';
+                savedMediaType = 'audio';
               }
             } else {
-              body = '🎤 [Audio recibido]';
+              body = body || '🎤 [Audio recibido]';
+              savedMediaType = 'audio';
             }
           } else {
-            body = '🎤 [Audio recibido]';
+            body = body || '🎤 [Audio recibido - sin API key]';
+            savedMediaType = 'audio';
           }
         }
-        savedMediaType = 'audio';
       }
       
-      // 🖼️ IMAGEN → Guardar URL para mostrar en chat
+      // 🖼️ IMAGEN → Guardar para mostrar en chat
       else if (media.mediaType === 'image') {
-        if (media.messageId) {
-          savedMediaUrl = getMediaUrl(sessionName, media.messageId);
+        // Intentar descargar y guardar como base64 para el chat
+        if (media.messageId || media.mediaUrl) {
+          const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
+          if (downloaded) {
+            savedMediaUrl = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
+            console.log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
+          } else {
+            savedMediaUrl = getMediaUrl(sessionName, media.messageId);
+          }
         }
         savedMediaType = 'image';
         if (!body && media.caption) body = media.caption;
-        if (!body) body = '📷 [Imagen recibida]';
+        if (!body) body = '📷 [Imagen]';
       }
       
       // 🎥 VIDEO
@@ -896,10 +991,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
 
     // Guardar mensaje en DB (con media si aplica)
+    const displayContent = savedMediaType === 'audio' 
+      ? `🎤 ${body}` 
+      : body;
+    
     await prisma.message.create({ 
       data: { 
         conversationId: conv.id, 
-        content: body, 
+        content: displayContent, 
         fromMe: false, 
         userId, 
         role: 'user',
@@ -907,7 +1006,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         ...(savedMediaUrl && { mediaUrl: savedMediaUrl })
       } 
     });
-    await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: body, recipientName: senderName } });
+    await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: displayContent, recipientName: senderName } });
 
     // Si IA pausada, solo guardar
     if (conv.aiPaused) {
@@ -915,8 +1014,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    // Para audios transcritos, usar solo la transcripción para la IA
-    const messageForAI = savedMediaType === 'audio' ? body.replace('🎤 [Audio transcrito]: ', '') : body;
+    // Para la IA, usar la transcripción limpia (sin emojis/prefijos)
+    const messageForAI = body;
 
     // ====================================================
     // 📦 MESSAGE BUFFER — Agrupar mensajes en ráfaga

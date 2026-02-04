@@ -598,11 +598,22 @@ export default function ConversacionesPage() {
                       {msg.mediaType === 'image' && msg.mediaUrl && (
                         <div className="mb-2">
                           <img 
-                            src={msg.mediaUrl.startsWith('http') ? `${API_URL}/api/whatsapp/media/${msg.mediaUrl.split('/api/')[1]?.replace('/messages/', '/').replace('/download', '')}` : msg.mediaUrl}
+                            src={msg.mediaUrl}
                             alt="Imagen" 
                             className="max-w-[240px] max-h-[240px] rounded-lg object-cover cursor-pointer hover:opacity-90 transition-all"
-                            onClick={() => window.open(msg.mediaUrl.startsWith('http') ? `${API_URL}/api/whatsapp/media/${msg.mediaUrl.split('/api/')[1]?.replace('/messages/', '/').replace('/download', '')}` : msg.mediaUrl, '_blank')}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            onClick={() => {
+                              const w = window.open();
+                              if (w) { w.document.write(`<img src="${msg.mediaUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;">`); }
+                            }}
+                            onError={(e) => { 
+                              const img = e.target as HTMLImageElement;
+                              img.style.display = 'none';
+                              // Show fallback text
+                              const fallback = document.createElement('div');
+                              fallback.className = 'px-3 py-2 rounded-lg bg-white/10 text-sm';
+                              fallback.textContent = '📷 Imagen (no disponible)';
+                              img.parentElement?.appendChild(fallback);
+                            }}
                           />
                         </div>
                       )}
@@ -610,7 +621,7 @@ export default function ConversacionesPage() {
                       {msg.mediaType === 'sticker' && msg.mediaUrl && (
                         <div className="mb-2">
                           <img 
-                            src={msg.mediaUrl.startsWith('http') ? `${API_URL}/api/whatsapp/media/${msg.mediaUrl.split('/api/')[1]?.replace('/messages/', '/').replace('/download', '')}` : msg.mediaUrl}
+                            src={msg.mediaUrl}
                             alt="Sticker" 
                             className="max-w-[120px] max-h-[120px]"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}

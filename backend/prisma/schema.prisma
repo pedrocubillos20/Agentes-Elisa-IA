@@ -41,6 +41,7 @@ model User {
   appointments    Appointment[]
   subscription    Subscription?
   payments        Payment[]
+  whatsappLines   WhatsappLine[]
 
   @@index([parentUserId])
   @@index([role])
@@ -71,33 +72,37 @@ model Assistant {
   temperature     Float     @default(0.7)
   maxTokens       Int       @default(500)
   
+  whatsappLineId  String?
   isActive        Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model Conversation {
-  id            String    @id @default(cuid())
-  recipientId   String
-  recipientName String?
-  lastMessage   String?
-  aiPaused      Boolean   @default(false)
-  stage         String    @default("new")
-  assignedTo    String?                      // userId del vendedor/soporte asignado
-  assignedName  String?                      // Nombre visible del asignado
-  contextData   Json?                        // 🧠 Memoria persistente: nombre, talla, color, etc.
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  recipientId     String
+  recipientName   String?
+  lastMessage     String?
+  aiPaused        Boolean   @default(false)
+  stage           String    @default("new")
+  assignedTo      String?                      // userId del vendedor/soporte asignado
+  assignedName    String?                      // Nombre visible del asignado
+  contextData     Json?                        // 🧠 Memoria persistente: nombre, talla, color, etc.
+  whatsappLineId  String?                      // 🏗️ Workspace: línea de WhatsApp
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages      Message[]
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages        Message[]
 
   @@index([recipientId])
   @@index([userId, stage])
   @@index([assignedTo])
+  @@index([whatsappLineId])
 }
 
 model Message {
@@ -114,66 +119,72 @@ model Message {
 }
 
 model Product {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String
-  description String?  @db.Text
-  price       Float
-  category    String?
-  image       String?  @db.Text
-  stock       Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?  @db.Text
+  price           Float
+  category        String?
+  image           String?  @db.Text
+  stock           Int      @default(0)
+  isActive        Boolean  @default(true)
+  whatsappLineId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model Client {
-  id             String        @id @default(cuid())
-  userId         String
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name           String
-  phone          String
-  email          String?
-  address        String?       @db.Text
-  notes          String?       @db.Text
-  tags           String[]      @default([])
-  status         String        @default("lead")
-  totalPurchases Float         @default(0)
-  lastContact    DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  phone           String
+  email           String?
+  address         String?       @db.Text
+  notes           String?       @db.Text
+  tags            String[]      @default([])
+  status          String        @default("lead")
+  totalPurchases  Float         @default(0)
+  lastContact     DateTime?
+  whatsappLineId  String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  appointments   Appointment[]
+  appointments    Appointment[]
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model Appointment {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId    String?
-  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId        String?
+  client          Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   
-  type        String
-  clientName  String
-  clientPhone String
-  date        DateTime
-  time        String
-  duration    Int?
-  status      String   @default("pending")
-  notes       String?  @db.Text
-  address     String?  @db.Text
-  products    Json?
-  total       Float?
+  type            String
+  clientName      String
+  clientPhone     String
+  date            DateTime
+  time            String
+  duration        Int?
+  status          String   @default("pending")
+  notes           String?  @db.Text
+  address         String?  @db.Text
+  products        Json?
+  total           Float?
+  whatsappLineId  String?
   
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([userId, date])
+  @@index([whatsappLineId])
 }
 
 model Subscription {
@@ -229,4 +240,28 @@ model Payment {
   @@index([userId])
   @@index([status])
   @@index([wompiTransactionId])
+}
+
+// ===== MULTI-LÍNEA WHATSAPP =====
+model WhatsappLine {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  label           String    @default("Principal")
+  phone           String?
+  sessionName     String    @unique
+  status          String    @default("disconnected")
+  
+  assignedTo      String?
+  assignedName    String?
+  assistantId     String?
+  
+  isDefault       Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
 }

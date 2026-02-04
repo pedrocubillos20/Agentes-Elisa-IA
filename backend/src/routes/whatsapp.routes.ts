@@ -528,26 +528,24 @@ router.get('/qr', async (req: Request, res: Response) => {
 
     try {
       // ✅ FIX: La ruta correcta en WAHA es /api/{session}/auth/qr (SIN "sessions/")
-      // Intentar múltiples formatos de QR
       let qrData: string | null = null;
 
-      // 1. Formato JSON (raw QR string)
+      // 1. Imagen base64 (formato preferido - devuelve PNG real)
       try {
-        const r = await fetch(`${WAHA_API_URL}/api/${sessionToCheck}/auth/qr?format=raw`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+        const r = await fetch(`${WAHA_API_URL}/api/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
         if (r.ok) {
           const d = await r.json() as any;
-          if (d.value) { qrData = d.value; }
+          if (d.mimetype && d.data) { qrData = `data:${d.mimetype};base64,${d.data}`; }
         }
       } catch {}
 
-      // 2. Formato base64 image
+      // 2. Imagen binaria directa (Accept: image/png)
       if (!qrData) {
         try {
-          const r = await fetch(`${WAHA_API_URL}/api/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
-          if (r.ok) {
-            const d = await r.json() as any;
-            if (d.mimetype && d.data) { qrData = `data:${d.mimetype};base64,${d.data}`; }
-            else if (d.value) { qrData = d.value; }
+          const r = await fetch(`${WAHA_API_URL}/api/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'image/png' } });
+          if (r.ok && r.headers.get('content-type')?.includes('image')) {
+            const buf = Buffer.from(await r.arrayBuffer());
+            qrData = `data:image/png;base64,${buf.toString('base64')}`;
           }
         } catch {}
       }
@@ -558,16 +556,13 @@ router.get('/qr', async (req: Request, res: Response) => {
           const r = await fetch(`${WAHA_API_URL}/api/sessions/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
           if (r.ok) {
             const d = await r.json() as any;
-            if (d.value) { qrData = d.value; }
-            else if (d.mimetype && d.data) { qrData = `data:${d.mimetype};base64,${d.data}`; }
+            if (d.mimetype && d.data) { qrData = `data:${d.mimetype};base64,${d.data}`; }
           }
         } catch {}
       }
 
       if (qrData) {
-        // Asegurar formato data URI para imágenes
-        const qr = qrData.startsWith('data:') ? qrData : `data:image/png;base64,${qrData}`;
-        res.json({ qr, available: true });
+        res.json({ qr: qrData, available: true });
       } else {
         res.json({ qr: null, available: false });
       }

@@ -19,6 +19,7 @@ const getWahaHeaders = () => {
 // Si el usuario manda 3 líneas rápido, espera y responde UNA vez
 // ====================================================
 const BUFFER_WAIT_MS = 3000; // Esperar 3 segundos por más mensajes
+const recentlyProcessed = new Set<string>(); // Deduplicación de mensajes
 const messageBuffer: Map<string, {
   messages: string[];
   timer: ReturnType<typeof setTimeout>;
@@ -181,25 +182,46 @@ const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<str
 // ====================================================
 const downloadMediaFromWaha = async (session: string, messageId: string, payload?: any): Promise<{ buffer: Buffer; mimetype: string } | null> => {
   
-  // STRATEGY 1: Direct mediaUrl from payload
+  // STRATEGY 1: Base64 data directly in payload (most reliable)
+  if (payload?.media?.data) {
+    try {
+      const buf = Buffer.from(payload.media.data, 'base64');
+      if (buf.length > 100) {
+        console.log(`✅ Media extraída de payload.media.data: ${buf.length} bytes`);
+        return { buffer: buf, mimetype: payload.media.mimetype || payload?.mimetype || 'audio/ogg' };
+      }
+    } catch (e: any) { console.log(`⚠️ media.data falló: ${e.message}`); }
+  }
+  
+  if (payload?._data?.body) {
+    try {
+      const buf = Buffer.from(payload._data.body, 'base64');
+      if (buf.length > 100) {
+        console.log(`✅ Media extraída de payload._data.body: ${buf.length} bytes`);
+        return { buffer: buf, mimetype: payload?.mimetype || payload?._data?.mimetype || 'audio/ogg' };
+      }
+    } catch (e: any) { console.log(`⚠️ _data.body falló: ${e.message}`); }
+  }
+
+  // STRATEGY 2: Direct mediaUrl from payload  
   if (payload?.mediaUrl) {
     try {
-      console.log(`📥 Intentando mediaUrl directo: ${payload.mediaUrl.substring(0, 100)}`);
+      console.log(`📥 Intentando mediaUrl directo: ${payload.mediaUrl.substring(0, 120)}`);
       const r = await fetch(payload.mediaUrl, { headers: getWahaHeaders() });
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         if (buf.length > 100) {
           console.log(`✅ Media descargada via mediaUrl: ${buf.length} bytes`);
-          return { buffer: buf, mimetype: r.headers.get('content-type') || 'audio/ogg' };
+          return { buffer: buf, mimetype: r.headers.get('content-type') || payload?.mimetype || 'audio/ogg' };
         }
       }
     } catch (e: any) { console.log(`⚠️ mediaUrl falló: ${e.message}`); }
   }
 
-  // STRATEGY 2: media.url from payload
+  // STRATEGY 3: media.url field
   if (payload?.media?.url) {
     try {
-      console.log(`📥 Intentando media.url: ${payload.media.url.substring(0, 100)}`);
+      console.log(`📥 Intentando media.url: ${payload.media.url.substring(0, 120)}`);
       const r = await fetch(payload.media.url, { headers: getWahaHeaders() });
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
@@ -211,45 +233,61 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
     } catch (e: any) { console.log(`⚠️ media.url falló: ${e.message}`); }
   }
 
-  // STRATEGY 3: Base64 data in payload
-  if (payload?.media?.data || payload?._data?.body) {
+  // STRATEGY 4: WAHA API — POST /api/{session}/messages/download (correct for WAHA Plus)
+  if (messageId) {
     try {
-      const b64 = payload?.media?.data || payload?._data?.body;
-      const buf = Buffer.from(b64, 'base64');
-      if (buf.length > 100) {
-        console.log(`✅ Media extraída de base64: ${buf.length} bytes`);
-        return { buffer: buf, mimetype: payload?.mimetype || payload?.media?.mimetype || 'audio/ogg' };
+      const postUrl = `${WAHA_API_URL}/api/${session}/messages/download`;
+      console.log(`📥 Intentando POST ${postUrl} con id: ${messageId.substring(0, 60)}`);
+      const r = await fetch(postUrl, { 
+        method: 'POST', 
+        headers: getWahaHeaders(), 
+        body: JSON.stringify({ id: messageId }) 
+      });
+      if (r.ok) {
+        const contentType = r.headers.get('content-type') || 'application/octet-stream';
+        // Check if response is JSON (error) or binary (file)
+        if (!contentType.includes('json')) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          if (buf.length > 100) {
+            console.log(`✅ Media descargada via POST: ${buf.length} bytes (${contentType})`);
+            return { buffer: buf, mimetype: contentType };
+          }
+        }
+      } else {
+        console.log(`⚠️ POST download ${r.status}`);
       }
-    } catch (e: any) { console.log(`⚠️ Base64 falló: ${e.message}`); }
+    } catch (e: any) { console.log(`⚠️ POST download falló: ${e.message}`); }
   }
 
-  // STRATEGY 4: WAHA API download endpoints
+  // STRATEGY 5: WAHA API — GET with URL-encoded messageId
   if (messageId) {
+    const encodedId = encodeURIComponent(messageId);
     const endpoints = [
-      `${WAHA_API_URL}/api/${session}/messages/${messageId}/download`,
-      `${WAHA_API_URL}/api/messages/download?session=${session}&id=${messageId}`,
-      `${WAHA_API_URL}/api/${session}/messages/download/${messageId}`,
+      `${WAHA_API_URL}/api/${session}/messages/${encodedId}/download`,
+      `${WAHA_API_URL}/api/messages/${encodedId}/download?session=${session}`,
     ];
     
     for (const url of endpoints) {
       try {
-        console.log(`📥 Intentando endpoint: ${url}`);
+        console.log(`📥 Intentando GET: ${url.substring(0, 120)}`);
         const r = await fetch(url, { headers: getWahaHeaders() });
         if (r.ok) {
           const contentType = r.headers.get('content-type') || 'application/octet-stream';
-          const buf = Buffer.from(await r.arrayBuffer());
-          if (buf.length > 100) {
-            console.log(`✅ Media descargada via API: ${buf.length} bytes (${contentType})`);
-            return { buffer: buf, mimetype: contentType };
+          if (!contentType.includes('json')) {
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.length > 100) {
+              console.log(`✅ Media descargada via GET: ${buf.length} bytes (${contentType})`);
+              return { buffer: buf, mimetype: contentType };
+            }
           }
         } else {
-          console.log(`⚠️ Endpoint ${r.status}: ${url}`);
+          console.log(`⚠️ GET ${r.status}: ${url.substring(0, 80)}`);
         }
-      } catch (e: any) { console.log(`⚠️ Endpoint falló: ${e.message}`); }
+      } catch (e: any) { console.log(`⚠️ GET falló: ${e.message}`); }
     }
   }
   
-  console.error(`❌ No se pudo descargar media: session=${session}, messageId=${messageId}`);
+  console.error(`❌ No se pudo descargar media: session=${session}, messageId=${messageId?.substring(0, 60)}`);
   return null;
 };
 
@@ -659,7 +697,7 @@ router.post('/connect', async (req: Request, res: Response) => {
           name: sessionName,
           start: true,
           config: {
-            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }]
+            webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }]
           }
         })
       });
@@ -683,6 +721,50 @@ router.post('/connect', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error(`❌ Error en /connect:`, e.message);
     res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ====================================================
+// 🔄 RECONFIGURAR WEBHOOKS DE WAHA (para sesión existente)
+// ====================================================
+router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const session = await findActiveSession(ownerId);
+    if (!session) { res.status(400).json({ error: 'No hay sesión activa' }); return; }
+    
+    const sessionName = session.name;
+    const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
+    
+    // Actualizar configuración de la sesión con SOLO 'message' (no message.any)
+    const updateRes = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, {
+      method: 'PUT',
+      headers: getWahaHeaders(),
+      body: JSON.stringify({
+        config: {
+          webhooks: [{ 
+            url: webhookUrl, 
+            events: ['message', 'session.status']
+          }]
+        }
+      })
+    });
+    
+    const result = await updateRes.json().catch(() => ({}));
+    console.log(`🔄 Webhooks reconfigurados para ${sessionName}: ${updateRes.status}`);
+    
+    res.json({ 
+      success: updateRes.ok, 
+      message: updateRes.ok ? 'Webhooks reconfigurados' : 'Error al reconfigurar',
+      session: sessionName,
+      webhookUrl,
+      events: ['message', 'session.status']
+    });
+  } catch (e: any) {
+    console.error('❌ Error reconfigurando:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -832,6 +914,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (!event || (event !== 'message' && event !== 'message.any')) { res.json({ success: true }); return; }
     if (payload?.fromMe) { res.json({ success: true }); return; }
 
+    // 🔒 DEDUPLICACIÓN: Ignorar si ya procesamos este mensaje (WAHA envía message + message.any)
+    const msgId = payload?.id?._serialized || payload?.id?.id || payload?.key?.id || '';
+    if (msgId && recentlyProcessed.has(msgId)) {
+      console.log(`🔄 Duplicado ignorado: ${msgId}`);
+      res.json({ success: true }); return;
+    }
+    if (msgId) {
+      recentlyProcessed.add(msgId);
+      setTimeout(() => recentlyProcessed.delete(msgId), 30000); // Limpiar después de 30s
+    }
+
     const from = payload?.from || payload?.chatId || '';
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
@@ -855,10 +948,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
       console.log(`📎 type: ${payload?.type}`);
       console.log(`📎 hasMedia: ${payload?.hasMedia}`);
       console.log(`📎 mimetype: ${payload?.mimetype}`);
-      console.log(`📎 mediaUrl: ${payload?.mediaUrl?.substring(0, 100) || 'N/A'}`);
-      console.log(`📎 media: ${JSON.stringify(payload?.media || {}).substring(0, 200)}`);
+      console.log(`📎 mediaUrl: ${payload?.mediaUrl?.substring(0, 150) || 'N/A'}`);
+      console.log(`📎 media keys: ${payload?.media ? Object.keys(payload.media).join(', ') : 'N/A'}`);
+      console.log(`📎 media.url: ${payload?.media?.url?.substring(0, 150) || 'N/A'}`);
+      console.log(`📎 media.data length: ${payload?.media?.data ? payload.media.data.length : 'N/A'}`);
+      console.log(`📎 media.mimetype: ${payload?.media?.mimetype || 'N/A'}`);
       console.log(`📎 id: ${JSON.stringify(payload?.id || '').substring(0, 200)}`);
       console.log(`📎 _data keys: ${payload?._data ? Object.keys(payload._data).join(', ') : 'N/A'}`);
+      console.log(`📎 _data.body length: ${payload?._data?.body ? payload._data.body.length : 'N/A'}`);
+      console.log(`📎 ALL TOP KEYS: ${Object.keys(payload || {}).join(', ')}`);
       console.log(`📎 === END DEBUG ===`);
       
       // 🎤 AUDIO → Transcribir con Whisper

@@ -180,64 +180,133 @@ const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<str
 // ====================================================
 // 📥 DOWNLOAD MEDIA FROM WAHA — Multiple strategies
 // ====================================================
+// Helper: rewrite WAHA internal URLs (localhost:3000) to public VPS URL
+const rewriteWahaUrl = (url: string): string => {
+  if (!url) return url;
+  // WAHA runs internally on port 3000, mapped to 8080 externally
+  const replacements = [
+    ['http://localhost:3000', WAHA_API_URL],
+    ['http://127.0.0.1:3000', WAHA_API_URL],
+    ['http://localhost:8080', WAHA_API_URL],
+    ['http://127.0.0.1:8080', WAHA_API_URL],
+    ['http://0.0.0.0:3000', WAHA_API_URL],
+    ['http://0.0.0.0:8080', WAHA_API_URL],
+  ];
+  for (const [from, to] of replacements) {
+    if (url.startsWith(from)) {
+      const rewritten = url.replace(from, to);
+      console.log(`🔄 URL reescrita: ${url.substring(0, 80)} → ${rewritten.substring(0, 80)}`);
+      return rewritten;
+    }
+  }
+  return url;
+};
+
+// Helper: fetch with WAHA headers and URL rewriting
+const fetchFromWaha = async (url: string): Promise<globalThis.Response> => {
+  const rewritten = rewriteWahaUrl(url);
+  return fetch(rewritten, { headers: getWahaHeaders() });
+};
+
 const downloadMediaFromWaha = async (session: string, messageId: string, payload?: any): Promise<{ buffer: Buffer; mimetype: string } | null> => {
   
-  // STRATEGY 1: Base64 data directly in payload (most reliable)
+  // STRATEGY 1: Base64 data directly in payload (most reliable, no network call)
   if (payload?.media?.data) {
     try {
       const buf = Buffer.from(payload.media.data, 'base64');
       if (buf.length > 100) {
-        console.log(`✅ Media extraída de payload.media.data: ${buf.length} bytes`);
+        console.log(`✅ S1: Media de payload.media.data: ${buf.length} bytes`);
         return { buffer: buf, mimetype: payload.media.mimetype || payload?.mimetype || 'audio/ogg' };
       }
-    } catch (e: any) { console.log(`⚠️ media.data falló: ${e.message}`); }
+    } catch (e: any) { console.log(`⚠️ S1a media.data falló: ${e.message}`); }
   }
   
   if (payload?._data?.body) {
     try {
       const buf = Buffer.from(payload._data.body, 'base64');
       if (buf.length > 100) {
-        console.log(`✅ Media extraída de payload._data.body: ${buf.length} bytes`);
+        console.log(`✅ S1b: Media de payload._data.body: ${buf.length} bytes`);
         return { buffer: buf, mimetype: payload?.mimetype || payload?._data?.mimetype || 'audio/ogg' };
       }
-    } catch (e: any) { console.log(`⚠️ _data.body falló: ${e.message}`); }
+    } catch (e: any) { console.log(`⚠️ S1b _data.body falló: ${e.message}`); }
   }
 
-  // STRATEGY 2: Direct mediaUrl from payload  
+  // STRATEGY 2: mediaUrl from payload (rewrite localhost → public IP)
   if (payload?.mediaUrl) {
     try {
-      console.log(`📥 Intentando mediaUrl directo: ${payload.mediaUrl.substring(0, 120)}`);
-      const r = await fetch(payload.mediaUrl, { headers: getWahaHeaders() });
+      const url = rewriteWahaUrl(payload.mediaUrl);
+      console.log(`📥 S2: mediaUrl: ${url.substring(0, 120)}`);
+      const r = await fetch(url, { headers: getWahaHeaders() });
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         if (buf.length > 100) {
-          console.log(`✅ Media descargada via mediaUrl: ${buf.length} bytes`);
+          console.log(`✅ S2: Media via mediaUrl: ${buf.length} bytes`);
           return { buffer: buf, mimetype: r.headers.get('content-type') || payload?.mimetype || 'audio/ogg' };
         }
-      }
-    } catch (e: any) { console.log(`⚠️ mediaUrl falló: ${e.message}`); }
+      } else { console.log(`⚠️ S2: mediaUrl ${r.status}`); }
+    } catch (e: any) { console.log(`⚠️ S2 mediaUrl falló: ${e.message}`); }
   }
 
-  // STRATEGY 3: media.url field
+  // STRATEGY 3: media.url field (rewrite localhost → public IP)
   if (payload?.media?.url) {
     try {
-      console.log(`📥 Intentando media.url: ${payload.media.url.substring(0, 120)}`);
-      const r = await fetch(payload.media.url, { headers: getWahaHeaders() });
+      const url = rewriteWahaUrl(payload.media.url);
+      console.log(`📥 S3: media.url: ${url.substring(0, 120)}`);
+      const r = await fetch(url, { headers: getWahaHeaders() });
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         if (buf.length > 100) {
-          console.log(`✅ Media descargada via media.url: ${buf.length} bytes`);
+          console.log(`✅ S3: Media via media.url: ${buf.length} bytes`);
           return { buffer: buf, mimetype: payload.media.mimetype || r.headers.get('content-type') || 'audio/ogg' };
         }
-      }
-    } catch (e: any) { console.log(`⚠️ media.url falló: ${e.message}`); }
+      } else { console.log(`⚠️ S3: media.url ${r.status}`); }
+    } catch (e: any) { console.log(`⚠️ S3 media.url falló: ${e.message}`); }
   }
 
-  // STRATEGY 4: WAHA API — POST /api/{session}/messages/download (correct for WAHA Plus)
+  // STRATEGY 4: WAHA files API — GET /api/files/{filename} (for WHATSAPP_FILES_MIMETYPES)
+  if (messageId) {
+    try {
+      // Try listing files for this session to find matching file
+      const filesUrl = `${WAHA_API_URL}/api/files`;
+      console.log(`📥 S4: Buscando en files API...`);
+      const r = await fetch(filesUrl, { headers: getWahaHeaders() });
+      if (r.ok) {
+        const text = await r.text();
+        try {
+          const files = JSON.parse(text);
+          if (Array.isArray(files)) {
+            // Find file matching messageId
+            const shortId = messageId.split('_').pop() || messageId;
+            const match = files.find((f: any) => {
+              const fname = typeof f === 'string' ? f : f?.name || f?.filename || f?.path || '';
+              return fname.includes(shortId) || fname.includes(messageId);
+            });
+            if (match) {
+              const fname = typeof match === 'string' ? match : match?.name || match?.filename || match?.path || '';
+              const fileUrl = `${WAHA_API_URL}/api/files/${fname}`;
+              console.log(`📥 S4: Descargando archivo: ${fileUrl.substring(0, 120)}`);
+              const fr = await fetch(fileUrl, { headers: getWahaHeaders() });
+              if (fr.ok) {
+                const buf = Buffer.from(await fr.arrayBuffer());
+                if (buf.length > 100) {
+                  console.log(`✅ S4: Media via files API: ${buf.length} bytes`);
+                  return { buffer: buf, mimetype: fr.headers.get('content-type') || payload?.mimetype || 'audio/ogg' };
+                }
+              }
+            } else {
+              console.log(`⚠️ S4: No se encontró archivo para ${shortId} entre ${files.length} archivos`);
+            }
+          }
+        } catch { console.log(`⚠️ S4: Respuesta no es JSON, probablemente HTML/404`); }
+      } else { console.log(`⚠️ S4: files API ${r.status}`); }
+    } catch (e: any) { console.log(`⚠️ S4 files API falló: ${e.message}`); }
+  }
+
+  // STRATEGY 5: WAHA API — POST /api/{session}/messages/download
   if (messageId) {
     try {
       const postUrl = `${WAHA_API_URL}/api/${session}/messages/download`;
-      console.log(`📥 Intentando POST ${postUrl} con id: ${messageId.substring(0, 60)}`);
+      console.log(`📥 S5: POST ${postUrl.substring(0, 80)} id: ${messageId.substring(0, 60)}`);
       const r = await fetch(postUrl, { 
         method: 'POST', 
         headers: getWahaHeaders(), 
@@ -245,45 +314,41 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
       });
       if (r.ok) {
         const contentType = r.headers.get('content-type') || 'application/octet-stream';
-        // Check if response is JSON (error) or binary (file)
         if (!contentType.includes('json')) {
           const buf = Buffer.from(await r.arrayBuffer());
           if (buf.length > 100) {
-            console.log(`✅ Media descargada via POST: ${buf.length} bytes (${contentType})`);
+            console.log(`✅ S5: Media via POST: ${buf.length} bytes (${contentType})`);
             return { buffer: buf, mimetype: contentType };
           }
         }
-      } else {
-        console.log(`⚠️ POST download ${r.status}`);
-      }
-    } catch (e: any) { console.log(`⚠️ POST download falló: ${e.message}`); }
+      } else { console.log(`⚠️ S5: POST ${r.status}`); }
+    } catch (e: any) { console.log(`⚠️ S5 POST falló: ${e.message}`); }
   }
 
-  // STRATEGY 5: WAHA API — GET with URL-encoded messageId
+  // STRATEGY 6: WAHA API — GET with URL-encoded messageId (multiple endpoint formats)
   if (messageId) {
     const encodedId = encodeURIComponent(messageId);
     const endpoints = [
       `${WAHA_API_URL}/api/${session}/messages/${encodedId}/download`,
       `${WAHA_API_URL}/api/messages/${encodedId}/download?session=${session}`,
+      `${WAHA_API_URL}/api/${session}/messages/${encodedId}/download-media`,
     ];
     
     for (const url of endpoints) {
       try {
-        console.log(`📥 Intentando GET: ${url.substring(0, 120)}`);
+        console.log(`📥 S6: GET ${url.substring(0, 120)}`);
         const r = await fetch(url, { headers: getWahaHeaders() });
         if (r.ok) {
           const contentType = r.headers.get('content-type') || 'application/octet-stream';
           if (!contentType.includes('json')) {
             const buf = Buffer.from(await r.arrayBuffer());
             if (buf.length > 100) {
-              console.log(`✅ Media descargada via GET: ${buf.length} bytes (${contentType})`);
+              console.log(`✅ S6: Media via GET: ${buf.length} bytes (${contentType})`);
               return { buffer: buf, mimetype: contentType };
             }
           }
-        } else {
-          console.log(`⚠️ GET ${r.status}: ${url.substring(0, 80)}`);
-        }
-      } catch (e: any) { console.log(`⚠️ GET falló: ${e.message}`); }
+        } else { console.log(`⚠️ S6: GET ${r.status}: ${url.substring(0, 80)}`); }
+      } catch (e: any) { console.log(`⚠️ S6 GET falló: ${e.message}`); }
     }
   }
   
@@ -948,14 +1013,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
       console.log(`📎 type: ${payload?.type}`);
       console.log(`📎 hasMedia: ${payload?.hasMedia}`);
       console.log(`📎 mimetype: ${payload?.mimetype}`);
-      console.log(`📎 mediaUrl: ${payload?.mediaUrl?.substring(0, 150) || 'N/A'}`);
-      console.log(`📎 media keys: ${payload?.media ? Object.keys(payload.media).join(', ') : 'N/A'}`);
-      console.log(`📎 media.url: ${payload?.media?.url?.substring(0, 150) || 'N/A'}`);
+      console.log(`📎 mediaUrl (RAW): ${payload?.mediaUrl || 'N/A'}`);
+      console.log(`📎 media keys: ${payload?.media ? Object.keys(payload.media).join(', ') : 'NO media obj'}`);
+      console.log(`📎 media.url (RAW): ${payload?.media?.url || 'N/A'}`);
       console.log(`📎 media.data length: ${payload?.media?.data ? payload.media.data.length : 'N/A'}`);
       console.log(`📎 media.mimetype: ${payload?.media?.mimetype || 'N/A'}`);
+      console.log(`📎 media.filename: ${payload?.media?.filename || 'N/A'}`);
       console.log(`📎 id: ${JSON.stringify(payload?.id || '').substring(0, 200)}`);
-      console.log(`📎 _data keys: ${payload?._data ? Object.keys(payload._data).join(', ') : 'N/A'}`);
+      console.log(`📎 _data keys: ${payload?._data ? Object.keys(payload._data).slice(0, 15).join(', ') : 'NO _data'}`);
       console.log(`📎 _data.body length: ${payload?._data?.body ? payload._data.body.length : 'N/A'}`);
+      console.log(`📎 _data.deprecatedMms3Url: ${payload?._data?.deprecatedMms3Url?.substring(0, 100) || 'N/A'}`);
       console.log(`📎 ALL TOP KEYS: ${Object.keys(payload || {}).join(', ')}`);
       console.log(`📎 === END DEBUG ===`);
       

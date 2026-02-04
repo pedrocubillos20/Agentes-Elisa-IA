@@ -31,6 +31,7 @@ const messageBuffer: Map<string, {
 
 // ===== SESSION MANAGEMENT =====
 const getUserSessionName = (userId: string): string => `user_${userId}`;
+const getLegacySessionName = (userId: string): string => `usuario_${userId}`;
 const getLineSessionName = (lineId: string): string => `line_${lineId}`;
 
 const getOwnerId = async (userId: string): Promise<string> => {
@@ -67,14 +68,48 @@ const findActiveSession = async (userId: string): Promise<{ name: string; data: 
     }
   }
 
-  // 2. Fallback: legacy user_ session
-  for (const sn of [getUserSessionName(ownerId), 'default']) {
+  // 2. Fallback: legacy sessions (usuario_, user_, default)
+  for (const sn of [getLegacySessionName(ownerId), getUserSessionName(ownerId), 'default']) {
     const d = await checkWahaSession(sn);
     if (d && ['WORKING', 'CONNECTED', 'SCAN_QR_CODE', 'STARTING'].includes(d.status)) {
       return { name: sn, data: d };
     }
   }
   return null;
+};
+
+// Auto-migrate: detect legacy WAHA sessions and create WhatsappLine records
+const autoMigrateLegacySessions = async (ownerId: string): Promise<void> => {
+  try {
+    const existingLines = await prisma.whatsappLine.count({ where: { userId: ownerId, isActive: true } });
+    if (existingLines > 0) return; // Already has lines, skip
+
+    // Check for legacy sessions: usuario_, user_, default
+    for (const sn of [getLegacySessionName(ownerId), getUserSessionName(ownerId), 'default']) {
+      const d = await checkWahaSession(sn);
+      if (d && ['WORKING', 'CONNECTED', 'SCAN_QR_CODE', 'STARTING'].includes(d.status)) {
+        const isConnected = ['WORKING', 'CONNECTED'].includes(d.status);
+        const phone = isConnected && d.me?.id ? d.me.id.replace('@c.us', '') : null;
+        
+        // Create default line from legacy session
+        const line = await prisma.whatsappLine.create({
+          data: {
+            userId: ownerId,
+            label: 'Principal',
+            sessionName: sn, // Keep the SAME session name so WAHA keeps working
+            status: isConnected ? 'connected' : 'connecting',
+            phone: phone,
+            isDefault: true,
+            isActive: true
+          }
+        });
+        console.log(`🔄 Auto-migración: sesión legacy "${sn}" → línea "${line.id}" (${phone || 'sin teléfono'})`);
+        return; // Only migrate the first working session
+      }
+    }
+  } catch (e: any) {
+    console.error('⚠️ Error auto-migración:', e.message);
+  }
 };
 
 // Resolve which user owns a session (updated for multi-line)
@@ -86,9 +121,18 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
     if (line) return { userId: line.userId, lineId: line.id };
   }
 
-  // 2. Check if it's a user_ session
+  // 1b. Check if a WhatsappLine exists with this exact sessionName (for migrated legacy sessions)
+  const lineBySession = await prisma.whatsappLine.findFirst({ where: { sessionName, isActive: true } });
+  if (lineBySession) return { userId: lineBySession.userId, lineId: lineBySession.id };
+
+  // 2. Check if it's a user_ or usuario_ session
   if (sessionName.startsWith('user_')) {
     const uid = sessionName.replace('user_', '');
+    const u = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, parentUserId: true } });
+    if (u) return { userId: u.parentUserId || u.id };
+  }
+  if (sessionName.startsWith('usuario_')) {
+    const uid = sessionName.replace('usuario_', '');
     const u = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, parentUserId: true } });
     if (u) return { userId: u.parentUserId || u.id };
   }
@@ -502,6 +546,9 @@ router.get('/lines', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
+
+    // 🔄 Auto-migrate legacy sessions to WhatsappLine records
+    await autoMigrateLegacySessions(ownerId);
 
     const lines = await prisma.whatsappLine.findMany({
       where: { userId: ownerId, isActive: true },

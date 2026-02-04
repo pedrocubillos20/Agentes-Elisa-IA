@@ -17,16 +17,16 @@ model User {
   apiKeyConnected Boolean        @default(false)
   
   // === TEAM / SUB-USERS ===
-  role            String         @default("admin")
-  parentUserId    String?
+  role            String         @default("admin")   // admin, manager, agent, support, viewer
+  parentUserId    String?                             // null = dueño principal, con valor = sub-usuario
   permissions     Json           @default("{\"dashboard\":true,\"conversations\":true,\"crm\":true,\"agenda\":true,\"assistants\":true,\"whatsapp\":true,\"config\":true,\"team\":true,\"products\":true}")
   invitedBy       String?
   isActive        Boolean        @default(true)
   
   // === SUBSCRIPTION ===
-  plan            String         @default("trial")
-  trialEndsAt     DateTime?
-  subscriptionId  String?
+  plan            String         @default("trial")    // trial, starter, business
+  trialEndsAt     DateTime?                            // Fecha fin trial (7 días desde registro)
+  subscriptionId  String?                              // ID suscripción activa
   
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -42,32 +42,6 @@ model User {
 
   @@index([parentUserId])
   @@index([role])
-}
-
-// ===== MULTI-LÍNEA WHATSAPP =====
-model WhatsappLine {
-  id              String    @id @default(cuid())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  label           String    @default("Principal")
-  phone           String?
-  sessionName     String    @unique
-  status          String    @default("disconnected")
-  
-  assignedTo      String?
-  assignedName    String?
-  assistantId     String?
-  
-  isDefault       Boolean   @default(false)
-  isActive        Boolean   @default(true)
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([userId])
-  @@index([sessionName])
-  @@index([status])
 }
 
 model Assistant {
@@ -95,9 +69,8 @@ model Assistant {
   temperature     Float     @default(0.7)
   maxTokens       Int       @default(500)
   
-  whatsappLineId  String?
-  
   isActive        Boolean   @default(false)
+  whatsappLineId  String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -259,4 +232,29 @@ model Payment {
   @@index([userId])
   @@index([status])
   @@index([wompiTransactionId])
+}
+
+model WhatsappLine {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  label         String    @default("Principal")
+  phone         String?
+  sessionName   String    @unique
+  status        String    @default("disconnected")
+  
+  assignedTo    String?
+  assignedName  String?
+  assistantId   String?
+  
+  isDefault     Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([sessionName])
+  @@index([status])
 }

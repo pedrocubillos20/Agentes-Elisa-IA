@@ -22,5 +22,5 @@ RUN npm run build
 # Exponer puerto
 EXPOSE 3000
 
-# Comando de inicio
-CMD ["npm", "start"]
+# Comando de inicio: migrar DB + arrancar servidor
+CMD npx prisma db push --skip-generate && npm start

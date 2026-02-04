@@ -7,6 +7,61 @@ import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key-2024';
 
+// ===== CONFIGURACIÓN DE FEATURES POR PLAN =====
+const PLAN_FEATURES: Record<string, {
+  maxWhatsappLines: number;
+  crm: boolean;
+  agenda: boolean;
+  team: boolean;
+  chatAssignment: boolean;
+  products: boolean;
+  unlimitedLines: boolean;
+  directorDashboard: boolean;
+  customPermissions: boolean;
+  autoLearn: boolean;
+  prioritySupport: boolean;
+}> = {
+  trial: {
+    maxWhatsappLines: 99,
+    crm: true,
+    agenda: true,
+    team: true,
+    chatAssignment: true,
+    products: true,
+    unlimitedLines: true,
+    directorDashboard: true,
+    customPermissions: true,
+    autoLearn: true,
+    prioritySupport: false,
+  },
+  starter: {
+    maxWhatsappLines: 3,
+    crm: false,
+    agenda: false,
+    team: false,
+    chatAssignment: false,
+    products: false,
+    unlimitedLines: false,
+    directorDashboard: false,
+    customPermissions: false,
+    autoLearn: false,
+    prioritySupport: false,
+  },
+  business: {
+    maxWhatsappLines: 99,
+    crm: true,
+    agenda: true,
+    team: true,
+    chatAssignment: true,
+    products: true,
+    unlimitedLines: true,
+    directorDashboard: true,
+    customPermissions: true,
+    autoLearn: true,
+    prioritySupport: true,
+  },
+};
+
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
@@ -16,8 +71,9 @@ router.post('/register', async (req: Request, res: Response) => {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
 
+    // ✅ Trial de 7 días (antes era 20)
     const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + 20);
+    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
 
     const user = await prisma.user.create({
       data: { email, password: await bcrypt.hash(password, 10), name: name || null, role: 'admin', plan: 'trial', trialEndsAt }
@@ -84,14 +140,26 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     let subscriptionStatus = 'active';
     let daysRemaining = 0;
     
-    if (user.plan === 'trial' && user.trialEndsAt) {
-      const now = new Date();
-      const diff = user.trialEndsAt.getTime() - now.getTime();
-      daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-      if (daysRemaining <= 0) subscriptionStatus = 'expired';
-    } else if (user.plan !== 'trial') {
-      // Verificar suscripción activa
-      const sub = await prisma.subscription.findUnique({ where: { userId: user.parentUserId || userId } });
+    // Para sub-usuarios, usar el plan del padre
+    const ownerId = user.parentUserId || userId;
+    let effectivePlan = user.plan;
+    
+    if (user.parentUserId) {
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true, trialEndsAt: true } });
+      if (owner) effectivePlan = owner.plan;
+    }
+
+    if (effectivePlan === 'trial') {
+      const trialEnd = user.parentUserId 
+        ? (await prisma.user.findUnique({ where: { id: ownerId }, select: { trialEndsAt: true } }))?.trialEndsAt 
+        : user.trialEndsAt;
+      if (trialEnd) {
+        const diff = trialEnd.getTime() - Date.now();
+        daysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+        if (daysRemaining <= 0) subscriptionStatus = 'expired';
+      }
+    } else if (effectivePlan !== 'trial') {
+      const sub = await prisma.subscription.findUnique({ where: { userId: ownerId } });
       if (sub) {
         subscriptionStatus = sub.status;
         if (sub.currentPeriodEnd < new Date()) subscriptionStatus = 'expired';
@@ -99,7 +167,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       }
     }
 
-    // Para sub-usuarios, obtener info del padre (API key status, etc.)
+    // Para sub-usuarios, obtener info del padre
     let parentInfo = null;
     if (user.parentUserId) {
       parentInfo = await prisma.user.findUnique({
@@ -108,15 +176,24 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       });
     }
 
+    // ✅ Features del plan
+    const planFeatures = PLAN_FEATURES[effectivePlan] || PLAN_FEATURES.starter;
+    
+    // Si es trial activo, tiene acceso completo
+    const isTrialActive = effectivePlan === 'trial' && subscriptionStatus !== 'expired';
+    const features = isTrialActive ? PLAN_FEATURES.trial : planFeatures;
+
     res.json({
       user: {
         ...user,
+        plan: effectivePlan,
         isSubUser: !!user.parentUserId,
         parent: parentInfo,
         apiKeyConnected: user.parentUserId ? (parentInfo?.apiKeyConnected || false) : user.apiKeyConnected,
         subscriptionStatus,
         daysRemaining,
-        isBlocked: subscriptionStatus === 'expired'
+        isBlocked: subscriptionStatus === 'expired',
+        planFeatures: features,
       }
     });
   } catch (error) {
@@ -142,7 +219,6 @@ router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
     const { apiKey } = req.body;
     if (!apiKey || !userId) { res.status(400).json({ error: 'API Key requerida' }); return; }
 
-    // Solo admins pueden configurar API key
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador puede configurar la API Key' }); return; }
 

@@ -527,30 +527,50 @@ router.get('/qr', async (req: Request, res: Response) => {
     const sessionToCheck = session ? sn : getUserSessionName(ownerId);
 
     try {
-      const r = await fetch(`${WAHA_API_URL}/api/sessions/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
-      if (!r.ok) {
-        // Si falla, intentar con screenshot como fallback (WEBJS)
+      // ✅ FIX: La ruta correcta en WAHA es /api/{session}/auth/qr (SIN "sessions/")
+      // Intentar múltiples formatos de QR
+      let qrData: string | null = null;
+
+      // 1. Formato JSON (raw QR string)
+      try {
+        const r = await fetch(`${WAHA_API_URL}/api/${sessionToCheck}/auth/qr?format=raw`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+        if (r.ok) {
+          const d = await r.json() as any;
+          if (d.value) { qrData = d.value; }
+        }
+      } catch {}
+
+      // 2. Formato base64 image
+      if (!qrData) {
         try {
-          const screenshotRes = await fetch(`${WAHA_API_URL}/api/screenshot`, {
-            method: 'POST',
-            headers: getWahaHeaders(),
-            body: JSON.stringify({ session: sessionToCheck })
-          });
-          if (screenshotRes.ok) {
-            const screenshotData = await screenshotRes.json() as any;
-            if (screenshotData.mimetype && screenshotData.data) {
-              res.json({ qr: `data:${screenshotData.mimetype};base64,${screenshotData.data}`, available: true });
-              return;
-            }
+          const r = await fetch(`${WAHA_API_URL}/api/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+          if (r.ok) {
+            const d = await r.json() as any;
+            if (d.mimetype && d.data) { qrData = `data:${d.mimetype};base64,${d.data}`; }
+            else if (d.value) { qrData = d.value; }
           }
         } catch {}
-        res.json({ qr: null, available: false });
-        return;
       }
-      const d = await r.json() as any;
-      if (d.value) res.json({ qr: d.value.startsWith('data:') ? d.value : `data:image/png;base64,${d.value}`, available: true });
-      else if (d.mimetype && d.data) res.json({ qr: `data:${d.mimetype};base64,${d.data}`, available: true });
-      else res.json({ qr: null, available: false });
+
+      // 3. Fallback: ruta legacy /api/sessions/{session}/auth/qr
+      if (!qrData) {
+        try {
+          const r = await fetch(`${WAHA_API_URL}/api/sessions/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+          if (r.ok) {
+            const d = await r.json() as any;
+            if (d.value) { qrData = d.value; }
+            else if (d.mimetype && d.data) { qrData = `data:${d.mimetype};base64,${d.data}`; }
+          }
+        } catch {}
+      }
+
+      if (qrData) {
+        // Asegurar formato data URI para imágenes
+        const qr = qrData.startsWith('data:') ? qrData : `data:image/png;base64,${qrData}`;
+        res.json({ qr, available: true });
+      } else {
+        res.json({ qr: null, available: false });
+      }
     } catch { res.json({ qr: null, available: false }); }
   } catch { res.json({ qr: null, available: false }); }
 });

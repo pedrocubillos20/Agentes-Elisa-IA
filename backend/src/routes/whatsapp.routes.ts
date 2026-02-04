@@ -28,6 +28,7 @@ const messageBuffer: Map<string, {
   senderName: string;
   userId: string;
   convId: string;
+  whatsappLineId: string | null;
 }> = new Map();
 
 // ===== SESSION MANAGEMENT (multi-tenant) =====
@@ -419,16 +420,32 @@ const extractMediaInfo = (payload: any): { hasMedia: boolean; mediaType: string;
 };
 
 // ===== AI RESPONSE (🧠 MEMORIA PERSISTENTE + AUTO-APRENDIZAJE) =====
-const generateAIResponse = async (ownerId: string, message: string, conversationId: string): Promise<string | null> => {
+const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null): Promise<string | null> => {
   try {
     const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, apiKeyConnected: true } });
     if (!user?.apiKey || !user.apiKeyConnected) return null;
 
-    let assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true }, orderBy: { updatedAt: 'desc' } });
+    let assistant = null;
+
+    // 🔗 PRIMERO: Buscar asistente específico de esta línea
+    if (whatsappLineId) {
+      assistant = await prisma.assistant.findFirst({ 
+        where: { userId: ownerId, whatsappLineId: whatsappLineId } 
+      });
+      if (assistant) {
+        console.log(`📋 Asistente de LÍNEA "${assistant.name}" (lineId: ${whatsappLineId})`);
+      }
+    }
+
+    // 🔄 FALLBACK: Si no hay asistente de línea, usar el activo global
     if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId }, orderBy: { updatedAt: 'desc' } });
-      if (assistant) await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
-      else return null;
+      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true }, orderBy: { updatedAt: 'desc' } });
+      if (!assistant) {
+        assistant = await prisma.assistant.findFirst({ where: { userId: ownerId }, orderBy: { updatedAt: 'desc' } });
+        if (assistant) await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
+        else return null;
+      }
+      console.log(`📋 Asistente GLOBAL "${assistant.name}" (sin asistente específico de línea)`);
     }
 
     console.log(`📋 Asistente: "${assistant.name}" (contexto: ${assistant.context?.length || 0} chars)`);
@@ -653,13 +670,21 @@ const processBufferedMessages = async (bufferKey: string) => {
   if (!buf) return;
   messageBuffer.delete(bufferKey);
 
-  const { messages: msgs, sessionName, from, senderName, userId, convId } = buf;
+  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
   const combinedMessage = msgs.join('\n');
 
-  console.log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..."`);
+  console.log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
 
   try {
-    const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    // 🔗 Buscar asistente específico de la línea primero
+    let assistant = null;
+    if (whatsappLineId) {
+      assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId } });
+    }
+    if (!assistant) {
+      assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    }
+    
     const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
     const mediaItems = (assistant?.mediaItems as any[]) || [];
     const matchedMedia = findMediaTrigger(combinedMessage, mediaItems);
@@ -673,7 +698,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     if (matchedMedia) {
       console.log(`📎 Trigger multimedia: "${matchedMedia.name}"`);
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -696,7 +721,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -1488,7 +1513,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
       console.log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
     } else {
       // Primer mensaje → crear buffer, mostrar typing inmediato
-      const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { voiceEnabled: true, elevenLabsKey: true, selectedVoice: true } });
+      // Buscar asistente de la línea para verificar modo voz
+      let assistant = null;
+      if (whatsappLineId) {
+        assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId }, select: { voiceEnabled: true, elevenLabsKey: true, selectedVoice: true } });
+      }
+      if (!assistant) {
+        assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { voiceEnabled: true, elevenLabsKey: true, selectedVoice: true } });
+      }
       const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
 
       // Fire-and-forget: el usuario ve "escribiendo..." mientras espera
@@ -1506,7 +1538,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
         from,
         senderName,
         userId,
-        convId: conv.id
+        convId: conv.id,
+        whatsappLineId
       });
       console.log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
     }

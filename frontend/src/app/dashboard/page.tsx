@@ -135,10 +135,16 @@ export default function DashboardPage() {
   const [whatsappStatus, setWhatsappStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // === WORKSPACE: leer línea seleccionada ===
+  const getLineId = () => localStorage.getItem('selectedLineId') || '';
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    // Escuchar cambios de línea desde el sidebar
+    const onLineChanged = () => { setLoading(true); fetchData(); };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => { clearInterval(interval); window.removeEventListener('lineChanged', onLineChanged); };
   }, []);
 
   const fetchData = async () => {
@@ -150,7 +156,7 @@ export default function DashboardPage() {
       const [userRes, whatsappRes, dashRes] = await Promise.all([
         fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/whatsapp/status`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
-        fetch(`${API_URL}/api/conversations/dashboard`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
+        fetch(`${API_URL}/api/conversations/dashboard?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
       ]);
 
       if (userRes.ok) setUser((await userRes.json()).user);

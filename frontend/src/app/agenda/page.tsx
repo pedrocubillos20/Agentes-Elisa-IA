@@ -19,8 +19,14 @@ export default function AgendaPage() {
     notes: '', address: '', products: '', total: ''
   });
 
+  // === WORKSPACE: leer línea seleccionada ===
+  const getLineId = () => localStorage.getItem('selectedLineId') || '';
+
   useEffect(() => {
     fetchAppointments();
+    const onLineChanged = () => { setLoading(true); fetchAppointments(); };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
 
   const fetchAppointments = async () => {
@@ -28,7 +34,7 @@ export default function AgendaPage() {
     if (!token) return;
 
     try {
-      const res = await fetch(`${API_URL}/api/appointments`, {
+      const res = await fetch(`${API_URL}/api/appointments?lineId=${getLineId()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) setAppointments((await res.json()).appointments || []);
@@ -52,7 +58,8 @@ export default function AgendaPage() {
           ...form,
           duration: parseInt(form.duration) || 30,
           total: parseFloat(form.total) || null,
-          products: form.products ? JSON.parse(`[${form.products}]`) : null
+          products: form.products ? JSON.parse(`[${form.products}]`) : null,
+          lineId: getLineId()
         })
       });
 

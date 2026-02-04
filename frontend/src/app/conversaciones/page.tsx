@@ -48,6 +48,9 @@ export default function ConversacionesPage() {
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
 
+  // === WORKSPACE: leer línea seleccionada ===
+  const getLineId = () => localStorage.getItem('selectedLineId') || '';
+
   // Modales
   const [showAddClient, setShowAddClient] = useState(false);
   const [showCreateOrder, setShowCreateOrder] = useState(false);
@@ -76,6 +79,10 @@ export default function ConversacionesPage() {
   // Carga inicial
   useEffect(() => {
     fetchData();
+    // Escuchar cambios de línea
+    const onLineChanged = () => { setSelectedConv(null); setMessages([]); setLoading(true); fetchData(); };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
 
   // ===== AUTO-REFRESH cada 5 segundos =====
@@ -85,7 +92,8 @@ export default function ConversacionesPage() {
       if (!token) return;
       try {
         // Refresh conversaciones
-        const convRes = await fetch(`${API_URL}/api/conversations`, {
+        const lineId = localStorage.getItem('selectedLineId') || '';
+        const convRes = await fetch(`${API_URL}/api/conversations?lineId=${lineId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (convRes.ok) {
@@ -135,10 +143,11 @@ export default function ConversacionesPage() {
     if (!token) return;
 
     try {
+      const lineId = getLineId();
       const [convRes, prodRes, clientRes] = await Promise.all([
-        fetch(`${API_URL}/api/conversations`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/products`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
-        fetch(`${API_URL}/api/clients`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/products?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`${API_URL}/api/clients?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
       ]);
 
       if (convRes.ok) setConversations((await convRes.json()).conversations || []);

@@ -37,14 +37,22 @@ export default function AsistentesPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
 
-  useEffect(() => { fetchAssistant(); }, []);
+  // === WORKSPACE: leer línea seleccionada ===
+  const getLineId = () => localStorage.getItem('selectedLineId') || '';
+
+  useEffect(() => {
+    fetchAssistant();
+    const onLineChanged = () => { setLoading(true); fetchAssistant(); };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => window.removeEventListener('lineChanged', onLineChanged);
+  }, []);
 
   const fetchAssistant = async () => {
     const token = localStorage.getItem('token');
     if (!token) { setLoading(false); return; }
 
     try {
-      const res = await fetch(`${API_URL}/api/assistants`, {
+      const res = await fetch(`${API_URL}/api/assistants?lineId=${getLineId()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
@@ -97,7 +105,8 @@ export default function AsistentesPage() {
           voiceEnabled,
           autoLearn,
           learningHistory,
-          isActive: true
+          isActive: true,
+          lineId: getLineId()
         })
       });
 

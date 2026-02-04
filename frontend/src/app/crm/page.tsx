@@ -18,8 +18,14 @@ export default function CRMPage() {
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', address: '', status: 'lead', tags: '', notes: '' });
   const [productForm, setProductForm] = useState({ name: '', description: '', price: '', stock: '', category: '' });
 
+  // === WORKSPACE: leer línea seleccionada ===
+  const getLineId = () => localStorage.getItem('selectedLineId') || '';
+
   useEffect(() => {
     fetchData();
+    const onLineChanged = () => { setLoading(true); fetchData(); };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
 
   const fetchData = async () => {
@@ -28,8 +34,8 @@ export default function CRMPage() {
 
     try {
       const [clientsRes, productsRes] = await Promise.all([
-        fetch(`${API_URL}/api/clients`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
-        fetch(`${API_URL}/api/products`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
+        fetch(`${API_URL}/api/clients?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
+        fetch(`${API_URL}/api/products?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
       ]);
 
       if (clientsRes?.ok) setClients((await clientsRes.json()).clients || []);
@@ -52,7 +58,8 @@ export default function CRMPage() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...clientForm,
-          tags: clientForm.tags ? clientForm.tags.split(',').map(t => t.trim()) : []
+          tags: clientForm.tags ? clientForm.tags.split(',').map(t => t.trim()) : [],
+          lineId: getLineId()
         })
       });
 

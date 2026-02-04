@@ -594,7 +594,48 @@ export default function ConversacionesPage() {
                 {messages.map((msg, index) => (
                   <div key={msg.id || index} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`bubble ${msg.fromMe ? 'bubble-outgoing' : 'bubble-incoming'}`}>
-                      {msg.content}
+                      {/* 🖼️ Imagen */}
+                      {msg.mediaType === 'image' && msg.mediaUrl && (
+                        <div className="mb-2">
+                          <img 
+                            src={msg.mediaUrl.startsWith('http') ? `${API_URL}/api/whatsapp/media/${msg.mediaUrl.split('/api/')[1]?.replace('/messages/', '/').replace('/download', '')}` : msg.mediaUrl}
+                            alt="Imagen" 
+                            className="max-w-[240px] max-h-[240px] rounded-lg object-cover cursor-pointer hover:opacity-90 transition-all"
+                            onClick={() => window.open(msg.mediaUrl.startsWith('http') ? `${API_URL}/api/whatsapp/media/${msg.mediaUrl.split('/api/')[1]?.replace('/messages/', '/').replace('/download', '')}` : msg.mediaUrl, '_blank')}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                      {/* 🏷️ Sticker */}
+                      {msg.mediaType === 'sticker' && msg.mediaUrl && (
+                        <div className="mb-2">
+                          <img 
+                            src={msg.mediaUrl.startsWith('http') ? `${API_URL}/api/whatsapp/media/${msg.mediaUrl.split('/api/')[1]?.replace('/messages/', '/').replace('/download', '')}` : msg.mediaUrl}
+                            alt="Sticker" 
+                            className="max-w-[120px] max-h-[120px]"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        </div>
+                      )}
+                      {/* 🎤 Audio */}
+                      {msg.mediaType === 'audio' && (
+                        <div className="flex items-center gap-2 mb-1 px-2 py-1 rounded-lg bg-white/10">
+                          <span className="text-lg">🎤</span>
+                          <div className="flex-1">
+                            <div className="flex gap-0.5">
+                              {[...Array(20)].map((_, i) => (
+                                <div key={i} className={`w-1 rounded-full ${msg.fromMe ? 'bg-white/40' : 'bg-[var(--accent-primary)]/40'}`} 
+                                  style={{ height: `${Math.random() * 16 + 4}px` }} />
+                              ))}
+                            </div>
+                          </div>
+                          <span className="text-xs opacity-60">audio</span>
+                        </div>
+                      )}
+                      {/* 📎 Contenido texto */}
+                      {msg.content && !msg.content.startsWith('📷 [Imagen') && (
+                        <span>{msg.content}</span>
+                      )}
                       <div className={`text-xs mt-1 ${msg.fromMe ? 'text-white/70' : 'text-[var(--text-muted)]'}`}>
                         {new Date(msg.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
                       </div>

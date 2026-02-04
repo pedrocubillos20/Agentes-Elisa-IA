@@ -7,13 +7,28 @@ import {
   Filter, Users, Package, Clock, DollarSign, AlertCircle,
   Megaphone, RefreshCw, MoreVertical, Edit2, Trash2,
   UserPlus, CalendarPlus, ArrowRight, Star, Eye, 
-  CheckCircle, XCircle, PauseCircle, PlayCircle
+  CheckCircle, XCircle, PauseCircle, PlayCircle,
+  Settings, GripVertical, Palette
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-// Etiquetas del embudo de ventas
-const FUNNEL_STAGES = [
+// Colores disponibles para etapas
+const STAGE_COLORS = [
+  { id: 'blue', label: 'Azul', bg: 'bg-blue-500/20 text-blue-400 border-blue-500/30', dot: 'bg-blue-400' },
+  { id: 'cyan', label: 'Cyan', bg: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30', dot: 'bg-cyan-400' },
+  { id: 'green', label: 'Verde', bg: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', dot: 'bg-emerald-400' },
+  { id: 'yellow', label: 'Amarillo', bg: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', dot: 'bg-yellow-400' },
+  { id: 'orange', label: 'Naranja', bg: 'bg-orange-500/20 text-orange-400 border-orange-500/30', dot: 'bg-orange-400' },
+  { id: 'red', label: 'Rojo', bg: 'bg-red-500/20 text-red-400 border-red-500/30', dot: 'bg-red-400' },
+  { id: 'purple', label: 'Morado', bg: 'bg-purple-500/20 text-purple-400 border-purple-500/30', dot: 'bg-purple-400' },
+  { id: 'pink', label: 'Rosa', bg: 'bg-pink-500/20 text-pink-400 border-pink-500/30', dot: 'bg-pink-400' },
+  { id: 'indigo', label: 'Índigo', bg: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', dot: 'bg-indigo-400' },
+  { id: 'teal', label: 'Teal', bg: 'bg-teal-500/20 text-teal-400 border-teal-500/30', dot: 'bg-teal-400' },
+];
+
+// Etapas por defecto
+const DEFAULT_STAGES = [
   { id: 'new', label: 'Nuevo', color: 'blue', description: 'Solo escribió/preguntó' },
   { id: 'interested', label: 'Interesado', color: 'cyan', description: 'Mostró interés en productos' },
   { id: 'quoting', label: 'En Cotización', color: 'yellow', description: 'Pidiendo precios/info' },
@@ -24,18 +39,9 @@ const FUNNEL_STAGES = [
   { id: 'lost', label: 'Perdido', color: 'red', description: 'No compró' },
 ];
 
-const getStageColor = (stageId: string) => {
-  const colors: any = {
-    new: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-    interested: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-    quoting: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    negotiating: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-    pending_confirm: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-    converted: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-    follow_up: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
-    lost: 'bg-red-500/20 text-red-400 border-red-500/30',
-  };
-  return colors[stageId] || colors.new;
+const getStageColorClass = (colorId: string) => {
+  const found = STAGE_COLORS.find(c => c.id === colorId);
+  return found?.bg || STAGE_COLORS[0].bg;
 };
 
 export default function ConversacionesPage() {
@@ -47,6 +53,18 @@ export default function ConversacionesPage() {
   const [filterStage, setFilterStage] = useState('all');
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+
+  // === Custom Stages ===
+  const [funnelStages, setFunnelStages] = useState<any[]>(DEFAULT_STAGES);
+  const [showStageManager, setShowStageManager] = useState(false);
+  const [editingStage, setEditingStage] = useState<any>(null);
+  const [stageForm, setStageForm] = useState({ label: '', color: 'blue', description: '' });
+
+  // Helper: get color class for any stage
+  const getStageColor = (stageId: string) => {
+    const stage = funnelStages.find(s => s.id === stageId);
+    return getStageColorClass(stage?.color || 'blue');
+  };
 
   // === WORKSPACE: leer línea seleccionada ===
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
@@ -79,6 +97,7 @@ export default function ConversacionesPage() {
   // Carga inicial
   useEffect(() => {
     fetchData();
+    fetchStages();
     // Escuchar cambios de línea
     const onLineChanged = () => { setSelectedConv(null); setMessages([]); setLoading(true); fetchData(); };
     window.addEventListener('lineChanged', onLineChanged);
@@ -158,6 +177,78 @@ export default function ConversacionesPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ===== CUSTOM STAGES MANAGEMENT =====
+  const fetchStages = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/stages`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.stages && data.stages.length > 0) {
+          setFunnelStages(data.stages);
+        }
+      }
+    } catch {}
+  };
+
+  const saveStages = async (stages: any[]) => {
+    const token = localStorage.getItem('token');
+    try {
+      await fetch(`${API_URL}/api/stages`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stages })
+      });
+      setFunnelStages(stages);
+    } catch (error) {
+      console.error('Error saving stages:', error);
+    }
+  };
+
+  const handleAddStage = () => {
+    if (!stageForm.label.trim()) return;
+    const newId = stageForm.label.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '_' + Date.now();
+    const newStage = { id: newId, label: stageForm.label, color: stageForm.color, description: stageForm.description };
+    const updated = [...funnelStages, newStage];
+    saveStages(updated);
+    setStageForm({ label: '', color: 'blue', description: '' });
+  };
+
+  const handleEditStage = (stage: any) => {
+    setEditingStage(stage);
+    setStageForm({ label: stage.label, color: stage.color, description: stage.description || '' });
+  };
+
+  const handleUpdateStage = () => {
+    if (!editingStage || !stageForm.label.trim()) return;
+    const updated = funnelStages.map(s =>
+      s.id === editingStage.id ? { ...s, label: stageForm.label, color: stageForm.color, description: stageForm.description } : s
+    );
+    saveStages(updated);
+    setEditingStage(null);
+    setStageForm({ label: '', color: 'blue', description: '' });
+  };
+
+  const handleDeleteStage = (stageId: string) => {
+    if (!confirm('¿Eliminar esta etapa? Las conversaciones en esta etapa quedarán sin etapa.')) return;
+    const updated = funnelStages.filter(s => s.id !== stageId);
+    saveStages(updated);
+  };
+
+  const moveStage = (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= funnelStages.length) return;
+    const updated = [...funnelStages];
+    [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
+    saveStages(updated);
+  };
+
+  const handleResetStages = () => {
+    if (!confirm('¿Restaurar las etapas por defecto? Se perderán las etapas personalizadas.')) return;
+    saveStages(DEFAULT_STAGES);
   };
 
   const fetchMessages = async (id: string) => {
@@ -364,7 +455,7 @@ export default function ConversacionesPage() {
     return matchSearch && matchStage;
   });
 
-  const stageStats = FUNNEL_STAGES.map(stage => ({
+  const stageStats = funnelStages.map(stage => ({
     ...stage,
     count: conversations.filter(c => c.stage === stage.id).length
   }));
@@ -399,7 +490,7 @@ export default function ConversacionesPage() {
       </div>
 
       {/* Embudo Stats */}
-      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center">
         <button
           onClick={() => setFilterStage('all')}
           className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
@@ -419,6 +510,11 @@ export default function ConversacionesPage() {
             {stage.label} ({stage.count})
           </button>
         ))}
+        <button onClick={() => setShowStageManager(true)} 
+          className="ml-auto p-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--accent-primary)] transition-all flex-shrink-0"
+          title="Personalizar etapas">
+          <Settings className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Main Content */}
@@ -449,7 +545,7 @@ export default function ConversacionesPage() {
                     <p className="text-sm text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
                     {conv.stage && (
                       <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs border ${getStageColor(conv.stage)}`}>
-                        {FUNNEL_STAGES.find(s => s.id === conv.stage)?.label}
+                        {funnelStages.find(s => s.id === conv.stage)?.label}
                       </span>
                     )}
                   </div>
@@ -481,7 +577,7 @@ export default function ConversacionesPage() {
                 <div className="flex items-center gap-2">
                   <button onClick={() => setShowStageSelector(true)}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${getStageColor(selectedConv.stage || 'new')}`}>
-                    {FUNNEL_STAGES.find(s => s.id === selectedConv.stage)?.label || 'Nuevo'}
+                    {funnelStages.find(s => s.id === selectedConv.stage)?.label || 'Nuevo'}
                     <ChevronRight className="w-4 h-4 inline ml-1" />
                   </button>
                   <button onClick={toggleAIPause}
@@ -557,10 +653,10 @@ export default function ConversacionesPage() {
             <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]">
               <p className="text-xs text-[var(--text-muted)] mb-2">Etapa del embudo</p>
               <div className={`px-3 py-2 rounded-lg text-sm font-medium border ${getStageColor(selectedConv.stage || 'new')}`}>
-                {FUNNEL_STAGES.find(s => s.id === selectedConv.stage)?.label || 'Nuevo'}
+                {funnelStages.find(s => s.id === selectedConv.stage)?.label || 'Nuevo'}
               </div>
               <p className="text-xs text-[var(--text-muted)] mt-2">
-                {FUNNEL_STAGES.find(s => s.id === selectedConv.stage)?.description}
+                {funnelStages.find(s => s.id === selectedConv.stage)?.description}
               </p>
             </div>
 
@@ -609,7 +705,7 @@ export default function ConversacionesPage() {
               <button onClick={() => setShowStageSelector(false)} className="btn-icon"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-2">
-              {FUNNEL_STAGES.map(stage => (
+              {funnelStages.map(stage => (
                 <button key={stage.id} onClick={() => updateConversationStage(selectedConv.id, stage.id)}
                   className={`w-full p-4 rounded-xl border transition-all text-left ${
                     selectedConv?.stage === stage.id ? getStageColor(stage.id) : 'bg-[var(--bg-tertiary)] border-[var(--border-primary)] hover:border-[var(--accent-primary)]'
@@ -752,7 +848,7 @@ export default function ConversacionesPage() {
               <div><label className="input-label">Etapa</label>
                 <select value={massMessageForm.stage} onChange={e => setMassMessageForm({...massMessageForm, stage: e.target.value})} className="input">
                   <option value="">-- Selecciona --</option>
-                  {FUNNEL_STAGES.map(stage => (
+                  {funnelStages.map(stage => (
                     <option key={stage.id} value={stage.id}>{stage.label} ({conversations.filter(c => c.stage === stage.id).length})</option>
                   ))}
                 </select>
@@ -764,6 +860,109 @@ export default function ConversacionesPage() {
                 <Megaphone className="w-4 h-4" />Enviar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MODAL: Gestionar Etapas ===== */}
+      {showStageManager && (
+        <div className="modal-overlay" onClick={() => { setShowStageManager(false); setEditingStage(null); setStageForm({ label: '', color: 'blue', description: '' }); }}>
+          <div className="modal-content max-w-lg max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                  <Tag className="w-5 h-5 text-[var(--accent-primary)]" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Personalizar Etapas</h3>
+                  <p className="text-xs text-[var(--text-muted)]">Agrega, edita o elimina etapas del embudo</p>
+                </div>
+              </div>
+              <button onClick={() => { setShowStageManager(false); setEditingStage(null); }} className="btn-icon"><X className="w-5 h-5" /></button>
+            </div>
+
+            {/* Stage List */}
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4 pr-1">
+              {funnelStages.map((stage, index) => (
+                <div key={stage.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                  editingStage?.id === stage.id ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/5' : 'border-[var(--border-primary)] bg-[var(--bg-tertiary)]'
+                }`}>
+                  {/* Reorder buttons */}
+                  <div className="flex flex-col gap-0.5">
+                    <button onClick={() => moveStage(index, 'up')} disabled={index === 0}
+                      className="text-[var(--text-muted)] hover:text-white disabled:opacity-20 transition-all text-xs p-0.5">▲</button>
+                    <button onClick={() => moveStage(index, 'down')} disabled={index === funnelStages.length - 1}
+                      className="text-[var(--text-muted)] hover:text-white disabled:opacity-20 transition-all text-xs p-0.5">▼</button>
+                  </div>
+                  {/* Color dot */}
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${STAGE_COLORS.find(c => c.id === stage.color)?.dot || 'bg-blue-400'}`} />
+                  {/* Label */}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-white text-sm truncate">{stage.label}</div>
+                    {stage.description && <div className="text-xs text-[var(--text-muted)] truncate">{stage.description}</div>}
+                  </div>
+                  {/* Count */}
+                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">
+                    {conversations.filter(c => c.stage === stage.id).length}
+                  </span>
+                  {/* Actions */}
+                  <button onClick={() => handleEditStage(stage)} className="p-1.5 rounded-lg hover:bg-[var(--bg-primary)] text-[var(--text-muted)] hover:text-[var(--accent-primary)] transition-all">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => handleDeleteStage(stage.id)} className="p-1.5 rounded-lg hover:bg-red-500/10 text-[var(--text-muted)] hover:text-red-400 transition-all">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Add/Edit Form */}
+            <div className="flex-shrink-0 p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)] space-y-3">
+              <div className="text-sm font-semibold text-white">
+                {editingStage ? `✏️ Editando: ${editingStage.label}` : '➕ Nueva Etapa'}
+              </div>
+              <div className="flex gap-2">
+                <input type="text" placeholder="Nombre de la etapa" value={stageForm.label}
+                  onChange={e => setStageForm({...stageForm, label: e.target.value})}
+                  className="input flex-1 text-sm py-2"
+                  onKeyDown={e => e.key === 'Enter' && (editingStage ? handleUpdateStage() : handleAddStage())} />
+              </div>
+              <input type="text" placeholder="Descripción (opcional)" value={stageForm.description}
+                onChange={e => setStageForm({...stageForm, description: e.target.value})}
+                className="input text-sm py-2 w-full" />
+              {/* Color Picker */}
+              <div className="flex gap-1.5 flex-wrap">
+                {STAGE_COLORS.map(color => (
+                  <button key={color.id} onClick={() => setStageForm({...stageForm, color: color.id})}
+                    className={`w-7 h-7 rounded-lg ${color.dot} transition-all ${
+                      stageForm.color === color.id ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-110' : 'opacity-60 hover:opacity-100'
+                    }`}
+                    title={color.label} />
+                ))}
+              </div>
+              {/* Buttons */}
+              <div className="flex gap-2">
+                {editingStage ? (
+                  <>
+                    <button onClick={handleUpdateStage} className="btn-primary flex-1 text-sm py-2">
+                      <Check className="w-4 h-4" />Guardar
+                    </button>
+                    <button onClick={() => { setEditingStage(null); setStageForm({ label: '', color: 'blue', description: '' }); }} 
+                      className="btn-secondary text-sm py-2">Cancelar</button>
+                  </>
+                ) : (
+                  <button onClick={handleAddStage} disabled={!stageForm.label.trim()} className="btn-primary flex-1 text-sm py-2">
+                    <Plus className="w-4 h-4" />Agregar Etapa
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Reset to defaults */}
+            <button onClick={handleResetStages} className="mt-3 text-xs text-[var(--text-muted)] hover:text-red-400 transition-all text-center w-full">
+              Restaurar etapas por defecto
+            </button>
           </div>
         </div>
       )}

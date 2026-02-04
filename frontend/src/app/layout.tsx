@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [selectedLine, setSelectedLine] = useState<any>(null);
   const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
 
-  const isAuthPage = pathname === '/login' || pathname === '/register';
+  const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
   const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo'];
   const isGlobalPage = globalPages.some(p => pathname === p || pathname.startsWith(p + '/'));
 

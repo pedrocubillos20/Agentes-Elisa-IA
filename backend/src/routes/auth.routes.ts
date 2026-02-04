@@ -25,7 +25,7 @@ const sendEmail = async (to: string, subject: string, html: string): Promise<boo
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'Elisa IA <noreply@elisaia.com>',
+        from: 'Elisa IA <onboarding@resend.dev>',
         to: [to],
         subject,
         html

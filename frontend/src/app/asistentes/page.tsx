@@ -57,9 +57,10 @@ export default function AsistentesPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        // Handle both singular and plural response formats
         const active = data.assistant || data.assistants?.find((a: any) => a.isActive) || data.assistants?.[0];
+        
         if (active) {
+          // Cargar datos del asistente existente
           setContext(active.context || '');
           setKnowledgeItems(
             Array.isArray(active.knowledgeItems) ? active.knowledgeItems : 
@@ -77,6 +78,16 @@ export default function AsistentesPage() {
             Array.isArray(active.learningHistory) ? active.learningHistory :
             typeof active.learningHistory === 'string' ? JSON.parse(active.learningHistory || '[]') : []
           );
+        } else {
+          // ✅ Línea nueva sin asistente: limpiar TODO
+          setContext('');
+          setKnowledgeItems([]);
+          setMediaItems([]);
+          setElevenLabsKey('');
+          setSelectedVoice('');
+          setVoiceEnabled(false);
+          setAutoLearn(true);
+          setLearningHistory([]);
         }
       }
     } catch (error) {

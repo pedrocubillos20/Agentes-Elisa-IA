@@ -17,16 +17,16 @@ model User {
   apiKeyConnected Boolean        @default(false)
   
   // === TEAM / SUB-USERS ===
-  role            String         @default("admin")   // admin, manager, agent, support, viewer
-  parentUserId    String?                             // null = dueño principal, con valor = sub-usuario
+  role            String         @default("admin")
+  parentUserId    String?
   permissions     Json           @default("{\"dashboard\":true,\"conversations\":true,\"crm\":true,\"agenda\":true,\"assistants\":true,\"whatsapp\":true,\"config\":true,\"team\":true,\"products\":true}")
   invitedBy       String?
   isActive        Boolean        @default(true)
   
   // === SUBSCRIPTION ===
-  plan            String         @default("trial")    // trial, starter, business
-  trialEndsAt     DateTime?                            // Fecha fin trial (20 días desde registro)
-  subscriptionId  String?                              // ID suscripción activa
+  plan            String         @default("trial")
+  trialEndsAt     DateTime?
+  subscriptionId  String?
   
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -38,9 +38,36 @@ model User {
   appointments    Appointment[]
   subscription    Subscription?
   payments        Payment[]
+  whatsappLines   WhatsappLine[]
 
   @@index([parentUserId])
   @@index([role])
+}
+
+// ===== MULTI-LÍNEA WHATSAPP =====
+model WhatsappLine {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  label           String    @default("Principal")
+  phone           String?
+  sessionName     String    @unique
+  status          String    @default("disconnected")
+  
+  assignedTo      String?
+  assignedName    String?
+  assistantId     String?
+  
+  isDefault       Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([sessionName])
+  @@index([status])
 }
 
 model Assistant {
@@ -68,11 +95,14 @@ model Assistant {
   temperature     Float     @default(0.7)
   maxTokens       Int       @default(500)
   
+  whatsappLineId  String?
+  
   isActive        Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model Conversation {
@@ -82,9 +112,10 @@ model Conversation {
   lastMessage   String?
   aiPaused      Boolean   @default(false)
   stage         String    @default("new")
-  assignedTo    String?                      // userId del vendedor/soporte asignado
-  assignedName  String?                      // Nombre visible del asignado
-  contextData   Json?                        // 🧠 Memoria persistente: nombre, talla, color, etc.
+  assignedTo    String?
+  assignedName  String?
+  contextData   Json?
+  whatsappLineId String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -95,6 +126,7 @@ model Conversation {
   @@index([recipientId])
   @@index([userId, stage])
   @@index([assignedTo])
+  @@index([whatsappLineId])
 }
 
 model Message {
@@ -140,6 +172,7 @@ model Client {
   status         String        @default("lead")
   totalPurchases Float         @default(0)
   lastContact    DateTime?
+  preferredLineId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -178,19 +211,19 @@ model Subscription {
   userId        String    @unique
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  plan          String                          // starter, business
-  period        String    @default("monthly")   // monthly, semiannual, annual
-  status        String    @default("active")    // active, cancelled, expired, past_due
+  plan          String
+  period        String    @default("monthly")
+  status        String    @default("active")
   
-  priceUsd      Float                           // Precio en USD
-  priceCop      Float                           // Precio en COP (al momento del pago)
+  priceUsd      Float
+  priceCop      Float
   
   currentPeriodStart  DateTime
   currentPeriodEnd    DateTime
   cancelledAt         DateTime?
   
-  wompiSubscriptionId String?                   // ID de suscripción en Wompi
-  wompiTransactionId  String?                   // Último transaction ID
+  wompiSubscriptionId String?
+  wompiTransactionId  String?
   
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -203,18 +236,18 @@ model Payment {
   userId          String
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  type            String                          // subscription, upgrade, renewal
-  plan            String                          // starter, business
-  period          String                          // monthly, semiannual, annual
+  type            String
+  plan            String
+  period          String
   
-  amountUsd       Float                           // Monto en USD
-  amountCop       Float                           // Monto en COP
-  exchangeRate    Float                           // Tasa USD→COP usada
-  cardSurcharge   Float    @default(0)            // Recargo 5% tarjeta
-  totalCop        Float                           // Total final en COP
+  amountUsd       Float
+  amountCop       Float
+  exchangeRate    Float
+  cardSurcharge   Float    @default(0)
+  totalCop        Float
   
-  status          String   @default("pending")    // pending, approved, declined, voided, error
-  method          String?                         // CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER
+  status          String   @default("pending")
+  method          String?
   
   wompiTransactionId  String?   @unique
   wompiReference      String?

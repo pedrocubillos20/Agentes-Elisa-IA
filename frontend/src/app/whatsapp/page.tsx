@@ -1,122 +1,184 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Smartphone, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, QrCode } from 'lucide-react';
+import { 
+  Smartphone, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, QrCode,
+  Plus, Trash2, Edit2, X, Crown, Lock, Users, Bot, Phone, Signal
+} from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function WhatsAppPage() {
-  const [status, setStatus] = useState<any>(null);
-  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [lines, setLines] = useState<any[]>([]);
+  const [assistants, setAssistants] = useState<any[]>([]);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState(false);
-  const [qrLoading, setQrLoading] = useState(false);
+
+  // QR + Connect state per line
+  const [connectingLineId, setConnectingLineId] = useState<string | null>(null);
+  const [qrData, setQrData] = useState<Record<string, string>>({});
+  const [qrLoading, setQrLoading] = useState<Record<string, boolean>>({});
+
+  // Modal
+  const [showModal, setShowModal] = useState(false);
+  const [editingLine, setEditingLine] = useState<any>(null);
+  const [lineForm, setLineForm] = useState({ label: '', assignedTo: '', assistantId: '' });
+
+  // Plan limits
+  const plan = user?.plan || 'trial';
+  const features = user?.planFeatures || {};
+  const maxLines = features.maxWhatsappLines || 3;
+  const isBusiness = plan === 'business';
+  const canAddMore = isBusiness || lines.length < maxLines;
 
   useEffect(() => {
-    checkStatus();
-    const interval = setInterval(checkStatus, 5000);
+    loadAll();
+    const interval = setInterval(refreshLines, 8000);
     return () => clearInterval(interval);
   }, []);
 
-  // Efecto para obtener QR automáticamente cuando el status es 'qr'
-  useEffect(() => {
-    if (status?.status === 'qr' || status?.hasQR) {
-      getQR();
-    }
-  }, [status]);
+  const getToken = () => localStorage.getItem('token') || '';
+  const headers = () => ({ 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
 
-  const checkStatus = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+  const loadAll = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/status`, { 
-        headers: { 'Authorization': `Bearer ${token}` } 
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data);
-        if (data.connected) {
-          setQrCode(null);
-        }
+      const [userRes, linesRes, assistRes, teamRes] = await Promise.all([
+        fetch(`${API_URL}/api/auth/me`, { headers: headers() }),
+        fetch(`${API_URL}/api/whatsapp/lines`, { headers: headers() }),
+        fetch(`${API_URL}/api/assistants`, { headers: headers() }),
+        fetch(`${API_URL}/api/team`, { headers: headers() }).catch(() => null),
+      ]);
+
+      if (userRes.ok) setUser((await userRes.json()).user);
+      if (linesRes.ok) {
+        const data = await linesRes.json();
+        setLines(data.lines || []);
       }
-    } catch (error) { 
-      console.error('Error:', error); 
-    } finally { 
-      setLoading(false); 
-    }
+      if (assistRes.ok) {
+        const data = await assistRes.json();
+        // Handle both single and array
+        if (data.assistant) setAssistants([data.assistant]);
+        else if (data.assistants) setAssistants(data.assistants);
+      }
+      if (teamRes?.ok) {
+        const data = await teamRes.json();
+        setTeamMembers(data.members || []);
+      }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
-  const connect = async () => {
-    setConnecting(true);
-    const token = localStorage.getItem('token');
+  const refreshLines = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/connect`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const res = await fetch(`${API_URL}/api/whatsapp/lines`, { headers: headers() });
+      if (res.ok) {
+        const data = await res.json();
+        setLines(data.lines || []);
+      }
+    } catch {}
+  };
+
+  // ===== CRUD Lines =====
+  const handleSaveLine = async () => {
+    try {
+      const url = editingLine 
+        ? `${API_URL}/api/whatsapp/lines/${editingLine.id}`
+        : `${API_URL}/api/whatsapp/lines`;
+      const method = editingLine ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method, headers: headers(),
+        body: JSON.stringify(lineForm)
+      });
+
+      if (res.ok) {
+        await loadAll();
+        setShowModal(false);
+        resetForm();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Error al guardar');
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDeleteLine = async (lineId: string) => {
+    if (!confirm('¿Eliminar esta línea? Se desconectará y se perderá la configuración.')) return;
+    try {
+      await fetch(`${API_URL}/api/whatsapp/lines/${lineId}`, { method: 'DELETE', headers: headers() });
+      await loadAll();
+    } catch (e) { console.error(e); }
+  };
+
+  const resetForm = () => {
+    setLineForm({ label: '', assignedTo: '', assistantId: '' });
+    setEditingLine(null);
+  };
+
+  const openEditLine = (line: any) => {
+    setEditingLine(line);
+    setLineForm({
+      label: line.label || '',
+      assignedTo: line.assignedTo || '',
+      assistantId: line.assistantId || ''
+    });
+    setShowModal(true);
+  };
+
+  // ===== Connect / Disconnect / QR =====
+  const connectLine = async (lineId: string) => {
+    setConnectingLineId(lineId);
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/lines/${lineId}/connect`, {
+        method: 'POST', headers: headers()
       });
       if (res.ok) {
-        // Esperar un poco para que se genere el QR
-        setTimeout(() => {
-          getQR();
-          checkStatus();
-        }, 3000);
-        
-        // Seguir intentando obtener el QR
+        // Wait for QR
+        setTimeout(() => getQR(lineId), 3000);
         const qrInterval = setInterval(async () => {
-          const hasQR = await getQR();
-          if (hasQR) {
-            clearInterval(qrInterval);
-          }
-        }, 2000);
-        
-        // Detener después de 30 segundos
+          const got = await getQR(lineId);
+          if (got) clearInterval(qrInterval);
+        }, 2500);
         setTimeout(() => clearInterval(qrInterval), 30000);
       }
-    } catch (error) { 
-      console.error('Error:', error); 
-    } finally { 
-      setConnecting(false); 
-    }
+    } catch (e) { console.error(e); }
+    finally { setConnectingLineId(null); }
   };
 
-  const disconnect = async () => {
-    if (!confirm('¿Desconectar WhatsApp?')) return;
-    const token = localStorage.getItem('token');
+  const disconnectLine = async (lineId: string) => {
+    if (!confirm('¿Desconectar esta línea de WhatsApp?')) return;
     try {
-      await fetch(`${API_URL}/api/whatsapp/disconnect`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+      await fetch(`${API_URL}/api/whatsapp/lines/${lineId}/disconnect`, {
+        method: 'POST', headers: headers()
       });
-      setQrCode(null);
-      checkStatus();
-    } catch (error) { 
-      console.error('Error:', error); 
-    }
+      setQrData(prev => { const n = {...prev}; delete n[lineId]; return n; });
+      await refreshLines();
+    } catch (e) { console.error(e); }
   };
 
-  const getQR = async (): Promise<boolean> => {
-    setQrLoading(true);
-    const token = localStorage.getItem('token');
+  const getQR = async (lineId: string): Promise<boolean> => {
+    setQrLoading(prev => ({...prev, [lineId]: true}));
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/qr`, { 
-        headers: { 'Authorization': `Bearer ${token}` } 
-      });
+      const res = await fetch(`${API_URL}/api/whatsapp/lines/${lineId}/qr`, { headers: headers() });
       if (res.ok) {
         const data = await res.json();
-        console.log('QR Response:', data); // Debug
-        
-        // El backend devuelve 'qr' no 'qrCode'
         if (data.qr) {
-          setQrCode(data.qr);
-          setQrLoading(false);
+          setQrData(prev => ({...prev, [lineId]: data.qr}));
+          setQrLoading(prev => ({...prev, [lineId]: false}));
           return true;
         }
       }
-    } catch (error) { 
-      console.error('Error:', error); 
-    }
-    setQrLoading(false);
+    } catch {}
+    setQrLoading(prev => ({...prev, [lineId]: false}));
     return false;
+  };
+
+  // ===== Status helpers =====
+  const statusBadge = (status: string) => {
+    if (status === 'connected') return <span className="badge badge-success"><CheckCircle className="w-3 h-3" />Conectado</span>;
+    if (status === 'connecting' || status === 'qr') return <span className="badge badge-warning"><RefreshCw className="w-3 h-3 animate-spin" />Conectando</span>;
+    return <span className="badge badge-danger"><XCircle className="w-3 h-3" />Desconectado</span>;
   };
 
   if (loading) {
@@ -128,100 +190,166 @@ export default function WhatsAppPage() {
     );
   }
 
+  const connectedLines = lines.filter(l => l.status === 'connected');
+
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl" />
-        <div>
-          <h1 className="text-3xl font-bold text-white">WhatsApp</h1>
-          <p className="text-[var(--text-muted)]">Conecta tu WhatsApp con Elisa IA</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl" />
+          <div>
+            <h1 className="text-3xl font-bold text-white">WhatsApp</h1>
+            <p className="text-[var(--text-muted)]">
+              Gestiona tus líneas de WhatsApp • {connectedLines.length} conectada{connectedLines.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-[var(--text-muted)]">
+            {lines.length}/{isBusiness ? '∞' : maxLines} líneas
+          </span>
+          <button
+            onClick={() => { resetForm(); setShowModal(true); }}
+            disabled={!canAddMore}
+            className={`btn-primary ${!canAddMore ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {canAddMore ? <Plus className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            Nueva Línea
+          </button>
         </div>
       </div>
 
-      {/* Status Card */}
-      <div className="card">
-        <div className="flex flex-col md:flex-row md:items-center gap-6">
-          <div className={`w-20 h-20 rounded-2xl flex items-center justify-center ${status?.connected ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-            {status?.connected ? <Wifi className="w-10 h-10 text-emerald-400" /> : <WifiOff className="w-10 h-10 text-red-400" />}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h2 className="text-xl font-semibold text-white">Estado de Conexión</h2>
-              <span className={`badge ${status?.connected ? 'badge-success' : 'badge-danger'}`}>
-                {status?.connected ? <><CheckCircle className="w-3 h-3" />Conectado</> : <><XCircle className="w-3 h-3" />Desconectado</>}
-              </span>
+      {/* Plan limit banner */}
+      {!canAddMore && !isBusiness && (
+        <div className="card p-5 border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+              <Crown className="w-6 h-6 text-amber-400" />
             </div>
-            {status?.connected ? (
-              <p className="text-[var(--text-muted)]">
-                Número conectado: <span className="text-white font-medium">+{status.phone || 'N/A'}</span>
+            <div className="flex-1">
+              <h3 className="text-white font-semibold">Límite de líneas alcanzado</h3>
+              <p className="text-sm text-gray-400">
+                Tu plan Starter permite hasta {maxLines} líneas. Actualiza a <span className="text-emerald-400 font-bold">Business</span> para líneas ilimitadas.
               </p>
-            ) : (
-              <p className="text-[var(--text-muted)]">Escanea el código QR para conectar tu WhatsApp</p>
-            )}
-          </div>
-          <div className="flex gap-3">
-            {status?.connected ? (
-              <button onClick={disconnect} className="btn-danger">
-                <XCircle className="w-4 h-4" />Desconectar
-              </button>
-            ) : (
-              <button onClick={connect} disabled={connecting} className="btn-primary">
-                {connecting ? <div className="loading-spinner w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
-                {connecting ? 'Conectando...' : 'Conectar'}
-              </button>
-            )}
+            </div>
+            <a href="/subscription" className="btn-primary flex-shrink-0">
+              <Crown className="w-4 h-4" /> Upgrade
+            </a>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* QR Code Section */}
-      {!status?.connected && (
-        <div className="card">
-          <div className="text-center">
-            <h3 className="text-lg font-semibold text-white mb-4">Escanea el Código QR</h3>
-            
-            {qrCode ? (
-              <div className="inline-block p-6 bg-white rounded-2xl mb-4">
-                <img 
-                  src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} 
-                  alt="QR Code" 
-                  className="w-64 h-64" 
-                />
-              </div>
-            ) : (
-              <div className="inline-flex flex-col items-center justify-center w-64 h-64 bg-[var(--bg-tertiary)] rounded-2xl mb-4">
-                {qrLoading ? (
-                  <>
-                    <div className="loading-spinner w-12 h-12 mb-4" />
-                    <p className="text-[var(--text-muted)] text-sm">Generando código QR...</p>
-                  </>
+      {/* Lines Grid */}
+      {lines.length === 0 ? (
+        <div className="card text-center py-16">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-emerald-500/20 flex items-center justify-center">
+            <Smartphone className="w-10 h-10 text-emerald-400" />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2">No tienes líneas de WhatsApp</h2>
+          <p className="text-gray-400 mb-6">Crea tu primera línea para conectar WhatsApp con Elisa IA</p>
+          <button onClick={() => { resetForm(); setLineForm({...lineForm, label: 'Principal'}); setShowModal(true); }} className="btn-primary mx-auto">
+            <Plus className="w-4 h-4" /> Crear Primera Línea
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {lines.map((line) => {
+            const isConnected = line.status === 'connected';
+            const isConnecting = connectingLineId === line.id;
+            const lineQR = qrData[line.id];
+            const lineQRLoading = qrLoading[line.id];
+            const lineAssistant = assistants.find(a => a.id === line.assistantId);
+
+            return (
+              <div key={line.id} className={`card border ${isConnected ? 'border-emerald-500/30' : 'border-[var(--border-primary)]'}`}>
+                {/* Line Header */}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isConnected ? 'bg-emerald-500/20' : 'bg-gray-500/20'}`}>
+                      {isConnected ? <Wifi className="w-6 h-6 text-emerald-400" /> : <WifiOff className="w-6 h-6 text-gray-500" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-lg font-bold text-white">{line.label}</h3>
+                        {line.isDefault && <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">PRINCIPAL</span>}
+                      </div>
+                      {line.phone ? (
+                        <p className="text-sm text-emerald-400 flex items-center gap-1">
+                          <Phone className="w-3 h-3" /> +{line.phone}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-gray-500">Sin número vinculado</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {statusBadge(line.status)}
+                    <div className="flex gap-1">
+                      <button onClick={() => openEditLine(line)} className="btn-icon"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => handleDeleteLine(line.id)} className="btn-icon text-red-400"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assigned Info */}
+                <div className="flex gap-4 mb-4 text-sm">
+                  <div className="flex items-center gap-1.5 text-gray-400">
+                    <Bot className="w-4 h-4" />
+                    <span>{lineAssistant?.name || 'Sin asistente'}</span>
+                  </div>
+                  {line.assignedName && (
+                    <div className="flex items-center gap-1.5 text-gray-400">
+                      <Users className="w-4 h-4" />
+                      <span>{line.assignedName}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                {isConnected ? (
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm">
+                      <Signal className="w-4 h-4" />
+                      Línea activa y respondiendo
+                    </div>
+                    <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
+                      <XCircle className="w-4 h-4" /> Desconectar
+                    </button>
+                  </div>
                 ) : (
-                  <>
-                    <QrCode className="w-16 h-16 text-[var(--text-muted)] mb-4" />
-                    <p className="text-[var(--text-muted)] text-sm">Haz clic en "Conectar" para generar el QR</p>
-                  </>
+                  <div>
+                    {/* QR Section */}
+                    {lineQR ? (
+                      <div className="text-center">
+                        <div className="inline-block p-4 bg-white rounded-xl mb-3">
+                          <img 
+                            src={lineQR.startsWith('data:') ? lineQR : `data:image/png;base64,${lineQR}`}
+                            alt="QR Code" className="w-48 h-48" 
+                          />
+                        </div>
+                        <p className="text-sm text-gray-400 mb-3">Escanea con WhatsApp → Dispositivos vinculados</p>
+                        <div className="flex justify-center gap-2">
+                          <button onClick={() => getQR(line.id)} disabled={lineQRLoading} className="btn-secondary text-sm">
+                            <RefreshCw className={`w-4 h-4 ${lineQRLoading ? 'animate-spin' : ''}`} /> Actualizar QR
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => connectLine(line.id)} 
+                        disabled={isConnecting}
+                        className="btn-primary w-full"
+                      >
+                        {isConnecting ? <div className="loading-spinner w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
+                        {isConnecting ? 'Conectando...' : 'Conectar WhatsApp'}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-
-            <div className="flex justify-center gap-3">
-              <button onClick={getQR} disabled={qrLoading} className="btn-secondary">
-                <RefreshCw className={`w-4 h-4 ${qrLoading ? 'animate-spin' : ''}`} />
-                {qrLoading ? 'Cargando...' : 'Actualizar QR'}
-              </button>
-            </div>
-
-            <div className="mt-6 p-4 bg-[var(--bg-tertiary)] rounded-xl text-left">
-              <h4 className="font-semibold text-white mb-2">Instrucciones:</h4>
-              <ol className="text-sm text-[var(--text-muted)] space-y-2">
-                <li>1. Abre WhatsApp en tu teléfono</li>
-                <li>2. Ve a <strong className="text-white">Configuración → Dispositivos vinculados</strong></li>
-                <li>3. Toca <strong className="text-white">"Vincular un dispositivo"</strong></li>
-                <li>4. Escanea este código QR</li>
-              </ol>
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
 
@@ -236,19 +364,85 @@ export default function WhatsAppPage() {
         </div>
         <div className="card text-center">
           <div className="w-14 h-14 rounded-xl bg-blue-500/20 flex items-center justify-center mx-auto mb-4">
-            <MessageSquare className="w-7 h-7 text-blue-400" />
+            <Phone className="w-7 h-7 text-blue-400" />
           </div>
-          <h3 className="font-semibold text-white mb-2">Multi-conversación</h3>
-          <p className="text-sm text-[var(--text-muted)]">Gestiona múltiples chats simultáneamente</p>
+          <h3 className="font-semibold text-white mb-2">Multi-Línea</h3>
+          <p className="text-sm text-[var(--text-muted)]">
+            {isBusiness ? 'Líneas ilimitadas para tu equipo' : `Hasta ${maxLines} líneas en tu plan`}
+          </p>
         </div>
         <div className="card text-center">
           <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
-            <Smartphone className="w-7 h-7 text-purple-400" />
+            <Bot className="w-7 h-7 text-purple-400" />
           </div>
-          <h3 className="font-semibold text-white mb-2">Sin app extra</h3>
-          <p className="text-sm text-[var(--text-muted)]">Usa tu WhatsApp normal, sin instalar nada más</p>
+          <h3 className="font-semibold text-white mb-2">Asistente por Línea</h3>
+          <p className="text-sm text-[var(--text-muted)]">Cada línea puede tener su propio asistente IA</p>
         </div>
       </div>
+
+      {/* Modal: Create/Edit Line */}
+      {showModal && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">
+                {editingLine ? 'Editar' : 'Nueva'} Línea de WhatsApp
+              </h3>
+              <button onClick={() => setShowModal(false)} className="btn-icon"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="input-label">Nombre de la línea *</label>
+                <input 
+                  type="text" value={lineForm.label}
+                  onChange={e => setLineForm({...lineForm, label: e.target.value})}
+                  className="input" placeholder="Ej: Ventas, Soporte, Personal"
+                />
+              </div>
+
+              <div>
+                <label className="input-label">Asistente IA asignado</label>
+                <select 
+                  value={lineForm.assistantId}
+                  onChange={e => setLineForm({...lineForm, assistantId: e.target.value})}
+                  className="input"
+                >
+                  <option value="">— Usar asistente activo por defecto —</option>
+                  {assistants.map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Cada línea puede responder con un asistente diferente</p>
+              </div>
+
+              {teamMembers.length > 0 && (
+                <div>
+                  <label className="input-label">Asignada a miembro del equipo</label>
+                  <select
+                    value={lineForm.assignedTo}
+                    onChange={e => setLineForm({...lineForm, assignedTo: e.target.value})}
+                    className="input"
+                  >
+                    <option value="">— Sin asignar (admin) —</option>
+                    {teamMembers.map((m: any) => (
+                      <option key={m.id} value={m.id}>{m.name || m.email} ({m.role})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <button 
+                onClick={handleSaveLine}
+                disabled={!lineForm.label.trim()}
+                className="btn-primary w-full"
+              >
+                {editingLine ? 'Actualizar' : 'Crear'} Línea
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-center py-4">
@@ -258,13 +452,5 @@ export default function WhatsAppPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-function MessageSquare(props: any) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-    </svg>
   );
 }

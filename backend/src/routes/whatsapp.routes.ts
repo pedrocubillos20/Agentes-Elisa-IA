@@ -18,6 +18,7 @@ const getWahaHeaders = () => {
 // 📦 MESSAGE BUFFER — Agrupa mensajes enviados en ráfaga
 // ====================================================
 const BUFFER_WAIT_MS = 3000;
+const processedMessages: Set<string> = new Set(); // Dedup webhook calls
 const messageBuffer: Map<string, {
   messages: string[];
   timer: ReturnType<typeof setTimeout>;
@@ -969,7 +970,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
-    if (!event || (event !== 'message' && event !== 'message.any')) { res.json({ success: true }); return; }
+    if (!event || event !== 'message') { res.json({ success: true }); return; }
     if (payload?.fromMe) { res.json({ success: true }); return; }
 
     const from = payload?.from || payload?.chatId || '';
@@ -983,29 +984,83 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    const recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+    // 🔧 FIX: Parse recipientId correctly for ALL formats:
+    // Normal: 573123538300@c.us → 573123538300
+    // Linked: 573123538300:12@lid → 573123538300
+    // Other: 573123538300@s.whatsapp.net → 573123538300
+    const rawId = from.split('@')[0].split(':')[0]; // Get number before @ and before :
+    const recipientId = rawId.replace(/\D/g, ''); // Remove non-digits
     const senderName = notifyName || recipientId;
+
+    if (!recipientId || recipientId.length < 8) {
+      console.log(`🚫 Ignorado: recipientId inválido "${recipientId}" de "${from}"`);
+      res.json({ success: true }); return;
+    }
 
     // 🔄 Updated: resolve user AND lineId from session
     const resolved = await resolveUserFromWebhook(sessionName, recipientId);
     if (!resolved) { res.status(400).json({ error: 'No user' }); return; }
     const { userId, lineId } = resolved;
 
+    // 🔧 Dedup: prevent processing same message twice (race condition protection)
+    const msgId = payload?.id || payload?.key?.id || '';
+    if (msgId) {
+      const dedupKey = `${sessionName}_${msgId}`;
+      if (processedMessages.has(dedupKey)) {
+        console.log(`🔄 Duplicado ignorado: ${dedupKey}`);
+        res.json({ success: true }); return;
+      }
+      processedMessages.add(dedupKey);
+      // Clean old entries after 60s
+      setTimeout(() => processedMessages.delete(dedupKey), 60000);
+    }
+
     console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName}${lineId ? ` [línea: ${lineId}]` : ''}`);
 
-    // 🔍 Búsqueda flexible de conversación existente
-    let conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
+    // 🔍 Búsqueda ROBUSTA de conversación existente (múltiples estrategias)
+    let conv: any = null;
+    
+    // Strategy 1: Exact match
+    conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
+    
+    // Strategy 2: Match by last 10 digits (handles country code differences)
     if (!conv && recipientId.length >= 10) {
       const last10 = recipientId.slice(-10);
-      conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 } } });
+      conv = await prisma.conversation.findFirst({ 
+        where: { userId, recipientId: { endsWith: last10 } },
+        orderBy: { updatedAt: 'desc' }
+      });
     }
+    
+    // Strategy 3: Match with/without country code prefix
+    if (!conv && recipientId.length > 10) {
+      // Try without country code (last 10 digits as exact)
+      const without = recipientId.slice(-10);
+      conv = await prisma.conversation.findFirst({ where: { userId, recipientId: without } });
+    }
+    
+    // Strategy 4: Check if recipientId contains match in existing conversations
+    if (!conv && recipientId.length >= 10) {
+      const last10 = recipientId.slice(-10);
+      conv = await prisma.conversation.findFirst({ 
+        where: { userId, recipientId: { contains: last10 } },
+        orderBy: { updatedAt: 'desc' }
+      });
+    }
+
     if (!conv) {
       conv = await prisma.conversation.create({ 
         data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new', whatsappLineId: lineId || null } 
       });
-    } else if (lineId && !conv.whatsappLineId) {
-      // Update existing conv with lineId if not set
-      await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId: lineId } }).catch(() => {});
+      console.log(`📝 Nueva conversación creada: ${recipientId} → ${conv.id}`);
+    } else {
+      // Update lineId if not set, and update recipientName if we have a better one
+      const updates: any = {};
+      if (lineId && !conv.whatsappLineId) updates.whatsappLineId = lineId;
+      if (senderName && senderName !== recipientId && (!conv.recipientName || conv.recipientName === conv.recipientId)) updates.recipientName = senderName;
+      if (Object.keys(updates).length > 0) {
+        await prisma.conversation.update({ where: { id: conv.id }, data: updates }).catch(() => {});
+      }
     }
 
     // ⏸️ COMANDO ".." = PAUSAR IA

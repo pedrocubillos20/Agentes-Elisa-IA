@@ -1395,7 +1395,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const userId = await resolveUserFromWebhook(sessionName, recipientId);
     if (!userId) { res.status(400).json({ error: 'No user' }); return; }
 
-    console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
+    // 🔗 Buscar whatsappLineId por sessionName
+    const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
+    const whatsappLineId = waLine?.id || null;
+
+    console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
     // 🔍 Búsqueda flexible de conversación existente
     let conv = await prisma.conversation.findFirst({ where: { userId, recipientId } });
@@ -1404,7 +1408,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
       conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 } } });
     }
     if (!conv) {
-      conv = await prisma.conversation.create({ data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new' } });
+      conv = await prisma.conversation.create({ data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new', ...(whatsappLineId ? { whatsappLineId } : {}) } });
+    } else if (whatsappLineId && !conv.whatsappLineId) {
+      // Actualizar línea si no tenía
+      await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
     }
 
     // ⏸️ COMANDO ".." = PAUSAR IA — inmediato

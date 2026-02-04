@@ -296,8 +296,10 @@ REGLAS del bloque de memoria:
     messages.push({ role: 'user', content: message });
 
     // Llamar a OpenAI
-    const primaryModel = assistant.model || 'gpt-4-turbo-preview';
-    for (const model of [primaryModel, 'gpt-3.5-turbo']) {
+    // 💰 MODELO FIJO: gpt-4o-mini (económico y potente, ~60x más barato que gpt-4-turbo)
+    // NO se cambia desde el panel — siempre usa este modelo
+    const FIXED_MODEL = 'gpt-4o-mini';
+    for (const model of [FIXED_MODEL]) {
       try {
         console.log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
         const ctrl = new AbortController();
@@ -308,7 +310,7 @@ REGLAS del bloque de memoria:
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: model === 'gpt-3.5-turbo' ? 400 : 500
+            max_tokens: 500
           }),
           signal: ctrl.signal
         });
@@ -356,13 +358,11 @@ REGLAS del bloque de memoria:
           const st = res.status;
           const errBody = await res.text().catch(() => '');
           console.error(`❌ OpenAI ${model}: ${st} - ${errBody.substring(0, 200)}`);
-          if ((st === 429 || st === 402) && model !== 'gpt-3.5-turbo') { console.log('⚠️ Fallback gpt-3.5...'); continue; }
+          if (st === 429 || st === 402) { console.log('⚠️ Rate limit, reintentando en 2s...'); await new Promise(r => setTimeout(r, 2000)); continue; }
           if (st === 401) return null;
-          if (model !== 'gpt-3.5-turbo') continue;
         }
       } catch (e: any) {
         console.error(`❌ ${model}:`, e.message);
-        if (model !== 'gpt-3.5-turbo') continue;
       }
     }
     return null;

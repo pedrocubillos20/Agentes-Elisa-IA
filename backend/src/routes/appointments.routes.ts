@@ -8,13 +8,14 @@ interface AuthRequest extends Request {
 const router = Router();
 const prisma = new PrismaClient();
 
+// Helper: convierte string de fecha a DateTime ISO válido para Prisma
 function toDateTime(dateStr: string): Date {
   if (!dateStr) return new Date();
   if (dateStr.includes('T')) return new Date(dateStr);
   return new Date(dateStr + 'T12:00:00.000Z');
 }
 
-// GET /api/appointments?lineId=xxx
+// GET /api/appointments
 router.get('/', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
@@ -22,9 +23,9 @@ router.get('/', async (req: Request, res: Response) => {
     const { type, status, date, startDate, endDate, limit = '100', lineId } = req.query;
 
     const where: any = { userId };
+    if (lineId) where.whatsappLineId = lineId as string;
     if (type && type !== 'all') where.type = type;
     if (status && status !== 'all') where.status = status;
-    if (lineId) where.whatsappLineId = lineId as string;
 
     if (date) {
       const targetDate = new Date(date as string);
@@ -33,22 +34,31 @@ router.get('/', async (req: Request, res: Response) => {
       nextDay.setDate(nextDay.getDate() + 1);
       where.date = { gte: targetDate, lt: nextDay };
     }
+
     if (startDate && endDate) {
-      where.date = { gte: new Date(startDate as string), lte: new Date(endDate as string) };
+      where.date = {
+        gte: new Date(startDate as string),
+        lte: new Date(endDate as string)
+      };
     }
 
     const appointments = await prisma.appointment.findMany({
-      where, orderBy: [{ date: 'asc' }, { time: 'asc' }],
+      where,
+      orderBy: [{ date: 'asc' }, { time: 'asc' }],
       take: parseInt(limit as string),
-      include: { client: { select: { id: true, name: true, phone: true, email: true } } }
+      include: {
+        client: { select: { id: true, name: true, phone: true, email: true } }
+      }
     });
+
     res.json({ appointments });
   } catch (error: any) {
+    console.error('Error listando citas:', error);
     res.status(500).json({ error: 'Error al obtener citas' });
   }
 });
 
-// GET /api/appointments/today?lineId=xxx
+// GET /api/appointments/today
 router.get('/today', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
@@ -64,33 +74,36 @@ router.get('/today', async (req: Request, res: Response) => {
     if (lineId) where.whatsappLineId = lineId as string;
 
     const appointments = await prisma.appointment.findMany({
-      where, orderBy: { time: 'asc' }, include: { client: true }
+      where,
+      orderBy: { time: 'asc' },
+      include: { client: true }
     });
+
     res.json({ appointments });
   } catch (error) {
-    res.status(500).json({ error: 'Error' });
+    console.error('Error obteniendo citas de hoy:', error);
+    res.status(500).json({ error: 'Error al obtener citas' });
   }
 });
 
-// GET /api/appointments/stats?lineId=xxx
+// GET /api/appointments/stats
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
     const userId = user?.parentUserId || user?.id;
     const { lineId } = req.query;
-
     const where: any = { userId };
     if (lineId) where.whatsappLineId = lineId as string;
 
-    const [total, pending, confirmed, completed] = await Promise.all([
-      prisma.appointment.count({ where }),
-      prisma.appointment.count({ where: { ...where, status: 'pending' } }),
-      prisma.appointment.count({ where: { ...where, status: 'confirmed' } }),
-      prisma.appointment.count({ where: { ...where, status: 'completed' } })
-    ]);
+    const total = await prisma.appointment.count({ where });
+    const pending = await prisma.appointment.count({ where: { ...where, status: 'pending' } });
+    const confirmed = await prisma.appointment.count({ where: { ...where, status: 'confirmed' } });
+    const completed = await prisma.appointment.count({ where: { ...where, status: 'completed' } });
+
     res.json({ total, pending, confirmed, completed });
   } catch (error) {
-    res.status(500).json({ error: 'Error' });
+    console.error('Error stats:', error);
+    res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 });
 
@@ -119,8 +132,10 @@ router.post('/', async (req: Request, res: Response) => {
         userId: userId!,
         clientId: clientId || null,
         type: type || 'appointment',
-        clientName, clientPhone,
-        date: toDateTime(date), time,
+        clientName,
+        clientPhone,
+        date: toDateTime(date),
+        time,
         duration: duration || null,
         status: status || 'pending',
         notes: notes || null,
@@ -129,18 +144,25 @@ router.post('/', async (req: Request, res: Response) => {
         total: total || null,
         whatsappLineId: lineId || null
       },
-      include: { client: { select: { id: true, name: true, phone: true } } }
+      include: {
+        client: { select: { id: true, name: true, phone: true } }
+      }
     });
 
     if (type === 'order' && total && clientId) {
       await prisma.client.update({
         where: { id: clientId },
-        data: { totalPurchases: { increment: total }, status: 'active', lastContact: new Date() }
+        data: {
+          totalPurchases: { increment: total },
+          status: 'active',
+          lastContact: new Date()
+        }
       });
     }
 
     res.status(201).json({ appointment });
   } catch (error: any) {
+    console.error('Error creando cita:', error);
     res.status(500).json({ error: 'Error al crear cita' });
   }
 });
@@ -151,10 +173,13 @@ router.put('/:id', async (req: Request, res: Response) => {
     const user = (req as AuthRequest).user;
     const userId = user?.parentUserId || user?.id;
     const { id } = req.params;
-    const { type, clientName, clientPhone, date, time, duration, notes, address, products, total, status } = req.body;
+    const {
+      type, clientName, clientPhone, date, time,
+      duration, notes, address, products, total, status
+    } = req.body;
 
     const existing = await prisma.appointment.findFirst({ where: { id, userId } });
-    if (!existing) return res.status(404).json({ error: 'No encontrada' });
+    if (!existing) return res.status(404).json({ error: 'Cita no encontrada' });
 
     const appointment = await prisma.appointment.update({
       where: { id },
@@ -171,11 +196,15 @@ router.put('/:id', async (req: Request, res: Response) => {
         total: total !== undefined ? total : existing.total,
         status: status !== undefined ? status : existing.status
       },
-      include: { client: { select: { id: true, name: true, phone: true } } }
+      include: {
+        client: { select: { id: true, name: true, phone: true } }
+      }
     });
+
     res.json({ appointment });
   } catch (error: any) {
-    res.status(500).json({ error: 'Error' });
+    console.error('Error actualizando cita:', error);
+    res.status(500).json({ error: 'Error al actualizar cita' });
   }
 });
 
@@ -188,19 +217,27 @@ router.put('/:id/status', async (req: Request, res: Response) => {
     const { status } = req.body;
 
     const existing = await prisma.appointment.findFirst({ where: { id, userId } });
-    if (!existing) return res.status(404).json({ error: 'No encontrada' });
+    if (!existing) return res.status(404).json({ error: 'Cita no encontrada' });
 
-    const appointment = await prisma.appointment.update({ where: { id }, data: { status } });
+    const appointment = await prisma.appointment.update({
+      where: { id },
+      data: { status }
+    });
 
     if (status === 'completed' && existing.type === 'order' && existing.total && existing.clientId) {
       await prisma.client.update({
         where: { id: existing.clientId },
-        data: { totalPurchases: { increment: existing.total }, lastContact: new Date() }
+        data: {
+          totalPurchases: { increment: existing.total },
+          lastContact: new Date()
+        }
       });
     }
+
     res.json({ appointment });
   } catch (error) {
-    res.status(500).json({ error: 'Error' });
+    console.error('Error actualizando estado:', error);
+    res.status(500).json({ error: 'Error al actualizar estado' });
   }
 });
 
@@ -210,12 +247,15 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const user = (req as AuthRequest).user;
     const userId = user?.parentUserId || user?.id;
     const { id } = req.params;
+
     const existing = await prisma.appointment.findFirst({ where: { id, userId } });
-    if (!existing) return res.status(404).json({ error: 'No encontrada' });
+    if (!existing) return res.status(404).json({ error: 'Cita no encontrada' });
+
     await prisma.appointment.delete({ where: { id } });
-    res.json({ message: 'Eliminada' });
+    res.json({ message: 'Cita eliminada' });
   } catch (error) {
-    res.status(500).json({ error: 'Error' });
+    console.error('Error eliminando cita:', error);
+    res.status(500).json({ error: 'Error al eliminar cita' });
   }
 });
 

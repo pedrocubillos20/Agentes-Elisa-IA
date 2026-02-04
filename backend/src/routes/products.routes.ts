@@ -8,9 +8,10 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-    const { category } = req.query;
+    const { category, lineId } = req.query;
 
     const where: any = { userId };
+    if (lineId) where.whatsappLineId = lineId as string;
     if (category) where.category = category as string;
 
     const products = await prisma.product.findMany({
@@ -29,10 +30,13 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    const { lineId } = req.query;
+    const where: any = { userId };
+    if (lineId) where.whatsappLineId = lineId as string;
 
-    const total = await prisma.product.count({ where: { userId } });
-    const active = await prisma.product.count({ where: { userId, isActive: true } });
-    const lowStock = await prisma.product.count({ where: { userId, stock: { lt: 10 } } });
+    const total = await prisma.product.count({ where });
+    const active = await prisma.product.count({ where: { ...where, isActive: true } });
+    const lowStock = await prisma.product.count({ where: { ...where, stock: { lt: 10 } } });
 
     res.json({ total, active, lowStock });
   } catch (error) {
@@ -45,7 +49,7 @@ router.get('/stats', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-    const { name, description, price, category, image, stock } = req.body;
+    const { name, description, price, category, image, stock, lineId } = req.body;
 
     const product = await prisma.product.create({
       data: {
@@ -55,7 +59,8 @@ router.post('/', async (req: Request, res: Response) => {
         price: parseFloat(price) || 0,
         category,
         image,
-        stock: parseInt(stock) || 0
+        stock: parseInt(stock) || 0,
+        whatsappLineId: lineId || null
       }
     });
 

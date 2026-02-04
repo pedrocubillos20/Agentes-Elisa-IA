@@ -4,73 +4,59 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
-const getOwnerId = async (userId: string): Promise<string> => {
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  return u?.parentUserId || userId;
-};
-
-// GET /api/assistants?lineId=xxx
-// Returns the assistant for a specific line, or the active one if no lineId
+// GET /api/assistants - returns assistant for specific line or default
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
     const { lineId } = req.query;
 
     let assistant = null;
 
     if (lineId) {
-      // Find assistant specifically assigned to this line
-      assistant = await prisma.assistant.findFirst({ 
-        where: { userId: ownerId, whatsappLineId: lineId as string },
-        orderBy: { updatedAt: 'desc' }
+      // 1. Buscar asistente específico de esta línea
+      assistant = await prisma.assistant.findFirst({
+        where: { userId, whatsappLineId: lineId as string, isActive: true }
       });
-      
-      // If line has an assistantId in WhatsappLine, use that
+      // 2. Si no tiene, buscar si la línea tiene assistantId asignado
       if (!assistant) {
-        const line = await prisma.whatsappLine.findUnique({ where: { id: lineId as string }, select: { assistantId: true } });
+        const line = await prisma.whatsappLine.findFirst({ where: { id: lineId as string, userId } });
         if (line?.assistantId) {
-          assistant = await prisma.assistant.findUnique({ where: { id: line.assistantId } });
+          assistant = await prisma.assistant.findFirst({ where: { id: line.assistantId } });
+        }
+      }
+      // 3. Si aún no tiene, retornar null (línea nueva sin asistente)
+      if (!assistant) {
+        res.json({ assistant: null, isNewLine: true });
+        return;
+      }
+    } else {
+      // Sin lineId: buscar el activo por defecto (legacy)
+      assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+      if (!assistant) {
+        assistant = await prisma.assistant.findFirst({ where: { userId } });
+        if (assistant) {
+          assistant = await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
         }
       }
     }
 
-    // Fallback: active assistant (legacy behavior)
-    if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true }, orderBy: { updatedAt: 'desc' } });
-    }
-    if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId }, orderBy: { updatedAt: 'desc' } });
-      if (assistant) await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
-    }
-
-    // Also return all assistants for this user (for line assignment dropdown)
-    const allAssistants = await prisma.assistant.findMany({ 
-      where: { userId: ownerId }, 
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, name: true, whatsappLineId: true, isActive: true, updatedAt: true }
-    });
-
-    res.json({ assistant, assistants: allAssistants });
+    res.json({ assistant });
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: 'Error' });
   }
 });
 
-// POST /api/assistants — Create or update assistant
-// If lineId is provided, creates/updates the assistant for that specific line
+// POST /api/assistants - create/update assistant (supports lineId)
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
 
     const body = req.body;
-    const lineId = body.lineId || body.whatsappLineId || null;
-    
-    console.log(`💾 Guardando asistente para ${ownerId}: lineId=${lineId}, context=${body.context?.length || 0} chars`);
+    const lineId = body.lineId || null;
+    console.log(`💾 Guardando asistente para ${userId} ${lineId ? `(línea: ${lineId})` : '(global)'}: context=${body.context?.length || 0} chars`);
 
     const data: any = {
       name: body.name || 'Asistente',
@@ -94,38 +80,42 @@ router.post('/', async (req: Request, res: Response) => {
     let assistant;
 
     if (lineId) {
-      // WORKSPACE MODE: find or create assistant for this specific line
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId } });
-      
+      // Buscar asistente específico de esta línea
+      assistant = await prisma.assistant.findFirst({
+        where: { userId, whatsappLineId: lineId }
+      });
+
       if (assistant) {
-        // Update existing line assistant
-        assistant = await prisma.assistant.update({ where: { id: assistant.id }, data });
+        // Actualizar existente
+        assistant = await prisma.assistant.update({
+          where: { id: assistant.id },
+          data
+        });
       } else {
-        // Create new assistant for this line
-        data.whatsappLineId = lineId;
-        assistant = await prisma.assistant.create({ data: { ...data, userId: ownerId } });
+        // Crear nuevo para esta línea
+        assistant = await prisma.assistant.create({
+          data: { ...data, userId, whatsappLineId: lineId }
+        });
       }
 
-      // Link the assistant to the WhatsappLine
-      await prisma.whatsappLine.update({ 
-        where: { id: lineId }, 
-        data: { assistantId: assistant.id } 
-      }).catch(() => {});
-      
+      // Vincular con la línea
+      await prisma.whatsappLine.update({
+        where: { id: lineId },
+        data: { assistantId: assistant.id }
+      }).catch(() => {}); // Ignore if line doesn't exist
     } else {
-      // LEGACY MODE: single assistant per user
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: null } });
-      if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId } });
+      // Legacy: sin lineId, buscar/crear global
+      assistant = await prisma.assistant.findFirst({ where: { userId } });
 
       if (assistant) {
-        await prisma.assistant.updateMany({ where: { userId: ownerId, id: { not: assistant.id }, whatsappLineId: null }, data: { isActive: false } });
+        await prisma.assistant.updateMany({ where: { userId, id: { not: assistant.id } }, data: { isActive: false } });
         assistant = await prisma.assistant.update({ where: { id: assistant.id }, data });
       } else {
-        assistant = await prisma.assistant.create({ data: { ...data, userId: ownerId } });
+        assistant = await prisma.assistant.create({ data: { ...data, userId } });
       }
     }
 
-    console.log(`✅ Asistente guardado: ${assistant.name} ${lineId ? `(línea: ${lineId})` : '(global)'}`);
+    console.log(`✅ Asistente guardado: ${assistant.name} ${lineId ? `(línea: ${lineId})` : ''}`);
     res.json({ assistant, message: 'Guardado correctamente' });
   } catch (error: any) {
     console.error('❌ Error:', error);
@@ -138,203 +128,182 @@ router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
     const { id } = req.params;
-    const existing = await prisma.assistant.findFirst({ where: { id, userId: ownerId } });
+    const existing = await prisma.assistant.findFirst({ where: { id, userId } });
     if (!existing) { res.status(404).json({ error: 'No encontrado' }); return; }
 
     const body = req.body;
-    const data: any = {};
-    const fields = ['name', 'context', 'personality', 'businessInfo', 'instructions', 'knowledgeItems',
-      'mediaItems', 'elevenLabsKey', 'selectedVoice', 'voiceEnabled', 'autoLearn', 'learningHistory',
-      'model', 'temperature', 'maxTokens', 'isActive', 'whatsappLineId'];
-    fields.forEach(f => { if (body[f] !== undefined) data[f] = body[f]; });
-    data.isActive = true;
+    const assistant = await prisma.assistant.update({
+      where: { id },
+      data: {
+        name: body.name,
+        context: body.context,
+        personality: body.personality,
+        businessInfo: body.businessInfo,
+        instructions: body.instructions,
+        knowledgeItems: body.knowledgeItems,
+        mediaItems: body.mediaItems,
+        elevenLabsKey: body.elevenLabsKey,
+        selectedVoice: body.selectedVoice,
+        voiceEnabled: body.voiceEnabled,
+        autoLearn: body.autoLearn,
+        learningHistory: body.learningHistory,
+        model: body.model,
+        temperature: body.temperature,
+        maxTokens: body.maxTokens,
+        isActive: body.isActive
+      }
+    });
 
-    const assistant = await prisma.assistant.update({ where: { id }, data });
     res.json({ assistant, message: 'Actualizado' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Error' });
   }
 });
 
-// POST /api/assistants/:id/activate
-router.post('/:id/activate', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
-    await prisma.assistant.updateMany({ where: { userId: ownerId }, data: { isActive: false } });
-    const assistant = await prisma.assistant.update({ where: { id: req.params.id }, data: { isActive: true } });
-    res.json({ assistant, message: 'Activado' });
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
-  }
-});
-
-// ===== AUTO-APRENDIZAJE =====
-// POST /api/assistants/learn
+// POST /api/assistants/learn - Auto-aprendizaje (filtra por lineId)
 router.post('/learn', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
     const { lineId } = req.body;
 
-    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, apiKeyConnected: true } });
-    if (!user?.apiKey) { res.status(400).json({ error: 'Configura tu API Key de OpenAI primero' }); return; }
-
-    // Get conversations filtered by line if provided
-    const convWhere: any = { userId: ownerId };
-    if (lineId) convWhere.whatsappLineId = lineId;
-
-    const conversations = await prisma.conversation.findMany({
-      where: convWhere, orderBy: { updatedAt: 'desc' }, take: 20,
-      include: { messages: { orderBy: { timestamp: 'desc' }, take: 10 } }
-    });
-
-    if (conversations.length === 0) {
-      res.json({ suggestions: [], message: 'Sin conversaciones para analizar' }); return;
-    }
-
-    // Get assistant for this line
+    // Buscar asistente correcto
     let assistant;
     if (lineId) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId } });
+      assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId: lineId, isActive: true } });
     }
     if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+      assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
     }
-    const currentContext = assistant?.context || '';
+    if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
 
-    const convSummaries = conversations.map(c => {
-      const msgs = [...c.messages].reverse();
-      return {
-        contact: c.recipientName || c.recipientId,
-        stage: c.stage,
-        messages: msgs.map(m => `${m.fromMe ? 'BOT' : 'CLIENTE'}: ${m.content}`).join('\n')
-      };
+    // Obtener conversaciones recientes filtradas por línea
+    const convWhere: any = { userId };
+    if (lineId) convWhere.whatsappLineId = lineId;
+
+    const recentConversations = await prisma.conversation.findMany({
+      where: convWhere,
+      orderBy: { updatedAt: 'desc' },
+      take: 10,
+      include: { messages: { orderBy: { timestamp: 'desc' }, take: 20 } }
     });
 
-    const analysisPrompt = `Eres un experto en optimización de chatbots de ventas. Analiza estas conversaciones reales y el contexto actual del asistente para generar sugerencias de mejora.
+    if (recentConversations.length === 0) {
+      res.json({ suggestions: [], message: 'No hay conversaciones para analizar' });
+      return;
+    }
 
-CONTEXTO ACTUAL DEL ASISTENTE (primeros 2000 chars):
-${currentContext.substring(0, 2000)}
-
-ÚLTIMAS CONVERSACIONES:
-${convSummaries.slice(0, 10).map((c, i) => 
-  `--- Conversación ${i+1} con ${c.contact} (etapa: ${c.stage}) ---\n${c.messages}`
-).join('\n\n')}
-
-Genera exactamente 3-5 sugerencias concretas en JSON. Cada sugerencia debe ser una mejora específica al contexto del asistente basada en patrones reales de las conversaciones.
-
-Enfócate en:
-1. Preguntas frecuentes que el bot no supo responder bien
-2. Información que los clientes piden pero no está en el contexto
-3. Patrones de conversación que se pueden mejorar
-4. Respuestas que fueron muy largas o confusas
-5. Oportunidades de venta perdidas
-
-RESPONDE SOLO con un JSON array así:
-[
-  {
-    "type": "add_faq",
-    "title": "Título corto de la sugerencia",
-    "suggestion": "Texto exacto que se debe agregar al contexto",
-    "reason": "Por qué se sugiere esto basado en las conversaciones"
-  }
-]
-
-Tipos válidos: add_faq, improve_response, add_info, fix_error, add_greeting`;
-
-    console.log(`🧠 Analizando ${conversations.length} conversaciones (línea: ${lineId || 'global'})...`);
-
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
-      body: JSON.stringify({
-        model: assistant?.model || 'gpt-4-turbo-preview',
-        messages: [{ role: 'user', content: analysisPrompt }],
-        temperature: 0.3, max_tokens: 2000
-      })
+    // Extraer patrones
+    const allMessages = recentConversations.flatMap(c => c.messages);
+    const customerMessages = allMessages.filter(m => !m.fromMe).map(m => m.content);
+    
+    // Análisis simple de patrones frecuentes
+    const wordFreq: Record<string, number> = {};
+    customerMessages.forEach(msg => {
+      msg.toLowerCase().split(/\s+/).forEach(word => {
+        if (word.length > 3) wordFreq[word] = (wordFreq[word] || 0) + 1;
+      });
     });
 
-    if (!aiRes.ok) { res.status(500).json({ error: 'Error al analizar con OpenAI' }); return; }
+    const topWords = Object.entries(wordFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const commonQuestions = customerMessages.filter(m => m.includes('?')).slice(0, 5);
+    
+    const suggestions = [
+      {
+        id: `learn_${Date.now()}`,
+        type: 'pattern',
+        title: 'Temas frecuentes detectados',
+        content: `Los clientes preguntan frecuentemente sobre: ${topWords.map(([w, c]) => `${w} (${c}x)`).join(', ')}`,
+        applied: false,
+        createdAt: new Date().toISOString()
+      }
+    ];
 
-    const aiData = await aiRes.json() as any;
-    const raw = aiData.choices?.[0]?.message?.content || '[]';
-
-    let suggestions: any[] = [];
-    try {
-      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      suggestions = JSON.parse(cleaned);
-    } catch { suggestions = []; }
-
-    const now = new Date().toISOString();
-    suggestions = suggestions.map((s: any, i: number) => ({
-      id: `learn_${Date.now()}_${i}`, ...s, date: now, applied: false, dismissed: false
-    }));
-
-    if (assistant && suggestions.length > 0) {
-      const existingHistory = (assistant.learningHistory as any[]) || [];
-      await prisma.assistant.update({
-        where: { id: assistant.id },
-        data: { learningHistory: [...suggestions, ...existingHistory].slice(0, 50) }
+    if (commonQuestions.length > 0) {
+      suggestions.push({
+        id: `learn_q_${Date.now()}`,
+        type: 'questions',
+        title: 'Preguntas frecuentes',
+        content: `Preguntas comunes:\n${commonQuestions.map(q => `- ${q}`).join('\n')}`,
+        applied: false,
+        createdAt: new Date().toISOString()
       });
     }
 
+    // Guardar en learningHistory
+    const history = [...((assistant.learningHistory as any[]) || []), ...suggestions];
+    await prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { learningHistory: history }
+    });
+
+    console.log(`🧠 Auto-aprendizaje: ${suggestions.length} sugerencias generadas${lineId ? ` (línea: ${lineId})` : ''}`);
     res.json({ suggestions, message: `${suggestions.length} sugerencias generadas` });
   } catch (error: any) {
-    console.error('❌ Error learn:', error);
     res.status(500).json({ error: error.message || 'Error' });
   }
 });
 
-// POST /api/assistants/learn/apply
+// POST /api/assistants/learn/apply - Aplicar sugerencia al contexto
 router.post('/learn/apply', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
-    const { suggestionId, suggestion, lineId } = req.body;
 
+    const { suggestionId, suggestion, lineId } = req.body;
+    
     let assistant;
     if (lineId) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId } });
+      assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId: lineId, isActive: true } });
     }
     if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+      assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
     }
     if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
 
+    // Agregar sugerencia al final del contexto
     const newContext = (assistant.context || '') + '\n\n' + suggestion;
+
+    // Marcar como aplicada en learningHistory
     const history = (assistant.learningHistory as any[]) || [];
     const updatedHistory = history.map((h: any) => 
       h.id === suggestionId ? { ...h, applied: true, appliedAt: new Date().toISOString() } : h
     );
 
-    await prisma.assistant.update({ where: { id: assistant.id }, data: { context: newContext, learningHistory: updatedHistory } });
+    await prisma.assistant.update({
+      where: { id: assistant.id },
+      data: { context: newContext, learningHistory: updatedHistory }
+    });
+
+    console.log(`✅ Sugerencia aplicada al contexto (+${suggestion.length} chars)`);
     res.json({ success: true, message: 'Sugerencia aplicada al contexto' });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Error' });
   }
 });
 
-// POST /api/assistants/learn/dismiss
+// POST /api/assistants/learn/dismiss - Descartar sugerencia
 router.post('/learn/dismiss', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
+
     const { suggestionId, lineId } = req.body;
-    
     let assistant;
-    if (lineId) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId } });
-    if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+    if (lineId) {
+      assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId: lineId, isActive: true } });
+    }
+    if (!assistant) {
+      assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+    }
     if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
 
     const history = (assistant.learningHistory as any[]) || [];
-    const updatedHistory = history.map((h: any) => h.id === suggestionId ? { ...h, dismissed: true } : h);
+    const updatedHistory = history.map((h: any) => 
+      h.id === suggestionId ? { ...h, dismissed: true } : h
+    );
+
     await prisma.assistant.update({ where: { id: assistant.id }, data: { learningHistory: updatedHistory } });
     res.json({ success: true });
   } catch (error: any) {
@@ -350,8 +319,12 @@ router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
     if (response.ok) {
       const data = await response.json() as any;
       res.json({ voices: data.voices });
-    } else { res.status(400).json({ error: 'API Key inválida' }); }
-  } catch { res.status(500).json({ error: 'Error' }); }
+    } else {
+      res.status(400).json({ error: 'API Key inválida' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Error' });
+  }
 });
 
 export default router;

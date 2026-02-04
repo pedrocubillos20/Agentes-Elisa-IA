@@ -13,6 +13,7 @@ export default function AgendaPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [user, setUser] = useState<any>(null);
 
   const [form, setForm] = useState({
     type: 'appointment', clientName: '', clientPhone: '', date: '', time: '', duration: '30',
@@ -24,10 +25,20 @@ export default function AgendaPage() {
 
   useEffect(() => {
     fetchAppointments();
+    fetchUser();
     const onLineChanged = () => { setLoading(true); fetchAppointments(); };
     window.addEventListener('lineChanged', onLineChanged);
     return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
+
+  const fetchUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) setUser((await res.json()).user);
+    } catch {}
+  };
 
   const fetchAppointments = async () => {
     const token = localStorage.getItem('token');
@@ -146,6 +157,30 @@ export default function AgendaPage() {
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
+      </div>
+    );
+  }
+
+  // 🔒 BLOQUEO PLAN STARTER - Agenda solo disponible en Business
+  if (user?.plan === 'starter') {
+    return (
+      <div className="max-w-2xl mx-auto py-16 text-center">
+        <div className="card p-10 border-purple-500/30">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-purple-500/20 flex items-center justify-center">
+            <CalendarIcon className="w-10 h-10 text-purple-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Agenda disponible en Plan Business</h2>
+          <p className="text-[var(--text-muted)] mb-6">
+            Organiza citas, pedidos y entregas con la agenda integrada.
+            Incluye calendario visual, recordatorios y seguimiento de estados.
+          </p>
+          <div className="flex flex-col items-center gap-4">
+            <a href="/subscription" className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-xl text-lg hover:shadow-lg hover:shadow-purple-500/30 transition-all hover:scale-105">
+              🚀 Upgrade a Business — USD$50/mes
+            </a>
+            <p className="text-xs text-[var(--text-muted)]">CRM completo · Agenda integrada · Equipo multi-usuario</p>
+          </div>
+        </div>
       </div>
     );
   }

@@ -50,8 +50,17 @@ export default function EquipoPage() {
     permissions: { ...ROLE_DEFAULTS.agent }
   });
 
-  useEffect(() => { fetchTeam(); }, []);
+  useEffect(() => { fetchTeam(); fetchUser(); }, []);
   useEffect(() => { if (message.text) { const t = setTimeout(() => setMessage({ type: '', text: '' }), 4000); return () => clearTimeout(t); } }, [message]);
+
+  const fetchUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) { const data = await res.json(); if (!owner) setOwner(data.user); }
+    } catch {}
+  };
 
   const fetchTeam = async () => {
     const token = localStorage.getItem('token');
@@ -132,6 +141,30 @@ export default function EquipoPage() {
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
+      </div>
+    );
+  }
+
+  // 🔒 BLOQUEO PLAN STARTER - Equipo solo disponible en Business
+  if (owner?.plan === 'starter') {
+    return (
+      <div className="max-w-2xl mx-auto py-16 text-center">
+        <div className="card p-10 border-purple-500/30">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-purple-500/20 flex items-center justify-center">
+            <Users className="w-10 h-10 text-purple-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Equipo disponible en Plan Business</h2>
+          <p className="text-[var(--text-muted)] mb-6">
+            Agrega vendedores, gerentes y soporte con roles y permisos personalizados.
+            Asigna chats a miembros del equipo y controla el acceso.
+          </p>
+          <div className="flex flex-col items-center gap-4">
+            <a href="/subscription" className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-xl text-lg hover:shadow-lg hover:shadow-purple-500/30 transition-all hover:scale-105">
+              🚀 Upgrade a Business — USD$50/mes
+            </a>
+            <p className="text-xs text-[var(--text-muted)]">Equipo multi-usuario · Roles · Asignación de chats</p>
+          </div>
+        </div>
       </div>
     );
   }

@@ -464,6 +464,9 @@ router.get('/status', async (req: Request, res: Response) => {
   } catch { res.json({ connected: false, status: 'error', phone: null, hasQR: false }); }
 });
 
+// =====================================================
+// 🔧 FIX WAHA PLUS: Agregar start: true al crear sesión
+// =====================================================
 router.post('/connect', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -476,19 +479,40 @@ router.post('/connect', async (req: Request, res: Response) => {
     const sessionName = getUserSessionName(ownerId);
     const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
     const check = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
+
     if (check.status === 404) {
-      await fetch(`${WAHA_API_URL}/api/sessions`, {
+      // ✅ FIX: Agregar start: true para que WAHA Plus inicie la sesión automáticamente
+      const createRes = await fetch(`${WAHA_API_URL}/api/sessions`, {
         method: 'POST', headers: getWahaHeaders(),
-        body: JSON.stringify({ name: sessionName, config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }] } })
+        body: JSON.stringify({
+          name: sessionName,
+          start: true,
+          config: {
+            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }]
+          }
+        })
       });
-      res.json({ success: true, message: 'Sesión creada' });
+      const createData = await createRes.json().catch(() => ({}));
+      console.log(`📱 Sesión creada: ${sessionName} (status: ${(createData as any).status || 'unknown'})`);
+      res.json({ success: true, message: 'Sesión creada', session: sessionName });
     } else {
       const data = await check.json() as any;
-      if (['STOPPED', 'FAILED'].includes(data.status))
+
+      if (['STOPPED', 'FAILED'].includes(data.status)) {
+        // ✅ FIX: Si la sesión existe pero está detenida, iniciarla
         await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
-      res.json({ success: true, message: 'Sesión activada' });
+        console.log(`🔄 Sesión reiniciada: ${sessionName}`);
+      } else if (data.status === 'SCAN_QR_CODE') {
+        // Ya está esperando QR, no hacer nada
+        console.log(`📱 Sesión ya esperando QR: ${sessionName}`);
+      }
+
+      res.json({ success: true, message: 'Sesión activada', session: sessionName });
     }
-  } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (e: any) {
+    console.error(`❌ Error en /connect:`, e.message);
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 router.get('/qr', async (req: Request, res: Response) => {
@@ -498,9 +522,31 @@ router.get('/qr', async (req: Request, res: Response) => {
     const ownerId = await getOwnerId(userId);
     const session = await findActiveSession(ownerId);
     const sn = session?.name || getUserSessionName(ownerId);
+
+    // ✅ FIX: Si no hay sesión activa, intentar obtener el QR de la sesión del usuario directamente
+    const sessionToCheck = session ? sn : getUserSessionName(ownerId);
+
     try {
-      const r = await fetch(`${WAHA_API_URL}/api/sessions/${sn}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
-      if (!r.ok) { res.json({ qr: null, available: false }); return; }
+      const r = await fetch(`${WAHA_API_URL}/api/sessions/${sessionToCheck}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+      if (!r.ok) {
+        // Si falla, intentar con screenshot como fallback (WEBJS)
+        try {
+          const screenshotRes = await fetch(`${WAHA_API_URL}/api/screenshot`, {
+            method: 'POST',
+            headers: getWahaHeaders(),
+            body: JSON.stringify({ session: sessionToCheck })
+          });
+          if (screenshotRes.ok) {
+            const screenshotData = await screenshotRes.json() as any;
+            if (screenshotData.mimetype && screenshotData.data) {
+              res.json({ qr: `data:${screenshotData.mimetype};base64,${screenshotData.data}`, available: true });
+              return;
+            }
+          }
+        } catch {}
+        res.json({ qr: null, available: false });
+        return;
+      }
       const d = await r.json() as any;
       if (d.value) res.json({ qr: d.value.startsWith('data:') ? d.value : `data:image/png;base64,${d.value}`, available: true });
       else if (d.mimetype && d.data) res.json({ qr: `data:${d.mimetype};base64,${d.data}`, available: true });
@@ -658,14 +704,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // Usuario manda varias líneas rápido → espera 3s → responde UNA vez
     // ====================================================
     const bufferKey = `${userId}_${recipientId}`;
-    const existing = messageBuffer.get(bufferKey);
+    const existingBuffer = messageBuffer.get(bufferKey);
 
-    if (existing) {
+    if (existingBuffer) {
       // Ya hay mensajes en buffer → agregar y resetear timer
-      existing.messages.push(body);
-      clearTimeout(existing.timer);
-      existing.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
-      console.log(`📦 Buffer: +1 de ${senderName} (total: ${existing.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
+      existingBuffer.messages.push(body);
+      clearTimeout(existingBuffer.timer);
+      existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      console.log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
     } else {
       // Primer mensaje → crear buffer, mostrar typing inmediato
       const assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { voiceEnabled: true, elevenLabsKey: true, selectedVoice: true } });

@@ -11,22 +11,20 @@ router.get('/', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const { lineId } = req.query;
 
+    console.log(`🔍 GET assistants: userId=${userId}, lineId=${lineId || 'none'}`);
+
     let assistant = null;
 
     if (lineId) {
-      // 1. Buscar asistente específico de esta línea
+      // 1. Buscar asistente específico de esta línea por whatsappLineId
       assistant = await prisma.assistant.findFirst({
-        where: { userId, whatsappLineId: lineId as string, isActive: true }
+        where: { userId, whatsappLineId: lineId as string }
       });
-      // 2. Si no tiene, buscar si la línea tiene assistantId asignado
+      console.log(`  Step 1 (by whatsappLineId): ${assistant ? assistant.name : 'null'}`);
+
+      // 2. Si NO encontró, esta línea no tiene asistente → retornar null
       if (!assistant) {
-        const line = await prisma.whatsappLine.findFirst({ where: { id: lineId as string, userId } });
-        if (line?.assistantId) {
-          assistant = await prisma.assistant.findFirst({ where: { id: line.assistantId } });
-        }
-      }
-      // 3. Si aún no tiene, retornar null (línea nueva sin asistente)
-      if (!assistant) {
+        console.log(`  ✅ Línea ${lineId} sin asistente → retornando null`);
         res.json({ assistant: null, isNewLine: true });
         return;
       }
@@ -41,6 +39,7 @@ router.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    console.log(`  → Retornando: ${assistant ? assistant.name : 'null'}`);
     res.json({ assistant });
   } catch (error) {
     console.error('Error:', error);

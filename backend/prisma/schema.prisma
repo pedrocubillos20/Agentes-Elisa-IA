@@ -17,16 +17,16 @@ model User {
   apiKeyConnected Boolean        @default(false)
   
   // === TEAM / SUB-USERS ===
-  role            String         @default("admin")   // admin, manager, agent, support, viewer
-  parentUserId    String?                             // null = dueño principal, con valor = sub-usuario
+  role            String         @default("admin")
+  parentUserId    String?
   permissions     Json           @default("{\"dashboard\":true,\"conversations\":true,\"crm\":true,\"agenda\":true,\"assistants\":true,\"whatsapp\":true,\"config\":true,\"team\":true,\"products\":true}")
   invitedBy       String?
   isActive        Boolean        @default(true)
   
   // === SUBSCRIPTION ===
-  plan            String         @default("trial")    // trial, starter, business
-  trialEndsAt     DateTime?                            // Fecha fin trial (7 días desde registro)
-  subscriptionId  String?                              // ID suscripción activa
+  plan            String         @default("trial")
+  trialEndsAt     DateTime?
+  subscriptionId  String?
   
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -42,6 +42,32 @@ model User {
 
   @@index([parentUserId])
   @@index([role])
+}
+
+// ===== MULTI-LÍNEA WHATSAPP =====
+model WhatsappLine {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  label           String    @default("Principal")
+  phone           String?
+  sessionName     String    @unique
+  status          String    @default("disconnected")
+  
+  assignedTo      String?
+  assignedName    String?
+  assistantId     String?
+  
+  isDefault       Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([sessionName])
+  @@index([status])
 }
 
 model Assistant {
@@ -69,13 +95,15 @@ model Assistant {
   temperature     Float     @default(0.7)
   maxTokens       Int       @default(500)
   
-  isActive        Boolean   @default(false)
   whatsappLineId  String?
+  
+  isActive        Boolean   @default(false)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([userId])
   @@index([whatsappLineId])
+  @@index([userId, whatsappLineId])
 }
 
 model Conversation {
@@ -100,6 +128,7 @@ model Conversation {
   @@index([userId, stage])
   @@index([assignedTo])
   @@index([whatsappLineId])
+  @@index([userId, whatsappLineId])
 }
 
 model Message {
@@ -126,10 +155,12 @@ model Product {
   image       String?  @db.Text
   stock       Int      @default(0)
   isActive    Boolean  @default(true)
+  whatsappLineId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model Client {
@@ -146,12 +177,14 @@ model Client {
   totalPurchases Float         @default(0)
   lastContact    DateTime?
   preferredLineId String?
+  whatsappLineId String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   appointments   Appointment[]
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model Appointment {
@@ -172,11 +205,13 @@ model Appointment {
   address     String?  @db.Text
   products    Json?
   total       Float?
+  whatsappLineId String?
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([userId, date])
+  @@index([whatsappLineId])
 }
 
 model Subscription {
@@ -232,29 +267,4 @@ model Payment {
   @@index([userId])
   @@index([status])
   @@index([wompiTransactionId])
-}
-
-model WhatsappLine {
-  id            String    @id @default(cuid())
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  label         String    @default("Principal")
-  phone         String?
-  sessionName   String    @unique
-  status        String    @default("disconnected")
-  
-  assignedTo    String?
-  assignedName  String?
-  assistantId   String?
-  
-  isDefault     Boolean   @default(false)
-  isActive      Boolean   @default(true)
-  
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  @@index([userId])
-  @@index([sessionName])
-  @@index([status])
 }

@@ -4,21 +4,22 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Helper: get owner ID (for sub-users, return parent)
 const getOwnerId = async (userId: string): Promise<string> => {
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
   return u?.parentUserId || userId;
 };
 
-// GET /api/conversations
+// GET /api/conversations?lineId=xxx
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
-    const { stage } = req.query;
+    const { stage, lineId } = req.query;
+    
     const where: any = { userId: ownerId };
     if (stage && stage !== 'all') where.stage = stage as string;
+    if (lineId) where.whatsappLineId = lineId as string;
 
     const conversations = await prisma.conversation.findMany({
       where, orderBy: { updatedAt: 'desc' },
@@ -36,15 +37,20 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/conversations/stats
+// GET /api/conversations/stats?lineId=xxx
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
+    const { lineId } = req.query;
+    
+    const where: any = { userId: ownerId };
+    if (lineId) where.whatsappLineId = lineId as string;
+    
     const [stats, total] = await Promise.all([
-      prisma.conversation.groupBy({ by: ['stage'], where: { userId: ownerId }, _count: { id: true } }),
-      prisma.conversation.count({ where: { userId: ownerId } })
+      prisma.conversation.groupBy({ by: ['stage'], where, _count: { id: true } }),
+      prisma.conversation.count({ where })
     ]);
     res.json({ stats: stats.map(s => ({ stage: s.stage || 'new', count: s._count.id })), total });
   } catch (error) {
@@ -52,19 +58,29 @@ router.get('/stats', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/conversations/dashboard - OPTIMIZADO con queries paralelas
+// GET /api/conversations/dashboard?lineId=xxx
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
+    const { lineId } = req.query;
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekStart = new Date(todayStart);
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
-    // ===== TODAS LAS QUERIES EN PARALELO =====
+    // Build where clauses with optional lineId filter
+    const convWhere: any = { userId: ownerId };
+    const clientWhere: any = { userId: ownerId };
+    const apptWhere: any = { userId: ownerId };
+    if (lineId) {
+      convWhere.whatsappLineId = lineId as string;
+      clientWhere.whatsappLineId = lineId as string;
+      apptWhere.whatsappLineId = lineId as string;
+    }
+
     const [
       totalConversations,
       totalMessages,
@@ -75,48 +91,60 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       totalClients,
       stageStats,
       recentMessages,
-      recentAppointments,
-      weeklyRaw
+      recentAppointments
     ] = await Promise.all([
-      prisma.conversation.count({ where: { userId: ownerId } }),
-      prisma.message.count({ where: { conversation: { userId: ownerId } } }),
-      prisma.message.count({ where: { conversation: { userId: ownerId }, timestamp: { gte: todayStart } } }),
-      prisma.message.count({ where: { conversation: { userId: ownerId }, timestamp: { gte: weekStart } } }),
-      prisma.appointment.count({ where: { userId: ownerId } }),
-      prisma.appointment.count({ where: { userId: ownerId, status: 'pending' } }),
-      prisma.client.count({ where: { userId: ownerId } }),
-      prisma.conversation.groupBy({ by: ['stage'], where: { userId: ownerId }, _count: { id: true } }),
+      prisma.conversation.count({ where: convWhere }),
+      prisma.message.count({ where: { conversation: convWhere } }),
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: todayStart } } }),
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: weekStart } } }),
+      prisma.appointment.count({ where: apptWhere }),
+      prisma.appointment.count({ where: { ...apptWhere, status: 'pending' } }),
+      prisma.client.count({ where: clientWhere }),
+      prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
       prisma.message.findMany({
-        where: { conversation: { userId: ownerId }, fromMe: false },
+        where: { conversation: convWhere, fromMe: false },
         orderBy: { timestamp: 'desc' }, take: 5,
         include: { conversation: { select: { recipientName: true, recipientId: true } } }
       }),
       prisma.appointment.findMany({
-        where: { userId: ownerId }, orderBy: { createdAt: 'desc' }, take: 3
-      }),
-      prisma.$queryRaw`
-        SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
-        FROM "Message" m
-        JOIN "Conversation" c ON m."conversationId" = c.id
-        WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${weekStart}
-        GROUP BY EXTRACT(DOW FROM m."timestamp")
-        ORDER BY dow
-      ` as Promise<Array<{ dow: number; count: number }>>
+        where: apptWhere, orderBy: { createdAt: 'desc' }, take: 3
+      })
     ]);
 
-    // Procesar actividad semanal (0=Dom, 1=Lun... 6=Sáb)
-    const weeklyActivity = [0, 0, 0, 0, 0, 0, 0];
-    if (Array.isArray(weeklyRaw)) {
-      weeklyRaw.forEach((r: any) => {
-        const idx = Number(r.dow);
-        if (idx >= 0 && idx <= 6) weeklyActivity[idx] = Number(r.count) || 0;
-      });
-    }
+    // Weekly activity — use raw query with lineId filter
+    let weeklyActivity = [0, 0, 0, 0, 0, 0, 0];
+    try {
+      let weeklyRaw: any[];
+      if (lineId) {
+        weeklyRaw = await prisma.$queryRaw`
+          SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
+          FROM "Message" m
+          JOIN "Conversation" c ON m."conversationId" = c.id
+          WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${weekStart}
+          GROUP BY EXTRACT(DOW FROM m."timestamp")
+          ORDER BY dow
+        `;
+      } else {
+        weeklyRaw = await prisma.$queryRaw`
+          SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
+          FROM "Message" m
+          JOIN "Conversation" c ON m."conversationId" = c.id
+          WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${weekStart}
+          GROUP BY EXTRACT(DOW FROM m."timestamp")
+          ORDER BY dow
+        `;
+      }
+      if (Array.isArray(weeklyRaw)) {
+        weeklyRaw.forEach((r: any) => {
+          const idx = Number(r.dow);
+          if (idx >= 0 && idx <= 6) weeklyActivity[idx] = Number(r.count) || 0;
+        });
+      }
+    } catch {}
 
     const convertedCount = stageStats.find(s => s.stage === 'converted')?._count?.id || 0;
     const conversionRate = totalConversations > 0 ? ((convertedCount / totalConversations) * 100).toFixed(1) : '0';
 
-    // Combinar actividad reciente
     const recentActivity = [
       ...recentMessages.map(m => ({
         type: 'message' as const,
@@ -138,12 +166,19 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 
     const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
 
+    // Get line info if filtering
+    let lineInfo = null;
+    if (lineId) {
+      lineInfo = await prisma.whatsappLine.findUnique({ where: { id: lineId as string }, select: { id: true, label: true, phone: true, status: true } });
+    }
+
     res.json({
       totalConversations, totalMessages, todayMessages, weekMessages,
       totalAppointments, pendingAppointments, totalClients,
       convertedCount, conversionRate,
       weeklyActivity, recentActivity, funnelData,
-      stageStats: funnelData
+      stageStats: funnelData,
+      lineInfo
     });
   } catch (error) {
     console.error('Error dashboard:', error);
@@ -166,7 +201,7 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
     const messages = await prisma.message.findMany({
       where: { conversationId: id }, orderBy: { timestamp: 'asc' }, take: limit
     });
-    res.json({ messages });
+    res.json({ messages, conversation });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
   }
@@ -203,24 +238,18 @@ router.put('/:id/ai-pause', async (req: Request, res: Response) => {
     
     const conversation = await prisma.conversation.update({ where: { id }, data: { aiPaused: paused } });
     
-    // Also pause/unpause ALL duplicate conversations for the same recipient
-    // This ensures the webhook respects the pause regardless of which conv it finds
+    // Also pause ALL duplicate conversations for same recipient
     if (existing.recipientId) {
       const last10 = existing.recipientId.slice(-10);
       await prisma.conversation.updateMany({
-        where: { 
-          userId: ownerId, 
-          id: { not: id },
-          recipientId: { endsWith: last10 }
-        },
+        where: { userId: ownerId, id: { not: id }, recipientId: { endsWith: last10 } },
         data: { aiPaused: paused }
       }).catch(() => {});
     }
     
-    console.log(`${paused ? '⏸️' : '▶️'} IA ${paused ? 'pausada' : 'reactivada'} → conv ${id} (${existing.recipientName || existing.recipientId})`);
+    console.log(`${paused ? '⏸️' : '▶️'} IA ${paused ? 'pausada' : 'reactivada'} → conv ${id}`);
     res.json({ conversation, message: paused ? 'IA pausada' : 'IA reactivada' });
   } catch (error) {
-    console.error('Error ai-pause:', error);
     res.status(500).json({ error: 'Error' });
   }
 });
@@ -232,85 +261,49 @@ router.delete('/:id', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
     const { id } = req.params;
-    
     const existing = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
     if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
-    
-    // Delete messages first, then conversation
     await prisma.message.deleteMany({ where: { conversationId: id } });
     await prisma.conversation.delete({ where: { id } });
-    
     res.json({ success: true, message: 'Conversación eliminada' });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-// POST /api/conversations/cleanup — Merge duplicate conversations
+// POST /api/conversations/cleanup
 router.post('/cleanup', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
-
-    // Find all conversations for this user
     const allConvs = await prisma.conversation.findMany({
-      where: { userId: ownerId },
-      orderBy: { updatedAt: 'desc' },
+      where: { userId: ownerId }, orderBy: { updatedAt: 'desc' },
       include: { _count: { select: { messages: true } } }
     });
-
-    // Group by last 10 digits of recipientId
     const groups: Map<string, typeof allConvs> = new Map();
     for (const conv of allConvs) {
       const key = conv.recipientId.slice(-10);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(conv);
     }
-
-    let merged = 0;
-    let deleted = 0;
-
+    let merged = 0, deleted = 0;
     for (const [key, convs] of groups) {
       if (convs.length <= 1) continue;
-
-      // Keep the one with most messages (or most recent if tied)
       const primary = convs.sort((a, b) => {
         const diff = b._count.messages - a._count.messages;
         return diff !== 0 ? diff : b.updatedAt.getTime() - a.updatedAt.getTime();
       })[0];
-
-      // Move messages from duplicates to primary
       for (let i = 1; i < convs.length; i++) {
-        const dup = convs[i];
-        // Move messages to primary conversation
-        await prisma.message.updateMany({
-          where: { conversationId: dup.id },
-          data: { conversationId: primary.id }
-        });
-        // Delete the duplicate
-        await prisma.conversation.delete({ where: { id: dup.id } });
+        await prisma.message.updateMany({ where: { conversationId: convs[i].id }, data: { conversationId: primary.id } });
+        await prisma.conversation.delete({ where: { id: convs[i].id } });
         deleted++;
-      }
-      
-      // Update primary's name if it's missing
-      if (!primary.recipientName || primary.recipientName === primary.recipientId) {
-        const better = convs.find(c => c.recipientName && c.recipientName !== c.recipientId);
-        if (better) {
-          await prisma.conversation.update({ 
-            where: { id: primary.id }, 
-            data: { recipientName: better.recipientName } 
-          });
-        }
       }
       merged++;
     }
-
-    console.log(`🧹 Cleanup: ${merged} grupos fusionados, ${deleted} duplicados eliminados`);
     res.json({ success: true, merged, deleted, remaining: allConvs.length - deleted });
   } catch (error) {
-    console.error('Error cleanup:', error);
-    res.status(500).json({ error: 'Error al limpiar' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 

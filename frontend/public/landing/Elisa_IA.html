@@ -3,401 +3,1313 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Elisa IA — Tu Vendedor Virtual por WhatsApp 24/7</title>
-  <meta name="description" content="Automatiza tu atención al cliente con inteligencia artificial en WhatsApp. Elisa IA responde, vende y agenda por ti las 24 horas.">
-  <link rel="icon" type="image/png" href="../icons/icon-64.png">
-  <link rel="apple-touch-icon" href="../icons/icon-192x192.png">
+  <title>Elisa IA — Tu Asistente Virtual de WhatsApp 24/7</title>
+  <meta name="description" content="Automatiza tu WhatsApp con inteligencia artificial. Responde clientes 24/7, gestiona ventas y agenda citas automáticamente. 7 días gratis.">
+  <meta name="keywords" content="chatbot whatsapp, automatizar whatsapp, asistente virtual, inteligencia artificial, ventas automaticas">
+  <meta property="og:title" content="Elisa IA — Tu Asistente Virtual de WhatsApp 24/7">
+  <meta property="og:description" content="Automatiza tu WhatsApp con IA. Responde clientes 24/7 mientras duermes.">
+  <link rel="icon" type="image/png" href="/elisa.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    
     :root {
-      --bg: #06060b;
-      --bg-card: #0d0d15;
-      --bg-card-hover: #12121f;
-      --border: rgba(255,255,255,0.06);
-      --border-accent: rgba(99,102,241,0.3);
-      --text: #f0f0f5;
-      --text-muted: #8888a4;
-      --text-dim: #55556a;
-      --accent: #6366f1;
-      --accent-light: #818cf8;
-      --accent-glow: rgba(99,102,241,0.15);
-      --green: #10b981;
-      --green-glow: rgba(16,185,129,0.15);
-      --orange: #f59e0b;
+      --bg: #030014;
+      --bg-secondary: #0a0a1a;
+      --bg-card: rgba(15, 15, 35, 0.6);
+      --bg-card-solid: #0f0f23;
+      --border: rgba(255,255,255,0.08);
+      --border-glow: rgba(139, 92, 246, 0.3);
+      --text: #ffffff;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --purple: #8b5cf6;
+      --purple-light: #a78bfa;
+      --cyan: #06b6d4;
+      --emerald: #10b981;
       --pink: #ec4899;
+      --blue: #3b82f6;
+      --glow-purple: rgba(139, 92, 246, 0.15);
+      --glow-cyan: rgba(6, 182, 212, 0.15);
+      --glow-emerald: rgba(16, 185, 129, 0.15);
     }
-    html { scroll-behavior: smooth; }
-    body { font-family: 'Sora', sans-serif; background: var(--bg); color: var(--text); overflow-x: hidden; line-height: 1.6; }
-    body::before { content: ''; position: fixed; inset: 0; opacity: 0.03; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); pointer-events: none; z-index: 0; }
-    .grid-bg { position: fixed; inset: 0; background-image: linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px); background-size: 60px 60px; pointer-events: none; z-index: 0; }
-    section, header, footer { position: relative; z-index: 1; }
-    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 
-    @keyframes fadeUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
-    @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-12px); } }
-    @keyframes pulse-ring { 0% { transform: scale(0.9); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
-    @keyframes gradient-shift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-    @keyframes typing-dot { 0%, 60%, 100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-4px); } }
-    @keyframes count-up { from { opacity: 0; transform: scale(0.5); } to { opacity: 1; transform: scale(1); } }
-    @keyframes slide-left { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-    .animate-up { animation: fadeUp 0.8s ease-out both; }
-    .delay-1 { animation-delay: 0.1s; } .delay-2 { animation-delay: 0.2s; } .delay-3 { animation-delay: 0.3s; }
-    .delay-4 { animation-delay: 0.4s; } .delay-5 { animation-delay: 0.5s; } .delay-6 { animation-delay: 0.6s; }
+    html { scroll-behavior: smooth; }
+    
+    body { 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
+      background: var(--bg); 
+      color: var(--text); 
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ANIMATED BACKGROUND */
+    .bg-effects {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background-image: 
+        linear-gradient(rgba(139, 92, 246, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139, 92, 246, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
+    }
+    
+    .bg-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.4;
+      animation: orb-float 20s ease-in-out infinite;
+    }
+    
+    .bg-orb-1 {
+      width: 600px;
+      height: 600px;
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      top: -200px;
+      left: -200px;
+      animation-delay: 0s;
+    }
+    
+    .bg-orb-2 {
+      width: 500px;
+      height: 500px;
+      background: linear-gradient(135deg, var(--cyan), var(--blue));
+      top: 50%;
+      right: -150px;
+      animation-delay: -7s;
+    }
+    
+    .bg-orb-3 {
+      width: 400px;
+      height: 400px;
+      background: linear-gradient(135deg, var(--emerald), var(--cyan));
+      bottom: -100px;
+      left: 30%;
+      animation-delay: -14s;
+    }
+    
+    @keyframes orb-float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(30px, -30px) scale(1.05); }
+      50% { transform: translate(-20px, 20px) scale(0.95); }
+      75% { transform: translate(40px, 10px) scale(1.02); }
+    }
+    
+    /* Noise texture */
+    .bg-noise {
+      position: absolute;
+      inset: 0;
+      opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    /* URGENCY BANNER */
+    .urgency-banner {
+      background: linear-gradient(90deg, #7c3aed, #8b5cf6, #a78bfa, #8b5cf6, #7c3aed);
+      background-size: 200% 100%;
+      animation: gradient-x 3s ease infinite;
+      padding: 14px 20px;
+      text-align: center;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      box-shadow: 0 4px 30px rgba(139, 92, 246, 0.3);
+    }
+    
+    @keyframes gradient-x {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    
+    .urgency-content {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .urgency-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .countdown {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .countdown-item {
+      background: rgba(0,0,0,0.25);
+      backdrop-filter: blur(10px);
+      padding: 6px 12px;
+      border-radius: 8px;
+      min-width: 54px;
+      text-align: center;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .countdown-number {
+      font-size: 20px;
+      font-weight: 800;
+      color: white;
+      display: block;
+      line-height: 1.2;
+    }
+    
+    .countdown-label {
+      font-size: 9px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.8);
+      letter-spacing: 0.5px;
+    }
+    
+    .urgency-cta {
+      background: white;
+      color: #7c3aed;
+      padding: 10px 24px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.3s;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }
+    
+    .urgency-cta:hover {
+      transform: scale(1.05);
+      box-shadow: 0 6px 25px rgba(0,0,0,0.3);
+    }
 
     /* NAV */
-    nav { position: fixed; top: 0; width: 100%; z-index: 100; padding: 16px 0; backdrop-filter: blur(20px); background: rgba(6,6,11,0.8); border-bottom: 1px solid var(--border); }
-    nav .container { display: flex; align-items: center; justify-content: space-between; }
-    .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
-    .logo-icon { width: 42px; height: 42px; border-radius: 12px; overflow: hidden; box-shadow: 0 0 20px rgba(99,102,241,0.3); }
-    .logo-icon img { width: 100%; height: 100%; object-fit: cover; }
-    .logo-text { font-family: 'Outfit', sans-serif; font-size: 24px; font-weight: 800; color: var(--text); }
-    .logo-text span { color: var(--accent-light); font-weight: 300; }
-    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
-    .nav-links a { color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.3s; }
-    .nav-links a:hover { color: var(--text); }
+    nav {
+      position: fixed;
+      top: 56px;
+      width: 100%;
+      z-index: 100;
+      padding: 16px 0;
+      background: rgba(3, 0, 20, 0.7);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+    
+    .logo img {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
+    }
+    
+    .logo-text {
+      font-size: 24px;
+      font-weight: 800;
+      color: white;
+    }
+    
+    .logo-text span {
+      font-weight: 300;
+      background: linear-gradient(135deg, var(--purple-light), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 36px;
+      list-style: none;
+    }
+    
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.3s;
+    }
+    
+    .nav-links a:hover { color: white; }
+    
+    .nav-cta {
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: white !important;
+      padding: 12px 28px;
+      border-radius: 100px;
+      font-weight: 600 !important;
+      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+      transition: all 0.3s !important;
+    }
+    
+    .nav-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(139, 92, 246, 0.5);
+    }
 
-    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 28px; border-radius: 12px; font-family: 'Sora', sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: all 0.3s; }
-    .btn-primary { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; box-shadow: 0 4px 20px rgba(99,102,241,0.3); }
-    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(99,102,241,0.4); }
-    .btn-whatsapp { background: linear-gradient(135deg, #25d366, #128c7e); color: white; box-shadow: 0 4px 20px rgba(37,211,102,0.3); }
-    .btn-whatsapp:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(37,211,102,0.4); }
-    .btn-secondary { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); }
-    .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); }
-    .btn-large { padding: 18px 40px; font-size: 17px; border-radius: 16px; }
-    .btn-glow { position: relative; overflow: hidden; }
-    .btn-glow::before { content: ''; position: absolute; inset: -2px; background: linear-gradient(135deg, var(--accent), #a855f7, var(--pink), var(--accent)); background-size: 400% 400%; animation: gradient-shift 3s ease infinite; border-radius: inherit; z-index: -1; filter: blur(8px); opacity: 0.6; }
-
-    /* HERO */
-    .hero { padding: 160px 0 100px; text-align: center; position: relative; }
-    .hero-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.15; pointer-events: none; }
-    .hero-orb-1 { width: 500px; height: 500px; background: var(--accent); top: -100px; left: -150px; }
-    .hero-orb-2 { width: 400px; height: 400px; background: #a855f7; top: 0; right: -100px; }
-    .hero-orb-3 { width: 300px; height: 300px; background: var(--green); bottom: -50px; left: 30%; }
-    .hero-badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 20px; background: var(--green-glow); border: 1px solid rgba(16,185,129,0.3); border-radius: 100px; color: var(--green); font-size: 13px; font-weight: 600; margin-bottom: 32px; }
-    .hero-badge .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; position: relative; }
-    .hero-badge .dot::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--green); animation: pulse-ring 1.5s ease-out infinite; }
-    .hero h1 { font-family: 'Outfit', sans-serif; font-size: clamp(42px, 6vw, 76px); font-weight: 900; line-height: 1.05; margin-bottom: 24px; letter-spacing: -2px; }
-    .hero h1 .gradient-text { background: linear-gradient(135deg, var(--accent-light), #a855f7, var(--pink)); background-size: 200% 200%; animation: gradient-shift 4s ease infinite; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .hero p.hero-sub { font-size: clamp(17px, 2vw, 21px); color: var(--text-muted); max-width: 640px; margin: 0 auto 16px; line-height: 1.7; }
-    /* Diferenciador único */
-    .hero-differentiator { display: inline-block; padding: 10px 24px; background: rgba(236,72,153,0.08); border: 1px solid rgba(236,72,153,0.25); border-radius: 12px; color: var(--pink); font-size: 15px; font-weight: 600; margin-bottom: 36px; }
-    .hero-actions { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .hero-trial { display: block; color: var(--text-dim); font-size: 14px; }
-    .hero-trial strong { color: var(--green); }
-
-    /* PHONE MOCKUP */
-    .hero-mockup { margin-top: 80px; display: flex; justify-content: center; align-items: center; gap: 0; position: relative; }
-    .elisa-hero-avatar { position: absolute; left: calc(50% - 340px); top: 50%; transform: translateY(-50%); z-index: 2; }
-    .elisa-hero-avatar img { width: 260px; height: 260px; object-fit: contain; filter: drop-shadow(0 0 40px rgba(99,102,241,0.3)) drop-shadow(0 0 80px rgba(168,85,247,0.15)); animation: float 6s ease-in-out infinite reverse; }
-    @media (max-width: 900px) { .elisa-hero-avatar { position: relative; left: auto; top: auto; transform: none; margin-bottom: -20px; } .hero-mockup { flex-direction: column; } .elisa-hero-avatar img { width: 180px; height: 180px; } }
-    .phone-frame { width: 340px; background: #111; border-radius: 36px; border: 2px solid rgba(255,255,255,0.1); overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.5), 0 0 60px rgba(99,102,241,0.1); animation: float 6s ease-in-out infinite; }
-    .phone-header { background: linear-gradient(135deg, #075e54, #128c7e); padding: 20px 16px 12px; display: flex; align-items: center; gap: 12px; }
-    .phone-avatar { width: 36px; height: 36px; background: linear-gradient(135deg, var(--accent), #a855f7); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; }
-    .phone-name { font-size: 15px; font-weight: 600; color: white; }
-    .phone-status { font-size: 11px; color: rgba(255,255,255,0.7); display: flex; align-items: center; gap: 4px; }
-    .typing-dots span { display: inline-block; width: 4px; height: 4px; background: rgba(255,255,255,0.7); border-radius: 50%; margin: 0 1px; }
-    .typing-dots span:nth-child(1) { animation: typing-dot 1.4s infinite 0s; }
-    .typing-dots span:nth-child(2) { animation: typing-dot 1.4s infinite 0.2s; }
-    .typing-dots span:nth-child(3) { animation: typing-dot 1.4s infinite 0.4s; }
-    .phone-chat { background: #0b1014; padding: 16px 12px; min-height: 320px; display: flex; flex-direction: column; gap: 8px; }
-    .msg { max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
-    .msg-in { background: #1a2332; align-self: flex-start; border-bottom-left-radius: 4px; color: #e8e8e8; }
-    .msg-out { background: #054640; align-self: flex-end; border-bottom-right-radius: 4px; color: #e8e8e8; }
-    .msg-time { font-size: 10px; color: rgba(255,255,255,0.4); text-align: right; margin-top: 4px; }
-
-    /* SOCIAL PROOF BAR */
-    .social-proof { padding: 60px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; }
-    .social-proof-header { text-align: center; margin-bottom: 40px; }
-    .social-proof-header p { color: var(--text-dim); font-size: 14px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
-    .social-proof-header h3 { font-family: 'Outfit', sans-serif; font-size: 28px; font-weight: 800; margin-top: 8px; }
-    .social-proof-header h3 em { font-style: normal; color: var(--accent-light); }
-    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; text-align: center; margin-bottom: 48px; }
-    .stat-item h3 { font-family: 'Outfit', sans-serif; font-size: 42px; font-weight: 800; background: linear-gradient(135deg, var(--accent-light), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .stat-item p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
-
-    /* TESTIMONIALS */
-    .testimonials-track { display: flex; gap: 24px; animation: slide-left 30s linear infinite; width: max-content; }
-    .testimonial-card { flex-shrink: 0; width: 340px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 28px; }
-    .testimonial-card .stars { color: var(--orange); font-size: 14px; margin-bottom: 12px; letter-spacing: 2px; }
-    .testimonial-card .quote { color: var(--text-muted); font-size: 14px; line-height: 1.7; margin-bottom: 16px; font-style: italic; }
-    .testimonial-card .author { display: flex; align-items: center; gap: 12px; }
-    .testimonial-card .author-avatar { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; }
-    .testimonial-card .author-name { font-size: 14px; font-weight: 600; color: var(--text); }
-    .testimonial-card .author-role { font-size: 12px; color: var(--text-dim); }
-
-    /* SECTION HEADERS */
-    .section-header { text-align: center; margin-bottom: 64px; }
-    .section-tag { display: inline-block; padding: 6px 16px; background: var(--accent-glow); border: 1px solid var(--border-accent); border-radius: 100px; color: var(--accent-light); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 20px; }
-    .section-header h2 { font-family: 'Outfit', sans-serif; font-size: clamp(32px, 4vw, 48px); font-weight: 800; letter-spacing: -1px; line-height: 1.15; margin-bottom: 16px; }
-    .section-header p { color: var(--text-muted); font-size: 18px; max-width: 560px; margin: 0 auto; }
-
-    /* FEATURES */
-    .features { padding: 120px 0; }
-    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-    .feature-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 36px 28px; transition: all 0.4s; position: relative; overflow: hidden; }
-    .feature-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); opacity: 0; transition: opacity 0.4s; }
-    .feature-card:hover { background: var(--bg-card-hover); border-color: rgba(255,255,255,0.1); transform: translateY(-4px); }
-    .feature-card:hover::before { opacity: 1; }
-    .feature-icon { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 20px; }
-    .feature-card h3 { font-family: 'Outfit', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 10px; }
-    .feature-card p { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
-
-    /* USE CASES (estilo Kommo) */
-    .use-cases { padding: 120px 0; }
-    .use-cases-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-    .use-case-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 24px; padding: 40px 32px; transition: all 0.4s; position: relative; overflow: hidden; }
-    .use-case-card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-6px); }
-    .use-case-card .uc-icon { width: 64px; height: 64px; border-radius: 18px; display: flex; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 24px; }
-    .use-case-card h3 { font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 800; margin-bottom: 12px; }
-    .use-case-card .uc-desc { color: var(--text-muted); font-size: 15px; line-height: 1.7; margin-bottom: 24px; }
-    .use-case-card ul { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-    .use-case-card ul li { display: flex; align-items: flex-start; gap: 10px; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
-    .use-case-card ul li .bullet { width: 6px; height: 6px; border-radius: 50%; margin-top: 7px; flex-shrink: 0; }
-
-    /* HOW IT WORKS */
-    .how-it-works { padding: 120px 0; }
-    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; position: relative; }
-    .steps::before { content: ''; position: absolute; top: 40px; left: 12.5%; right: 12.5%; height: 2px; background: linear-gradient(90deg, var(--accent), var(--green), var(--orange), var(--pink)); opacity: 0.3; }
-    .step { text-align: center; position: relative; }
-    .step-number { width: 56px; height: 56px; border-radius: 50%; background: var(--bg-card); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 800; color: var(--accent-light); margin: 0 auto 20px; position: relative; z-index: 1; }
-    .step h3 { font-family: 'Outfit', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 8px; }
-    .step p { color: var(--text-muted); font-size: 14px; line-height: 1.6; }
-
-    /* INTEGRATIONS */
-    .integrations { padding: 120px 0; }
-    .integrations-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 800px; margin: 0 auto; }
-    .integration-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; padding: 36px; text-align: center; transition: all 0.4s; }
-    .integration-card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-4px); }
-    .integration-logo { width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; margin: 0 auto 16px; }
-    .integration-card h3 { font-family: 'Outfit', sans-serif; font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-    .integration-card p { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
-    .integration-card .tag { display: inline-block; margin-top: 16px; padding: 6px 14px; background: rgba(255,255,255,0.05); border-radius: 100px; font-size: 12px; color: var(--text-muted); }
-
-    /* PRICING */
-    .pricing { padding: 120px 0; }
-    .pricing-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; max-width: 900px; margin: 0 auto; }
-    .pricing-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 28px; padding: 44px 36px; position: relative; overflow: hidden; transition: all 0.4s; }
-    .pricing-card:hover { transform: translateY(-4px); }
-    .pricing-card.popular { border: 2px solid var(--accent); }
-    .pricing-card.popular::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: conic-gradient(from 0deg, transparent, var(--accent-glow), transparent, var(--accent-glow), transparent); animation: gradient-shift 8s linear infinite; opacity: 0.2; }
-    .pricing-card > * { position: relative; z-index: 1; }
-    .pricing-badge { display: inline-block; padding: 6px 18px; border-radius: 100px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
-    .pricing-badge-standard { background: rgba(255,255,255,0.08); color: var(--text-muted); }
-    .pricing-badge-popular { background: linear-gradient(135deg, var(--accent), #a855f7); color: white; }
-    .pricing-trial { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: var(--green-glow); border: 1px solid rgba(16,185,129,0.3); border-radius: 100px; color: var(--green); font-size: 12px; font-weight: 700; margin-bottom: 16px; }
-    .pricing-name { font-family: 'Outfit', sans-serif; font-size: 26px; font-weight: 800; margin-bottom: 6px; }
-    .pricing-desc { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; line-height: 1.5; }
-    .pricing-amount { display: flex; align-items: baseline; gap: 4px; margin-bottom: 4px; }
-    .pricing-currency { font-size: 22px; font-weight: 600; color: var(--text-muted); }
-    .pricing-value { font-family: 'Outfit', sans-serif; font-size: 64px; font-weight: 900; line-height: 1; }
-    .pricing-card.popular .pricing-value { background: linear-gradient(135deg, var(--text), var(--accent-light)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-    .pricing-period { color: var(--text-muted); font-size: 14px; margin-bottom: 28px; }
-    .pricing-features { list-style: none; display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
-    .pricing-features li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-muted); }
-    .pricing-features li .check { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
-    .check-green { background: var(--green-glow); border: 1px solid rgba(16,185,129,0.3); color: var(--green); }
-    .check-dim { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text-dim); }
-    .pricing-note { margin-top: 16px; padding: 14px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2); border-radius: 12px; font-size: 12px; color: var(--orange); line-height: 1.6; }
-
-    /* Period Toggle */
-    .pricing-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 48px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 100px; padding: 5px; max-width: 480px; margin-left: auto; margin-right: auto; }
-    .pricing-toggle-btn { padding: 10px 24px; border-radius: 100px; border: none; background: transparent; color: var(--text-muted); font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.3s; position: relative; }
-    .pricing-toggle-btn.active { background: linear-gradient(135deg, var(--accent), #7c3aed); color: white; box-shadow: 0 4px 15px rgba(99,102,241,0.3); }
-    .pricing-toggle-btn .discount-tag { position: absolute; top: -10px; right: -6px; background: linear-gradient(135deg, var(--green), #059669); color: white; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 100px; white-space: nowrap; }
-    .pricing-save { display: inline-block; background: var(--green-glow); color: var(--green); font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 100px; margin-top: 4px; border: 1px solid rgba(16,185,129,0.2); }
-    .pricing-original { text-decoration: line-through; color: var(--text-dim); font-size: 14px; margin-right: 4px; }
-
-    /* FAQ */
-    .faq { padding: 120px 0; }
-    .faq-list { max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-    .faq-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: all 0.3s; }
-    .faq-item:hover { border-color: rgba(255,255,255,0.1); }
-    .faq-question { padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; font-weight: 600; font-size: 15px; user-select: none; transition: color 0.3s; }
-    .faq-question:hover { color: var(--accent-light); }
-    .faq-arrow { font-size: 18px; transition: transform 0.3s; color: var(--text-dim); }
-    .faq-item.open .faq-arrow { transform: rotate(45deg); color: var(--accent-light); }
-    .faq-answer { max-height: 0; overflow: hidden; transition: max-height 0.4s ease, padding 0.4s ease; }
-    .faq-item.open .faq-answer { max-height: 400px; padding: 0 28px 22px; }
-    .faq-answer p { color: var(--text-muted); font-size: 14px; line-height: 1.7; }
-
-    /* CTA SECTION */
-    .cta-section { padding: 120px 0; text-align: center; position: relative; }
-    .cta-section::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%); pointer-events: none; }
-    .cta-section h2 { font-family: 'Outfit', sans-serif; font-size: clamp(36px, 5vw, 56px); font-weight: 900; letter-spacing: -1.5px; margin-bottom: 20px; position: relative; }
-    .cta-section p { color: var(--text-muted); font-size: 18px; margin-bottom: 40px; position: relative; }
-    .cta-buttons { display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap; position: relative; }
-
-    /* FOOTER */
-    footer { padding: 48px 0; border-top: 1px solid var(--border); text-align: center; }
-    footer p { color: var(--text-dim); font-size: 13px; }
-    footer a { color: var(--accent-light); text-decoration: none; }
-
-    /* RESPONSIVE */
-    @media (max-width: 900px) {
-      .features-grid, .use-cases-grid { grid-template-columns: repeat(2, 1fr); }
-      .steps { grid-template-columns: repeat(2, 1fr); }
-      .steps::before { display: none; }
-      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 24px; }
-      .pricing-grid { grid-template-columns: 1fr; max-width: 480px; }
+    @media (max-width: 768px) {
       .nav-links { display: none; }
     }
+
+    /* CONTAINER */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* HERO */
+    .hero {
+      padding: 200px 0 120px;
+      text-align: center;
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+    }
+    
+    .hero-glow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    
+    .hero-content {
+      width: 100%;
+    }
+    
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 24px;
+      background: rgba(139, 92, 246, 0.1);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      border-radius: 100px;
+      color: var(--purple-light);
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 36px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .hero-badge .pulse {
+      width: 10px;
+      height: 10px;
+      background: var(--emerald);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+      box-shadow: 0 0 10px var(--emerald);
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 10px var(--emerald); }
+      50% { opacity: 0.7; transform: scale(1.3); box-shadow: 0 0 20px var(--emerald); }
+    }
+    
+    .hero h1 {
+      font-size: clamp(44px, 8vw, 80px);
+      font-weight: 800;
+      line-height: 1.05;
+      margin-bottom: 28px;
+      letter-spacing: -3px;
+    }
+    
+    .hero h1 .gradient {
+      background: linear-gradient(135deg, #a78bfa, #06b6d4, #10b981);
+      background-size: 200% 200%;
+      animation: gradient-shift 5s ease infinite;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    @keyframes gradient-shift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    
+    .hero-subtitle {
+      font-size: clamp(18px, 2.5vw, 22px);
+      color: var(--text-secondary);
+      max-width: 650px;
+      margin: 0 auto 48px;
+      line-height: 1.8;
+    }
+    
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 36px;
+      border-radius: 100px;
+      font-size: 16px;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: white;
+      box-shadow: 0 4px 25px rgba(139, 92, 246, 0.4);
+    }
+    
+    .btn-primary::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      background: linear-gradient(135deg, var(--purple), var(--pink), var(--cyan), var(--purple));
+      background-size: 400% 400%;
+      animation: gradient-shift 3s ease infinite;
+      border-radius: inherit;
+      z-index: -1;
+      filter: blur(15px);
+      opacity: 0.5;
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 40px rgba(139, 92, 246, 0.5);
+    }
+    
+    .btn-whatsapp {
+      background: linear-gradient(135deg, #25d366, #128c7e);
+      color: white;
+      box-shadow: 0 4px 25px rgba(37, 211, 102, 0.3);
+    }
+    
+    .btn-whatsapp:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 35px rgba(37, 211, 102, 0.4);
+    }
+    
+    .btn-secondary {
+      background: rgba(255,255,255,0.05);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+    }
+    
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.25);
+      transform: translateY(-2px);
+    }
+    
+    .hero-note {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    
+    .hero-note strong {
+      color: var(--emerald);
+    }
+
+    /* PHONE MOCKUP */
+    .hero-visual {
+      margin-top: 80px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 60px;
+      flex-wrap: wrap;
+    }
+    
+    .elisa-avatar {
+      width: 220px;
+      height: 220px;
+      animation: float 6s ease-in-out infinite;
+      filter: drop-shadow(0 0 40px rgba(139, 92, 246, 0.4));
+    }
+    
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+    
+    .phone-mockup {
+      width: 320px;
+      background: var(--bg-card-solid);
+      border-radius: 40px;
+      border: 2px solid rgba(255,255,255,0.1);
+      overflow: hidden;
+      box-shadow: 
+        0 50px 100px rgba(0,0,0,0.5),
+        0 0 0 1px rgba(255,255,255,0.05),
+        0 0 60px rgba(139, 92, 246, 0.15);
+      animation: float 6s ease-in-out infinite;
+      animation-delay: -3s;
+    }
+    
+    .phone-header {
+      background: linear-gradient(135deg, #075e54, #128c7e);
+      padding: 18px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .phone-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.5);
+    }
+    
+    .phone-info h4 {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .phone-info p {
+      font-size: 12px;
+      color: rgba(255,255,255,0.7);
+    }
+    
+    .phone-chat {
+      background: #0b141a;
+      padding: 16px;
+      min-height: 300px;
+    }
+    
+    .chat-msg {
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 10px;
+      animation: msg-appear 0.5s ease both;
+    }
+    
+    .chat-msg:nth-child(1) { animation-delay: 0.5s; }
+    .chat-msg:nth-child(2) { animation-delay: 1s; }
+    .chat-msg:nth-child(3) { animation-delay: 1.5s; }
+    .chat-msg:nth-child(4) { animation-delay: 2s; }
+    
+    @keyframes msg-appear {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .msg-in {
+      background: #1f2c34;
+      color: #e9edef;
+      border-bottom-left-radius: 4px;
+    }
+    
+    .msg-out {
+      background: linear-gradient(135deg, #005c4b, #007d5f);
+      color: white;
+      margin-left: auto;
+      border-bottom-right-radius: 4px;
+    }
+    
+    .msg-time {
+      font-size: 10px;
+      color: rgba(255,255,255,0.5);
+      text-align: right;
+      margin-top: 4px;
+    }
+
+    /* STATS */
+    .stats {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 10, 30, 0.5);
+      backdrop-filter: blur(20px);
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 40px;
+      text-align: center;
+    }
+    
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 30px; }
+    }
+    
+    .stat-item h3 {
+      font-size: 52px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--purple-light), var(--cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+    
+    .stat-item p {
+      color: var(--text-secondary);
+      font-size: 15px;
+    }
+
+    /* FEATURES */
+    .features {
+      padding: 140px 0;
+      position: relative;
+    }
+    
+    .section-header {
+      text-align: center;
+      margin-bottom: 70px;
+    }
+    
+    .section-tag {
+      display: inline-block;
+      padding: 8px 20px;
+      background: var(--glow-purple);
+      border: 1px solid var(--border-glow);
+      border-radius: 100px;
+      color: var(--purple-light);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 24px;
+    }
+    
+    .section-header h2 {
+      font-size: clamp(36px, 5vw, 52px);
+      font-weight: 800;
+      margin-bottom: 20px;
+      letter-spacing: -1px;
+    }
+    
+    .section-header p {
+      color: var(--text-secondary);
+      font-size: 18px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+    }
+    
+    @media (max-width: 900px) {
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    
     @media (max-width: 600px) {
-      .features-grid, .use-cases-grid { grid-template-columns: 1fr; }
+      .features-grid { grid-template-columns: 1fr; }
+    }
+    
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 36px;
+      transition: all 0.4s;
+      backdrop-filter: blur(20px);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--purple), transparent);
+      opacity: 0;
+      transition: opacity 0.4s;
+    }
+    
+    .feature-card:hover {
+      background: rgba(20, 20, 50, 0.8);
+      border-color: var(--border-glow);
+      transform: translateY(-8px);
+      box-shadow: 0 20px 50px rgba(139, 92, 246, 0.15);
+    }
+    
+    .feature-card:hover::before {
+      opacity: 1;
+    }
+    
+    .feature-icon {
+      width: 64px;
+      height: 64px;
+      background: linear-gradient(135deg, var(--glow-purple), var(--glow-cyan));
+      border: 1px solid var(--border-glow);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin-bottom: 24px;
+    }
+    
+    .feature-card h3 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 14px;
+    }
+    
+    .feature-card p {
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    /* HOW IT WORKS */
+    .how-it-works {
+      padding: 140px 0;
+      background: linear-gradient(180deg, rgba(10,10,30,0.5) 0%, var(--bg) 100%);
+      position: relative;
+    }
+    
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      margin-top: 70px;
+    }
+    
+    @media (max-width: 900px) {
+      .steps { grid-template-columns: repeat(2, 1fr); }
+    }
+    
+    @media (max-width: 600px) {
       .steps { grid-template-columns: 1fr; }
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .integrations-grid { grid-template-columns: 1fr; }
-      .pricing-card { padding: 32px 24px; }
-      .hero { padding: 130px 0 60px; }
-      .testimonial-card { width: 280px; }
+    }
+    
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    
+    .step-number {
+      width: 70px;
+      height: 70px;
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      margin: 0 auto 24px;
+      box-shadow: 0 10px 30px rgba(139, 92, 246, 0.3);
+      position: relative;
+    }
+    
+    .step-number::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid rgba(139, 92, 246, 0.3);
+      animation: pulse-ring 2s ease-out infinite;
+    }
+    
+    @keyframes pulse-ring {
+      0% { transform: scale(1); opacity: 1; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+    
+    .step h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    
+    .step p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* PRICING */
+    .pricing {
+      padding: 140px 0;
+      position: relative;
+    }
+    
+    .pricing-cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 32px;
+      max-width: 950px;
+      margin: 70px auto 0;
+    }
+    
+    @media (max-width: 768px) {
+      .pricing-cards { grid-template-columns: 1fr; max-width: 420px; }
+    }
+    
+    .pricing-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 44px;
+      position: relative;
+      transition: all 0.4s;
+      backdrop-filter: blur(20px);
+    }
+    
+    .pricing-card:hover {
+      border-color: rgba(139, 92, 246, 0.3);
+      transform: translateY(-8px);
+      box-shadow: 0 30px 60px rgba(139, 92, 246, 0.1);
+    }
+    
+    .pricing-card.popular {
+      border-color: var(--purple);
+      box-shadow: 
+        0 0 60px var(--glow-purple),
+        inset 0 1px 0 rgba(255,255,255,0.1);
+    }
+    
+    .pricing-card.popular::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: 20%;
+      right: 20%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--purple-light), transparent);
+    }
+    
+    .popular-badge {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: white;
+      padding: 8px 24px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+    }
+    
+    .pricing-name {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    
+    .pricing-desc {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 28px;
+    }
+    
+    .pricing-price {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    
+    .pricing-currency {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    
+    .pricing-amount {
+      font-size: 64px;
+      font-weight: 800;
+      background: linear-gradient(135deg, white, var(--text-secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      line-height: 1;
+    }
+    
+    .pricing-period {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    
+    .pricing-note {
+      color: var(--emerald);
+      font-size: 13px;
+      font-weight: 600;
+      margin: 20px 0 28px;
+      padding: 10px 16px;
+      background: var(--glow-emerald);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 10px;
+      display: inline-block;
+    }
+    
+    .pricing-features {
+      list-style: none;
+      margin-bottom: 36px;
+    }
+    
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 12px 0;
+      color: var(--text-secondary);
+      font-size: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .pricing-features li:last-child {
+      border-bottom: none;
+    }
+    
+    .pricing-features li::before {
+      content: '✓';
+      color: var(--emerald);
+      font-weight: 700;
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      background: var(--glow-emerald);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    
+    .pricing-features li.disabled {
+      opacity: 0.4;
+    }
+    
+    .pricing-features li.disabled::before {
+      content: '✕';
+      color: var(--text-muted);
+      background: rgba(255,255,255,0.05);
+    }
+    
+    .pricing-btn {
+      width: 100%;
+      padding: 18px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      text-align: center;
+      text-decoration: none;
+      display: block;
+      transition: all 0.3s;
+    }
+    
+    .pricing-btn-primary {
+      background: linear-gradient(135deg, var(--purple), var(--pink));
+      color: white;
+      box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3);
+    }
+    
+    .pricing-btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(139, 92, 246, 0.4);
+    }
+    
+    .pricing-btn-secondary {
+      background: rgba(255,255,255,0.05);
+      color: white;
+      border: 1px solid var(--border);
+    }
+    
+    .pricing-btn-secondary:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    /* API NOTE */
+    .api-note {
+      max-width: 750px;
+      margin: 50px auto 0;
+      padding: 28px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 20px;
+      text-align: center;
+      backdrop-filter: blur(10px);
+    }
+    
+    .api-note h4 {
+      color: var(--orange);
+      font-size: 17px;
+      margin-bottom: 10px;
+    }
+    
+    .api-note p {
+      color: var(--text-secondary);
+      font-size: 14px;
+      line-height: 1.8;
+    }
+
+    /* FAQ */
+    .faq {
+      padding: 140px 0;
+      background: linear-gradient(180deg, var(--bg) 0%, rgba(10,10,30,0.5) 100%);
+    }
+    
+    .faq-list {
+      max-width: 750px;
+      margin: 70px auto 0;
+    }
+    
+    .faq-item {
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .faq-question {
+      padding: 28px 0;
+      font-size: 17px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: color 0.3s;
+    }
+    
+    .faq-question:hover {
+      color: var(--purple-light);
+    }
+    
+    .faq-icon {
+      font-size: 28px;
+      color: var(--purple);
+      transition: transform 0.3s;
+      font-weight: 300;
+    }
+    
+    .faq-item.open .faq-icon {
+      transform: rotate(45deg);
+    }
+    
+    .faq-answer {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s ease;
+    }
+    
+    .faq-item.open .faq-answer {
+      max-height: 500px;
+    }
+    
+    .faq-answer p {
+      color: var(--text-secondary);
+      font-size: 15px;
+      line-height: 1.8;
+      padding-bottom: 28px;
+    }
+
+    /* CTA FINAL */
+    .cta-final {
+      padding: 140px 0;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .cta-glow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, var(--glow-purple) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    
+    .cta-final img {
+      width: 140px;
+      margin-bottom: 40px;
+      animation: float 6s ease-in-out infinite;
+      filter: drop-shadow(0 0 40px rgba(139, 92, 246, 0.5));
+    }
+    
+    .cta-final h2 {
+      font-size: clamp(36px, 5vw, 52px);
+      font-weight: 800;
+      margin-bottom: 20px;
+    }
+    
+    .cta-final p {
+      color: var(--text-secondary);
+      font-size: 18px;
+      max-width: 550px;
+      margin: 0 auto 48px;
+      line-height: 1.8;
+    }
+    
+    .cta-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    /* FOOTER */
+    footer {
+      padding: 50px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      background: rgba(10, 10, 30, 0.3);
+    }
+    
+    .footer-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    
+    .footer-logo img {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+    }
+    
+    .footer-logo span {
+      font-size: 20px;
+      font-weight: 700;
+    }
+    
+    footer p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* ANIMATIONS */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(40px);
+      transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    .fade-up.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 480px) {
+      .urgency-banner { padding: 10px 12px; }
+      .urgency-content { gap: 10px; }
+      .urgency-text { font-size: 12px; }
+      .countdown-item { padding: 4px 8px; min-width: 44px; }
+      .countdown-number { font-size: 16px; }
+      .urgency-cta { padding: 8px 16px; font-size: 12px; }
+      nav { top: 48px; }
+      .hero { padding: 160px 0 80px; }
+      .btn { padding: 16px 28px; font-size: 15px; }
+      .elisa-avatar { width: 160px; height: 160px; }
+      .phone-mockup { width: 280px; }
     }
   </style>
 </head>
 <body>
-<div class="grid-bg"></div>
+
+<!-- ANIMATED BACKGROUND -->
+<div class="bg-effects">
+  <div class="bg-grid"></div>
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+  <div class="bg-orb bg-orb-3"></div>
+  <div class="bg-noise"></div>
+</div>
+
+<!-- URGENCY BANNER -->
+<div class="urgency-banner">
+  <div class="urgency-content">
+    <span class="urgency-text">🔥 <strong>Oferta especial:</strong> 7 días GRATIS para probar</span>
+    <div class="countdown">
+      <div class="countdown-item">
+        <span class="countdown-number" id="days">02</span>
+        <span class="countdown-label">Días</span>
+      </div>
+      <div class="countdown-item">
+        <span class="countdown-number" id="hours">18</span>
+        <span class="countdown-label">Horas</span>
+      </div>
+      <div class="countdown-item">
+        <span class="countdown-number" id="minutes">45</span>
+        <span class="countdown-label">Min</span>
+      </div>
+      <div class="countdown-item">
+        <span class="countdown-number" id="seconds">30</span>
+        <span class="countdown-label">Seg</span>
+      </div>
+    </div>
+    <a href="https://agentes-elisa-ia.vercel.app/register" class="urgency-cta">Activar Ahora →</a>
+  </div>
+</div>
 
 <!-- NAV -->
 <nav>
-  <div class="container">
+  <div class="nav-container">
     <a href="#" class="logo">
-      <div class="logo-icon"><img src="../elisa.png" alt="Elisa IA"></div>
-      <div class="logo-text">Elisa<span> IA</span></div>
+      <img src="/elisa.png" alt="Elisa IA">
+      <span class="logo-text">Elisa<span> IA</span></span>
     </a>
     <ul class="nav-links">
       <li><a href="#features">Funciones</a></li>
-      <li><a href="#usecases">Soluciones</a></li>
       <li><a href="#pricing">Precios</a></li>
       <li><a href="#faq">FAQ</a></li>
+      <li><a href="https://agentes-elisa-ia.vercel.app/register" class="nav-cta">Comenzar Gratis</a></li>
     </ul>
-    <a href="https://wa.me/573001234567?text=Hola%20quiero%20probar%20Elisa%20IA" class="btn btn-whatsapp" target="_blank">💬 Pruébala en WhatsApp</a>
   </div>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
-  <div class="hero-orb hero-orb-1"></div>
-  <div class="hero-orb hero-orb-2"></div>
-  <div class="hero-orb hero-orb-3"></div>
+  <div class="hero-glow"></div>
   <div class="container">
-    <div class="hero-badge animate-up">
-      <span class="dot"></span>
-      🎉 20 días GRATIS — Sin tarjeta de crédito
-    </div>
-    <h1 class="animate-up delay-1">
-      Tu vendedor virtual<br><span class="gradient-text">con IA en WhatsApp</span>
-    </h1>
-    <p class="hero-sub animate-up delay-2">
-      Elisa IA atiende a tus clientes, responde preguntas, envía catálogos, agenda citas y vende por ti — las 24 horas del día, los 7 días de la semana.
-    </p>
-    <!-- DIFERENCIADOR ÚNICO -->
-    <div class="hero-differentiator animate-up delay-3">
-      🧠 A diferencia de otros bots, Elisa <strong>entiende intención, no palabras clave.</strong> Responde como un humano real.
-    </div>
-    <div class="hero-actions animate-up delay-4">
-      <a href="https://wa.me/573001234567?text=Hola%20quiero%20probar%20Elisa%20IA" class="btn btn-whatsapp btn-large" target="_blank">💬 Habla con Elisa IA ahora</a>
-      <a href="#pricing" class="btn btn-primary btn-large btn-glow">🚀 Comenzar 20 Días Gratis</a>
-    </div>
-    <span class="hero-trial animate-up delay-5">✨ Sin compromisos · <strong>20 días gratis</strong> · Cancela cuando quieras</span>
-
-    <div class="hero-mockup animate-up delay-6" style="position: relative;">
-      <!-- Elisa Avatar flotante -->
-      <div class="elisa-hero-avatar">
-        <img src="../elisa.png" alt="Elisa IA - Tu asistente virtual">
+    <div class="hero-content">
+      <div class="hero-badge fade-up">
+        <div class="pulse"></div>
+        +500 negocios confían en nosotros
       </div>
-      <div class="phone-frame">
-        <div class="phone-header">
-          <div class="phone-avatar"><img src="../elisa.png" alt="Elisa" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
-          <div>
-            <div class="phone-name">Elisa IA</div>
-            <div class="phone-status"><span class="typing-dots"><span></span><span></span><span></span></span> escribiendo...</div>
+      
+      <h1 class="fade-up" style="animation-delay: 0.1s">
+        Tu asistente de WhatsApp<br>
+        <span class="gradient">que nunca duerme</span>
+      </h1>
+      
+      <p class="hero-subtitle fade-up" style="animation-delay: 0.2s">
+        Automatiza tu atención al cliente con inteligencia artificial. 
+        Responde, vende y agenda citas <strong>24/7</strong> mientras tú descansas.
+      </p>
+      
+      <div class="hero-actions fade-up" style="animation-delay: 0.3s">
+        <a href="https://wa.me/573118083993?text=Hola%20Elisa%2C%20quiero%20saber%20m%C3%A1s%20sobre%20la%20plataforma" class="btn btn-whatsapp" target="_blank">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          Hablar con Elisa
+        </a>
+        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary">
+          🚀 Probar 7 días gratis
+        </a>
+      </div>
+      
+      <p class="hero-note fade-up" style="animation-delay: 0.4s">
+        Sin tarjeta de crédito · Configuración en 5 minutos · <strong>Cancela cuando quieras</strong>
+      </p>
+
+      <div class="hero-visual fade-up" style="animation-delay: 0.5s">
+        <img src="/elisa.png" alt="Elisa IA" class="elisa-avatar">
+        <div class="phone-mockup">
+          <div class="phone-header">
+            <div class="phone-avatar">🤖</div>
+            <div class="phone-info">
+              <h4>Elisa IA</h4>
+              <p>En línea</p>
+            </div>
           </div>
-        </div>
-        <div class="phone-chat">
-          <div class="msg msg-in">Hola, quiero saber los precios 👋<div class="msg-time">2:30 PM</div></div>
-          <div class="msg msg-out">¡Hola! 😊 Claro, te cuento. Tenemos 3 planes. ¿Te envío el catálogo completo?<div class="msg-time">2:30 PM ✓✓</div></div>
-          <div class="msg msg-in">Sí por favor, y quiero agendar una cita<div class="msg-time">2:31 PM</div></div>
-          <div class="msg msg-out">¡Perfecto! 📎 Te envío el catálogo. Para la cita, ¿qué día y hora te quedan mejor? 📅<div class="msg-time">2:31 PM ✓✓</div></div>
+          <div class="phone-chat">
+            <div class="chat-msg msg-in">
+              Hola, ¿tienen la camiseta negra en talla M?
+              <div class="msg-time">10:30 PM</div>
+            </div>
+            <div class="chat-msg msg-out">
+              ¡Hola! 👋 Sí, tenemos disponible. El precio es $45.000 con envío gratis. ¿Te la aparto?
+              <div class="msg-time">10:30 PM ✓✓</div>
+            </div>
+            <div class="chat-msg msg-in">
+              Sí, quiero comprarla
+              <div class="msg-time">10:31 PM</div>
+            </div>
+            <div class="chat-msg msg-out">
+              ¡Perfecto! 🎉 Te envío el link de pago...
+              <div class="msg-time">10:31 PM ✓✓</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- SOCIAL PROOF -->
-<section class="social-proof">
+<!-- STATS -->
+<section class="stats">
   <div class="container">
-    <div class="social-proof-header">
-      <p>Confianza de los que ya venden con IA</p>
-      <h3>Más de <em>150+ negocios</em> ya usan Elisa IA</h3>
-    </div>
     <div class="stats-grid">
-      <div class="stat-item"><h3>24/7</h3><p>Atención sin descanso</p></div>
-      <div class="stat-item"><h3>&lt;10s</h3><p>Tiempo de respuesta</p></div>
-      <div class="stat-item"><h3>50K+</h3><p>Mensajes procesados</p></div>
-      <div class="stat-item"><h3>85%</h3><p>Consultas resueltas por IA</p></div>
-    </div>
-
-    <!-- TESTIMONIALS CAROUSEL -->
-    <div style="overflow: hidden;">
-      <div class="testimonials-track">
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"Antes perdíamos clientes por no responder rápido. Desde que activamos Elisa, vendemos un 40% más porque responde al instante."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(99,102,241,0.2); color: var(--accent-light);">M</div>
-            <div><div class="author-name">María González</div><div class="author-role">Tienda de Ropa — Bogotá</div></div>
-          </div>
-        </div>
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"Mis clientes creen que tienen un asesor personal. No saben que es IA. Eso dice todo de la calidad de las respuestas."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(16,185,129,0.2); color: var(--green);">C</div>
-            <div><div class="author-name">Carlos Ramírez</div><div class="author-role">Clínica Dental — Medellín</div></div>
-          </div>
-        </div>
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"La función de pausar la IA con '..' es genial. Puedo intervenir cuando quiero y la IA se encarga del resto."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(168,85,247,0.2); color: #a855f7;">L</div>
-            <div><div class="author-name">Laura Mendoza</div><div class="author-role">Inmobiliaria — Lima</div></div>
-          </div>
-        </div>
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"Tengo 3 vendedores usando Elisa IA con sus propios accesos. Yo veo todo desde el dashboard. Es como tener un call center."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(245,158,11,0.2); color: var(--orange);">R</div>
-            <div><div class="author-name">Roberto Silva</div><div class="author-role">Agencia de Viajes — CDMX</div></div>
-          </div>
-        </div>
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"Cobro $30 USD al mes y ahorro más de $500 en personal. La mejor inversión que he hecho para mi negocio."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(236,72,153,0.2); color: var(--pink);">A</div>
-            <div><div class="author-name">Andrea Parra</div><div class="author-role">E-commerce — Quito</div></div>
-          </div>
-        </div>
-        <!-- Duplicados para loop infinito -->
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"Antes perdíamos clientes por no responder rápido. Desde que activamos Elisa, vendemos un 40% más."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(99,102,241,0.2); color: var(--accent-light);">M</div>
-            <div><div class="author-name">María González</div><div class="author-role">Tienda de Ropa — Bogotá</div></div>
-          </div>
-        </div>
-        <div class="testimonial-card">
-          <div class="stars">★★★★★</div>
-          <div class="quote">"Mis clientes creen que tienen un asesor personal. Eso dice todo de la calidad de Elisa."</div>
-          <div class="author">
-            <div class="author-avatar" style="background: rgba(16,185,129,0.2); color: var(--green);">C</div>
-            <div><div class="author-name">Carlos Ramírez</div><div class="author-role">Clínica Dental — Medellín</div></div>
-          </div>
-        </div>
+      <div class="stat-item fade-up">
+        <h3>500+</h3>
+        <p>Negocios activos</p>
+      </div>
+      <div class="stat-item fade-up" style="animation-delay: 0.1s">
+        <h3>50K+</h3>
+        <p>Mensajes por día</p>
+      </div>
+      <div class="stat-item fade-up" style="animation-delay: 0.2s">
+        <h3>24/7</h3>
+        <p>Atención automática</p>
+      </div>
+      <div class="stat-item fade-up" style="animation-delay: 0.3s">
+        <h3>98%</h3>
+        <p>Clientes satisfechos</p>
       </div>
     </div>
   </div>
@@ -407,103 +1319,75 @@
 <section class="features" id="features">
   <div class="container">
     <div class="section-header">
-      <div class="section-tag">Funciones</div>
-      <h2>Todo lo que necesitas para<br>vender por WhatsApp</h2>
-      <p>Una plataforma completa con IA que trabaja mientras duermes.</p>
+      <span class="section-tag">Funciones</span>
+      <h2>Todo lo que necesitas<br>para vender más</h2>
+      <p>Herramientas potentes para automatizar tu negocio en WhatsApp</p>
     </div>
-    <div class="features-grid">
-      <div class="feature-card"><div class="feature-icon" style="background: rgba(99,102,241,0.15); color: #818cf8;">🤖</div><h3>Asistente IA Inteligente</h3><p>Responde preguntas, maneja objeciones y guía al cliente hasta la compra. Entiende contexto, no solo palabras clave.</p></div>
-      <div class="feature-card"><div class="feature-icon" style="background: rgba(16,185,129,0.15); color: #10b981;">💬</div><h3>WhatsApp Automatizado</h3><p>Conecta tu número real. Respuestas instantáneas con indicador de "escribiendo..." que parece humano.</p></div>
-      <div class="feature-card"><div class="feature-icon" style="background: rgba(245,158,11,0.15); color: #f59e0b;">📊</div><h3>Dashboard en Tiempo Real</h3><p>Métricas de ventas, embudo de conversión y rendimiento del equipo. Todo en un solo lugar.</p></div>
-      <div class="feature-card"><div class="feature-icon" style="background: rgba(236,72,153,0.15); color: #ec4899;">👥</div><h3>Equipo Multi-usuario</h3><p>Sub-cuentas para vendedores, soporte y gerentes. Permisos personalizados y chats asignados.</p></div>
-      <div class="feature-card"><div class="feature-icon" style="background: rgba(168,85,247,0.15); color: #a855f7;">📅</div><h3>CRM + Agenda</h3><p>Gestiona clientes, programa citas y da seguimiento a cada prospecto desde el mismo panel.</p></div>
-      <div class="feature-card"><div class="feature-icon" style="background: rgba(20,184,166,0.15); color: #14b8a6;">⏸️</div><h3>Pausa IA Instantánea</h3><p>Envía ".." para pausar la IA y tomar el control. Envía "." para reactivarla. Tú mandas.</p></div>
-    </div>
-  </div>
-</section>
 
-<!-- USE CASES (tipo Kommo) -->
-<section class="use-cases" id="usecases">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Soluciones</div>
-      <h2>WhatsApp CRM con IA<br>para cada necesidad</h2>
-      <p>Ya sea que vendas, atiendas o gestiones un equipo, Elisa se adapta.</p>
-    </div>
-    <div class="use-cases-grid">
-      <div class="use-case-card">
-        <div class="uc-icon" style="background: rgba(99,102,241,0.12);">💰</div>
-        <h3>Para Ventas</h3>
-        <div class="uc-desc">Convierte cada mensaje en una oportunidad. La IA califica leads, responde objeciones y cierra ventas mientras duermes.</div>
-        <ul>
-          <li><span class="bullet" style="background: var(--accent);"></span>Respuestas automáticas 24/7</li>
-          <li><span class="bullet" style="background: var(--accent);"></span>Envío de catálogos y precios</li>
-          <li><span class="bullet" style="background: var(--accent);"></span>Seguimiento inteligente de leads</li>
-          <li><span class="bullet" style="background: var(--accent);"></span>Embudo de ventas automatizado</li>
-        </ul>
+    <div class="features-grid">
+      <div class="feature-card fade-up">
+        <div class="feature-icon">🤖</div>
+        <h3>Asistente IA Personalizado</h3>
+        <p>Entrena tu asistente con tu información, precios, tono y personalidad. Es TU asistente, no un bot genérico.</p>
       </div>
-      <div class="use-case-card">
-        <div class="uc-icon" style="background: rgba(16,185,129,0.12);">👥</div>
-        <h3>Para Equipos</h3>
-        <div class="uc-desc">Agiliza la rapidez de respuesta distribuyendo conversaciones entre tu equipo con un CRM compartido.</div>
-        <ul>
-          <li><span class="bullet" style="background: var(--green);"></span>Conecta hasta 3 líneas de WhatsApp</li>
-          <li><span class="bullet" style="background: var(--green);"></span>Asigna chats a vendedores</li>
-          <li><span class="bullet" style="background: var(--green);"></span>Controla el acceso a la bandeja</li>
-          <li><span class="bullet" style="background: var(--green);"></span>Chat interno entre compañeros</li>
-        </ul>
+      <div class="feature-card fade-up" style="animation-delay: 0.1s">
+        <div class="feature-icon">💬</div>
+        <h3>Respuestas 24/7</h3>
+        <p>Nunca pierdas un cliente por no responder. Tu IA atiende instantáneamente a cualquier hora.</p>
       </div>
-      <div class="use-case-card">
-        <div class="uc-icon" style="background: rgba(168,85,247,0.12);">📋</div>
-        <h3>Para Directivos</h3>
-        <div class="uc-desc">¿No sabes si alguien atendió a ese cliente nuevo? Con Elisa IA, los gerentes ven todo sin preguntar.</div>
-        <ul>
-          <li><span class="bullet" style="background: #a855f7;"></span>Dashboard con métricas del equipo</li>
-          <li><span class="bullet" style="background: #a855f7;"></span>Establece objetivos y mide resultados</li>
-          <li><span class="bullet" style="background: #a855f7;"></span>Controla quién tiene acceso a qué</li>
-          <li><span class="bullet" style="background: #a855f7;"></span>Reportes de rendimiento por vendedor</li>
-        </ul>
+      <div class="feature-card fade-up" style="animation-delay: 0.2s">
+        <div class="feature-icon">📱</div>
+        <h3>Multi-línea WhatsApp</h3>
+        <p>Conecta varios números de WhatsApp, cada uno con su propio asistente personalizado.</p>
+      </div>
+      <div class="feature-card fade-up" style="animation-delay: 0.3s">
+        <div class="feature-icon">👥</div>
+        <h3>CRM Integrado</h3>
+        <p>Gestiona clientes, etapas de venta, seguimiento y datos de contacto en un solo lugar.</p>
+      </div>
+      <div class="feature-card fade-up" style="animation-delay: 0.4s">
+        <div class="feature-icon">📅</div>
+        <h3>Agenda de Citas</h3>
+        <p>Sistema de agendamiento integrado. La IA agenda citas y tú las ves en tu calendario.</p>
+      </div>
+      <div class="feature-card fade-up" style="animation-delay: 0.5s">
+        <div class="feature-icon">🎤</div>
+        <h3>Transcripción de Audio</h3>
+        <p>Los audios de clientes se transcriben automáticamente y la IA responde inteligentemente.</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- HOW IT WORKS -->
-<section class="how-it-works" id="how">
+<section class="how-it-works">
   <div class="container">
     <div class="section-header">
-      <div class="section-tag">Cómo Funciona</div>
-      <h2>Activa tu vendedor virtual<br>en 4 pasos</h2>
+      <span class="section-tag">Cómo funciona</span>
+      <h2>Activo en 5 minutos</h2>
+      <p>Configurar tu asistente virtual es más fácil de lo que piensas</p>
     </div>
-    <div class="steps">
-      <div class="step"><div class="step-number" style="border-color: var(--accent);">1</div><h3>Crea tu cuenta</h3><p>Regístrate gratis. Sin tarjeta de crédito.</p></div>
-      <div class="step"><div class="step-number" style="border-color: var(--green);">2</div><h3>Conecta WhatsApp</h3><p>Escanea el QR y tu número queda listo.</p></div>
-      <div class="step"><div class="step-number" style="border-color: var(--orange);">3</div><h3>Entrena tu IA</h3><p>Sube tu info, productos y preguntas frecuentes.</p></div>
-      <div class="step"><div class="step-number" style="border-color: var(--pink);">4</div><h3>¡Ventas 24/7!</h3><p>Elisa responde a cada cliente automáticamente.</p></div>
-    </div>
-  </div>
-</section>
 
-<!-- INTEGRATIONS -->
-<section class="integrations" id="integrations">
-  <div class="container">
-    <div class="section-header">
-      <div class="section-tag">Integraciones</div>
-      <h2>Conecta tus herramientas de IA</h2>
-      <p>Cada usuario conecta sus propias claves y controla sus costos.</p>
-    </div>
-    <div class="integrations-grid">
-      <div class="integration-card">
-        <div class="integration-logo" style="background: rgba(16,185,129,0.15);">🧠</div>
-        <h3>OpenAI (ChatGPT)</h3>
-        <p>El cerebro de tu asistente. Usa GPT-4o-mini para respuestas inteligentes a bajo costo. Conecta tu propia API Key.</p>
-        <span class="tag">💡 ~$0.01 por cada 100 mensajes</span>
+    <div class="steps">
+      <div class="step fade-up">
+        <div class="step-number">1</div>
+        <h3>Crea tu cuenta</h3>
+        <p>Regístrate gratis en segundos con tu email</p>
       </div>
-      <div class="integration-card">
-        <div class="integration-logo" style="background: rgba(168,85,247,0.15);">🎙️</div>
-        <h3>ElevenLabs</h3>
-        <p>Mensajes de voz ultra-realistas. Tu asistente envía audios que suenan como un humano real. Opcional.</p>
-        <span class="tag">🔊 Voces realistas opcionales</span>
+      <div class="step fade-up" style="animation-delay: 0.1s">
+        <div class="step-number">2</div>
+        <h3>Conecta WhatsApp</h3>
+        <p>Escanea un QR y tu número queda vinculado</p>
+      </div>
+      <div class="step fade-up" style="animation-delay: 0.2s">
+        <div class="step-number">3</div>
+        <h3>Entrena tu IA</h3>
+        <p>Agrega tu información, precios y personalidad</p>
+      </div>
+      <div class="step fade-up" style="animation-delay: 0.3s">
+        <div class="step-number">4</div>
+        <h3>¡Listo!</h3>
+        <p>Tu asistente comienza a atender automáticamente</p>
       </div>
     </div>
   </div>
@@ -513,78 +1397,71 @@
 <section class="pricing" id="pricing">
   <div class="container">
     <div class="section-header">
-      <div class="section-tag">Precios</div>
-      <h2>Elige tu plan perfecto</h2>
-      <p>Simple, transparente y con 20 días gratis en ambos planes.</p>
+      <span class="section-tag">Precios</span>
+      <h2>Simple y transparente</h2>
+      <p>Elige el plan que mejor se adapte a tu negocio</p>
     </div>
 
-    <!-- Toggle de Período -->
-    <div class="pricing-toggle">
-      <button class="pricing-toggle-btn active" onclick="switchPeriod('monthly')">Mensual</button>
-      <button class="pricing-toggle-btn" onclick="switchPeriod('semiannual')">6 Meses <span class="discount-tag">-17%</span></button>
-      <button class="pricing-toggle-btn" onclick="switchPeriod('annual')">Anual <span class="discount-tag">-30%</span></button>
-    </div>
-
-    <div class="pricing-grid">
-      <!-- PLAN STARTER -->
-      <div class="pricing-card">
-        <div class="pricing-trial">🎁 20 DÍAS GRATIS</div>
-        <div class="pricing-badge pricing-badge-standard">STANDARD</div>
-        <div class="pricing-name">Elisa Starter</div>
-        <div class="pricing-desc">Ideal para emprendedores y negocios que arrancan con WhatsApp</div>
-        <div class="pricing-amount">
-          <span class="pricing-currency">USD$</span>
-          <span class="pricing-value" id="starter-price">30</span>
+    <div class="pricing-cards">
+      <!-- STARTER -->
+      <div class="pricing-card fade-up">
+        <h3 class="pricing-name">Starter</h3>
+        <p class="pricing-desc">Para emprendedores y negocios pequeños</p>
+        <div class="pricing-price">
+          <span class="pricing-currency">USD</span>
+          <span class="pricing-amount">30</span>
         </div>
-        <div class="pricing-period" id="starter-period">por mes</div>
-        <div id="starter-save" style="margin-bottom:20px;display:none;"></div>
+        <span class="pricing-period">por mes</span>
+        <div class="pricing-note">🎁 7 días gratis para probar</div>
         <ul class="pricing-features">
-          <li><span class="check check-green">✓</span> Asistente IA con WhatsApp</li>
-          <li><span class="check check-green">✓</span> Hasta <strong style="color:var(--text);">3 líneas</strong> de WhatsApp</li>
-          <li><span class="check check-green">✓</span> Respuestas automáticas 24/7</li>
-          <li><span class="check check-green">✓</span> Dashboard y métricas</li>
-          <li><span class="check check-green">✓</span> Base de conocimiento</li>
-          <li><span class="check check-green">✓</span> Multimedia (imágenes, videos)</li>
-          <li><span class="check check-green">✓</span> Pausa/Reactivación de IA</li>
-          <li><span class="check check-green">✓</span> Indicadores "escribiendo..."</li>
-          <li><span class="check check-dim">—</span> <span style="color:var(--text-dim);">CRM + Agenda</span></li>
-          <li><span class="check check-dim">—</span> <span style="color:var(--text-dim);">Equipo multi-usuario</span></li>
-          <li><span class="check check-dim">—</span> <span style="color:var(--text-dim);">Asignación de chats</span></li>
+          <li>Hasta 3 líneas de WhatsApp</li>
+          <li>1 Asistente IA personalizado</li>
+          <li>Conversaciones ilimitadas</li>
+          <li>Transcripción de audios</li>
+          <li>Panel de conversaciones</li>
+          <li>Embudo de ventas básico</li>
+          <li class="disabled">CRM completo</li>
+          <li class="disabled">Módulo de agenda</li>
+          <li class="disabled">Gestión de equipo</li>
         </ul>
-        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-secondary btn-large" style="width:100%; justify-content:center;">Comenzar Gratis</a>
+        <a href="https://agentes-elisa-ia.vercel.app/register?plan=starter" class="pricing-btn pricing-btn-secondary">Comenzar Gratis</a>
       </div>
 
-      <!-- PLAN BUSINESS -->
-      <div class="pricing-card popular">
-        <div class="pricing-trial">🎁 20 DÍAS GRATIS</div>
-        <div class="pricing-badge pricing-badge-popular">⭐ MÁS POPULAR</div>
-        <div class="pricing-name">Elisa Business</div>
-        <div class="pricing-desc">Para negocios serios que quieren CRM, equipo y todas las herramientas</div>
-        <div class="pricing-amount">
-          <span class="pricing-currency">USD$</span>
-          <span class="pricing-value" id="business-price">50</span>
+      <!-- BUSINESS -->
+      <div class="pricing-card popular fade-up" style="animation-delay: 0.1s">
+        <span class="popular-badge">⭐ Más Popular</span>
+        <h3 class="pricing-name">Business</h3>
+        <p class="pricing-desc">Para negocios en crecimiento con equipo</p>
+        <div class="pricing-price">
+          <span class="pricing-currency">USD</span>
+          <span class="pricing-amount">50</span>
         </div>
-        <div class="pricing-period" id="business-period">por mes</div>
-        <div id="business-save" style="margin-bottom:20px;display:none;"></div>
+        <span class="pricing-period">por mes</span>
+        <div class="pricing-note">🎁 7 días gratis para probar</div>
         <ul class="pricing-features">
-          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Todo de Starter +</strong></li>
-          <li><span class="check check-green">✓</span> Líneas de WhatsApp <strong style="color:var(--text);">ilimitadas</strong></li>
-          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">CRM completo</strong> con base de datos</li>
-          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Agenda de citas</strong> integrada</li>
-          <li><span class="check check-green">✓</span> <strong style="color:var(--text);">Equipo multi-usuario</strong> (roles)</li>
-          <li><span class="check check-green">✓</span> Asignación de chats a vendedores</li>
-          <li><span class="check check-green">✓</span> Dashboard para directivos</li>
-          <li><span class="check check-green">✓</span> Permisos personalizados por rol</li>
-          <li><span class="check check-green">✓</span> Auto-aprendizaje con sugerencias</li>
-          <li><span class="check check-green">✓</span> Productos y catálogo</li>
-          <li><span class="check check-green">✓</span> Soporte prioritario</li>
+          <li>Líneas de WhatsApp ilimitadas</li>
+          <li>1 Asistente IA por cada línea</li>
+          <li>Conversaciones ilimitadas</li>
+          <li>Transcripción de audios</li>
+          <li>CRM completo con embudo</li>
+          <li>Módulo de agenda/citas</li>
+          <li>Gestión de equipo (roles)</li>
+          <li>Mensajes masivos por etapa</li>
+          <li>Soporte prioritario</li>
         </ul>
-        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary btn-large btn-glow" style="width:100%; justify-content:center;">🚀 Comenzar Gratis</a>
-        <div class="pricing-note">⚡ <strong>Sobre las integraciones:</strong> Cada usuario conecta su propia API Key de OpenAI y/o ElevenLabs. Tú controlas cuánto gastas. GPT-4o-mini cuesta ~$0.01 por cada 100 mensajes.</div>
+        <a href="https://agentes-elisa-ia.vercel.app/register?plan=business" class="pricing-btn pricing-btn-primary">Comenzar Gratis</a>
       </div>
     </div>
 
-    <p style="text-align:center; color:var(--text-dim); font-size:13px; margin-top:32px;">💳 Aceptamos tarjetas de crédito/débito, PSE, Nequi y Bancolombia · Pagos procesados por <strong style="color:var(--text-muted);">Wompi</strong></p>
+    <!-- API NOTE -->
+    <div class="api-note fade-up">
+      <h4>💡 Sobre los créditos de IA</h4>
+      <p>
+        El precio del plan incluye toda la plataforma. Para que la IA funcione, conectas tu propia API Key de OpenAI 
+        (muy fácil de obtener). <strong>Los créditos son muy económicos: la mayoría gasta entre $3-10 USD al mes</strong>. 
+        Así tienes control total de tus costos.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -592,135 +1469,174 @@
 <section class="faq" id="faq">
   <div class="container">
     <div class="section-header">
-      <div class="section-tag">Preguntas Frecuentes</div>
+      <span class="section-tag">Preguntas Frecuentes</span>
       <h2>¿Tienes dudas?</h2>
+      <p>Aquí respondemos las preguntas más comunes</p>
     </div>
+
     <div class="faq-list">
       <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Qué incluyen los 20 días gratis?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>Todo. Acceso completo a todas las funciones del plan que elijas. No necesitas tarjeta de crédito. Solo tu API Key de OpenAI para que la IA funcione.</p></div>
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+          ¿Cómo funciona la prueba gratis?
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          <p>Te registras con tu email, conectas tu WhatsApp escaneando un QR, y tienes 7 días para probar todas las funciones. No pedimos tarjeta de crédito. Si te gusta, eliges un plan. Si no, no pasa nada.</p>
+        </div>
       </div>
+
       <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Es WhatsApp Web o API oficial? ¿Me pueden banear?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>Elisa IA usa una conexión tipo WhatsApp Web (no API oficial de Meta). Para evitar cualquier problema: no hagas spam masivo, no envíes mensajes a desconocidos sin su consentimiento, y usa un número exclusivo para el negocio. Siguiendo estas recomendaciones, el riesgo es mínimo. Miles de negocios lo usan diariamente sin problemas. <strong>Tip:</strong> Recomendamos usar un número dedicado para tu negocio, no tu número personal.</p></div>
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+          ¿Por qué necesito una API Key de OpenAI?
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          <p>Usamos la inteligencia artificial de OpenAI (ChatGPT) para que tu asistente responda. Al usar tu propia API Key, tú controlas exactamente cuánto gastas. Es muy económico: aproximadamente $3-10 USD al mes para la mayoría de negocios.</p>
+        </div>
       </div>
+
       <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Qué es una API Key de OpenAI y cuánto cuesta?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>Es una clave que conecta con la inteligencia artificial de ChatGPT. La obtienes en platform.openai.com y solo pagas por uso. Con GPT-4o-mini, 100 mensajes cuestan ~$0.01 USD. Extremadamente económico.</p></div>
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+          ¿Cómo obtengo la API Key de OpenAI?
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          <p>Es muy fácil: Vas a platform.openai.com, creas una cuenta gratis, agregas créditos (mínimo $5 USD), generas tu API Key y la pegas en Elisa IA. Te guiamos paso a paso en la configuración.</p>
+        </div>
       </div>
+
       <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Cuál es la diferencia entre Starter y Business?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p><strong>Starter ($30):</strong> Perfecto si trabajas solo. Tienes hasta 3 líneas de WhatsApp con IA, dashboard y multimedia. <strong>Business ($50):</strong> Agrega CRM con base de datos de clientes, agenda de citas, equipo multi-usuario con roles (vendedores, soporte, gerentes), asignación de chats y líneas ilimitadas. Ideal si tienes equipo o necesitas gestionar clientes.</p></div>
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+          ¿Puedo tomar el control si quiero responder yo?
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          <p>¡Claro! Solo escribe ".." en el chat y la IA se pausa. Respondes tú lo que necesites, y cuando termines escribes "." para que la IA vuelva a atender. Super fácil.</p>
+        </div>
       </div>
+
       <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Puedo intervenir manualmente cuando quiera?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>¡Sí! Envía ".." en cualquier conversación para pausar la IA y tomar el control. Cuando termines, envía "." para reactivarla. También ves todas las conversaciones en tiempo real.</p></div>
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+          ¿Funciona con WhatsApp Business?
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          <p>Sí, funciona tanto con WhatsApp normal como con WhatsApp Business. Solo necesitas poder escanear un código QR desde tu teléfono.</p>
+        </div>
       </div>
+
       <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Es obligatorio usar ElevenLabs?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>No, es totalmente opcional. Elisa funciona perfecto solo con texto. ElevenLabs permite enviar audios con voz realista si lo deseas.</p></div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Necesito un número nuevo de WhatsApp?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>No obligatoriamente, pero lo recomendamos. Puedes usar tu número actual escaneando el QR. Sin embargo, para mayor seguridad, es ideal tener un número dedicado al negocio.</p></div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Cuántos mensajes puedo enviar al mes?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>Ilimitados. No hay límite de mensajes. Solo pagas el consumo de tu API Key de OpenAI, que con GPT-4o-mini es extremadamente económico (~$1 USD por 10,000 mensajes).</p></div>
-      </div>
-      <div class="faq-item">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">¿Puedo cancelar en cualquier momento?<span class="faq-arrow">+</span></div>
-        <div class="faq-answer"><p>Sí, sin compromisos ni penalidades. Durante los 20 días gratis no se cobra nada. Puedes pagar mensual, semestral (17% de descuento) o anual (30% de descuento). Aceptamos tarjetas, PSE, Nequi y Bancolombia.</p></div>
+        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+          ¿Puedo cancelar en cualquier momento?
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          <p>Sí, sin compromisos ni penalidades. Puedes cancelar cuando quieras desde tu panel de suscripción.</p>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
 <!-- CTA FINAL -->
-<section class="cta-section">
+<section class="cta-final">
+  <div class="cta-glow"></div>
   <div class="container">
-    <img src="../elisa.png" alt="Elisa IA" style="width: 120px; height: 120px; object-fit: contain; margin: 0 auto 24px; display: block; filter: drop-shadow(0 0 30px rgba(99,102,241,0.4));">
-    <h2>Deja de perder ventas<br>por no responder a tiempo</h2>
-    <p>Cada mensaje sin responder es un cliente que se va con tu competencia.<br>Activa tu vendedor virtual hoy — <strong>20 días gratis.</strong></p>
-    <div class="cta-buttons">
-      <a href="https://wa.me/573001234567?text=Hola%20quiero%20probar%20Elisa%20IA" class="btn btn-whatsapp btn-large" target="_blank">💬 Habla con Elisa IA ahora</a>
-      <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary btn-large btn-glow">🚀 Comenzar Gratis</a>
+    <img src="/elisa.png" alt="Elisa IA" class="fade-up">
+    <h2 class="fade-up" style="animation-delay: 0.1s">¿Listo para vender más?</h2>
+    <p class="fade-up" style="animation-delay: 0.2s">
+      Cada mensaje sin responder es un cliente que se va con tu competencia. 
+      Activa tu asistente virtual hoy.
+    </p>
+    <div class="cta-buttons fade-up" style="animation-delay: 0.3s">
+      <a href="https://wa.me/573118083993?text=Hola%20Elisa%2C%20quiero%20activar%20mi%20prueba%20gratis" class="btn btn-whatsapp" target="_blank">
+        💬 Hablar con Elisa
+      </a>
+      <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary">
+        🚀 Comenzar 7 días gratis
+      </a>
     </div>
-    <br>
-    <span class="hero-trial">Sin tarjeta · Sin compromisos · <strong>Configuración en 5 minutos</strong></span>
   </div>
 </section>
 
 <!-- FOOTER -->
 <footer>
   <div class="container">
-    <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px;">
-      <div class="logo-icon" style="width: 36px; height: 36px;"><img src="../elisa.png" alt="Elisa IA"></div>
-      <div class="logo-text" style="font-size: 20px;">Elisa<span> IA</span></div>
+    <div class="footer-logo">
+      <img src="/elisa.png" alt="Elisa IA">
+      <span>Elisa IA</span>
     </div>
     <p>© 2026 Elisa IA · Automatización inteligente para WhatsApp</p>
-    <p style="margin-top: 8px;"><a href="/cdn-cgi/l/email-protection#e4978b948b969081a481888d97858d85ca878b89"><span class="__cf_email__" data-cfemail="bfccd0cfd0cdcbdaffdad3d6ccded6de91dcd0d2">[email&#160;protected]</span></a></p>
+    <p style="margin-top: 8px;">contacto@elisaia.com</p>
   </div>
 </footer>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
-  // Pricing period toggle
-  const pricingData = {
-    starter: { monthly: 30, semiannual: 25, annual: 21 },
-    business: { monthly: 50, semiannual: 42, annual: 35 }
-  };
-  const periodLabels = { monthly: 'por mes', semiannual: 'por mes · facturado cada 6 meses', annual: 'por mes · facturado anualmente' };
-  const totalLabels = { monthly: null, semiannual: { starter: 150, business: 250 }, annual: { starter: 252, business: 420 } };
-
-  function switchPeriod(period) {
-    // Toggle buttons
-    document.querySelectorAll('.pricing-toggle-btn').forEach(b => b.classList.remove('active'));
-    event.target.closest('.pricing-toggle-btn').classList.add('active');
-
-    // Update Starter
-    document.getElementById('starter-price').textContent = pricingData.starter[period];
-    document.getElementById('starter-period').textContent = periodLabels[period];
-    const starterSave = document.getElementById('starter-save');
-    if (period !== 'monthly') {
-      const discount = period === 'semiannual' ? '17%' : '30%';
-      const total = totalLabels[period].starter;
-      starterSave.innerHTML = '<span class="pricing-save">🔥 Ahorras ' + discount + ' · Total USD$' + total + '</span>';
-      starterSave.style.display = 'block';
-    } else {
-      starterSave.style.display = 'none';
+<script>
+  // COUNTDOWN TIMER
+  function startCountdown() {
+    let endDate = localStorage.getItem('elisaCountdownEnd');
+    
+    if (!endDate) {
+      const now = new Date();
+      now.setDate(now.getDate() + 3);
+      endDate = now.getTime();
+      localStorage.setItem('elisaCountdownEnd', endDate);
     }
-
-    // Update Business
-    document.getElementById('business-price').textContent = pricingData.business[period];
-    document.getElementById('business-period').textContent = periodLabels[period];
-    const businessSave = document.getElementById('business-save');
-    if (period !== 'monthly') {
-      const discount = period === 'semiannual' ? '17%' : '30%';
-      const total = totalLabels[period].business;
-      businessSave.innerHTML = '<span class="pricing-save">🔥 Ahorras ' + discount + ' · Total USD$' + total + '</span>';
-      businessSave.style.display = 'block';
-    } else {
-      businessSave.style.display = 'none';
+    
+    function updateCountdown() {
+      const now = new Date().getTime();
+      const distance = endDate - now;
+      
+      if (distance < 0) {
+        const newEnd = new Date();
+        newEnd.setDate(newEnd.getDate() + 3);
+        endDate = newEnd.getTime();
+        localStorage.setItem('elisaCountdownEnd', endDate);
+        return;
+      }
+      
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+      
+      document.getElementById('days').textContent = String(days).padStart(2, '0');
+      document.getElementById('hours').textContent = String(hours).padStart(2, '0');
+      document.getElementById('minutes').textContent = String(minutes).padStart(2, '0');
+      document.getElementById('seconds').textContent = String(seconds).padStart(2, '0');
     }
+    
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
   }
+  
+  startCountdown();
 
-  // Animations
+  // SCROLL ANIMATIONS
+  const observerOptions = {
+    threshold: 0.1,
+    rootMargin: '0px 0px -50px 0px'
+  };
+
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
-      if (entry.isIntersecting) { entry.target.style.animationPlayState = 'running'; observer.unobserve(entry.target); }
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
     });
-  }, { threshold: 0.1 });
-  document.querySelectorAll('.animate-up, .feature-card, .step, .integration-card, .use-case-card, .pricing-card').forEach(el => {
-    el.style.animationPlayState = 'paused';
+  }, observerOptions);
+
+  document.querySelectorAll('.fade-up').forEach(el => {
     observer.observe(el);
   });
-  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-    anchor.addEventListener('click', function (e) {
-      e.preventDefault();
-      const target = document.querySelector(this.getAttribute('href'));
-      if (target) target.scrollIntoView({ behavior: 'smooth' });
+
+  // Trigger hero animations immediately
+  setTimeout(() => {
+    document.querySelectorAll('.hero .fade-up').forEach(el => {
+      el.classList.add('visible');
     });
-  });
+  }, 100);
 </script>
+
 </body>
 </html>

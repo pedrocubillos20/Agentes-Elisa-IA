@@ -119,13 +119,13 @@
       background: linear-gradient(90deg, #7c3aed, #8b5cf6, #a78bfa, #8b5cf6, #7c3aed);
       background-size: 200% 100%;
       animation: gradient-x 3s ease infinite;
-      padding: 14px 20px;
+      padding: 10px 16px;
       text-align: center;
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
-      z-index: 1000;
+      z-index: 1001;
       box-shadow: 0 4px 30px rgba(139, 92, 246, 0.3);
     }
     
@@ -138,35 +138,35 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 16px;
-      flex-wrap: wrap;
+      gap: 12px;
       max-width: 1200px;
       margin: 0 auto;
     }
     
     .urgency-text {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       color: white;
+      white-space: nowrap;
     }
     
     .countdown {
       display: flex;
-      gap: 8px;
+      gap: 6px;
     }
     
     .countdown-item {
       background: rgba(0,0,0,0.25);
       backdrop-filter: blur(10px);
-      padding: 6px 12px;
-      border-radius: 8px;
-      min-width: 54px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      min-width: 42px;
       text-align: center;
       border: 1px solid rgba(255,255,255,0.1);
     }
     
     .countdown-number {
-      font-size: 20px;
+      font-size: 16px;
       font-weight: 800;
       color: white;
       display: block;
@@ -174,7 +174,7 @@
     }
     
     .countdown-label {
-      font-size: 9px;
+      font-size: 8px;
       text-transform: uppercase;
       color: rgba(255,255,255,0.8);
       letter-spacing: 0.5px;
@@ -183,30 +183,43 @@
     .urgency-cta {
       background: white;
       color: #7c3aed;
-      padding: 10px 24px;
+      padding: 8px 20px;
       border-radius: 100px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
       text-decoration: none;
       transition: all 0.3s;
       box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      white-space: nowrap;
     }
     
     .urgency-cta:hover {
       transform: scale(1.05);
       box-shadow: 0 6px 25px rgba(0,0,0,0.3);
     }
+    
+    /* Mobile banner */
+    @media (max-width: 600px) {
+      .urgency-banner { padding: 8px 10px; }
+      .urgency-content { gap: 8px; flex-wrap: wrap; }
+      .urgency-text { font-size: 11px; }
+      .countdown-item { padding: 3px 6px; min-width: 36px; }
+      .countdown-number { font-size: 14px; }
+      .countdown-label { font-size: 7px; }
+      .urgency-cta { padding: 6px 14px; font-size: 11px; }
+    }
 
     /* NAV */
     nav {
       position: fixed;
-      top: 56px;
+      top: 0;
       width: 100%;
-      z-index: 100;
-      padding: 16px 0;
-      background: rgba(3, 0, 20, 0.7);
+      z-index: 1000;
+      padding: 14px 0;
+      background: rgba(3, 0, 20, 0.85);
       backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--border);
+      transition: top 0.3s;
     }
     
     .nav-container {
@@ -292,7 +305,7 @@
 
     /* HERO */
     .hero {
-      padding: 200px 0 120px;
+      padding: 160px 0 120px;
       text-align: center;
       position: relative;
       min-height: 100vh;
@@ -1156,17 +1169,18 @@
 
     /* RESPONSIVE */
     @media (max-width: 480px) {
-      .urgency-banner { padding: 10px 12px; }
-      .urgency-content { gap: 10px; }
-      .urgency-text { font-size: 12px; }
-      .countdown-item { padding: 4px 8px; min-width: 44px; }
-      .countdown-number { font-size: 16px; }
-      .urgency-cta { padding: 8px 16px; font-size: 12px; }
-      nav { top: 48px; }
-      .hero { padding: 160px 0 80px; }
-      .btn { padding: 16px 28px; font-size: 15px; }
-      .elisa-avatar { width: 160px; height: 160px; }
-      .phone-mockup { width: 280px; }
+      .hero { padding: 130px 0 60px; min-height: auto; }
+      .btn { padding: 14px 24px; font-size: 14px; }
+      .elisa-avatar { width: 140px; height: 140px; }
+      .phone-mockup { width: 260px; }
+      .hero-visual { gap: 30px; }
+      .hero h1 { letter-spacing: -1px; }
+      .section-header h2 { letter-spacing: -0.5px; }
+    }
+    
+    @media (max-width: 768px) {
+      .hero { padding: 140px 0 80px; }
+      .hero-visual { gap: 40px; }
     }
   </style>
 </head>
@@ -1184,22 +1198,18 @@
 <!-- URGENCY BANNER -->
 <div class="urgency-banner">
   <div class="urgency-content">
-    <span class="urgency-text">🔥 <strong>Oferta especial:</strong> 7 días GRATIS para probar</span>
+    <span class="urgency-text">🔥 <strong>Oferta especial:</strong> 7 días GRATIS</span>
     <div class="countdown">
       <div class="countdown-item">
-        <span class="countdown-number" id="days">02</span>
-        <span class="countdown-label">Días</span>
-      </div>
-      <div class="countdown-item">
-        <span class="countdown-number" id="hours">18</span>
+        <span class="countdown-number" id="hours">23</span>
         <span class="countdown-label">Horas</span>
       </div>
       <div class="countdown-item">
-        <span class="countdown-number" id="minutes">45</span>
+        <span class="countdown-number" id="minutes">59</span>
         <span class="countdown-label">Min</span>
       </div>
       <div class="countdown-item">
-        <span class="countdown-number" id="seconds">30</span>
+        <span class="countdown-number" id="seconds">59</span>
         <span class="countdown-label">Seg</span>
       </div>
     </div>
@@ -1567,74 +1577,64 @@
       <span>Elisa IA</span>
     </div>
     <p>© 2026 Elisa IA · Automatización inteligente para WhatsApp</p>
-    <p style="margin-top: 8px;">contacto@elisaia.com</p>
+    <p style="margin-top: 8px;"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="86e5e9e8f2e7e5f2e9c6e3eaeff5e7efe7a8e5e9eb">[email&#160;protected]</a></p>
   </div>
 </footer>
 
 <script>
-  // COUNTDOWN TIMER
+  // POSITION NAV BELOW BANNER
+  function positionNav() {
+    const banner = document.querySelector('.urgency-banner');
+    const nav = document.querySelector('nav');
+    if (banner && nav) {
+      nav.style.top = banner.offsetHeight + 'px';
+    }
+  }
+  positionNav();
+  window.addEventListener('resize', positionNav);
+
+  // COUNTDOWN TIMER - 1 day
   function startCountdown() {
-    let endDate = localStorage.getItem('elisaCountdownEnd');
-    
+    let endDate = localStorage.getItem('elisaCountdownV3');
     if (!endDate) {
       const now = new Date();
-      now.setDate(now.getDate() + 3);
+      now.setHours(now.getHours() + 24);
       endDate = now.getTime();
-      localStorage.setItem('elisaCountdownEnd', endDate);
+      localStorage.setItem('elisaCountdownV3', endDate);
+    } else {
+      endDate = parseInt(endDate);
     }
-    
     function updateCountdown() {
       const now = new Date().getTime();
-      const distance = endDate - now;
-      
+      let distance = endDate - now;
       if (distance < 0) {
         const newEnd = new Date();
-        newEnd.setDate(newEnd.getDate() + 3);
+        newEnd.setHours(newEnd.getHours() + 24);
         endDate = newEnd.getTime();
-        localStorage.setItem('elisaCountdownEnd', endDate);
-        return;
+        localStorage.setItem('elisaCountdownV3', endDate);
+        distance = endDate - now;
       }
-      
-      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const hours = Math.floor(distance / (1000 * 60 * 60));
       const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-      
-      document.getElementById('days').textContent = String(days).padStart(2, '0');
       document.getElementById('hours').textContent = String(hours).padStart(2, '0');
       document.getElementById('minutes').textContent = String(minutes).padStart(2, '0');
       document.getElementById('seconds').textContent = String(seconds).padStart(2, '0');
     }
-    
     updateCountdown();
     setInterval(updateCountdown, 1000);
   }
-  
   startCountdown();
 
   // SCROLL ANIMATIONS
-  const observerOptions = {
-    threshold: 0.1,
-    rootMargin: '0px 0px -50px 0px'
-  };
-
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('visible');
-      }
+      if (entry.isIntersecting) { entry.target.classList.add('visible'); }
     });
-  }, observerOptions);
-
-  document.querySelectorAll('.fade-up').forEach(el => {
-    observer.observe(el);
-  });
-
-  // Trigger hero animations immediately
+  }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+  document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
   setTimeout(() => {
-    document.querySelectorAll('.hero .fade-up').forEach(el => {
-      el.classList.add('visible');
-    });
+    document.querySelectorAll('.hero .fade-up').forEach(el => el.classList.add('visible'));
   }, 100);
 </script>
 

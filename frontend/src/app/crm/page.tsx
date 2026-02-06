@@ -91,6 +91,35 @@ export default function CRMPage() {
     } catch (e) { /* silencioso */ }
   };
 
+  // 🎯 DETECTAR ETAPAS MANUALMENTE (con IA)
+  const [detecting, setDetecting] = useState(false);
+  const detectStages = async () => {
+    const token = localStorage.getItem('token');
+    if (!token || detecting) return;
+    
+    setDetecting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/analyze-stages`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId: getLineId() })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        alert(`✅ Detección completada!\n\n📊 Analizadas: ${data.analyzed}\n🔄 Actualizadas: ${data.updated}`);
+        fetchConversationsOnly(); // Refrescar lista
+      } else {
+        const err = await res.json();
+        alert(`❌ Error: ${err.error || 'Error desconocido'}`);
+      }
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   // Función ligera que solo actualiza conversaciones (para auto-refresh)
   const fetchConversationsOnly = async () => {
     const token = localStorage.getItem('token');
@@ -248,13 +277,36 @@ export default function CRMPage() {
           </button>
         ))}
         {activeTab === 'pipeline' && (
-          <span className="ml-auto text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          <>
+            <button 
+              onClick={detectStages}
+              disabled={detecting}
+              className={`ml-auto text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1.5 transition-all ${
+                detecting 
+                  ? 'text-gray-400 bg-gray-500/10 border-gray-500/30 cursor-wait' 
+                  : 'text-purple-400 bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20'
+              }`}
+            >
+              {detecting ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin"></div>
+                  Detectando...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3 h-3" />
+                  Detectar etapas
+                </>
+              )}
+            </button>
+            <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              Auto-refresh
             </span>
-            <Sparkles className="w-3 h-3" />Detección automática
-          </span>
+          </>
         )}
       </div>
 

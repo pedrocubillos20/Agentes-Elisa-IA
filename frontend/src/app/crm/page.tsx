@@ -60,8 +60,32 @@ export default function CRMPage() {
     fetchAll();
     const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
-    return () => window.removeEventListener('lineChanged', onLineChanged);
+    
+    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 2 segundos para detección de etapas en tiempo real
+    const autoRefreshInterval = setInterval(() => {
+      fetchConversationsOnly();
+    }, 2000); // Cada 2 segundos
+    
+    return () => {
+      window.removeEventListener('lineChanged', onLineChanged);
+      clearInterval(autoRefreshInterval);
+    };
   }, []);
+
+  // Función ligera que solo actualiza conversaciones (para auto-refresh)
+  const fetchConversationsOnly = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/conversations?lineId=${getLineId()}`, { 
+        headers: { 'Authorization': `Bearer ${token}` } 
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(data.conversations || []);
+      }
+    } catch (e) { /* silencioso para no llenar consola */ }
+  };
 
   const fetchAll = async () => {
     const token = localStorage.getItem('token');
@@ -205,8 +229,12 @@ export default function CRMPage() {
           </button>
         ))}
         {activeTab === 'pipeline' && (
-          <span className="ml-auto text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30">
-            <Sparkles className="w-3 h-3 inline mr-1" />Detección automática
+          <span className="ml-auto text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <Sparkles className="w-3 h-3" />Detección automática
           </span>
         )}
       </div>

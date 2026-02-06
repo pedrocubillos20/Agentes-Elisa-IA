@@ -53,7 +53,7 @@ export default function ConversacionesPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 8000);
+    const interval = setInterval(fetchData, 2000); // Auto-refresh cada 2 segundos
     const onLineChanged = () => { setLoading(true); fetchData(); };
     window.addEventListener('lineChanged', onLineChanged);
     return () => { clearInterval(interval); window.removeEventListener('lineChanged', onLineChanged); };

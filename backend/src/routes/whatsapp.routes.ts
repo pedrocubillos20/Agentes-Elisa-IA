@@ -583,14 +583,17 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       }
     }
     
-    // Si no hay etapas configuradas, usar default
+    // Si no hay etapas configuradas, usar default (THE FOUR)
     if (pipelineStages.length === 0) {
       pipelineStages = [
         { id: 'Saludo', label: 'Saludo' },
         { id: 'Interesado', label: 'Interesado' },
         { id: 'En Cotización', label: 'En Cotización' },
-        { id: 'Pendiente Info', label: 'Pendiente Info' },
+        { id: 'Pendiente Color', label: 'Pendiente Color' },
+        { id: 'Pendiente Talla', label: 'Pendiente Talla' },
+        { id: 'Pendiente Calidad', label: 'Pendiente Calidad' },
         { id: 'Realizó Pedido', label: 'Realizó Pedido' },
+        { id: 'Pendiente Pago', label: 'Pendiente Pago' },
         { id: 'Confirmado', label: 'Confirmado' },
         { id: 'Perdido', label: 'Perdido' }
       ];
@@ -2000,14 +2003,14 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
     const ownerId = user.parentUserId || user.id;
     const { lineId } = req.body;
 
-    // Etapas fijas para el análisis (las más comunes en ventas)
+    // Etapas del pipeline de THE FOUR (tienda de buzos)
     const pipelineStages = [
       { id: 'Saludo', label: 'Saludo' },
       { id: 'Interesado', label: 'Interesado' },
       { id: 'En Cotización', label: 'En Cotización' },
       { id: 'Pendiente Color', label: 'Pendiente Color' },
       { id: 'Pendiente Talla', label: 'Pendiente Talla' },
-      { id: 'Pendiente Info', label: 'Pendiente Info' },
+      { id: 'Pendiente Calidad', label: 'Pendiente Calidad' },
       { id: 'Realizó Pedido', label: 'Realizó Pedido' },
       { id: 'Pendiente Pago', label: 'Pendiente Pago' },
       { id: 'Confirmado', label: 'Confirmado' },
@@ -2045,26 +2048,34 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
           `${m.fromMe ? 'ASISTENTE' : 'CLIENTE'}: ${m.content}`
         ).join('\n');
 
-        // Prompt para detectar etapa
-        const prompt = `Analiza esta conversación de WhatsApp y determina en qué etapa del pipeline de ventas se encuentra.
+        // Prompt para detectar etapa - Optimizado para THE FOUR (buzos)
+        const prompt = `Analiza esta conversación de WhatsApp de una tienda de buzos y determina la etapa del pipeline.
 
 ETAPAS DISPONIBLES: ${stagesList}
 
-CRITERIOS:
-- Saludo = Solo saludos iniciales, aún no se conoce interés
-- Interesado = Mostró interés en el producto/servicio
-- En Cotización = Está preguntando precios, detalles, opciones
-- Pendiente Color = Falta que elija color (si aplica)
-- Pendiente Talla = Falta que confirme talla (si aplica)
-- Pendiente Info = Falta información (datos de envío, cantidad, etc.)
-- Realizó Pedido = Confirmó que quiere comprar
-- Confirmado = Pedido completo con todos los datos
-- Perdido = Dijo que no le interesa o dejó de responder hace mucho
+CRITERIOS DE DETECCIÓN (en orden de prioridad):
+
+1. "Perdido" = Cliente dijo "no me interesa", "no gracias", "cancelar" o no responde
+2. "Confirmado" = Tiene número de pedido (#TF-), dirección completa, celular, método de pago
+3. "Pendiente Pago" = Confirmó pedido pero falta método de pago
+4. "Realizó Pedido" = Confirmó que quiere comprar, tiene nombre + talla + color + calidad + cantidad + ciudad
+5. "Pendiente Calidad" = Tiene talla y color pero falta elegir calidad (Premium/Mónaco)
+6. "Pendiente Talla" = Ya eligió color pero falta la talla
+7. "Pendiente Color" = Ya sabe qué quiere pero falta el color (marfil/blanco/negro/azul oscuro)
+8. "En Cotización" = Preguntando precios, tallas, colores, calidades disponibles
+9. "Interesado" = Mostró interés en buzos/hoodies, ya dio su nombre
+10. "Saludo" = Solo saludos iniciales, no ha dicho su nombre
+
+PALABRAS CLAVE:
+- Si menciona "Premium" o "Mónaco" = ya eligió calidad
+- Si menciona XS, S, M, L, XL, 2XL, 3XL, 4XL = ya eligió talla
+- Si menciona marfil, blanco, negro, azul oscuro = ya eligió color
+- Si dice "confirmado", "sí quiero", "dale" después del resumen = Realizó Pedido
 
 CONVERSACIÓN:
 ${history}
 
-Responde SOLO con el nombre exacto de la etapa (ejemplo: "En Cotización"). Nada más.`;
+Responde SOLO con el nombre exacto de la etapa. Nada más.`;
 
         // Llamar a OpenAI
         const apiKey = user.apiKey || process.env.OPENAI_API_KEY;

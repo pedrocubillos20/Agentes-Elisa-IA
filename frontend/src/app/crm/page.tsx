@@ -15,8 +15,11 @@ const DEFAULT_STAGES: Stage[] = [
   { id: 'Saludo', label: 'Saludo', color: 'blue' },
   { id: 'Interesado', label: 'Interesado', color: 'cyan' },
   { id: 'En Cotización', label: 'En Cotización', color: 'yellow' },
-  { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange' },
+  { id: 'Pendiente Color', label: 'Pendiente Color', color: 'orange' },
+  { id: 'Pendiente Talla', label: 'Pendiente Talla', color: 'orange' },
+  { id: 'Pendiente Calidad', label: 'Pendiente Calidad', color: 'orange' },
   { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green' },
+  { id: 'Pendiente Pago', label: 'Pendiente Pago', color: 'pink' },
   { id: 'Confirmado', label: 'Confirmado', color: 'purple' },
   { id: 'Perdido', label: 'Perdido', color: 'red' },
 ];

@@ -626,21 +626,27 @@ REGLA DE DETECCIÓN (seguir en orden):
 10. Si preguntó algo pero no ha dado datos → etapa_actual = "Interesado"
 11. Si solo saludó → etapa_actual = "Saludo"
 
-=== BLOQUE DE MEMORIA (OBLIGATORIO AL FINAL) ===
+=== ⚠️⚠️⚠️ BLOQUE DE MEMORIA - SUPER IMPORTANTE ⚠️⚠️⚠️ ===
 
-AL FINAL de CADA respuesta, DEBES incluir un bloque de memoria con TODA la información que has recopilado del cliente.
-El formato EXACTO es (incluye la línea tal cual):
+🔴 OBLIGATORIO: AL FINAL de CADA respuesta, DEBES incluir este bloque de memoria.
+🔴 Sin este bloque, el sistema no funcionará correctamente.
+🔴 Inclúyelo SIEMPRE, incluso si solo tienes el nombre del cliente.
+
+FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 
 <<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
-REGLAS del bloque de memoria:
-- Llena SOLO los campos que ya conoces. Deja vacío "" lo que NO sabes aún.
-- "etapa_actual" = OBLIGATORIO. Usa la REGLA DE DETECCIÓN de arriba para determinar la etapa correcta.
-- "accion" = Cuando el cliente confirme la FECHA DE ENTREGA, pon "crear_pedido". Esto agenda automáticamente.
-- SIEMPRE incluye este bloque, incluso si no tienes datos nuevos.
-- El bloque va DESPUÉS de tu respuesta al cliente, en la última línea.
-- NO expliques el bloque al cliente, es interno.
-- ACTUALIZA la etapa en CADA mensaje según los datos que ya tienes.`);
+INSTRUCCIONES:
+- Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
+- "nombre" = Nombre del cliente (extrae de la conversación si dice "soy X" o similar)
+- "etapa_actual" = OBLIGATORIO. Usa la REGLA DE DETECCIÓN de arriba.
+- El bloque va en la ÚLTIMA LÍNEA de tu respuesta.
+- NO expliques el bloque al cliente, es interno/oculto.
+
+EJEMPLO de respuesta correcta:
+"¡Hola! 👋 Bienvenido a nuestra tienda. ¿En qué puedo ayudarte hoy?
+
+<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","etapa_actual":"Saludo","accion":""}<<END_MEMORY>>"`);
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     console.log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
@@ -679,6 +685,16 @@ REGLAS del bloque de memoria:
 
           // 🧠 EXTRAER Y GUARDAR BLOQUE DE MEMORIA + DETECTAR ETAPA AUTOMÁTICA
           const memoryMatch = reply.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/);
+          
+          // DEBUG: Ver si hay bloque de memoria en la respuesta
+          if (!memoryMatch) {
+            console.log(`⚠️ SIN BLOQUE DE MEMORIA en respuesta (${reply.length} chars)`);
+            // Si la respuesta es corta, mostrar para debug
+            if (reply.length < 500) {
+              console.log(`   Respuesta: "${reply.substring(0, 200)}..."`);
+            }
+          }
+          
           if (memoryMatch) {
             try {
               const memoryData = JSON.parse(memoryMatch[1].trim());
@@ -1749,6 +1765,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 // 🚀 ANÁLISIS RÁPIDO DE ETAPAS (Sin IA - Basado en datos)
 // Este endpoint analiza los datos guardados (contextData)
 // y asigna la etapa correcta basándose en qué campos están llenos
+// IMPORTANTE: Si la IA ya detectó una etapa (etapa_actual), la respeta
 // =====================================================
 router.post('/quick-stage-sync', async (req: Request, res: Response) => {
   try {
@@ -1788,19 +1805,23 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
 
     for (const conv of conversations) {
       const ctx = (conv.contextData as any) || {};
+      
+      // 🎯 PRIORIDAD 1: Si la IA ya detectó una etapa en contextData, USAR ESA
+      if (ctx.etapa_actual && ctx.etapa_actual !== '') {
+        const iaStage = ctx.etapa_actual;
+        if (iaStage !== conv.stage) {
+          await prisma.conversation.update({
+            where: { id: conv.id },
+            data: { stage: iaStage }
+          });
+          updated++;
+          console.log(`🎯 Etapa sincronizada (IA): ${conv.stage} → ${iaStage}`);
+        }
+        continue; // No aplicar reglas manuales si la IA ya detectó
+      }
+      
+      // 🎯 PRIORIDAD 2: Solo si NO hay etapa_actual, aplicar reglas básicas
       let newStage = conv.stage || 'Saludo';
-
-      // 🎯 REGLAS DE DETECCIÓN BASADAS EN DATOS
-      const hasNombre = !!ctx.nombre;
-      const hasTalla = !!ctx.talla;
-      const hasColor = !!ctx.color;
-      const hasCalidad = !!ctx.calidad;
-      const hasCantidad = !!ctx.cantidad;
-      const hasCiudad = !!ctx.ciudad;
-      const hasDireccion = !!ctx.direccion;
-      const hasMetodoPago = !!ctx.metodo_pago;
-      const hasFechaEntrega = !!ctx.fecha_entrega;
-      const hasPedidoCreado = ctx.pedido === 'creado';
       
       // Detectar si perdido (por mensaje)
       const lastMsg = (conv.lastMessage || '').toLowerCase();
@@ -1809,29 +1830,19 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
                         lastMsg.includes('ya no quiero') ||
                         lastMsg.includes('cancelar');
 
-      // Aplicar reglas en orden de prioridad
+      // Verificar si tiene datos básicos
+      const hasAnyData = ctx.nombre || ctx.direccion || ctx.total || ctx.cantidad;
+      
       if (isPerdido) {
         newStage = 'Perdido';
-      } else if (hasPedidoCreado || (hasFechaEntrega && hasDireccion)) {
+      } else if (ctx.pedido === 'creado' || ctx.fecha_entrega) {
         newStage = 'Confirmado';
-      } else if (hasNombre && hasTalla && hasColor && hasCalidad && hasCantidad && hasCiudad && hasDireccion && !hasFechaEntrega) {
-        newStage = 'Pendiente Entrega';
-      } else if (hasNombre && hasTalla && hasColor && hasCalidad && hasCantidad && hasCiudad && !hasMetodoPago) {
-        newStage = 'Pendiente Pago';
-      } else if (hasNombre && hasTalla && hasColor && hasCalidad && hasCantidad && hasCiudad) {
+      } else if (hasAnyData && ctx.direccion) {
         newStage = 'Realizó Pedido';
-      } else if (hasNombre && hasTalla && hasColor && !hasCalidad) {
-        newStage = 'Pendiente Calidad';
-      } else if (hasNombre && hasTalla && !hasColor) {
-        newStage = 'Pendiente Color';
-      } else if (hasNombre && !hasTalla) {
-        newStage = 'Pendiente Talla';
-      } else if (hasNombre || hasTalla || hasColor || hasCalidad) {
+      } else if (hasAnyData) {
         newStage = 'En Cotización';
-      } else if (conv.lastMessage && conv.lastMessage.length > 10) {
+      } else if (conv.lastMessage && conv.lastMessage.length > 20) {
         newStage = 'Interesado';
-      } else {
-        newStage = 'Saludo';
       }
 
       // Actualizar solo si cambió
@@ -1841,7 +1852,7 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
           data: { stage: newStage }
         });
         updated++;
-        console.log(`🎯 Etapa actualizada: ${conv.stage} → ${newStage}`);
+        console.log(`🎯 Etapa actualizada (reglas): ${conv.stage} → ${newStage}`);
       }
     }
 

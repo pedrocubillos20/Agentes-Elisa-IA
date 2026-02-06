@@ -691,20 +691,55 @@ REGLAS del bloque de memoria:
               
               console.log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
               
-              // 🛒 CREAR PEDIDO AUTOMÁTICO
+              // 🛒 CREAR PEDIDO AUTOMÁTICO CON FECHA DE ENTREGA
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
                 try {
+                  // Parsear fecha de entrega si existe
+                  let deliveryDate = new Date();
+                  if (merged.fecha_entrega) {
+                    // Intentar parsear diferentes formatos de fecha
+                    const fechaStr = merged.fecha_entrega.toLowerCase();
+                    const hoy = new Date();
+                    
+                    if (fechaStr.includes('mañana') || fechaStr.includes('manana')) {
+                      deliveryDate = new Date(hoy);
+                      deliveryDate.setDate(deliveryDate.getDate() + 1);
+                    } else if (fechaStr.includes('pasado')) {
+                      deliveryDate = new Date(hoy);
+                      deliveryDate.setDate(deliveryDate.getDate() + 2);
+                    } else {
+                      // Intentar parsear fecha específica (ej: "10 de febrero", "2025-02-10")
+                      const parsed = new Date(merged.fecha_entrega);
+                      if (!isNaN(parsed.getTime())) {
+                        deliveryDate = parsed;
+                      }
+                    }
+                  }
+                  
                   const orderData = {
                     userId: ownerId,
                     type: 'order',
                     clientName: merged.nombre || clientName || 'Cliente WhatsApp',
                     clientPhone: clientPhone.replace('@c.us', ''),
-                    date: new Date(),
-                    time: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+                    date: deliveryDate,
+                    time: '14:00', // Entregas de 2 PM a 7 PM
+                    duration: 300, // 5 horas (2 PM - 7 PM)
                     status: 'pending',
-                    notes: `Pedido automático desde WhatsApp.\nProducto: ${merged.tipo || 'N/A'}\nTalla: ${merged.talla || 'N/A'}\nColor: ${merged.color || 'N/A'}\nCantidad: ${merged.cantidad || '1'}`,
-                    total: parseFloat(merged.total) || 0,
-                    address: merged.direccion || merged.ciudad || '',
+                    notes: `📦 PEDIDO WHATSAPP\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           `👕 Producto: Buzo ${merged.color || ''} - Talla ${merged.talla || ''}\n` +
+                           `✨ Calidad: ${merged.calidad || 'N/A'}\n` +
+                           `📦 Cantidad: ${merged.cantidad || '1'}\n` +
+                           `💵 Total: $${merged.total || '0'}\n` +
+                           `💳 Pago: ${merged.metodo_pago || 'Contra entrega'}\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           `📍 Dirección: ${merged.direccion || ''}\n` +
+                           `🏘️ Barrio: ${merged.barrio || ''}\n` +
+                           `🏙️ Ciudad: ${merged.ciudad || ''}\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           `🕑 Horario: 2:00 PM - 7:00 PM`,
+                    total: parseFloat(merged.total?.replace(/[^0-9]/g, '')) || 0,
+                    address: `${merged.direccion || ''}, ${merged.barrio || ''}, ${merged.ciudad || ''}`.trim(),
                     whatsappLineId: whatsappLineId || null
                   };
                   await prisma.appointment.create({ data: orderData });
@@ -714,7 +749,7 @@ REGLAS del bloque de memoria:
                     where: { id: conversationId },
                     data: { contextData: merged }
                   });
-                  console.log(`🛒 Pedido creado automáticamente para ${merged.nombre || clientName}`);
+                  console.log(`🛒 Pedido agendado para ${deliveryDate.toLocaleDateString('es-CO')} - ${merged.nombre || clientName}`);
                 } catch (orderErr: any) {
                   console.error('❌ Error creando pedido:', orderErr.message);
                 }

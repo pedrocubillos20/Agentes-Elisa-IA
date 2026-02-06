@@ -49,6 +49,7 @@ export default function CRMPage() {
   
   const [massMessageText, setMassMessageText] = useState('');
   const [sendingMass, setSendingMass] = useState(false);
+  const [analyzingStages, setAnalyzingStages] = useState(false);
 
   const [editingItem, setEditingItem] = useState<any>(null);
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', status: 'lead', tags: '' });
@@ -105,6 +106,30 @@ export default function CRMPage() {
     setSendingMass(false);
     setShowMassMessage(false);
     setMassMessageText('');
+  };
+
+  const analyzeAllStages = async () => {
+    if (!confirm('¿Analizar todas las conversaciones y asignar etapas automáticamente?\n\nEsto puede tomar unos minutos según la cantidad de conversaciones.')) return;
+    setAnalyzingStages(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/analyze-stages`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId: getLineId() })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`✅ ${data.message}`);
+        fetchAll();
+      } else {
+        alert('❌ Error al analizar las conversaciones');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('❌ Error de conexión');
+    }
+    setAnalyzingStages(false);
   };
 
   const handleSaveClient = async () => {
@@ -205,9 +230,18 @@ export default function CRMPage() {
           </button>
         ))}
         {activeTab === 'pipeline' && (
-          <span className="ml-auto text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30">
-            <Sparkles className="w-3 h-3 inline mr-1" />Detección automática
-          </span>
+          <>
+            <button
+              onClick={analyzeAllStages}
+              disabled={analyzingStages}
+              className="ml-auto text-xs bg-purple-500/20 text-purple-400 px-3 py-1.5 rounded-lg border border-purple-500/30 hover:bg-purple-500/30 transition-all disabled:opacity-50"
+            >
+              {analyzingStages ? '🔄 Analizando...' : '🔮 Detectar etapas'}
+            </button>
+            <span className="text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30">
+              <Sparkles className="w-3 h-3 inline mr-1" />Auto
+            </span>
+          </>
         )}
       </div>
 

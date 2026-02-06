@@ -1685,4 +1685,175 @@ router.post('/webhook', async (req: Request, res: Response) => {
   }
 });
 
+// =====================================================
+// 🔄 RE-ANALIZAR TODAS LAS CONVERSACIONES (Asignar etapas)
+// Este endpoint analiza el historial de cada conversación
+// y asigna automáticamente la etapa correcta
+// =====================================================
+router.post('/analyze-stages', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'No autorizado' });
+
+    // Verificar token
+    const jwt = await import('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'bizonne-secret-2024') as any;
+    const userId = decoded.userId;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, apiKey: true, parentUserId: true }
+    });
+    if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+
+    const ownerId = user.parentUserId || user.id;
+    const { lineId } = req.body;
+
+    // Obtener etapas del pipeline
+    let pipelineStages: any[] = [];
+    if (lineId) {
+      const line = await prisma.whatsappLine.findUnique({
+        where: { id: lineId },
+        select: { customStages: true }
+      });
+      if (line?.customStages && Array.isArray(line.customStages) && (line.customStages as any[]).length > 0) {
+        pipelineStages = line.customStages as any[];
+      }
+    }
+    
+    // Etapas por defecto si no hay configuradas
+    if (pipelineStages.length === 0) {
+      pipelineStages = [
+        { id: 'Saludo', label: 'Saludo' },
+        { id: 'Interesado', label: 'Interesado' },
+        { id: 'En Cotización', label: 'En Cotización' },
+        { id: 'Pendiente Color', label: 'Pendiente Color' },
+        { id: 'Pendiente Talla', label: 'Pendiente Talla' },
+        { id: 'Realizó Pedido', label: 'Realizó Pedido' },
+        { id: 'Confirmado', label: 'Confirmado' },
+        { id: 'Perdido', label: 'Perdido' }
+      ];
+    }
+
+    const stagesList = pipelineStages.map((s: any) => s.label || s.id).join(', ');
+
+    // Obtener todas las conversaciones
+    const whereClause: any = { userId: ownerId };
+    if (lineId) whereClause.whatsappLineId = lineId;
+
+    const conversations = await prisma.conversation.findMany({
+      where: whereClause,
+      include: {
+        messages: {
+          orderBy: { timestamp: 'desc' },
+          take: 15 // Últimos 15 mensajes para análisis
+        }
+      }
+    });
+
+    console.log(`🔄 Analizando ${conversations.length} conversaciones...`);
+
+    let updated = 0;
+    let errors = 0;
+
+    // Analizar cada conversación
+    for (const conv of conversations) {
+      try {
+        if (!conv.messages.length) continue;
+
+        // Construir historial de la conversación
+        const history = conv.messages.reverse().map(m => 
+          `${m.fromMe ? 'ASISTENTE' : 'CLIENTE'}: ${m.content}`
+        ).join('\n');
+
+        // Prompt para detectar etapa
+        const prompt = `Analiza esta conversación de WhatsApp y determina en qué etapa del pipeline de ventas se encuentra.
+
+ETAPAS DISPONIBLES: ${stagesList}
+
+CRITERIOS:
+- Saludo = Solo saludos iniciales, aún no se conoce interés
+- Interesado = Mostró interés en el producto/servicio
+- En Cotización = Está preguntando precios, detalles, opciones
+- Pendiente Color = Falta que elija color (si aplica)
+- Pendiente Talla = Falta que confirme talla (si aplica)
+- Pendiente Info = Falta información (datos de envío, cantidad, etc.)
+- Realizó Pedido = Confirmó que quiere comprar
+- Confirmado = Pedido completo con todos los datos
+- Perdido = Dijo que no le interesa o dejó de responder hace mucho
+
+CONVERSACIÓN:
+${history}
+
+Responde SOLO con el nombre exacto de la etapa (ejemplo: "En Cotización"). Nada más.`;
+
+        // Llamar a OpenAI
+        const apiKey = user.apiKey || process.env.OPENAI_API_KEY;
+        if (!apiKey) continue;
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 50,
+            temperature: 0.3
+          })
+        });
+
+        if (response.ok) {
+          const data = await response.json() as any;
+          const detectedStage = data.choices?.[0]?.message?.content?.trim();
+
+          if (detectedStage) {
+            // Buscar la etapa en el pipeline
+            const validStage = pipelineStages.find((s: any) =>
+              s.id === detectedStage ||
+              s.label === detectedStage ||
+              s.id?.toLowerCase() === detectedStage.toLowerCase() ||
+              s.label?.toLowerCase() === detectedStage.toLowerCase() ||
+              detectedStage.toLowerCase().includes(s.id?.toLowerCase()) ||
+              detectedStage.toLowerCase().includes(s.label?.toLowerCase())
+            );
+
+            if (validStage) {
+              await prisma.conversation.update({
+                where: { id: conv.id },
+                data: { stage: validStage.id || validStage.label }
+              });
+              updated++;
+              console.log(`✅ ${conv.recipientName || conv.recipientId}: ${validStage.id}`);
+            }
+          }
+        }
+
+        // Pequeña pausa para no saturar la API
+        await new Promise(r => setTimeout(r, 500));
+
+      } catch (err) {
+        console.error(`❌ Error en conv ${conv.id}:`, err);
+        errors++;
+      }
+    }
+
+    console.log(`🎯 Análisis completado: ${updated} actualizadas, ${errors} errores`);
+
+    res.json({
+      success: true,
+      total: conversations.length,
+      updated,
+      errors,
+      message: `Se actualizaron ${updated} de ${conversations.length} conversaciones`
+    });
+
+  } catch (error) {
+    console.error('❌ Error en analyze-stages:', error);
+    res.status(500).json({ error: 'Error al analizar conversaciones' });
+  }
+});
+
 export default router;

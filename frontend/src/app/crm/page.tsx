@@ -2,25 +2,23 @@
 
 import { useState, useEffect } from 'react';
 import { 
-  Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, Box, 
-  GripVertical, Send, MessageSquare, Settings, RefreshCw, Sparkles,
-  LayoutGrid, CheckCircle, AlertCircle
+  Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
+  Send, MessageSquare, LayoutGrid, Sparkles
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-interface Stage { id: string; label: string; color: string; description?: string; }
+interface Stage { id: string; label: string; color: string; }
 interface Conversation { id: string; recipientId: string; recipientName: string; lastMessage: string; stage: string; updatedAt: string; aiPaused: boolean; }
 
 const DEFAULT_STAGES: Stage[] = [
   { id: 'Saludo', label: 'Saludo', color: 'blue' },
   { id: 'Interesado', label: 'Interesado', color: 'cyan' },
   { id: 'En Cotización', label: 'En Cotización', color: 'yellow' },
-  { id: 'Pendiente Color', label: 'Pendiente Color', color: 'orange' },
-  { id: 'Pendiente Talla', label: 'Pendiente Talla', color: 'purple' },
+  { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange' },
   { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green' },
-  { id: 'Pendiente Calidad', label: 'Pendiente Calidad', color: 'pink' },
-  { id: 'Confirmar Perdido', label: 'Confirmar Perdido', color: 'red' },
+  { id: 'Confirmado', label: 'Confirmado', color: 'purple' },
+  { id: 'Perdido', label: 'Perdido', color: 'red' },
 ];
 
 const STAGE_COLORS: Record<string, string> = {
@@ -32,16 +30,9 @@ const STAGE_COLORS: Record<string, string> = {
   green: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   pink: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
   red: 'bg-red-500/20 text-red-400 border-red-500/30',
-  gray: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
 };
 
-const COLUMN_BG: Record<string, string> = {
-  blue: 'border-t-blue-500', cyan: 'border-t-cyan-500', yellow: 'border-t-yellow-500',
-  orange: 'border-t-orange-500', purple: 'border-t-purple-500', green: 'border-t-emerald-500',
-  pink: 'border-t-pink-500', red: 'border-t-red-500', gray: 'border-t-gray-500',
-};
-
-export default function CRMKanbanPage() {
+export default function CRMPage() {
   const [activeTab, setActiveTab] = useState<'pipeline' | 'clients' | 'products'>('pipeline');
   const [stages, setStages] = useState<Stage[]>(DEFAULT_STAGES);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -50,19 +41,14 @@ export default function CRMKanbanPage() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [draggedItem, setDraggedItem] = useState<Conversation | null>(null);
-  const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [selectedStage, setSelectedStage] = useState('');
   
   const [showMassMessage, setShowMassMessage] = useState(false);
-  const [showStageConfig, setShowStageConfig] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
   const [showProductModal, setShowProductModal] = useState(false);
   
-  const [selectedStage, setSelectedStage] = useState('');
   const [massMessageText, setMassMessageText] = useState('');
   const [sendingMass, setSendingMass] = useState(false);
-  const [massMessageResult, setMassMessageResult] = useState<{sent: number; failed: number} | null>(null);
-  const [syncingStages, setSyncingStages] = useState(false);
 
   const [editingItem, setEditingItem] = useState<any>(null);
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', status: 'lead', tags: '' });
@@ -97,88 +83,28 @@ export default function CRMKanbanPage() {
     finally { setLoading(false); }
   };
 
-  const syncStagesFromAssistant = async () => {
-    setSyncingStages(true);
-    const token = localStorage.getItem('token');
-    try {
-      const res = await fetch(`${API_URL}/api/assistants?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (!res.ok) throw new Error('Error');
-      const data = await res.json();
-      const assistant = data.assistants?.[0];
-      if (!assistant?.context) { alert('No hay base de conocimiento'); setSyncingStages(false); return; }
-      const extracted = parseStagesFromContext(assistant.context);
-      if (extracted.length === 0) { alert('No se encontraron etapas'); setSyncingStages(false); return; }
-      const saveRes = await fetch(`${API_URL}/api/stages`, {
-        method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stages: extracted })
-      });
-      if (saveRes.ok) { setStages(extracted); alert(`✅ ${extracted.length} etapas sincronizadas`); }
-    } catch (e) { alert('Error al sincronizar'); }
-    finally { setSyncingStages(false); }
-  };
-
-  const parseStagesFromContext = (context: string): Stage[] => {
-    const stages: Stage[] = [];
-    const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red'];
-    const section = context.match(/##?\s*(?:ETAPAS?|FLUJO|EMBUDO|PIPELINE)[\s\S]*?(?=##[^#]|$)/i);
-    if (section) {
-      const items = section[0].match(/[-•*]\s*\*?\*?([^*\n]+)\*?\*?/g);
-      if (items) {
-        items.forEach((item, idx) => {
-          const clean = item.replace(/[-•*]/g, '').replace(/\*\*/g, '').trim();
-          if (clean && clean.length > 2 && clean.length < 50) {
-            stages.push({ id: clean, label: clean, color: colors[idx % colors.length] });
-          }
-        });
-      }
-    }
-    if (stages.length === 0) {
-      const names = context.match(/(?:Saludo|Interesado|Cotización|Pendiente|Pedido|Confirmado|Perdido|Nuevo|Calidad|Color|Talla)[^\n,]*/gi);
-      if (names) {
-        const uniqueNames = Array.from(new Set(names.map(s => s.trim())));
-        uniqueNames.forEach((n, i) => {
-          if (n.length > 2 && n.length < 50) stages.push({ id: n, label: n, color: colors[i % colors.length] });
-        });
-      }
-    }
-    return stages.slice(0, 12);
-  };
-
-  const handleDragStart = (conv: Conversation) => setDraggedItem(conv);
-  const handleDragOver = (e: React.DragEvent, stageId: string) => { e.preventDefault(); setDragOverStage(stageId); };
-  const handleDragLeave = () => setDragOverStage(null);
-
-  const handleDrop = async (e: React.DragEvent, newStageId: string) => {
-    e.preventDefault(); setDragOverStage(null);
-    if (!draggedItem || draggedItem.stage === newStageId) { setDraggedItem(null); return; }
-    const token = localStorage.getItem('token');
-    setConversations(prev => prev.map(c => c.id === draggedItem.id ? { ...c, stage: newStageId } : c));
-    try {
-      await fetch(`${API_URL}/api/conversations/${draggedItem.id}/stage`, {
-        method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage: newStageId })
-      });
-    } catch { setConversations(prev => prev.map(c => c.id === draggedItem.id ? { ...c, stage: draggedItem.stage } : c)); }
-    setDraggedItem(null);
-  };
+  const getConvsByStage = (stageId: string) => conversations.filter(c => c.stage === stageId);
 
   const sendMassMessage = async () => {
     if (!selectedStage || !massMessageText.trim()) return;
-    setSendingMass(true); setMassMessageResult(null);
+    setSendingMass(true);
     const token = localStorage.getItem('token');
-    const stageConvs = conversations.filter(c => c.stage === selectedStage);
-    let sent = 0, failed = 0;
+    const stageConvs = getConvsByStage(selectedStage);
+    let sent = 0;
     for (const conv of stageConvs) {
       try {
         const res = await fetch(`${API_URL}/api/whatsapp/send`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ to: conv.recipientId, message: massMessageText, lineId: getLineId() })
         });
-        if (res.ok) sent++; else failed++;
+        if (res.ok) sent++;
         await new Promise(r => setTimeout(r, 1500));
-      } catch { failed++; }
+      } catch {}
     }
-    setMassMessageResult({ sent, failed }); setSendingMass(false);
+    alert(`✅ Enviado a ${sent} contactos`);
+    setSendingMass(false);
+    setShowMassMessage(false);
+    setMassMessageText('');
   };
 
   const handleSaveClient = async () => {
@@ -207,7 +133,7 @@ export default function CRMKanbanPage() {
     } catch (e) { console.error(e); }
   };
 
-  const handleDelete = async (id: string, type: 'client' | 'product') => {
+  const handleDelete = async (type: 'client' | 'product', id: string) => {
     if (!confirm('¿Eliminar?')) return;
     const token = localStorage.getItem('token');
     await fetch(`${API_URL}/api/${type === 'client' ? 'clients' : 'products'}/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
@@ -215,291 +141,295 @@ export default function CRMKanbanPage() {
   };
 
   const resetForms = () => {
+    setEditingItem(null);
     setClientForm({ name: '', phone: '', email: '', status: 'lead', tags: '' });
     setProductForm({ name: '', description: '', price: '', stock: '', category: '' });
-    setEditingItem(null);
   };
 
-  const getConvsByStage = (stageId: string) => conversations.filter(c => c.stage === stageId);
-  const stats = { total: conversations.length, clients: clients.length, revenue: clients.reduce((s, c) => s + (c.totalPurchases || 0), 0), products: products.length };
+  const stats = {
+    total: conversations.length,
+    clients: clients.length,
+    revenue: clients.reduce((sum, c) => sum + (c.totalPurchases || 0), 0),
+    products: products.length
+  };
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center h-64 gap-4">
-      <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
-      <div className="loading-spinner" />
-    </div>
-  );
-
-  if (user?.plan === 'starter') return (
-    <div className="max-w-2xl mx-auto text-center py-16">
-      <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-[var(--accent-primary)] to-purple-600 flex items-center justify-center">
-        <Users className="w-12 h-12 text-white" />
+  // Verificar plan
+  if (user && user.plan === 'starter' && !user.parentUserId) {
+    return (
+      <div className="h-[calc(100vh-120px)] flex items-center justify-center">
+        <div className="text-center p-8 bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] max-w-md">
+          <Users className="w-12 h-12 mx-auto mb-4 text-[var(--accent-primary)]" />
+          <h2 className="text-xl font-bold text-white mb-2">CRM en Plan Business</h2>
+          <p className="text-[var(--text-muted)] mb-4">Gestiona tu pipeline con vista completa.</p>
+          <a href="/subscription" className="btn-primary inline-flex items-center gap-2"><Sparkles className="w-4 h-4" /> Actualizar</a>
+        </div>
       </div>
-      <h2 className="text-2xl font-bold text-white mb-4">CRM Pipeline en Plan Business</h2>
-      <p className="text-[var(--text-secondary)] mb-8">Gestiona tu pipeline con vista Kanban, mensajes masivos y sincronización con IA.</p>
-      <a href="/subscription" className="btn-primary inline-flex items-center gap-2"><Sparkles className="w-5 h-5" /> Actualizar</a>
-    </div>
-  );
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="h-[calc(100vh-120px)] flex items-center justify-center">
+        <div className="loading-spinner w-8 h-8" />
+      </div>
+    );
+  }
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col gap-6 overflow-hidden">
+    <div className="h-[calc(100vh-120px)] flex flex-col gap-4 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--accent-primary)] to-cyan-500 flex items-center justify-center shadow-lg flex-shrink-0">
-            <img src="/bizonne.png" alt="Bizonne" className="w-10 h-10 rounded-xl" />
-          </div>
+      <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <LayoutGrid className="w-6 h-6 text-[var(--accent-primary)]" />
           <div>
-            <h1 className="text-2xl font-bold text-white">CRM Pipeline</h1>
-            <p className="text-[var(--text-muted)]">Gestiona clientes y ventas</p>
+            <h1 className="text-xl font-bold text-white">CRM Pipeline</h1>
+            <p className="text-xs text-[var(--text-muted)]">{stats.total} en pipeline • {stats.clients} clientes</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <button onClick={() => setShowMassMessage(true)} className="btn-secondary flex items-center gap-2">
-            <Send className="w-4 h-4" /> Mensaje Masivo
-          </button>
-          <button onClick={() => activeTab === 'products' ? setShowProductModal(true) : setShowClientModal(true)} className="btn-primary flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          <button onClick={() => activeTab === 'products' ? setShowProductModal(true) : setShowClientModal(true)} className="btn-primary py-1.5 px-3 text-sm">
             <Plus className="w-4 h-4" /> Nuevo
           </button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-4 border-b border-[var(--border-primary)] pb-4">
+      <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-3 flex-shrink-0">
         {(['pipeline', 'clients', 'products'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${activeTab === tab ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'}`}>
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              activeTab === tab ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+            }`}>
             {tab === 'pipeline' ? <LayoutGrid className="w-4 h-4" /> : tab === 'clients' ? <Users className="w-4 h-4" /> : <Package className="w-4 h-4" />}
             {tab === 'pipeline' ? 'Pipeline' : tab === 'clients' ? 'Clientes' : 'Productos'}
           </button>
         ))}
         {activeTab === 'pipeline' && (
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/30">
-              <Sparkles className="w-3 h-3 inline mr-1" />
-              Detección automática de etapas
-            </span>
-          </div>
+          <span className="ml-auto text-xs text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/30">
+            <Sparkles className="w-3 h-3 inline mr-1" />Detección automática
+          </span>
         )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card p-4"><span className="text-3xl font-bold text-[var(--accent-primary)]">{stats.total}</span><p className="text-sm text-[var(--text-muted)]">Pipeline</p></div>
-        <div className="card p-4"><span className="text-3xl font-bold text-cyan-400">{stats.clients}</span><p className="text-sm text-[var(--text-muted)]">Clientes</p></div>
-        <div className="card p-4"><span className="text-3xl font-bold text-emerald-400">${stats.revenue.toLocaleString()}</span><p className="text-sm text-[var(--text-muted)]">Ingresos</p></div>
-        <div className="card p-4"><span className="text-3xl font-bold text-purple-400">{stats.products}</span><p className="text-sm text-[var(--text-muted)]">Productos</p></div>
-      </div>
-
-      {/* PIPELINE KANBAN - AUTOMÁTICO */}
+      {/* PIPELINE */}
       {activeTab === 'pipeline' && (
-        <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
-          <div className="relative max-w-md flex-shrink-0">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-            <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar..." className="input pl-11" />
+        <div className="flex-1 flex flex-col gap-3 overflow-hidden">
+          {/* Filtros */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar..." className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 pl-9 pr-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+            </div>
+            <select 
+              value={selectedStage} 
+              onChange={(e) => setSelectedStage(e.target.value)}
+              className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-3 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)]"
+            >
+              <option value="">📊 Todas las etapas</option>
+              {stages.map(stage => (
+                <option key={stage.id} value={stage.id}>{stage.label} ({getConvsByStage(stage.id).length})</option>
+              ))}
+            </select>
+            <button 
+              onClick={() => setShowMassMessage(true)} 
+              disabled={!selectedStage}
+              className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50"
+              title={!selectedStage ? 'Selecciona una etapa' : 'Mensaje masivo'}
+            >
+              <Send className="w-4 h-4" />
+            </button>
           </div>
-          <div className="flex-1 overflow-x-auto pb-4">
-            <div className="flex gap-4 h-full" style={{ minWidth: `${stages.length * 280}px` }}>
-              {stages.map((stage) => {
-                const stageConvs = getConvsByStage(stage.id).filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm));
-                return (
-                  <div key={stage.id} className={`w-64 flex-shrink-0 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] border-t-4 ${COLUMN_BG[stage.color] || 'border-t-gray-500'} flex flex-col`}>
-                    <div className="p-3 border-b border-[var(--border-primary)] flex-shrink-0">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STAGE_COLORS[stage.color] || STAGE_COLORS.gray}`}>{stageConvs.length}</span>
-                          <span className="font-semibold text-white text-sm">{stage.label}</span>
+
+          {/* Chips de etapas */}
+          <div className="flex flex-wrap gap-2 flex-shrink-0">
+            {stages.map(stage => {
+              const count = getConvsByStage(stage.id).length;
+              return (
+                <button
+                  key={stage.id}
+                  onClick={() => setSelectedStage(selectedStage === stage.id ? '' : stage.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+                    selectedStage === stage.id 
+                      ? STAGE_COLORS[stage.color] || STAGE_COLORS.blue
+                      : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border-transparent hover:border-[var(--border-primary)]'
+                  }`}
+                >
+                  {stage.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Grid de conversaciones */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+              {(selectedStage ? getConvsByStage(selectedStage) : conversations)
+                .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm))
+                .map((conv) => {
+                  const stage = stages.find(s => s.id === conv.stage);
+                  return (
+                    <div key={conv.id} className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 transition-all">
+                      <div className="flex items-start gap-2">
+                        <div className="w-9 h-9 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-semibold text-[var(--accent-primary)]">{conv.recipientName?.[0] || '?'}</span>
                         </div>
-                        <button onClick={() => { setSelectedStage(stage.id); setShowMassMessage(true); }} className="p-1.5 rounded-lg hover:bg-white/10 text-[var(--text-muted)]" title="Mensaje masivo">
-                          <Send className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="p-2 space-y-2 flex-1 overflow-y-auto">
-                      {stageConvs.map((conv) => (
-                        <div key={conv.id}
-                          className="p-3 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 transition-all">
-                          <div className="flex items-start gap-2">
-                            <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
-                              <span className="text-xs font-semibold text-[var(--accent-primary)]">{conv.recipientName?.[0] || '?'}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="font-medium text-white text-sm truncate">{conv.recipientName || conv.recipientId}</p>
-                                {conv.aiPaused && <span className="w-2 h-2 bg-amber-400 rounded-full flex-shrink-0" title="IA Pausada" />}
-                              </div>
-                              <p className="text-xs text-[var(--text-muted)] truncate mt-1">{conv.lastMessage || 'Sin mensajes'}</p>
-                              <div className="flex items-center justify-between mt-2">
-                                <span className="text-[10px] text-[var(--text-muted)]">{new Date(conv.updatedAt).toLocaleDateString()}</span>
-                                <a href={`/conversaciones?id=${conv.id}`} className="text-[10px] text-[var(--accent-primary)] hover:underline">Ver chat →</a>
-                              </div>
-                            </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-white text-sm truncate">{conv.recipientName || conv.recipientId}</p>
+                          <p className="text-[10px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${STAGE_COLORS[stage?.color || 'blue']}`}>
+                              {stage?.label || conv.stage}
+                            </span>
+                            <a href={`/conversaciones?id=${conv.id}`} className="text-[10px] text-[var(--accent-primary)] hover:underline">Ver →</a>
                           </div>
                         </div>
-                      ))}
-                      {stageConvs.length === 0 && (
-                        <div className="text-center py-8 text-[var(--text-muted)]">
-                          <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-xs">Sin conversaciones</p>
-                        </div>
-                      )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            {conversations.length === 0 && (
+              <div className="text-center py-12 text-[var(--text-muted)]">
+                <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No hay conversaciones</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* CLIENTES */}
+      {activeTab === 'clients' && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm))
+              .map((client) => (
+                <div key={client.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                        <span className="text-sm font-semibold text-cyan-400">{client.name?.[0] || '?'}</span>
+                      </div>
+                      <div>
+                        <p className="font-medium text-white">{client.name}</p>
+                        <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Phone className="w-3 h-3" />{client.phone}</p>
+                        {client.email && <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Mail className="w-3 h-3" />{client.email}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => { setEditingItem(client); setClientForm({ ...client, tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /></button>
+                      <button onClick={() => handleDelete('client', client.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                  {client.totalPurchases > 0 && (
+                    <p className="mt-2 text-xs text-emerald-400">💰 ${client.totalPurchases.toLocaleString()}</p>
+                  )}
+                </div>
+              ))}
           </div>
+          {clients.length === 0 && (
+            <div className="text-center py-12 text-[var(--text-muted)]">
+              <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>No hay clientes</p>
+              <button onClick={() => setShowClientModal(true)} className="btn-primary mt-4"><Plus className="w-4 h-4" /> Agregar</button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* CLIENTS */}
-      {activeTab === 'clients' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="relative max-w-md flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar cliente..." className="input pl-11" />
-            </div>
-            <button onClick={() => { resetForms(); setShowClientModal(true); }} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nuevo</button>
-          </div>
-          <div className="card overflow-hidden">
-            <table className="w-full">
-              <thead><tr className="border-b border-[var(--border-primary)]">
-                <th className="text-left p-4 text-[var(--text-muted)] font-medium text-sm">Cliente</th>
-                <th className="text-left p-4 text-[var(--text-muted)] font-medium text-sm">Contacto</th>
-                <th className="text-left p-4 text-[var(--text-muted)] font-medium text-sm">Estado</th>
-                <th className="text-left p-4 text-[var(--text-muted)] font-medium text-sm">Compras</th>
-                <th className="text-left p-4 text-[var(--text-muted)] font-medium text-sm">Acciones</th>
-              </tr></thead>
-              <tbody>
-                {clients.filter(c => c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).map((client) => (
-                  <tr key={client.id} className="border-b border-[var(--border-primary)] hover:bg-white/5">
-                    <td className="p-4"><div className="flex items-center gap-3"><div className="avatar">{client.name?.[0]}</div><p className="font-medium text-white">{client.name}</p></div></td>
-                    <td className="p-4"><span className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Phone className="w-3 h-3" />{client.phone}</span></td>
-                    <td className="p-4"><span className={`badge ${client.status === 'active' ? 'badge-success' : 'badge-warning'}`}>{client.status === 'active' ? 'Activo' : 'Lead'}</span></td>
-                    <td className="p-4"><span className="text-[var(--accent-primary)] font-semibold">${(client.totalPurchases || 0).toLocaleString()}</span></td>
-                    <td className="p-4"><div className="flex gap-2">
-                      <button onClick={() => { setEditingItem(client); setClientForm({ name: client.name, phone: client.phone, email: client.email || '', status: client.status, tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="btn-icon"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={() => handleDelete(client.id, 'client')} className="btn-icon text-red-400"><Trash2 className="w-4 h-4" /></button>
-                    </div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {clients.length === 0 && <div className="text-center py-12 text-[var(--text-muted)]"><Users className="w-12 h-12 mx-auto mb-4 opacity-50" /><p>No hay clientes</p></div>}
-          </div>
-        </div>
-      )}
-
-      {/* PRODUCTS */}
+      {/* PRODUCTOS */}
       {activeTab === 'products' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="relative max-w-md flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar producto..." className="input pl-11" />
-            </div>
-            <button onClick={() => { resetForms(); setShowProductModal(true); }} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nuevo</button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {products.filter(p => p.name?.toLowerCase().includes(searchTerm.toLowerCase())).map((product) => (
-              <div key={product.id} className="card glass-hover">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-14 h-14 rounded-xl bg-[var(--accent-primary)]/20 flex items-center justify-center"><Box className="w-7 h-7 text-[var(--accent-primary)]" /></div>
-                  <div className="flex gap-2">
-                    <button onClick={() => { setEditingItem(product); setProductForm({ name: product.name, description: product.description || '', price: product.price?.toString() || '', stock: product.stock?.toString() || '', category: product.category || '' }); setShowProductModal(true); }} className="btn-icon"><Edit2 className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(product.id, 'product')} className="btn-icon text-red-400"><Trash2 className="w-4 h-4" /></button>
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            {products.filter(p => !searchTerm || p.name?.toLowerCase().includes(searchTerm.toLowerCase()))
+              .map((product) => (
+                <div key={product.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-white truncate">{product.name}</p>
+                      <p className="text-lg font-bold text-emerald-400">${product.price?.toLocaleString()}</p>
+                      <p className="text-xs text-[var(--text-muted)]">Stock: {product.stock}</p>
+                      {product.category && <span className="inline-block mt-1 px-2 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-400">{product.category}</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => { setEditingItem(product); setProductForm({ ...product, price: product.price?.toString() || '', stock: product.stock?.toString() || '' }); setShowProductModal(true); }} className="p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /></button>
+                      <button onClick={() => handleDelete('product', product.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                    </div>
                   </div>
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-2">{product.name}</h3>
-                <p className="text-sm text-[var(--text-muted)] mb-4 line-clamp-2">{product.description || 'Sin descripción'}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-2xl font-bold text-[var(--accent-primary)]">${product.price?.toLocaleString() || 0}</span>
-                  <span className={`badge ${(product.stock || 0) < 10 ? 'badge-danger' : 'badge-success'}`}>Stock: {product.stock || 0}</span>
-                </div>
-              </div>
-            ))}
-            {products.length === 0 && <div className="col-span-full text-center py-12 text-[var(--text-muted)]"><Package className="w-12 h-12 mx-auto mb-4 opacity-50" /><p>No hay productos</p></div>}
+              ))}
           </div>
+          {products.length === 0 && (
+            <div className="text-center py-12 text-[var(--text-muted)]">
+              <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>No hay productos</p>
+              <button onClick={() => setShowProductModal(true)} className="btn-primary mt-4"><Plus className="w-4 h-4" /> Agregar</button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* MODAL: MENSAJE MASIVO */}
+      {/* MODALES */}
+      
+      {/* Modal Mensaje Masivo */}
       {showMassMessage && (
-        <div className="modal-overlay" onClick={() => setShowMassMessage(false)}>
-          <div className="modal-content max-w-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><Send className="w-5 h-5 text-[var(--accent-primary)]" /> Mensaje Masivo</h3>
-              <button onClick={() => setShowMassMessage(false)} className="btn-icon"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowMassMessage(false)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white">Mensaje Masivo</h3>
+              <button onClick={() => setShowMassMessage(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
-            <div className="space-y-4">
-              <div><label className="input-label">Etapa</label>
-                <select value={selectedStage} onChange={(e) => setSelectedStage(e.target.value)} className="input">
-                  <option value="">-- Seleccionar --</option>
-                  {stages.map(s => <option key={s.id} value={s.id}>{s.label} ({getConvsByStage(s.id).length})</option>)}
-                </select>
-              </div>
-              {selectedStage && <div className="p-3 rounded-lg bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20"><p className="text-sm text-[var(--accent-primary)]">📤 Se enviará a <strong>{getConvsByStage(selectedStage).length}</strong> contactos</p></div>}
-              <div><label className="input-label">Mensaje</label><textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe..." className="input min-h-[120px]" /></div>
-              {massMessageResult && (
-                <div className={`p-3 rounded-lg ${massMessageResult.failed > 0 ? 'bg-amber-500/10' : 'bg-emerald-500/10'} border`}>
-                  <div className="flex items-center gap-2">
-                    {massMessageResult.failed > 0 ? <AlertCircle className="w-5 h-5 text-amber-400" /> : <CheckCircle className="w-5 h-5 text-emerald-400" />}
-                    <p className="text-sm"><span className="text-emerald-400">{massMessageResult.sent} enviados</span>{massMessageResult.failed > 0 && <span className="text-amber-400"> · {massMessageResult.failed} fallidos</span>}</p>
-                  </div>
-                </div>
-              )}
-              <button onClick={sendMassMessage} disabled={!selectedStage || !massMessageText.trim() || sendingMass} className="btn-primary w-full flex items-center justify-center gap-2">
-                {sendingMass ? <><div className="loading-spinner w-4 h-4" /> Enviando...</> : <><Send className="w-4 h-4" /> Enviar</>}
-              </button>
-            </div>
+            <p className="text-sm text-[var(--text-muted)] mb-3">
+              Enviar a: <strong className="text-white">{stages.find(s => s.id === selectedStage)?.label}</strong> ({getConvsByStage(selectedStage).length} contactos)
+            </p>
+            <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)]" />
+            <button onClick={sendMassMessage} disabled={sendingMass || !massMessageText.trim()} className="btn-primary w-full py-2 disabled:opacity-50">
+              {sendingMass ? 'Enviando...' : `Enviar a ${getConvsByStage(selectedStage).length} contactos`}
+            </button>
           </div>
         </div>
       )}
 
-      {/* MODAL: CLIENTE */}
+      {/* Modal Cliente */}
       {showClientModal && (
-        <div className="modal-overlay" onClick={() => setShowClientModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6"><h3 className="text-xl font-bold text-white">{editingItem ? 'Editar' : 'Nuevo'} Cliente</h3><button onClick={() => setShowClientModal(false)} className="btn-icon"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
-              <div><label className="input-label">Nombre *</label><input type="text" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} className="input" placeholder="Nombre" /></div>
-              <div><label className="input-label">Teléfono *</label><input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} className="input" placeholder="+57..." /></div>
-              <div><label className="input-label">Email</label><input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} className="input" /></div>
-              <div><label className="input-label">Estado</label><select value={clientForm.status} onChange={(e) => setClientForm({ ...clientForm, status: e.target.value })} className="input"><option value="lead">Lead</option><option value="active">Activo</option></select></div>
-              <div><label className="input-label">Etiquetas</label><input type="text" value={clientForm.tags} onChange={(e) => setClientForm({ ...clientForm, tags: e.target.value })} className="input" placeholder="VIP, Frecuente" /></div>
-              <button onClick={handleSaveClient} className="btn-primary w-full">{editingItem ? 'Actualizar' : 'Guardar'}</button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowClientModal(false)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white">{editingItem ? 'Editar' : 'Nuevo'} Cliente</h3>
+              <button onClick={() => { setShowClientModal(false); resetForms(); }} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <input type="text" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} placeholder="Nombre *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} placeholder="Teléfono *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} placeholder="Email" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <input type="text" value={clientForm.tags} onChange={(e) => setClientForm({ ...clientForm, tags: e.target.value })} placeholder="Etiquetas (VIP, Frecuente)" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <button onClick={handleSaveClient} className="btn-primary w-full py-2">{editingItem ? 'Actualizar' : 'Guardar'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: PRODUCTO */}
+      {/* Modal Producto */}
       {showProductModal && (
-        <div className="modal-overlay" onClick={() => setShowProductModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6"><h3 className="text-xl font-bold text-white">{editingItem ? 'Editar' : 'Nuevo'} Producto</h3><button onClick={() => setShowProductModal(false)} className="btn-icon"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
-              <div><label className="input-label">Nombre *</label><input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} className="input" /></div>
-              <div><label className="input-label">Descripción</label><textarea value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} className="input min-h-[80px]" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="input-label">Precio</label><input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} className="input" /></div>
-                <div><label className="input-label">Stock</label><input type="number" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} className="input" /></div>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowProductModal(false)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white">{editingItem ? 'Editar' : 'Nuevo'} Producto</h3>
+              <button onClick={() => { setShowProductModal(false); resetForms(); }} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <textarea value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[60px] resize-none focus:outline-none focus:border-[var(--accent-primary)]" />
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} placeholder="Precio" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+                <input type="number" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} placeholder="Stock" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
               </div>
-              <div><label className="input-label">Categoría</label><input type="text" value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} className="input" /></div>
-              <button onClick={handleSaveProduct} className="btn-primary w-full">{editingItem ? 'Actualizar' : 'Guardar'}</button>
+              <input type="text" value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} placeholder="Categoría" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <button onClick={handleSaveProduct} className="btn-primary w-full py-2">{editingItem ? 'Actualizar' : 'Guardar'}</button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Footer */}
-      <div className="flex items-center justify-center py-4">
-        <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm">
-          <img src="/bizonne.png" alt="Bizonne" className="w-5 h-5 rounded" />
-          CRM powered by Bizonne
-        </div>
-      </div>
     </div>
   );
 }

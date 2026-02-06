@@ -655,7 +655,10 @@ EJEMPLO de respuesta correcta:
     const recent = [...history].reverse().slice(-30);
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
-    messages.push({ role: 'user', content: message });
+    
+    // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
+    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final de tu respuesta con etapa_actual]`;
+    messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
     // 💰 MODELO FIJO: gpt-4o-mini (económico y potente, ~60x más barato que gpt-4-turbo)
@@ -689,9 +692,108 @@ EJEMPLO de respuesta correcta:
           // DEBUG: Ver si hay bloque de memoria en la respuesta
           if (!memoryMatch) {
             console.log(`⚠️ SIN BLOQUE DE MEMORIA en respuesta (${reply.length} chars)`);
-            // Si la respuesta es corta, mostrar para debug
-            if (reply.length < 500) {
-              console.log(`   Respuesta: "${reply.substring(0, 200)}..."`);
+            
+            // 🔄 FALLBACK INTELIGENTE: Extraer datos del historial y respuesta
+            const fullConversation = history.map(m => m.content).join(' ').toLowerCase() + ' ' + reply.toLowerCase();
+            const replyLower = reply.toLowerCase();
+            
+            // Extraer datos del historial
+            const extractedData: any = { ...savedContext };
+            
+            // Extraer nombre si lo mencionó
+            const nombreMatch = fullConversation.match(/(?:me llamo|soy|mi nombre es)\s+([a-záéíóúñ]+)/i) ||
+                               reply.match(/(?:gracias|hola|perfecto|genial),?\s+\*?\*?([a-záéíóúñ]+)\*?\*?[!,]/i);
+            if (nombreMatch && !extractedData.nombre) {
+              extractedData.nombre = nombreMatch[1];
+            }
+            
+            // Extraer talla
+            const tallaMatch = fullConversation.match(/talla\s*(xs|s|m|l|xl|2xl|3xl|4xl)/i) ||
+                              reply.match(/talla\s+\*?\*?(xs|s|m|l|xl|2xl|3xl|4xl)\*?\*?\s+anotad/i);
+            if (tallaMatch) {
+              extractedData.talla = tallaMatch[1].toUpperCase();
+            }
+            
+            // Extraer color
+            const colorMatch = fullConversation.match(/color[:\s]+\*?\*?(marfil|blanco|negro|azul\s*oscuro)\*?\*?/i) ||
+                              reply.match(/\*?\*?(marfil|blanco|negro|azul\s*oscuro)\*?\*?\s+anotad/i);
+            if (colorMatch) {
+              extractedData.color = colorMatch[1];
+            }
+            
+            // Extraer calidad
+            const calidadMatch = fullConversation.match(/(premium|mónaco|monaco)/i);
+            if (calidadMatch) {
+              extractedData.calidad = calidadMatch[1];
+            }
+            
+            // Extraer cantidad
+            const cantidadMatch = fullConversation.match(/(\d+)\s*(?:buzo|buzos|unidad|unidades)/i);
+            if (cantidadMatch) {
+              extractedData.cantidad = cantidadMatch[1];
+            }
+            
+            // Extraer ciudad
+            const ciudadMatch = fullConversation.match(/ciudad[:\s]+\*?\*?([a-záéíóúñ\s]+)\*?\*?/i) ||
+                               reply.match(/(?:envío a|enviamos a|para)\s+\*?\*?([a-záéíóúñ]+)\*?\*?/i);
+            if (ciudadMatch && !extractedData.ciudad) {
+              extractedData.ciudad = ciudadMatch[1].trim();
+            }
+            
+            // 🎯 DETECTAR ETAPA basándose en datos extraídos
+            let fallbackStage = 'Interesado';
+            const lastMsgLower = (messagesArray[0] || '').toLowerCase();
+            
+            if (lastMsgLower.includes('no me interesa') || lastMsgLower.includes('no gracias') || lastMsgLower.includes('cancelar')) {
+              fallbackStage = 'Perdido';
+            } else if (extractedData.fecha_entrega || replyLower.includes('pedido agendado') || replyLower.includes('número de pedido')) {
+              fallbackStage = 'Confirmado';
+            } else if (extractedData.nombre && extractedData.talla && extractedData.color && extractedData.calidad && extractedData.cantidad && extractedData.ciudad) {
+              if (replyLower.includes('fecha') || replyLower.includes('qué día')) {
+                fallbackStage = 'Pendiente Entrega';
+              } else if (replyLower.includes('pago') || replyLower.includes('cómo deseas pagar')) {
+                fallbackStage = 'Pendiente Pago';
+              } else {
+                fallbackStage = 'Realizó Pedido';
+              }
+            } else if (extractedData.nombre && extractedData.talla && extractedData.color && extractedData.calidad && extractedData.cantidad && !extractedData.ciudad) {
+              fallbackStage = 'En Cotización'; // Falta ciudad
+            } else if (extractedData.nombre && extractedData.talla && extractedData.color && extractedData.calidad && !extractedData.cantidad) {
+              fallbackStage = 'En Cotización'; // Falta cantidad
+            } else if (extractedData.nombre && extractedData.talla && extractedData.color && !extractedData.calidad) {
+              fallbackStage = 'Pendiente Calidad';
+            } else if (extractedData.nombre && extractedData.talla && !extractedData.color) {
+              fallbackStage = 'Pendiente Color';
+            } else if (extractedData.nombre && !extractedData.talla) {
+              fallbackStage = 'Pendiente Talla';
+            } else if (replyLower.includes('cómo te llamas') || replyLower.includes('bienvenido')) {
+              fallbackStage = 'Saludo';
+            } else if (extractedData.nombre || replyLower.includes('$') || replyLower.includes('precio')) {
+              fallbackStage = 'En Cotización';
+            }
+            
+            // Guardar datos extraídos y actualizar etapa
+            const validStage = pipelineStages.find((s: any) => 
+              s.id === fallbackStage || s.label === fallbackStage ||
+              s.id?.toLowerCase() === fallbackStage.toLowerCase()
+            );
+            
+            const updateData: any = {};
+            if (Object.keys(extractedData).length > Object.keys(savedContext).length) {
+              updateData.contextData = extractedData;
+              extractedData.etapa_actual = fallbackStage;
+              console.log(`🔍 Datos extraídos: ${JSON.stringify(extractedData)}`);
+            }
+            if (validStage) {
+              updateData.stage = validStage.id || validStage.label;
+              console.log(`🔄 Etapa por fallback: ${updateData.stage}`);
+            }
+            
+            if (Object.keys(updateData).length > 0) {
+              await prisma.conversation.update({
+                where: { id: conversationId },
+                data: updateData
+              });
             }
           }
           

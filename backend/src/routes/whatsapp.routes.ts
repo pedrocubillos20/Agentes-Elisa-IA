@@ -742,7 +742,7 @@ EJEMPLO de respuesta correcta:
             
             // 🎯 DETECTAR ETAPA basándose en datos extraídos
             let fallbackStage = 'Interesado';
-            const lastMsgLower = (messagesArray[0] || '').toLowerCase();
+            const lastMsgLower = (message || '').toLowerCase();
             
             if (lastMsgLower.includes('no me interesa') || lastMsgLower.includes('no gracias') || lastMsgLower.includes('cancelar')) {
               fallbackStage = 'Perdido';

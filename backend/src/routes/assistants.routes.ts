@@ -143,51 +143,47 @@ function extractStagesFromContext(context: string): any[] {
   const stages: any[] = [];
   const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
   
-  // Buscar secciones que contengan etapas
-  const sectionPatterns = [
-    /##?\s*(?:ETAPAS?|FLUJO|EMBUDO|PIPELINE|FASES?|PROCESO)[^\n]*\n([\s\S]*?)(?=\n##|\n\n\n|$)/gi,
-    /(?:etapas?|flujo|embudo|pipeline|fases?|proceso)[\s:]+\n?([\s\S]*?)(?=\n##|\n\n\n|$)/gi
-  ];
+  // Buscar SOLO la sección específica de etapas del pipeline
+  // Debe tener un formato claro como:
+  // ## ETAPAS DEL PIPELINE
+  // - Saludo
+  // - Interesado
   
-  let foundItems: string[] = [];
+  const sectionMatch = context.match(/##?\s*(?:ETAPAS?(?:\s+DEL)?\s*(?:PIPELINE|CRM|FLUJO)?|PIPELINE\s*(?:CRM)?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
   
-  for (const pattern of sectionPatterns) {
-    const matches = context.matchAll(pattern);
-    for (const match of matches) {
-      const section = match[1] || '';
-      // Buscar items con bullets o números
-      const items = section.match(/[-•*\d.]\s*\*?\*?([^*\n-•]+)/g);
-      if (items) {
-        items.forEach(item => {
-          const clean = item.replace(/[-•*\d.]/g, '').replace(/\*\*/g, '').trim();
-          if (clean && clean.length > 2 && clean.length < 50) {
-            foundItems.push(clean);
-          }
-        });
+  if (!sectionMatch) {
+    console.log('  📋 No se encontró sección de etapas en el contexto');
+    return [];
+  }
+  
+  const section = sectionMatch[1];
+  const foundItems: string[] = [];
+  
+  // Extraer items que empiezan con - ** o - 
+  const lines = section.split('\n');
+  for (const line of lines) {
+    // Debe empezar con - o * seguido de texto
+    const match = line.match(/^[-*]\s*\*?\*?([^→\n]+?)(?:\*\*)?(?:\s*→.*)?$/);
+    if (match) {
+      let clean = match[1].replace(/\*\*/g, '').trim();
+      // Filtrar líneas que son descripciones o explicaciones largas
+      if (clean && 
+          clean.length >= 3 && 
+          clean.length <= 30 && 
+          !clean.includes(':') &&
+          !clean.includes('(') &&
+          !clean.toLowerCase().includes('cliente') &&
+          !clean.toLowerCase().includes('sistema') &&
+          !clean.toLowerCase().includes('bot')) {
+        foundItems.push(clean);
       }
     }
   }
   
-  // Si no encontramos con patrones de sección, buscar keywords comunes
-  if (foundItems.length === 0) {
-    const keywords = [
-      'saludo', 'interesado', 'cotización', 'cotizacion', 'pendiente', 'pedido', 
-      'confirmado', 'perdido', 'nuevo', 'calidad', 'color', 'talla', 'pago',
-      'entrega', 'enviado', 'completado', 'cerrado', 'seguimiento'
-    ];
-    
-    const lines = context.split('\n');
-    for (const line of lines) {
-      const lower = line.toLowerCase();
-      for (const kw of keywords) {
-        if (lower.includes(kw) && line.match(/[-•*\d.]\s/)) {
-          const clean = line.replace(/[-•*\d.]/g, '').replace(/\*\*/g, '').trim();
-          if (clean && clean.length > 2 && clean.length < 50 && !foundItems.includes(clean)) {
-            foundItems.push(clean);
-          }
-        }
-      }
-    }
+  // Si encontramos menos de 3 items, no es una sección válida de etapas
+  if (foundItems.length < 3) {
+    console.log(`  📋 Muy pocas etapas encontradas (${foundItems.length}), usando defaults`);
+    return [];
   }
   
   // Eliminar duplicados y crear stages con colores

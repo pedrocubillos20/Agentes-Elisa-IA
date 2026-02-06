@@ -1697,8 +1697,19 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
 
     // Verificar token
     const jwt = await import('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'bizonne-secret-2024') as any;
-    const userId = decoded.userId;
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'bizonne-secret-2024') as any;
+    } catch (e) {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+    
+    // El userId puede estar en diferentes campos del token
+    const userId = decoded.userId || decoded.id || decoded.sub;
+    if (!userId) {
+      console.error('❌ Token sin userId:', decoded);
+      return res.status(401).json({ error: 'Token sin userId' });
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -1709,31 +1720,19 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
     const ownerId = user.parentUserId || user.id;
     const { lineId } = req.body;
 
-    // Obtener etapas del pipeline
-    let pipelineStages: any[] = [];
-    if (lineId) {
-      const line = await prisma.whatsappLine.findUnique({
-        where: { id: lineId },
-        select: { customStages: true }
-      });
-      if (line?.customStages && Array.isArray(line.customStages) && (line.customStages as any[]).length > 0) {
-        pipelineStages = line.customStages as any[];
-      }
-    }
-    
-    // Etapas por defecto si no hay configuradas
-    if (pipelineStages.length === 0) {
-      pipelineStages = [
-        { id: 'Saludo', label: 'Saludo' },
-        { id: 'Interesado', label: 'Interesado' },
-        { id: 'En Cotización', label: 'En Cotización' },
-        { id: 'Pendiente Color', label: 'Pendiente Color' },
-        { id: 'Pendiente Talla', label: 'Pendiente Talla' },
-        { id: 'Realizó Pedido', label: 'Realizó Pedido' },
-        { id: 'Confirmado', label: 'Confirmado' },
-        { id: 'Perdido', label: 'Perdido' }
-      ];
-    }
+    // Etapas fijas para el análisis (las más comunes en ventas)
+    const pipelineStages = [
+      { id: 'Saludo', label: 'Saludo' },
+      { id: 'Interesado', label: 'Interesado' },
+      { id: 'En Cotización', label: 'En Cotización' },
+      { id: 'Pendiente Color', label: 'Pendiente Color' },
+      { id: 'Pendiente Talla', label: 'Pendiente Talla' },
+      { id: 'Pendiente Info', label: 'Pendiente Info' },
+      { id: 'Realizó Pedido', label: 'Realizó Pedido' },
+      { id: 'Pendiente Pago', label: 'Pendiente Pago' },
+      { id: 'Confirmado', label: 'Confirmado' },
+      { id: 'Perdido', label: 'Perdido' }
+    ];
 
     const stagesList = pipelineStages.map((s: any) => s.label || s.id).join(', ');
 

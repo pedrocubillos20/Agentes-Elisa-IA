@@ -184,7 +184,7 @@ export default function WhatsAppPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
@@ -197,7 +197,7 @@ export default function WhatsAppPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl" />
+          <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl" />
           <div>
             <h1 className="text-3xl font-bold text-white">WhatsApp</h1>
             <p className="text-[var(--text-muted)]">
@@ -247,7 +247,7 @@ export default function WhatsAppPage() {
             <Smartphone className="w-10 h-10 text-emerald-400" />
           </div>
           <h2 className="text-xl font-bold text-white mb-2">No tienes líneas de WhatsApp</h2>
-          <p className="text-gray-400 mb-6">Crea tu primera línea para conectar WhatsApp con Elisa IA</p>
+          <p className="text-gray-400 mb-6">Crea tu primera línea para conectar WhatsApp con Bizonne</p>
           <button onClick={() => { resetForm(); setLineForm({...lineForm, label: 'Principal'}); setShowModal(true); }} className="btn-primary mx-auto">
             <Plus className="w-4 h-4" /> Crear Primera Línea
           </button>
@@ -357,7 +357,7 @@ export default function WhatsAppPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="card text-center">
           <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-            <img src="/elisa.png" alt="Elisa" className="w-8 h-8 rounded-lg" />
+            <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
           </div>
           <h3 className="font-semibold text-white mb-2">IA Integrada</h3>
           <p className="text-sm text-[var(--text-muted)]">Elisa responde automáticamente a tus clientes 24/7</p>
@@ -447,8 +447,8 @@ export default function WhatsAppPage() {
       {/* Footer */}
       <div className="flex items-center justify-center py-4">
         <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm">
-          <img src="/elisa.png" alt="Elisa" className="w-5 h-5 rounded" />
-          WhatsApp powered by Elisa IA
+          <img src="/bizonne.png" alt="Bizonne" className="w-5 h-5 rounded" />
+          WhatsApp powered by Bizonne
         </div>
       </div>
     </div>

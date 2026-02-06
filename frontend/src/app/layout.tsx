@@ -116,13 +116,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   if (loading) {
     return (
       <html lang="es">
-        <head><title>Elisa IA</title><link rel="icon" href="/elisa.png" /></head>
+        <head><title>Bizonne CRM</title><link rel="icon" href="/bizonne.png" /></head>
         <body>
           <div className="app-background" />
           <div className="grid-pattern" />
           <div className="min-h-screen flex flex-col items-center justify-center gap-6">
-            <img src="/elisa.png" alt="Elisa IA" className="w-20 h-20 rounded-2xl animate-pulse" />
-            <h1 className="text-2xl font-bold">Elisa <span className="text-[var(--accent-primary)] font-light">IA</span></h1>
+            <img src="/bizonne.png" alt="Bizonne" className="w-20 h-20 rounded-2xl animate-pulse" />
+            <h1 className="text-2xl font-bold">Bizonne<span className="text-[var(--accent-primary)] font-light">CRM</span></h1>
             <div className="loading-spinner" />
           </div>
         </body>
@@ -133,7 +133,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   if (isAuthPage) {
     return (
       <html lang="es">
-        <head><title>Elisa IA</title><link rel="icon" href="/elisa.png" /></head>
+        <head><title>Bizonne CRM</title><link rel="icon" href="/bizonne.png" /></head>
         <body>
           <div className="app-background" />
           <div className="grid-pattern" />
@@ -145,7 +145,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <html lang="es">
-      <head><title>{selectedLine ? `${selectedLine.label} — Elisa IA` : 'Elisa IA'}</title><link rel="icon" href="/elisa.png" /></head>
+      <head><title>{selectedLine ? `${selectedLine.label} — Bizonne` : 'Bizonne CRM'}</title><link rel="icon" href="/bizonne.png" /></head>
       <body>
         <div className="app-background" />
         <div className="grid-pattern" />
@@ -160,10 +160,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {/* Logo */}
               <div className="h-16 flex items-center justify-between px-5 border-b border-[var(--border-primary)]">
                 <Link href="/dashboard" className="flex items-center gap-3">
-                  <img src="/elisa.png" alt="Elisa IA" className="logo-img" />
+                  <img src="/bizonne.png" alt="Bizonne" className="logo-img" />
                   <div className="text-xl font-bold">
-                    <span className="text-white">Elisa</span>
-                    <span className="text-[var(--accent-primary)] font-light"> IA</span>
+                    <span className="text-white">Bizonne</span>
+                    <span className="text-[var(--accent-primary)] font-light">CRM</span>
                   </div>
                 </Link>
                 <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
@@ -281,8 +281,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
               <div className="px-4 pb-4">
                 <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20">
-                  <img src="/elisa.png" alt="Elisa" className="w-5 h-5 rounded" />
-                  <span className="text-xs text-[var(--accent-primary)] font-medium">Powered by Elisa IA</span>
+                  <img src="/bizonne.png" alt="Bizonne" className="w-5 h-5 rounded" />
+                  <span className="text-xs text-[var(--accent-primary)] font-medium">Powered by Bizonne</span>
                 </div>
               </div>
             </aside>
@@ -315,7 +315,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--accent-primary)] rounded-full animate-pulse" />
                   </button>
                   <div className="lg:hidden flex items-center gap-2">
-                    <img src="/elisa.png" alt="Elisa IA" className="w-9 h-9 rounded-lg" />
+                    <img src="/bizonne.png" alt="Bizonne" className="w-9 h-9 rounded-lg" />
                   </div>
                 </div>
               </header>

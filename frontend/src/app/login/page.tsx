@@ -75,9 +75,9 @@ export default function LoginPage() {
         <div className="relative z-10 flex flex-col justify-center px-16 text-white">
           {/* Logo Elisa Grande */}
           <div className="flex items-center gap-4 mb-8">
-            <img src="/elisa.png" alt="Elisa IA" className="w-24 h-24 rounded-3xl shadow-2xl animate-float" />
+            <img src="/bizonne.png" alt="Bizonne" className="w-24 h-24 rounded-3xl shadow-2xl animate-float" />
             <div>
-              <h1 className="text-5xl font-bold">Elisa IA</h1>
+              <h1 className="text-5xl font-bold">Bizonne</h1>
               <p className="text-white/80 text-lg mt-1">Automatización Inteligente</p>
             </div>
           </div>
@@ -119,11 +119,11 @@ export default function LoginPage() {
       {/* Right Side - Login Form */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          {/* Mobile Logo con Elisa */}
+          {/* Mobile Logo con Bizonne */}
           <div className="lg:hidden flex flex-col items-center mb-10">
-            <img src="/elisa.png" alt="Elisa IA" className="w-20 h-20 rounded-2xl shadow-lg mb-4" />
+            <img src="/bizonne.png" alt="Bizonne" className="w-20 h-20 rounded-2xl shadow-lg mb-4" />
             <h1 className="text-3xl font-bold text-white">
-              Elisa <span className="text-[var(--accent-primary)] font-light">IA</span>
+              Bizonne <span className="text-[var(--accent-primary)] font-light">CRM</span>
             </h1>
           </div>
 
@@ -205,12 +205,12 @@ export default function LoginPage() {
             </Link>
           </p>
 
-          {/* Footer con Elisa */}
+          {/* Footer */}
           <div className="mt-12 pt-8 border-t border-[var(--border-primary)]">
             <div className="flex items-center justify-center gap-2">
-              <img src="/elisa.png" alt="Elisa" className="w-6 h-6 rounded-lg" />
+              <img src="/bizonne.png" alt="Bizonne" className="w-6 h-6 rounded-lg" />
               <span className="text-xs text-[var(--text-muted)]">
-                Powered by <span className="text-white">Elisa IA</span> • v5.0
+                Powered by <span className="text-white">Bizonne</span> • v5.0
               </span>
             </div>
           </div>

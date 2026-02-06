@@ -150,8 +150,8 @@ export default function SubscriptionPage() {
             <ArrowLeft className="w-4 h-4" /> Volver al Dashboard
           </button>
           <div className="flex items-center gap-3">
-            <img src="/elisa.png" alt="Elisa" className="w-8 h-8 rounded-lg" />
-            <span className="font-bold text-lg">Elisa <span className="text-emerald-400 font-light">IA</span></span>
+            <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
+            <span className="font-bold text-lg">Bizonne <span className="text-emerald-400 font-light">IA</span></span>
           </div>
         </div>
       </div>
@@ -169,7 +169,7 @@ export default function SubscriptionPage() {
                 </h3>
                 <p className="text-gray-400 text-sm mt-1">
                   {isExpired
-                    ? 'Elige un plan para seguir usando Elisa IA. No perderás tus datos ni configuraciones.'
+                    ? 'Elige un plan para seguir usando Bizonne. No perderás tus datos ni configuraciones.'
                     : 'Aprovecha y elige tu plan antes de que termine. No perderás nada al actualizar.'}
                 </p>
               </div>
@@ -203,7 +203,7 @@ export default function SubscriptionPage() {
         {/* Title */}
         <div className="text-center mb-12">
           <h1 className="text-4xl md:text-5xl font-black mb-4">
-            Elige tu plan de <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Elisa IA</span>
+            Elige tu plan de <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Bizonne</span>
           </h1>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
             Automatiza tu negocio por WhatsApp. Todos los planes incluyen actualizaciones gratuitas.

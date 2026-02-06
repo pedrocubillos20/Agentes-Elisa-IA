@@ -284,7 +284,7 @@ export default function AsistentesPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
@@ -295,10 +295,10 @@ export default function AsistentesPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl shadow-lg" />
+          <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl shadow-lg" />
           <div>
             <h1 className="text-3xl font-bold text-white">Asistente IA</h1>
-            <p className="text-[var(--text-muted)]">Configura el cerebro de Elisa</p>
+            <p className="text-[var(--text-muted)]">Configura tu asistente IA</p>
           </div>
         </div>
         <button onClick={handleSave} disabled={saving} className="btn-primary">
@@ -365,7 +365,7 @@ export default function AsistentesPage() {
           <div className="card p-0 overflow-hidden">
             <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between bg-[var(--bg-tertiary)]">
               <div className="flex items-center gap-3">
-                <img src="/elisa.png" alt="Elisa" className="w-8 h-8 rounded-lg" />
+                <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
                 <div>
                   <span className="font-medium text-white">Base de Conocimiento</span>
                   <p className="text-xs text-[var(--text-muted)]">Escribe toda la información de tu negocio aquí</p>
@@ -421,7 +421,7 @@ export default function AsistentesPage() {
           <div className="card">
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-white mb-2">Biblioteca Multimedia</h3>
-              <p className="text-[var(--text-muted)]">Sube archivos que Elisa enviará automáticamente cuando detecte el trigger en la conversación.</p>
+              <p className="text-[var(--text-muted)]">Sube archivos que el asistente enviará automáticamente cuando detecte el trigger en la conversación.</p>
             </div>
 
             {/* Upload Cards */}
@@ -507,7 +507,7 @@ export default function AsistentesPage() {
               <div className="text-center py-12 text-[var(--text-muted)] border-2 border-dashed border-[var(--border-primary)] rounded-xl">
                 <Image className="w-12 h-12 mx-auto mb-4 opacity-50" />
                 <p className="font-medium">Sin archivos multimedia</p>
-                <p className="text-sm">Sube archivos para que Elisa los envíe automáticamente</p>
+                <p className="text-sm">Sube archivos para que el asistente los envíe automáticamente</p>
               </div>
             )}
           </div>
@@ -539,7 +539,7 @@ export default function AsistentesPage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-white">Auto-Aprendizaje</h3>
-                  <p className="text-[var(--text-muted)]">Elisa analiza conversaciones reales y sugiere mejoras</p>
+                  <p className="text-[var(--text-muted)]">El asistente analiza conversaciones reales y sugiere mejoras</p>
                 </div>
               </div>
               <button onClick={() => setAutoLearn(!autoLearn)}
@@ -662,7 +662,7 @@ export default function AsistentesPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">ElevenLabs Text-to-Speech</h3>
-                <p className="text-[var(--text-muted)]">Elisa puede responder con audios de voz natural</p>
+                <p className="text-[var(--text-muted)]">El asistente puede responder con audios de voz natural</p>
               </div>
             </div>
 
@@ -697,7 +697,7 @@ export default function AsistentesPage() {
                 <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
                   <div>
                     <h4 className="font-medium text-white">Activar respuestas de voz</h4>
-                    <p className="text-sm text-[var(--text-muted)]">Elisa enviará audios en cada respuesta</p>
+                    <p className="text-sm text-[var(--text-muted)]">El asistente enviará audios en cada respuesta</p>
                   </div>
                   <button onClick={() => setVoiceEnabled(!voiceEnabled)}
                     className={`relative w-16 h-8 rounded-full transition-all ${voiceEnabled ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-primary)]'}`}>
@@ -723,8 +723,8 @@ export default function AsistentesPage() {
       {/* Footer */}
       <div className="flex items-center justify-center py-6">
         <div className="flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/10">
-          <img src="/elisa.png" alt="Elisa IA" className="w-8 h-8 rounded-lg" />
-          <span className="text-sm text-[var(--text-muted)]">Powered by <span className="text-white font-semibold">Elisa IA</span></span>
+          <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
+          <span className="text-sm text-[var(--text-muted)]">Powered by <span className="text-white font-semibold">Bizonne</span></span>
         </div>
       </div>
     </div>

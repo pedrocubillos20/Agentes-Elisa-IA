@@ -97,7 +97,7 @@ export default function AdminPage() {
               <Lock className="w-10 h-10 text-red-400" />
             </div>
             <h1 className="text-2xl font-black text-white">Acceso Restringido</h1>
-            <p className="text-gray-500 text-sm mt-2">Panel de Administración de Elisa IA</p>
+            <p className="text-gray-500 text-sm mt-2">Panel de Administración de Bizonne</p>
           </div>
           <div className="space-y-4">
             <div>

@@ -139,7 +139,7 @@ export default function EquipoPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
@@ -394,8 +394,8 @@ export default function EquipoPage() {
       {/* Footer */}
       <div className="flex items-center justify-center py-6">
         <div className="flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/10">
-          <img src="/elisa.png" alt="Elisa IA" className="w-8 h-8 rounded-lg" />
-          <span className="text-sm text-[var(--text-muted)]">Powered by <span className="text-white font-semibold">Elisa IA</span></span>
+          <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
+          <span className="text-sm text-[var(--text-muted)]">Powered by <span className="text-white font-semibold">Bizonne</span></span>
         </div>
       </div>
     </div>

@@ -180,7 +180,7 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
@@ -200,10 +200,10 @@ export default function DashboardPage() {
   if (isBlocked) {
     return (
       <div className="max-w-2xl mx-auto py-20 text-center">
-        <img src="/elisa.png" alt="Elisa IA" className="w-24 h-24 rounded-3xl mx-auto mb-8 opacity-50" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-24 h-24 rounded-3xl mx-auto mb-8 opacity-50" />
         <h1 className="text-3xl font-bold text-white mb-4">Tu período de prueba ha terminado</h1>
         <p className="text-[var(--text-muted)] text-lg mb-8">
-          Para seguir usando Elisa IA, elige un plan. Tus datos, configuraciones y conversaciones están guardados y listos.
+          Para seguir usando Bizonne, elige un plan. Tus datos, configuraciones y conversaciones están guardados y listos.
         </p>
         <div className="flex justify-center gap-4 mb-6">
           <a href="/subscription" className="px-8 py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-2xl text-lg hover:shadow-lg hover:shadow-emerald-500/30 transition-all hover:scale-105">
@@ -245,7 +245,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-2xl shadow-lg hidden md:block" />
+          <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-2xl shadow-lg hidden md:block" />
           <div>
             <h1 className="text-3xl font-bold text-white">
               ¡Hola, {user?.name?.split(' ')[0] || 'Usuario'}! 👋
@@ -253,7 +253,7 @@ export default function DashboardPage() {
             <p className="text-[var(--text-muted)] mt-1">
               {whatsappStatus?.connected 
                 ? `Tu chatbot está activo • +${whatsappStatus.phone || ''}` 
-                : 'Conecta WhatsApp para activar Elisa'}
+                : 'Conecta WhatsApp para activar el asistente'}
             </p>
           </div>
         </div>
@@ -272,7 +272,7 @@ export default function DashboardPage() {
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold text-white">Completa la configuración</h3>
-              <p className="text-[var(--text-muted)]">Conecta WhatsApp para que Elisa comience a responder.</p>
+              <p className="text-[var(--text-muted)]">Conecta WhatsApp para que el asistente comience a responder.</p>
             </div>
             <Link href="/whatsapp" className="btn-primary"><Smartphone className="w-4 h-4" />Conectar WhatsApp</Link>
           </div>
@@ -420,9 +420,9 @@ export default function DashboardPage() {
       {/* Footer */}
       <div className="flex items-center justify-center py-6">
         <div className="flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-white/5 border border-white/10">
-          <img src="/elisa.png" alt="Elisa IA" className="w-7 h-7 rounded-lg" />
+          <img src="/bizonne.png" alt="Bizonne" className="w-7 h-7 rounded-lg" />
           <span className="text-xs text-[var(--text-muted)]">
-            Potenciado por <span className="text-white font-semibold">Elisa IA</span>
+            Potenciado por <span className="text-white font-semibold">Bizonne</span>
           </span>
         </div>
       </div>

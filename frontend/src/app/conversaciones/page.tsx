@@ -467,7 +467,7 @@ export default function ConversacionesPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
@@ -478,7 +478,7 @@ export default function ConversacionesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <img src="/elisa.png" alt="Elisa" className="w-10 h-10 rounded-xl" />
+          <img src="/bizonne.png" alt="Bizonne" className="w-10 h-10 rounded-xl" />
           <div>
             <h1 className="text-2xl font-bold text-white">Conversaciones</h1>
             <p className="text-sm text-[var(--text-muted)]">{conversations.length} chats activos</p>
@@ -686,7 +686,7 @@ export default function ConversacionesPage() {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]">
-              <img src="/elisa.png" alt="Elisa" className="w-24 h-24 rounded-2xl mb-6 opacity-50" />
+              <img src="/bizonne.png" alt="Bizonne" className="w-24 h-24 rounded-2xl mb-6 opacity-50" />
               <h3 className="text-xl font-semibold text-white mb-2">Selecciona una conversación</h3>
               <p>Elige un chat de la lista</p>
             </div>

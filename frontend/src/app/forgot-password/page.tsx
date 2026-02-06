@@ -113,7 +113,7 @@ export default function ForgotPasswordPage() {
           <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
             <span className="text-3xl">🤖</span>
           </div>
-          <h1 className="text-2xl font-bold text-white">Elisa IA</h1>
+          <h1 className="text-2xl font-bold text-white">Bizonne</h1>
         </div>
 
         <div className="bg-[#111111] border border-gray-800 rounded-2xl p-8">
@@ -238,7 +238,7 @@ export default function ForgotPasswordPage() {
 
         <div className="text-center mt-8">
           <p className="text-gray-600 text-xs flex items-center justify-center gap-2">
-            <span>🤖</span> Powered by <span className="text-emerald-500">Elisa IA</span> • v5.0
+            <span>🤖</span> Powered by <span className="text-emerald-500">Bizonne</span> • v5.0
           </p>
         </div>
       </div>

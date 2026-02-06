@@ -92,7 +92,7 @@ export default function ConfiguracionPage() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-4">
-        <img src="/elisa.png" alt="Elisa" className="w-16 h-16 rounded-xl animate-pulse" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-16 h-16 rounded-xl animate-pulse" />
         <div className="loading-spinner" />
       </div>
     );
@@ -102,7 +102,7 @@ export default function ConfiguracionPage() {
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <img src="/elisa.png" alt="Elisa IA" className="w-14 h-14 rounded-xl" />
+        <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl" />
         <div>
           <h1 className="text-3xl font-bold text-white">Configuración</h1>
           <p className="text-[var(--text-muted)]">Personaliza tu cuenta</p>
@@ -144,7 +144,7 @@ export default function ConfiguracionPage() {
               {user?.apiKeyConnected ? 'API Key configurada' : 'Sin API Key'}
             </p>
             <p className="text-sm text-[var(--text-muted)]">
-              {user?.apiKeyConnected ? 'Tu asistente IA está listo' : 'Agrega tu API Key para activar Elisa'}
+              {user?.apiKeyConnected ? 'Tu asistente IA está listo' : 'Agrega tu API Key para activar el asistente'}
             </p>
           </div>
           {user?.apiKeyConnected && (
@@ -209,8 +209,8 @@ export default function ConfiguracionPage() {
       {/* Footer */}
       <div className="flex items-center justify-center py-4">
         <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm">
-          <img src="/elisa.png" alt="Elisa" className="w-5 h-5 rounded" />
-          Configuración powered by Elisa IA
+          <img src="/bizonne.png" alt="Bizonne" className="w-5 h-5 rounded" />
+          Configuración powered by Bizonne
         </div>
       </div>
     </div>

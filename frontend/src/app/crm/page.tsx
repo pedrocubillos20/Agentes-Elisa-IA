@@ -135,7 +135,8 @@ export default function CRMKanbanPage() {
     if (stages.length === 0) {
       const names = context.match(/(?:Saludo|Interesado|Cotización|Pendiente|Pedido|Confirmado|Perdido|Nuevo|Calidad|Color|Talla)[^\n,]*/gi);
       if (names) {
-        [...new Set(names.map(s => s.trim()))].forEach((n, i) => {
+        const uniqueNames = Array.from(new Set(names.map(s => s.trim())));
+        uniqueNames.forEach((n, i) => {
           if (n.length > 2 && n.length < 50) stages.push({ id: n, label: n, color: colors[i % colors.length] });
         });
       }

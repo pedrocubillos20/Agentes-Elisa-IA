@@ -1746,6 +1746,113 @@ router.post('/webhook', async (req: Request, res: Response) => {
 });
 
 // =====================================================
+// 🚀 ANÁLISIS RÁPIDO DE ETAPAS (Sin IA - Basado en datos)
+// Este endpoint analiza los datos guardados (contextData)
+// y asigna la etapa correcta basándose en qué campos están llenos
+// =====================================================
+router.post('/quick-stage-sync', async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'No autorizado' });
+
+    const jwt = await import('jsonwebtoken');
+    let decoded: any;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || 'bizonne-secret-2024') as any;
+    } catch (e) {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+    
+    const userId = decoded.userId || decoded.id || decoded.sub;
+    if (!userId) return res.status(401).json({ error: 'Token sin userId' });
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, parentUserId: true }
+    });
+    if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+
+    const ownerId = user.parentUserId || user.id;
+    const { lineId } = req.body;
+
+    // Obtener conversaciones
+    const whereClause: any = { userId: ownerId };
+    if (lineId) whereClause.whatsappLineId = lineId;
+
+    const conversations = await prisma.conversation.findMany({
+      where: whereClause,
+      select: { id: true, stage: true, contextData: true, lastMessage: true }
+    });
+
+    let updated = 0;
+
+    for (const conv of conversations) {
+      const ctx = (conv.contextData as any) || {};
+      let newStage = conv.stage || 'Saludo';
+
+      // 🎯 REGLAS DE DETECCIÓN BASADAS EN DATOS
+      const hasNombre = !!ctx.nombre;
+      const hasTalla = !!ctx.talla;
+      const hasColor = !!ctx.color;
+      const hasCalidad = !!ctx.calidad;
+      const hasCantidad = !!ctx.cantidad;
+      const hasCiudad = !!ctx.ciudad;
+      const hasDireccion = !!ctx.direccion;
+      const hasMetodoPago = !!ctx.metodo_pago;
+      const hasFechaEntrega = !!ctx.fecha_entrega;
+      const hasPedidoCreado = ctx.pedido === 'creado';
+      
+      // Detectar si perdido (por mensaje)
+      const lastMsg = (conv.lastMessage || '').toLowerCase();
+      const isPerdido = lastMsg.includes('no me interesa') || 
+                        lastMsg.includes('no gracias') || 
+                        lastMsg.includes('ya no quiero') ||
+                        lastMsg.includes('cancelar');
+
+      // Aplicar reglas en orden de prioridad
+      if (isPerdido) {
+        newStage = 'Perdido';
+      } else if (hasPedidoCreado || (hasFechaEntrega && hasDireccion)) {
+        newStage = 'Confirmado';
+      } else if (hasNombre && hasTalla && hasColor && hasCalidad && hasCantidad && hasCiudad && hasDireccion && !hasFechaEntrega) {
+        newStage = 'Pendiente Entrega';
+      } else if (hasNombre && hasTalla && hasColor && hasCalidad && hasCantidad && hasCiudad && !hasMetodoPago) {
+        newStage = 'Pendiente Pago';
+      } else if (hasNombre && hasTalla && hasColor && hasCalidad && hasCantidad && hasCiudad) {
+        newStage = 'Realizó Pedido';
+      } else if (hasNombre && hasTalla && hasColor && !hasCalidad) {
+        newStage = 'Pendiente Calidad';
+      } else if (hasNombre && hasTalla && !hasColor) {
+        newStage = 'Pendiente Color';
+      } else if (hasNombre && !hasTalla) {
+        newStage = 'Pendiente Talla';
+      } else if (hasNombre || hasTalla || hasColor || hasCalidad) {
+        newStage = 'En Cotización';
+      } else if (conv.lastMessage && conv.lastMessage.length > 10) {
+        newStage = 'Interesado';
+      } else {
+        newStage = 'Saludo';
+      }
+
+      // Actualizar solo si cambió
+      if (newStage !== conv.stage) {
+        await prisma.conversation.update({
+          where: { id: conv.id },
+          data: { stage: newStage }
+        });
+        updated++;
+        console.log(`🎯 Etapa actualizada: ${conv.stage} → ${newStage}`);
+      }
+    }
+
+    res.json({ success: true, analyzed: conversations.length, updated });
+  } catch (error: any) {
+    console.error('❌ Error quick-stage-sync:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =====================================================
 // 🔄 RE-ANALIZAR TODAS LAS CONVERSACIONES (Asignar etapas)
 // Este endpoint analiza el historial de cada conversación
 // y asigna automáticamente la etapa correcta

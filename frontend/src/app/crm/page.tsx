@@ -61,16 +61,35 @@ export default function CRMPage() {
     const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
     
-    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 2 segundos para detección de etapas en tiempo real
+    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 2 segundos
     const autoRefreshInterval = setInterval(() => {
       fetchConversationsOnly();
-    }, 2000); // Cada 2 segundos
+    }, 2000);
+    
+    // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 5 segundos
+    const stageSyncInterval = setInterval(() => {
+      syncStages();
+    }, 5000);
     
     return () => {
       window.removeEventListener('lineChanged', onLineChanged);
       clearInterval(autoRefreshInterval);
+      clearInterval(stageSyncInterval);
     };
   }, []);
+
+  // Sincronizar etapas basándose en datos guardados (sin IA, rápido)
+  const syncStages = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      await fetch(`${API_URL}/api/whatsapp/quick-stage-sync`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId: getLineId() })
+      });
+    } catch (e) { /* silencioso */ }
+  };
 
   // Función ligera que solo actualiza conversaciones (para auto-refresh)
   const fetchConversationsOnly = async () => {

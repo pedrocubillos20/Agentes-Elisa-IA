@@ -54,10 +54,33 @@ export default function ConversacionesPage() {
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 2000); // Auto-refresh cada 2 segundos
+    
+    // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 5 segundos
+    const stageSyncInterval = setInterval(() => {
+      syncStages();
+    }, 5000);
+    
     const onLineChanged = () => { setLoading(true); fetchData(); };
     window.addEventListener('lineChanged', onLineChanged);
-    return () => { clearInterval(interval); window.removeEventListener('lineChanged', onLineChanged); };
+    return () => { 
+      clearInterval(interval); 
+      clearInterval(stageSyncInterval);
+      window.removeEventListener('lineChanged', onLineChanged); 
+    };
   }, []);
+
+  // Sincronizar etapas basándose en datos guardados (sin IA, rápido)
+  const syncStages = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      await fetch(`${API_URL}/api/whatsapp/quick-stage-sync`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId: getLineId() })
+      });
+    } catch (e) { /* silencioso */ }
+  };
 
   useEffect(() => {
     if (selectedConv) fetchMessages(selectedConv.id);

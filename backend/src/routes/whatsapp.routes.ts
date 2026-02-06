@@ -598,8 +598,9 @@ Debes detectar en qué etapa está el cliente según la conversación:
 - "Interesado" = Preguntó por productos/servicios, mostró interés
 - "En Cotización" = Pidió precios, detalles, está comparando
 - "Pendiente Info" = Falta información (talla, color, cantidad, dirección, etc.)
+- "Pendiente Entrega" = Falta que confirme la fecha de entrega
 - "Realizó Pedido" = Confirmó que quiere comprar/contratar
-- "Confirmado" = Pedido/cita confirmado con todos los datos
+- "Confirmado" = Pedido/cita confirmado con todos los datos Y fecha de entrega
 - "Perdido" = Dijo que no le interesa, rechazó, se fue
 
 === BLOQUE DE MEMORIA (OBLIGATORIO AL FINAL) ===
@@ -607,12 +608,13 @@ Debes detectar en qué etapa está el cliente según la conversación:
 AL FINAL de CADA respuesta, DEBES incluir un bloque de memoria con TODA la información que has recopilado del cliente.
 El formato EXACTO es (incluye la línea tal cual):
 
-<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","datos_envio":"","pedido":"","etapa_actual":"","accion":""}<<END_MEMORY>>
+<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
 REGLAS del bloque de memoria:
 - Llena SOLO los campos que ya conoces. Deja vacío "" lo que NO sabes aún.
+- "fecha_entrega" = La fecha que el cliente eligió para recibir su pedido (ej: "mañana", "lunes 9 de febrero", "10/02/2025")
 - "etapa_actual" = OBLIGATORIO. Pon la etapa del pipeline que mejor describe el estado actual (usa exactamente uno de: ${stagesList})
-- "accion" = Si detectas que el cliente confirmó un pedido pon "crear_pedido". Si confirmó una cita pon "crear_cita". Si no hay acción especial, deja vacío.
+- "accion" = IMPORTANTE: Cuando el cliente confirme la FECHA DE ENTREGA, pon "crear_pedido". Esto agenda automáticamente el pedido.
 - SIEMPRE incluye este bloque, incluso si no tienes datos nuevos.
 - El bloque va DESPUÉS de tu respuesta al cliente, en la última línea.
 - NO expliques el bloque al cliente, es interno.`);

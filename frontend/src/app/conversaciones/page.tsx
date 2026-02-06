@@ -27,16 +27,15 @@ const STAGE_COLORS = [
   { id: 'teal', label: 'Teal', bg: 'bg-teal-500/20 text-teal-400 border-teal-500/30', dot: 'bg-teal-400' },
 ];
 
-// Etapas por defecto
+// Etapas por defecto (se cargan automáticamente desde la línea de WhatsApp)
 const DEFAULT_STAGES = [
-  { id: 'new', label: 'Nuevo', color: 'blue', description: 'Solo escribió/preguntó' },
-  { id: 'interested', label: 'Interesado', color: 'cyan', description: 'Mostró interés en productos' },
-  { id: 'quoting', label: 'En Cotización', color: 'yellow', description: 'Pidiendo precios/info' },
-  { id: 'negotiating', label: 'Negociando', color: 'orange', description: 'Discutiendo términos' },
-  { id: 'pending_confirm', label: 'Por Confirmar', color: 'purple', description: 'Falta confirmación de pago' },
-  { id: 'converted', label: 'Convertido', color: 'green', description: 'Realizó compra' },
-  { id: 'follow_up', label: 'Seguimiento', color: 'pink', description: 'Requiere seguimiento' },
-  { id: 'lost', label: 'Perdido', color: 'red', description: 'No compró' },
+  { id: 'Saludo', label: 'Saludo', color: 'blue', description: 'Primer contacto' },
+  { id: 'Interesado', label: 'Interesado', color: 'cyan', description: 'Mostró interés' },
+  { id: 'En Cotización', label: 'En Cotización', color: 'yellow', description: 'Pidiendo información' },
+  { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange', description: 'Faltan datos' },
+  { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green', description: 'Confirmó compra' },
+  { id: 'Confirmado', label: 'Confirmado', color: 'purple', description: 'Pedido completo' },
+  { id: 'Perdido', label: 'Perdido', color: 'red', description: 'No compró' },
 ];
 
 const getStageColorClass = (colorId: string) => {
@@ -184,7 +183,9 @@ export default function ConversacionesPage() {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/stages`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const lineId = getLineId();
+      const url = lineId ? `${API_URL}/api/stages?lineId=${lineId}` : `${API_URL}/api/stages`;
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
         if (data.stages && data.stages.length > 0) {
@@ -474,9 +475,9 @@ export default function ConversacionesPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col gap-4">
+    <div className="h-[calc(100vh-140px)] flex flex-col gap-4 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <img src="/bizonne.png" alt="Bizonne" className="w-10 h-10 rounded-xl" />
           <div>
@@ -484,43 +485,40 @@ export default function ConversacionesPage() {
             <p className="text-sm text-[var(--text-muted)]">{conversations.length} chats activos</p>
           </div>
         </div>
-        <button onClick={() => setShowMassMessage(true)} className="btn-secondary">
+        <button onClick={() => setShowMassMessage(true)} className="btn-secondary flex-shrink-0">
           <Megaphone className="w-4 h-4" />Mensaje Masivo
         </button>
       </div>
 
-      {/* Embudo Stats */}
-      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center">
-        <button
-          onClick={() => setFilterStage('all')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
-            filterStage === 'all' ? 'bg-[var(--accent-primary)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-          }`}
-        >
-          Todos ({conversations.length})
-        </button>
-        {stageStats.map(stage => (
+      {/* Embudo Stats - Scroll horizontal controlado */}
+      <div className="flex-shrink-0 overflow-hidden">
+        <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar items-center max-w-full">
           <button
-            key={stage.id}
-            onClick={() => setFilterStage(stage.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all border ${
-              filterStage === stage.id ? getStageColor(stage.id) : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border-transparent'
+            onClick={() => setFilterStage('all')}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all flex-shrink-0 ${
+              filterStage === 'all' ? 'bg-[var(--accent-primary)] text-white' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
             }`}
           >
-            {stage.label} ({stage.count})
+            Todos ({conversations.length})
           </button>
-        ))}
-        <button onClick={() => setShowStageManager(true)} 
-          className="ml-auto p-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)] hover:text-[var(--accent-primary)] transition-all flex-shrink-0"
-          title="Personalizar etapas">
-          <Settings className="w-4 h-4" />
-        </button>
+          {stageStats.map(stage => (
+            <button
+              key={stage.id}
+              onClick={() => setFilterStage(stage.id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all border flex-shrink-0 ${
+                filterStage === stage.id ? getStageColor(stage.id) : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border-transparent'
+              }`}
+            >
+              {stage.label} ({stage.count})
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex gap-4 min-h-0">
+      <div className="flex-1 flex gap-4 min-h-0 overflow-hidden">
         {/* Lista */}
-        <div className="w-80 flex flex-col card p-0 overflow-hidden">
+        <div className="w-72 flex-shrink-0 flex flex-col card p-0 overflow-hidden">
           <div className="p-4 border-b border-[var(--border-primary)]">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none z-10" />
@@ -563,23 +561,21 @@ export default function ConversacionesPage() {
         </div>
 
         {/* Chat */}
-        <div className="flex-1 flex flex-col card p-0 overflow-hidden">
+        <div className="flex-1 flex flex-col card p-0 overflow-hidden min-w-0">
           {selectedConv ? (
             <>
-              <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="avatar-lg">{selectedConv.recipientName?.[0] || '?'}</div>
-                  <div>
-                    <h3 className="font-semibold text-white">{selectedConv.recipientName || selectedConv.recipientId}</h3>
+              <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="avatar-lg flex-shrink-0">{selectedConv.recipientName?.[0] || '?'}</div>
+                  <div className="min-w-0">
+                    <h3 className="font-semibold text-white truncate">{selectedConv.recipientName || selectedConv.recipientId}</h3>
                     <p className="text-sm text-[var(--text-muted)]">+{selectedConv.recipientId?.replace('@c.us', '')}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setShowStageSelector(true)}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${getStageColor(selectedConv.stage || 'new')}`}>
-                    {funnelStages.find(s => s.id === selectedConv.stage)?.label || 'Nuevo'}
-                    <ChevronRight className="w-4 h-4 inline ml-1" />
-                  </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${getStageColor(selectedConv.stage || 'Saludo')}`}>
+                    {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Saludo'}
+                  </span>
                   <button onClick={toggleAIPause}
                     className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
                       selectedConv.aiPaused ? 'bg-yellow-500/20 text-yellow-400' : 'bg-emerald-500/20 text-emerald-400'
@@ -657,23 +653,6 @@ export default function ConversacionesPage() {
               </div>
 
               <div className="p-3 border-t border-[var(--border-primary)] bg-[var(--bg-tertiary)]">
-                <div className="flex gap-2 mb-3 overflow-x-auto no-scrollbar">
-                  {!existingClient ? (
-                    <button onClick={() => setShowAddClient(true)} className="btn-secondary text-xs py-2 whitespace-nowrap">
-                      <UserPlus className="w-3 h-3" />Agregar CRM
-                    </button>
-                  ) : (
-                    <span className="px-3 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" />En CRM
-                    </span>
-                  )}
-                  <button onClick={() => setShowCreateOrder(true)} className="btn-secondary text-xs py-2 whitespace-nowrap">
-                    <ShoppingCart className="w-3 h-3" />Pedido
-                  </button>
-                  <button onClick={() => setShowSchedule(true)} className="btn-secondary text-xs py-2 whitespace-nowrap">
-                    <CalendarPlus className="w-3 h-3" />Agendar
-                  </button>
-                </div>
                 <div className="flex gap-3">
                   <input type="text" placeholder="Escribe un mensaje..." value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
@@ -693,9 +672,9 @@ export default function ConversacionesPage() {
           )}
         </div>
 
-        {/* Panel Info */}
+        {/* Panel Info - SIMPLIFICADO (todo es automático) */}
         {selectedConv && (
-          <div className="w-72 card p-4 space-y-4 overflow-y-auto no-scrollbar hidden xl:block">
+          <div className="w-64 card p-4 space-y-4 overflow-y-auto no-scrollbar hidden xl:block flex-shrink-0">
             <div className="text-center">
               <div className="avatar-lg mx-auto mb-3">{selectedConv.recipientName?.[0] || '?'}</div>
               <h4 className="font-semibold text-white">{selectedConv.recipientName}</h4>
@@ -704,13 +683,32 @@ export default function ConversacionesPage() {
 
             <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]">
               <p className="text-xs text-[var(--text-muted)] mb-2">Etapa del embudo</p>
-              <div className={`px-3 py-2 rounded-lg text-sm font-medium border ${getStageColor(selectedConv.stage || 'new')}`}>
-                {funnelStages.find(s => s.id === selectedConv.stage)?.label || 'Nuevo'}
+              <div className={`px-3 py-2 rounded-lg text-sm font-medium border ${getStageColor(selectedConv.stage || 'Saludo')}`}>
+                {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Saludo'}
               </div>
-              <p className="text-xs text-[var(--text-muted)] mt-2">
-                {funnelStages.find(s => s.id === selectedConv.stage)?.description}
+              <p className="text-xs text-[var(--text-muted)] mt-2 italic">
+                ✨ Detectado automáticamente
               </p>
             </div>
+
+            {/* Memoria del cliente */}
+            {selectedConv.contextData && Object.keys(selectedConv.contextData).length > 0 && (
+              <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] space-y-2">
+                <p className="text-xs text-[var(--text-muted)] mb-2">📋 Datos recopilados</p>
+                <div className="space-y-1 text-xs">
+                  {Object.entries(selectedConv.contextData as Record<string, any>)
+                    .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita'].includes(k))
+                    .slice(0, 6)
+                    .map(([key, value]) => (
+                      <div key={key} className="flex justify-between">
+                        <span className="text-[var(--text-muted)] capitalize">{key.replace(/_/g, ' ')}:</span>
+                        <span className="text-white font-medium truncate ml-2 max-w-[100px]">{String(value)}</span>
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            )}
 
             {existingClient && (
               <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] space-y-2">
@@ -726,21 +724,12 @@ export default function ConversacionesPage() {
               </div>
             )}
 
-            <div className="space-y-2">
-              <button onClick={() => setShowStageSelector(true)} className="btn-secondary w-full text-sm py-2">
-                <Tag className="w-4 h-4" />Cambiar etiqueta
-              </button>
-              {!existingClient && (
-                <button onClick={() => setShowAddClient(true)} className="btn-secondary w-full text-sm py-2">
-                  <UserPlus className="w-4 h-4" />Agregar a CRM
-                </button>
-              )}
-              <button onClick={() => setShowCreateOrder(true)} className="btn-primary w-full text-sm py-2">
-                <ShoppingCart className="w-4 h-4" />Crear Pedido
-              </button>
-              <button onClick={() => setShowSchedule(true)} className="btn-secondary w-full text-sm py-2">
-                <Calendar className="w-4 h-4" />Agendar
-              </button>
+            {/* Info automático */}
+            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+              <p className="text-xs text-emerald-400 text-center">
+                🤖 <strong>Sistema Automático</strong><br/>
+                Las etapas, pedidos y citas se crean automáticamente según la conversación
+              </p>
             </div>
           </div>
         )}

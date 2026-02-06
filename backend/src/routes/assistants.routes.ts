@@ -97,11 +97,25 @@ router.post('/', async (req: Request, res: Response) => {
         });
       }
 
-      // Vincular con la línea
-      await prisma.whatsappLine.update({
-        where: { id: lineId },
-        data: { assistantId: assistant.id }
-      }).catch(() => {}); // Ignore if line doesn't exist
+      // 🎯 EXTRAER ETAPAS AUTOMÁTICAMENTE DE LA BASE DE CONOCIMIENTO
+      const extractedStages = extractStagesFromContext(body.context || '');
+      if (extractedStages.length > 0) {
+        await prisma.whatsappLine.update({
+          where: { id: lineId },
+          data: { 
+            assistantId: assistant.id,
+            customStages: extractedStages,
+            stagesConfigured: true
+          }
+        }).catch(() => {});
+        console.log(`🎯 Etapas auto-extraídas para línea ${lineId}: ${extractedStages.map((s: any) => s.label).join(', ')}`);
+      } else {
+        // Vincular con la línea sin etapas
+        await prisma.whatsappLine.update({
+          where: { id: lineId },
+          data: { assistantId: assistant.id }
+        }).catch(() => {});
+      }
     } else {
       // Legacy: sin lineId, buscar/crear global
       assistant = await prisma.assistant.findFirst({ where: { userId } });
@@ -121,6 +135,87 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message || 'Error' });
   }
 });
+
+// 🎯 FUNCIÓN: Extraer etapas automáticamente del contexto/base de conocimiento
+function extractStagesFromContext(context: string): any[] {
+  if (!context || context.length < 50) return [];
+  
+  const stages: any[] = [];
+  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
+  
+  // Buscar secciones que contengan etapas
+  const sectionPatterns = [
+    /##?\s*(?:ETAPAS?|FLUJO|EMBUDO|PIPELINE|FASES?|PROCESO)[^\n]*\n([\s\S]*?)(?=\n##|\n\n\n|$)/gi,
+    /(?:etapas?|flujo|embudo|pipeline|fases?|proceso)[\s:]+\n?([\s\S]*?)(?=\n##|\n\n\n|$)/gi
+  ];
+  
+  let foundItems: string[] = [];
+  
+  for (const pattern of sectionPatterns) {
+    const matches = context.matchAll(pattern);
+    for (const match of matches) {
+      const section = match[1] || '';
+      // Buscar items con bullets o números
+      const items = section.match(/[-•*\d.]\s*\*?\*?([^*\n-•]+)/g);
+      if (items) {
+        items.forEach(item => {
+          const clean = item.replace(/[-•*\d.]/g, '').replace(/\*\*/g, '').trim();
+          if (clean && clean.length > 2 && clean.length < 50) {
+            foundItems.push(clean);
+          }
+        });
+      }
+    }
+  }
+  
+  // Si no encontramos con patrones de sección, buscar keywords comunes
+  if (foundItems.length === 0) {
+    const keywords = [
+      'saludo', 'interesado', 'cotización', 'cotizacion', 'pendiente', 'pedido', 
+      'confirmado', 'perdido', 'nuevo', 'calidad', 'color', 'talla', 'pago',
+      'entrega', 'enviado', 'completado', 'cerrado', 'seguimiento'
+    ];
+    
+    const lines = context.split('\n');
+    for (const line of lines) {
+      const lower = line.toLowerCase();
+      for (const kw of keywords) {
+        if (lower.includes(kw) && line.match(/[-•*\d.]\s/)) {
+          const clean = line.replace(/[-•*\d.]/g, '').replace(/\*\*/g, '').trim();
+          if (clean && clean.length > 2 && clean.length < 50 && !foundItems.includes(clean)) {
+            foundItems.push(clean);
+          }
+        }
+      }
+    }
+  }
+  
+  // Eliminar duplicados y crear stages con colores
+  const unique = Array.from(new Set(foundItems));
+  unique.slice(0, 12).forEach((label, index) => {
+    stages.push({
+      id: label,
+      label: label,
+      color: colors[index % colors.length],
+      description: ''
+    });
+  });
+  
+  // Si no encontramos nada, crear etapas por defecto básicas
+  if (stages.length === 0) {
+    return [
+      { id: 'Saludo', label: 'Saludo', color: 'blue', description: 'Primer contacto' },
+      { id: 'Interesado', label: 'Interesado', color: 'cyan', description: 'Mostró interés' },
+      { id: 'En Cotización', label: 'En Cotización', color: 'yellow', description: 'Pidiendo información' },
+      { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange', description: 'Faltan datos' },
+      { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green', description: 'Confirmó compra' },
+      { id: 'Confirmado', label: 'Confirmado', color: 'purple', description: 'Pedido completo' },
+      { id: 'Perdido', label: 'Perdido', color: 'red', description: 'No compró' }
+    ];
+  }
+  
+  return stages;
+}
 
 // PUT /api/assistants/:id
 router.put('/:id', async (req: Request, res: Response) => {

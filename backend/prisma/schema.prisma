@@ -261,6 +261,10 @@ model WhatsappLine {
   assignedName    String?
   assistantId     String?
   
+  // 🔧 Etapas del pipeline por línea (se auto-generan desde base de conocimiento)
+  customStages    Json      @default("[]")
+  stagesConfigured Boolean  @default(false)
+  
   isDefault       Boolean   @default(false)
   isActive        Boolean   @default(true)
   

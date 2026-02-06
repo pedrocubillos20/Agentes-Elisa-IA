@@ -242,11 +242,11 @@ export default function CRMKanbanPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="h-[calc(100vh-140px)] flex flex-col gap-6 overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--accent-primary)] to-cyan-500 flex items-center justify-center shadow-lg">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--accent-primary)] to-cyan-500 flex items-center justify-center shadow-lg flex-shrink-0">
             <img src="/bizonne.png" alt="Bizonne" className="w-10 h-10 rounded-xl" />
           </div>
           <div>
@@ -254,7 +254,7 @@ export default function CRMKanbanPage() {
             <p className="text-[var(--text-muted)]">Gestiona clientes y ventas</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <button onClick={() => setShowMassMessage(true)} className="btn-secondary flex items-center gap-2">
             <Send className="w-4 h-4" /> Mensaje Masivo
           </button>
@@ -275,10 +275,10 @@ export default function CRMKanbanPage() {
         ))}
         {activeTab === 'pipeline' && (
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={syncStagesFromAssistant} disabled={syncingStages} className="btn-secondary flex items-center gap-2 text-sm">
-              <RefreshCw className={`w-4 h-4 ${syncingStages ? 'animate-spin' : ''}`} /> Sincronizar Etapas
-            </button>
-            <button onClick={() => setShowStageConfig(true)} className="btn-icon"><Settings className="w-4 h-4" /></button>
+            <span className="text-xs text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/30">
+              <Sparkles className="w-3 h-3 inline mr-1" />
+              Detección automática de etapas
+            </span>
           </div>
         )}
       </div>
@@ -291,21 +291,20 @@ export default function CRMKanbanPage() {
         <div className="card p-4"><span className="text-3xl font-bold text-purple-400">{stats.products}</span><p className="text-sm text-[var(--text-muted)]">Productos</p></div>
       </div>
 
-      {/* PIPELINE KANBAN */}
+      {/* PIPELINE KANBAN - AUTOMÁTICO */}
       {activeTab === 'pipeline' && (
-        <div className="space-y-4">
-          <div className="relative max-w-md">
+        <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+          <div className="relative max-w-md flex-shrink-0">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar..." className="input pl-11" />
           </div>
-          <div className="overflow-x-auto pb-4">
-            <div className="flex gap-4 min-w-max">
+          <div className="flex-1 overflow-x-auto pb-4">
+            <div className="flex gap-4 h-full" style={{ minWidth: `${stages.length * 280}px` }}>
               {stages.map((stage) => {
                 const stageConvs = getConvsByStage(stage.id).filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm));
                 return (
-                  <div key={stage.id} className={`w-72 flex-shrink-0 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] border-t-4 ${COLUMN_BG[stage.color] || 'border-t-gray-500'} ${dragOverStage === stage.id ? 'ring-2 ring-[var(--accent-primary)]' : ''}`}
-                    onDragOver={(e) => handleDragOver(e, stage.id)} onDragLeave={handleDragLeave} onDrop={(e) => handleDrop(e, stage.id)}>
-                    <div className="p-3 border-b border-[var(--border-primary)]">
+                  <div key={stage.id} className={`w-64 flex-shrink-0 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] border-t-4 ${COLUMN_BG[stage.color] || 'border-t-gray-500'} flex flex-col`}>
+                    <div className="p-3 border-b border-[var(--border-primary)] flex-shrink-0">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STAGE_COLORS[stage.color] || STAGE_COLORS.gray}`}>{stageConvs.length}</span>
@@ -316,12 +315,14 @@ export default function CRMKanbanPage() {
                         </button>
                       </div>
                     </div>
-                    <div className="p-2 space-y-2 min-h-[200px] max-h-[60vh] overflow-y-auto">
+                    <div className="p-2 space-y-2 flex-1 overflow-y-auto">
                       {stageConvs.map((conv) => (
-                        <div key={conv.id} draggable onDragStart={() => handleDragStart(conv)}
-                          className={`p-3 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] cursor-grab active:cursor-grabbing hover:border-[var(--accent-primary)]/50 transition-all group ${draggedItem?.id === conv.id ? 'opacity-50' : ''}`}>
+                        <div key={conv.id}
+                          className="p-3 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 transition-all">
                           <div className="flex items-start gap-2">
-                            <GripVertical className="w-4 h-4 text-[var(--text-muted)] opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5" />
+                            <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs font-semibold text-[var(--accent-primary)]">{conv.recipientName?.[0] || '?'}</span>
+                            </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="font-medium text-white text-sm truncate">{conv.recipientName || conv.recipientId}</p>
@@ -330,7 +331,7 @@ export default function CRMKanbanPage() {
                               <p className="text-xs text-[var(--text-muted)] truncate mt-1">{conv.lastMessage || 'Sin mensajes'}</p>
                               <div className="flex items-center justify-between mt-2">
                                 <span className="text-[10px] text-[var(--text-muted)]">{new Date(conv.updatedAt).toLocaleDateString()}</span>
-                                <a href={`/conversaciones?id=${conv.id}`} className="text-[10px] text-[var(--accent-primary)] hover:underline">Ver →</a>
+                                <a href={`/conversaciones?id=${conv.id}`} className="text-[10px] text-[var(--accent-primary)] hover:underline">Ver chat →</a>
                               </div>
                             </div>
                           </div>
@@ -339,7 +340,7 @@ export default function CRMKanbanPage() {
                       {stageConvs.length === 0 && (
                         <div className="text-center py-8 text-[var(--text-muted)]">
                           <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-xs">Vacío</p>
+                          <p className="text-xs">Sin conversaciones</p>
                         </div>
                       )}
                     </div>
@@ -451,40 +452,6 @@ export default function CRMKanbanPage() {
               <button onClick={sendMassMessage} disabled={!selectedStage || !massMessageText.trim() || sendingMass} className="btn-primary w-full flex items-center justify-center gap-2">
                 {sendingMass ? <><div className="loading-spinner w-4 h-4" /> Enviando...</> : <><Send className="w-4 h-4" /> Enviar</>}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: CONFIG ETAPAS */}
-      {showStageConfig && (
-        <div className="modal-overlay" onClick={() => setShowStageConfig(false)}>
-          <div className="modal-content max-w-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2"><Settings className="w-5 h-5 text-[var(--accent-primary)]" /> Etapas del Pipeline</h3>
-              <button onClick={() => setShowStageConfig(false)} className="btn-icon"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-4">
-              <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20"><p className="text-sm text-blue-400">💡 Define etapas en tu asistente IA (## ETAPAS) y usa "Sincronizar"</p></div>
-              <div className="space-y-2">
-                {stages.map((stage, idx) => (
-                  <div key={stage.id} className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
-                    <GripVertical className="w-4 h-4 text-[var(--text-muted)]" />
-                    <div className={`w-4 h-4 rounded-full ${STAGE_COLORS[stage.color]?.split(' ')[0] || 'bg-gray-500'}`} />
-                    <input type="text" value={stage.label} onChange={(e) => { const n = [...stages]; n[idx] = { ...stage, id: e.target.value, label: e.target.value }; setStages(n); }} className="flex-1 bg-transparent border-none text-white text-sm focus:outline-none" />
-                    <select value={stage.color} onChange={(e) => { const n = [...stages]; n[idx] = { ...stage, color: e.target.value }; setStages(n); }} className="bg-transparent text-[var(--text-muted)] text-xs border-none">
-                      {Object.keys(STAGE_COLORS).map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <button onClick={() => setStages(stages.filter((_, i) => i !== idx))} className="p-1 text-red-400 hover:bg-red-500/10 rounded"><X className="w-4 h-4" /></button>
-                  </div>
-                ))}
-              </div>
-              <button onClick={() => setStages([...stages, { id: `etapa_${Date.now()}`, label: 'Nueva', color: 'gray' }])} className="btn-secondary w-full flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Agregar</button>
-              <button onClick={async () => {
-                const token = localStorage.getItem('token');
-                await fetch(`${API_URL}/api/stages`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ stages }) });
-                setShowStageConfig(false); alert('Guardado');
-              }} className="btn-primary w-full">Guardar</button>
             </div>
           </div>
         </div>

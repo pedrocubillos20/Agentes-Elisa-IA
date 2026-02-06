@@ -553,6 +553,33 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       if (ml) promptParts.push(`\nArchivos multimedia disponibles:\n${ml}\nSi el cliente pregunta por algo relacionado, menciona que se lo envías.`);
     }
 
+    // 🎯 CARGAR ETAPAS DEL PIPELINE DE LA LÍNEA
+    let pipelineStages: any[] = [];
+    if (whatsappLineId) {
+      const line = await prisma.whatsappLine.findUnique({ 
+        where: { id: whatsappLineId }, 
+        select: { customStages: true } 
+      });
+      if (line?.customStages && Array.isArray(line.customStages)) {
+        pipelineStages = line.customStages as any[];
+      }
+    }
+    
+    // Si no hay etapas configuradas, usar default
+    if (pipelineStages.length === 0) {
+      pipelineStages = [
+        { id: 'Saludo', label: 'Saludo' },
+        { id: 'Interesado', label: 'Interesado' },
+        { id: 'En Cotización', label: 'En Cotización' },
+        { id: 'Pendiente Info', label: 'Pendiente Info' },
+        { id: 'Realizó Pedido', label: 'Realizó Pedido' },
+        { id: 'Confirmado', label: 'Confirmado' },
+        { id: 'Perdido', label: 'Perdido' }
+      ];
+    }
+    
+    const stagesList = pipelineStages.map((s: any) => s.id || s.label).join(', ');
+
     // 🧠 INSTRUCCIONES DE MEMORIA — Esto le dice a la IA que devuelva un bloque de datos
     promptParts.push(`
 === REGLAS DE MEMORIA (OBLIGATORIO) ===
@@ -563,16 +590,29 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 4. Si el cliente vuelve después de días, salúdalo por su nombre y retoma donde quedaron.
 5. Responde de forma natural, como un humano por WhatsApp.
 
+=== ETAPAS DEL PIPELINE (DETECCIÓN AUTOMÁTICA) ===
+Las etapas disponibles son: ${stagesList}
+
+Debes detectar en qué etapa está el cliente según la conversación:
+- "Saludo" = Solo saludó, no ha preguntado nada específico
+- "Interesado" = Preguntó por productos/servicios, mostró interés
+- "En Cotización" = Pidió precios, detalles, está comparando
+- "Pendiente Info" = Falta información (talla, color, cantidad, dirección, etc.)
+- "Realizó Pedido" = Confirmó que quiere comprar/contratar
+- "Confirmado" = Pedido/cita confirmado con todos los datos
+- "Perdido" = Dijo que no le interesa, rechazó, se fue
+
 === BLOQUE DE MEMORIA (OBLIGATORIO AL FINAL) ===
 
 AL FINAL de CADA respuesta, DEBES incluir un bloque de memoria con TODA la información que has recopilado del cliente.
 El formato EXACTO es (incluye la línea tal cual):
 
-<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","chaqueta":"","bordado":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","datos_envio":"","pedido":"","paso_actual":""}<<END_MEMORY>>
+<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","datos_envio":"","pedido":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
 REGLAS del bloque de memoria:
 - Llena SOLO los campos que ya conoces. Deja vacío "" lo que NO sabes aún.
-- "paso_actual" = en qué paso del flujo de venta estás (ej: "saludo", "pidiendo_nombre", "pidiendo_talla", "pidiendo_color", "resumen", "confirmado", etc.)
+- "etapa_actual" = OBLIGATORIO. Pon la etapa del pipeline que mejor describe el estado actual (usa exactamente uno de: ${stagesList})
+- "accion" = Si detectas que el cliente confirmó un pedido pon "crear_pedido". Si confirmó una cita pon "crear_cita". Si no hay acción especial, deja vacío.
 - SIEMPRE incluye este bloque, incluso si no tienes datos nuevos.
 - El bloque va DESPUÉS de tu respuesta al cliente, en la última línea.
 - NO expliques el bloque al cliente, es interno.`);
@@ -612,7 +652,7 @@ REGLAS del bloque de memoria:
           let reply = d.choices?.[0]?.message?.content;
           if (!reply) continue;
 
-          // 🧠 EXTRAER Y GUARDAR BLOQUE DE MEMORIA
+          // 🧠 EXTRAER Y GUARDAR BLOQUE DE MEMORIA + DETECTAR ETAPA AUTOMÁTICA
           const memoryMatch = reply.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/);
           if (memoryMatch) {
             try {
@@ -624,12 +664,90 @@ REGLAS del bloque de memoria:
                   merged[key] = value;
                 }
               }
-              // Guardar en DB
+              
+              // 🎯 DETECTAR ETAPA AUTOMÁTICA
+              const detectedStage = memoryData.etapa_actual || memoryData.paso_actual || '';
+              const actionToTake = memoryData.accion || '';
+              
+              // Actualizar conversación con memoria Y etapa
+              const updateData: any = { contextData: merged };
+              if (detectedStage) {
+                // Verificar que la etapa existe en el pipeline
+                const validStage = pipelineStages.find((s: any) => 
+                  s.id === detectedStage || s.label === detectedStage ||
+                  s.id?.toLowerCase() === detectedStage.toLowerCase() ||
+                  s.label?.toLowerCase() === detectedStage.toLowerCase()
+                );
+                if (validStage) {
+                  updateData.stage = validStage.id || validStage.label;
+                  console.log(`🎯 Etapa automática: ${updateData.stage}`);
+                }
+              }
+              
               await prisma.conversation.update({
                 where: { id: conversationId },
-                data: { contextData: merged }
+                data: updateData
               });
+              
               console.log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
+              
+              // 🛒 CREAR PEDIDO AUTOMÁTICO
+              if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
+                try {
+                  const orderData = {
+                    userId: ownerId,
+                    type: 'order',
+                    clientName: merged.nombre || clientName || 'Cliente WhatsApp',
+                    clientPhone: clientPhone.replace('@c.us', ''),
+                    date: new Date(),
+                    time: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }),
+                    status: 'pending',
+                    notes: `Pedido automático desde WhatsApp.\nProducto: ${merged.tipo || 'N/A'}\nTalla: ${merged.talla || 'N/A'}\nColor: ${merged.color || 'N/A'}\nCantidad: ${merged.cantidad || '1'}`,
+                    total: parseFloat(merged.total) || 0,
+                    address: merged.direccion || merged.ciudad || '',
+                    whatsappLineId: whatsappLineId || null
+                  };
+                  await prisma.appointment.create({ data: orderData });
+                  // Marcar pedido como creado
+                  merged.pedido = 'creado';
+                  await prisma.conversation.update({
+                    where: { id: conversationId },
+                    data: { contextData: merged }
+                  });
+                  console.log(`🛒 Pedido creado automáticamente para ${merged.nombre || clientName}`);
+                } catch (orderErr: any) {
+                  console.error('❌ Error creando pedido:', orderErr.message);
+                }
+              }
+              
+              // 📅 CREAR CITA AUTOMÁTICA
+              if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
+                try {
+                  const appointmentData = {
+                    userId: ownerId,
+                    type: 'appointment',
+                    clientName: merged.nombre || clientName || 'Cliente WhatsApp',
+                    clientPhone: clientPhone.replace('@c.us', ''),
+                    date: merged.fecha_cita ? new Date(merged.fecha_cita) : new Date(),
+                    time: merged.hora_cita || '10:00',
+                    status: 'pending',
+                    notes: `Cita agendada automáticamente desde WhatsApp.\n${merged.notas_cita || ''}`,
+                    address: merged.direccion || merged.ciudad || '',
+                    whatsappLineId: whatsappLineId || null
+                  };
+                  await prisma.appointment.create({ data: appointmentData });
+                  // Marcar cita como creada
+                  merged.cita = 'creada';
+                  await prisma.conversation.update({
+                    where: { id: conversationId },
+                    data: { contextData: merged }
+                  });
+                  console.log(`📅 Cita creada automáticamente para ${merged.nombre || clientName}`);
+                } catch (citaErr: any) {
+                  console.error('❌ Error creando cita:', citaErr.message);
+                }
+              }
+              
             } catch (e) {
               console.error('⚠️ Error parseando memoria:', e);
             }

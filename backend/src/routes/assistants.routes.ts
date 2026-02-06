@@ -144,12 +144,13 @@ function extractStagesFromContext(context: string): any[] {
   const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
   
   // Buscar SOLO la sección específica de etapas del pipeline
-  // Debe tener un formato claro como:
+  // Permite emojis y caracteres especiales antes de ETAPAS
+  // Formatos válidos:
   // ## ETAPAS DEL PIPELINE
-  // - Saludo
-  // - Interesado
+  // ## 🎯 ETAPAS DEL PIPELINE (CRM AUTOMÁTICO)
+  // # ETAPAS
   
-  const sectionMatch = context.match(/##?\s*(?:ETAPAS?(?:\s+DEL)?\s*(?:PIPELINE|CRM|FLUJO)?|PIPELINE\s*(?:CRM)?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
+  const sectionMatch = context.match(/##?\s*[^\n]*?ETAPAS[^\n]*(?:PIPELINE|CRM|FLUJO|AUTOMÁTICO)?[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
   
   if (!sectionMatch) {
     console.log('  📋 No se encontró sección de etapas en el contexto');

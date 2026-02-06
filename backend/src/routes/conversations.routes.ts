@@ -4,12 +4,24 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// Helper para obtener el owner real (considera parentUserId para equipos)
+const getOwnerId = async (userId: string): Promise<string> => {
+  const user = await prisma.user.findUnique({ 
+    where: { id: userId }, 
+    select: { parentUserId: true } 
+  });
+  return user?.parentUserId || userId;
+};
+
 // GET /api/conversations
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    
     const { stage, lineId } = req.query;
-    const where: any = { userId };
+    const where: any = { userId: ownerId };
     if (stage && stage !== 'all') where.stage = stage as string;
     if (lineId) where.whatsappLineId = lineId as string;
 
@@ -52,6 +64,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
     const { lineId } = req.query;
 
     const now = new Date();
@@ -60,9 +73,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
     // Filtros base con soporte lineId
-    const convWhere: any = { userId };
-    const apptWhere: any = { userId };
-    const clientWhere: any = { userId };
+    const convWhere: any = { userId: ownerId };
+    const apptWhere: any = { userId: ownerId };
+    const clientWhere: any = { userId: ownerId };
     if (lineId) {
       convWhere.whatsappLineId = lineId as string;
       apptWhere.whatsappLineId = lineId as string;
@@ -105,7 +118,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
             SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
             FROM "Message" m
             JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${userId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${weekStart}
+            WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${weekStart}
             GROUP BY EXTRACT(DOW FROM m."timestamp")
             ORDER BY dow
           ` as Promise<Array<{ dow: number; count: number }>>
@@ -113,7 +126,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
             SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
             FROM "Message" m
             JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${userId} AND m."timestamp" >= ${weekStart}
+            WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${weekStart}
             GROUP BY EXTRACT(DOW FROM m."timestamp")
             ORDER BY dow
           ` as Promise<Array<{ dow: number; count: number }>>

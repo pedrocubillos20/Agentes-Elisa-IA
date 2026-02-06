@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import prisma from './lib/prisma';
 
 import authRoutes from './routes/auth.routes';
 import assistantsRoutes from './routes/assistants.routes';
@@ -90,6 +91,109 @@ app.get('/api', (req, res) => {
       webhooks: { whatsapp: '/api/webhook/whatsapp' }
     }
   });
+});
+
+// ===== DIAGNÓSTICO DE DATOS (solo admin) =====
+app.get('/api/admin/diagnostic', async (req, res) => {
+  try {
+    // Verificar secret key
+    const adminKey = req.headers['x-admin-key'];
+    if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
+
+    // Obtener todos los usuarios
+    const users = await prisma.user.findMany({
+      where: { parentUserId: null }, // Solo usuarios principales
+      select: { id: true, email: true, name: true, plan: true }
+    });
+
+    const diagnostic: any[] = [];
+
+    for (const user of users) {
+      const lines = await prisma.whatsappLine.findMany({
+        where: { userId: user.id },
+        select: { id: true, label: true, phone: true, sessionName: true }
+      });
+
+      const conversations = await prisma.conversation.count({ where: { userId: user.id } });
+      const assistants = await prisma.assistant.count({ where: { userId: user.id } });
+      const clients = await prisma.client.count({ where: { userId: user.id } });
+      const appointments = await prisma.appointment.count({ where: { userId: user.id } });
+      const products = await prisma.product.count({ where: { userId: user.id } });
+
+      diagnostic.push({
+        user: { id: user.id, email: user.email, name: user.name, plan: user.plan },
+        lines: lines,
+        counts: { conversations, assistants, clients, appointments, products }
+      });
+    }
+
+    // Verificar datos huérfanos (sin userId válido)
+    const orphanConversations = await prisma.conversation.count({
+      where: { userId: { notIn: users.map(u => u.id) } }
+    });
+
+    const orphanLines = await prisma.whatsappLine.count({
+      where: { userId: { notIn: users.map(u => u.id) } }
+    });
+
+    res.json({
+      status: 'ok',
+      totalUsers: users.length,
+      diagnostic,
+      orphans: {
+        conversations: orphanConversations,
+        lines: orphanLines
+      }
+    });
+  } catch (error: any) {
+    console.error('Error diagnóstico:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== LIMPIEZA DE DATOS (solo admin) =====
+app.post('/api/admin/fix-orphans', async (req, res) => {
+  try {
+    const adminKey = req.headers['x-admin-key'];
+    if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
+
+    const users = await prisma.user.findMany({
+      where: { parentUserId: null },
+      select: { id: true }
+    });
+    const userIds = users.map(u => u.id);
+
+    // Eliminar datos huérfanos
+    const deletedConversations = await prisma.conversation.deleteMany({
+      where: { userId: { notIn: userIds } }
+    });
+
+    const deletedLines = await prisma.whatsappLine.deleteMany({
+      where: { userId: { notIn: userIds } }
+    });
+
+    const deletedAssistants = await prisma.assistant.deleteMany({
+      where: { userId: { notIn: userIds } }
+    });
+
+    res.json({
+      status: 'cleaned',
+      deleted: {
+        conversations: deletedConversations.count,
+        lines: deletedLines.count,
+        assistants: deletedAssistants.count
+      }
+    });
+  } catch (error: any) {
+    console.error('Error limpieza:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.use((req, res) => { res.status(404).json({ error: 'No encontrado', path: req.path }); });

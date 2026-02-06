@@ -54,15 +54,33 @@ const findActiveSession = async (userId: string): Promise<{ name: string; data: 
 };
 
 const resolveUserFromWebhook = async (sessionName: string, recipientId: string): Promise<string | null> => {
+  // 1. ÚNICO MÉTODO: Buscar por sessionName de línea de WhatsApp
+  // Cada línea tiene su sessionName único y pertenece a UN solo usuario
+  const waLine = await prisma.whatsappLine.findUnique({ 
+    where: { sessionName },
+    select: { userId: true }
+  }).catch(() => null);
+  
+  if (waLine?.userId) {
+    console.log(`📱 Usuario resuelto por línea ${sessionName}: ${waLine.userId}`);
+    return waLine.userId;
+  }
+  
+  // 2. Si es una sesión legacy tipo user_xxx (formato antiguo)
   if (sessionName.startsWith('user_')) {
     const uid = sessionName.replace('user_', '');
     const u = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, parentUserId: true } });
-    if (u) return u.parentUserId || u.id;
+    if (u) {
+      console.log(`📱 Usuario resuelto por sesión legacy: ${u.parentUserId || u.id}`);
+      return u.parentUserId || u.id;
+    }
   }
-  const conv = await prisma.conversation.findFirst({ where: { recipientId }, select: { userId: true } });
-  if (conv) return conv.userId;
-  const u = await prisma.user.findFirst({ where: { apiKeyConnected: true, parentUserId: null }, select: { id: true } });
-  return u?.id || null;
+  
+  // 3. NO buscar por conversación existente - esto causaba mezcla de datos entre usuarios
+  // Cada sesión DEBE estar asociada a una línea de WhatsApp con su userId
+  console.warn(`⚠️ SESIÓN NO RECONOCIDA: ${sessionName} - No tiene línea de WhatsApp asociada`);
+  console.warn(`   → Para mensajes de ${recipientId}, se rechazará hasta que se configure la línea correctamente`);
+  return null;
 };
 
 // ===== PRESENCE: TYPING & RECORDING =====

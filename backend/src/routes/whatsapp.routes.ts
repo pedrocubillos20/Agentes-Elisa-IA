@@ -611,15 +611,20 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 === ETAPAS DEL PIPELINE (DETECCIÓN AUTOMÁTICA) ===
 Las etapas disponibles son: ${stagesList}
 
-Debes detectar en qué etapa está el cliente según la conversación:
-- "Saludo" = Solo saludó, no ha preguntado nada específico
-- "Interesado" = Preguntó por productos/servicios, mostró interés
-- "En Cotización" = Pidió precios, detalles, está comparando
-- "Pendiente Info" = Falta información (talla, color, cantidad, dirección, etc.)
-- "Pendiente Entrega" = Falta que confirme la fecha de entrega
-- "Realizó Pedido" = Confirmó que quiere comprar/contratar
-- "Confirmado" = Pedido/cita confirmado con todos los datos Y fecha de entrega
-- "Perdido" = Dijo que no le interesa, rechazó, se fue
+⚠️ IMPORTANTE: Detecta la etapa basándote en QUÉ INFORMACIÓN YA TIENES del cliente:
+
+REGLA DE DETECCIÓN (seguir en orden):
+1. Si el cliente dijo "no me interesa", "no gracias", "ya no quiero" → etapa_actual = "Perdido"
+2. Si YA tienes fecha_entrega Y datos de envío completos → etapa_actual = "Confirmado"
+3. Si YA tienes todos los datos del pedido PERO falta fecha_entrega → etapa_actual = "Pendiente Entrega"
+4. Si YA confirmó que quiere comprar PERO falta método de pago → etapa_actual = "Pendiente Pago"
+5. Si YA tienes nombre, talla, color, calidad, cantidad, ciudad → etapa_actual = "Realizó Pedido"
+6. Si FALTA la calidad (Premium/Mónaco) → etapa_actual = "Pendiente Calidad"
+7. Si FALTA la talla → etapa_actual = "Pendiente Talla"
+8. Si FALTA el color → etapa_actual = "Pendiente Color"
+9. Si mostró interés, preguntó por precios o productos → etapa_actual = "En Cotización"
+10. Si preguntó algo pero no ha dado datos → etapa_actual = "Interesado"
+11. Si solo saludó → etapa_actual = "Saludo"
 
 === BLOQUE DE MEMORIA (OBLIGATORIO AL FINAL) ===
 
@@ -630,12 +635,12 @@ El formato EXACTO es (incluye la línea tal cual):
 
 REGLAS del bloque de memoria:
 - Llena SOLO los campos que ya conoces. Deja vacío "" lo que NO sabes aún.
-- "fecha_entrega" = La fecha que el cliente eligió para recibir su pedido (ej: "mañana", "lunes 9 de febrero", "10/02/2025")
-- "etapa_actual" = OBLIGATORIO. Pon la etapa del pipeline que mejor describe el estado actual (usa exactamente uno de: ${stagesList})
-- "accion" = IMPORTANTE: Cuando el cliente confirme la FECHA DE ENTREGA, pon "crear_pedido". Esto agenda automáticamente el pedido.
+- "etapa_actual" = OBLIGATORIO. Usa la REGLA DE DETECCIÓN de arriba para determinar la etapa correcta.
+- "accion" = Cuando el cliente confirme la FECHA DE ENTREGA, pon "crear_pedido". Esto agenda automáticamente.
 - SIEMPRE incluye este bloque, incluso si no tienes datos nuevos.
 - El bloque va DESPUÉS de tu respuesta al cliente, en la última línea.
-- NO expliques el bloque al cliente, es interno.`);
+- NO expliques el bloque al cliente, es interno.
+- ACTUALIZA la etapa en CADA mensaje según los datos que ya tienes.`);
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     console.log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);

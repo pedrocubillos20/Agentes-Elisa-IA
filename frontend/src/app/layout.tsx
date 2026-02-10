@@ -7,10 +7,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
-  ChevronDown, Wifi, Phone, Plus, Check
+  ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
+  ExternalLink
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const SUPPORT_WHATSAPP = '573123538300';
 
 // ===== GLOBAL LINE CONTEXT =====
 const LineContext = createContext<{
@@ -31,9 +33,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [lines, setLines] = useState<any[]>([]);
   const [selectedLine, setSelectedLine] = useState<any>(null);
   const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
 
   const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
-  const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo'];
+  const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo', '/guia'];
   const isGlobalPage = globalPages.some(p => pathname === p || pathname.startsWith(p + '/'));
 
   useEffect(() => { checkAuth(); }, [pathname]);
@@ -47,6 +50,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        // Show welcome modal for first-time users
+        const welcomed = localStorage.getItem('bizonne_welcomed');
+        if (!welcomed) {
+          setShowWelcome(true);
+          localStorage.setItem('bizonne_welcomed', 'true');
+        }
       } else {
         localStorage.removeItem('token');
         if (!isAuthPage) router.push('/login');
@@ -103,6 +112,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
+    { name: 'Guía', href: '/guia', icon: BookOpen, perm: 'dashboard' },
   ];
 
   const navigation = allNavigation.filter(item => {
@@ -325,6 +335,105 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </main>
           </div>
         </LineContext.Provider>
+
+        {/* ===== WELCOME MODAL ===== */}
+        {showWelcome && (
+          <>
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setShowWelcome(false)}>
+              <div className="w-full max-w-lg bg-[#0d0d15] border border-emerald-500/20 rounded-3xl shadow-2xl shadow-emerald-500/10 overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+                {/* Header con gradiente */}
+                <div className="relative bg-gradient-to-br from-emerald-500/20 via-cyan-500/10 to-purple-500/10 p-8 text-center">
+                  <div className="absolute inset-0 bg-[url('/bizonne.png')] bg-center bg-no-repeat opacity-5 bg-contain" />
+                  <div className="relative">
+                    <div className="w-20 h-20 bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 rounded-3xl mx-auto mb-4 flex items-center justify-center border border-emerald-500/30 shadow-lg shadow-emerald-500/20">
+                      <Sparkles className="w-10 h-10 text-emerald-400" />
+                    </div>
+                    <h2 className="text-3xl font-black text-white mb-2">
+                      ¡Bienvenido a <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Bizonne</span>! 🎉
+                    </h2>
+                    <p className="text-gray-400 text-sm">
+                      Gracias por elegirnos. Estás a punto de transformar tu negocio con inteligencia artificial.
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Contenido */}
+                <div className="p-6 space-y-4">
+                  <p className="text-gray-300 text-sm text-center leading-relaxed">
+                    Tu cuenta está lista. Sigue estos pasos para activar tu asistente de IA por WhatsApp:
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-black text-emerald-400">1</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-white">Conecta WhatsApp</p>
+                        <p className="text-[11px] text-gray-500">Escanea el QR para vincular tu número</p>
+                      </div>
+                      <Smartphone className="w-5 h-5 text-emerald-400 ml-auto flex-shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                      <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-black text-blue-400">2</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-white">Configura tu Asistente</p>
+                        <p className="text-[11px] text-gray-500">Escribe la info de tu negocio y productos</p>
+                      </div>
+                      <Bot className="w-5 h-5 text-blue-400 ml-auto flex-shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-sm font-black text-purple-400">3</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-white">¡Listo! Empieza a vender</p>
+                        <p className="text-[11px] text-gray-500">Tu bot responde 24/7 automáticamente</p>
+                      </div>
+                      <Rocket className="w-5 h-5 text-purple-400 ml-auto flex-shrink-0" />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <Link href="/guia" onClick={() => setShowWelcome(false)}
+                      className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-emerald-500/30 transition-all hover:scale-[1.02] text-sm">
+                      <BookOpen className="w-4 h-4" /> Ver Tutorial Paso a Paso
+                    </Link>
+                    <button onClick={() => setShowWelcome(false)}
+                      className="px-5 py-3.5 bg-white/5 text-gray-400 rounded-xl text-sm font-medium hover:bg-white/10 transition border border-white/10">
+                      Cerrar
+                    </button>
+                  </div>
+
+                  <p className="text-center text-gray-600 text-[11px]">
+                    ¿Necesitas ayuda? Escríbenos a nuestro{' '}
+                    <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Acabo de registrarme en Bizonne y necesito ayuda para configurar mi cuenta 🤖')}`}
+                      target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
+                      soporte por WhatsApp
+                    </a>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ===== FLOATING SUPPORT BUTTON ===== */}
+        {user && !isAuthPage && (
+          <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+            <a
+              href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Necesito ayuda con mi cuenta de Bizonne 🤖')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-3 px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 transition-all hover:scale-105"
+              title="Soporte WhatsApp">
+              <HelpCircle className="w-5 h-5" />
+              <span className="text-sm font-semibold hidden group-hover:inline transition-all">Soporte</span>
+            </a>
+          </div>
+        )}
       </body>
     </html>
   );

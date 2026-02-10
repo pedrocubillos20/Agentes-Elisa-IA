@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
   Send, MessageSquare, LayoutGrid, Sparkles
@@ -59,17 +59,9 @@ export default function CRMPage() {
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
-  // Guardar referencia de la línea actual para evitar parpadeo
-  const currentLineIdRef = useRef<string>('');
-
   useEffect(() => {
     fetchAll();
-    const onLineChanged = () => { 
-      // Limpiar etapas anteriores antes de cargar las nuevas
-      currentLineIdRef.current = getLineId();
-      setLoading(true); 
-      fetchAll(); 
-    };
+    const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
     
     // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 2 segundos
@@ -79,10 +71,7 @@ export default function CRMPage() {
     
     // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 5 segundos
     const stageSyncInterval = setInterval(() => {
-      // Solo sincronizar si la línea no ha cambiado
-      if (currentLineIdRef.current === getLineId()) {
-        syncStages();
-      }
+      syncStages();
     }, 5000);
     
     return () => {
@@ -152,26 +141,14 @@ export default function CRMPage() {
   const fetchAll = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
-    
-    // Capturar lineId al inicio de la petición
-    const requestLineId = getLineId();
-    currentLineIdRef.current = requestLineId;
-    
     try {
       const [userRes, stagesRes, convsRes, clientsRes, productsRes] = await Promise.all([
         fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/stages?lineId=${requestLineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations?lineId=${requestLineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/clients?lineId=${requestLineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/products?lineId=${requestLineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/stages?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/conversations?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/clients?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/products?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
       ]);
-      
-      // Solo actualizar si la línea no cambió durante la carga
-      if (currentLineIdRef.current !== requestLineId) {
-        console.log('⚠️ Línea cambió durante carga, ignorando respuesta');
-        return;
-      }
-      
       if (userRes.ok) setUser((await userRes.json()).user);
       if (stagesRes.ok) { const d = await stagesRes.json(); if (d.stages?.length) setStages(d.stages); }
       if (convsRes.ok) setConversations((await convsRes.json()).conversations || []);

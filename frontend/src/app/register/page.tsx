@@ -52,7 +52,7 @@ export default function RegisterPage() {
     'Chatbot WhatsApp con IA',
     'CRM para gestionar clientes',
     'Sistema de agendamiento',
-    '14 días de prueba gratis'
+    '7 días de prueba gratis'
   ];
 
   return (

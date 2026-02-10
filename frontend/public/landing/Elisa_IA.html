@@ -1,1307 +1,184 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <!-- Facebook Pixel Code -->
   <script>
-    !function(f,b,e,v,n,t,s)
-    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-    n.queue=[];t=b.createElement(e);t.async=!0;
-    t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,'script',
-    'https://connect.facebook.net/en_US/fbevents.js');
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','https://connect.facebook.net/en_US/fbevents.js');
     fbq('init', '902693538817368');
     fbq('track', 'PageView');
   </script>
-  <noscript>
-    <img height="1" width="1" style="display:none"
-    src="https://www.facebook.com/tr?id=902693538817368&ev=PageView&noscript=1"/>
-  </noscript>
-  <!-- End Facebook Pixel Code -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bizonne — CRM + Agente IA para WhatsApp 24/7</title>
-  <meta name="description" content="Automatiza tu WhatsApp con inteligencia artificial. CRM automático, agenda de citas y responde clientes 24/7. 7 días gratis.">
-  <meta name="keywords" content="chatbot whatsapp, crm whatsapp, automatizar whatsapp, asistente virtual, inteligencia artificial, ventas automaticas, agenda citas">
-  <meta property="og:title" content="Bizonne — CRM + Agente IA para WhatsApp 24/7">
-  <meta property="og:description" content="Automatiza tu WhatsApp con IA. CRM Pipeline, Agenda y Respuestas 24/7.">
+  <meta name="description" content="Automatiza tu WhatsApp con IA. CRM Pipeline, Agenda y Respuestas 24/7.">
   <link rel="icon" type="image/png" href="../Bizonne.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-    
-    :root {
-      --bg: #030014;
-      --bg-secondary: #0a0a1a;
-      --bg-card: rgba(15, 15, 35, 0.6);
-      --bg-card-solid: #0f0f23;
-      --border: rgba(255,255,255,0.08);
-      --border-glow: rgba(16, 185, 129, 0.3);
-      --text: #ffffff;
-      --text-secondary: #a1a1aa;
-      --text-muted: #71717a;
-      --primary: #10b981;
-      --primary-light: #34d399;
-      --cyan: #06b6d4;
-      --emerald: #10b981;
-      --pink: #ec4899;
-      --blue: #3b82f6;
-      --purple: #8b5cf6;
-      --whatsapp: #25D366;
-      --glow-primary: rgba(16, 185, 129, 0.15);
-      --glow-cyan: rgba(6, 182, 212, 0.15);
-    }
-
-    html { scroll-behavior: smooth; overflow-x: hidden; }
-    
-    body { 
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
-      background: var(--bg); 
-      color: var(--text); 
-      line-height: 1.6;
-      overflow-x: hidden;
-      max-width: 100vw;
-    }
-
-    /* ANIMATED BACKGROUND */
-    .bg-effects {
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      overflow: hidden;
-    }
-    
-    .bg-grid {
-      position: absolute;
-      inset: 0;
-      background-image: 
-        linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
-      background-size: 60px 60px;
-      mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-    }
-    
-    .bg-orb {
-      position: absolute;
-      border-radius: 50%;
-      filter: blur(100px);
-      opacity: 0.4;
-      animation: orb-float 20s ease-in-out infinite;
-    }
-    
-    .bg-orb-1 {
-      width: 600px;
-      height: 600px;
-      background: linear-gradient(135deg, var(--emerald), var(--cyan));
-      top: -200px;
-      left: -200px;
-    }
-    
-    .bg-orb-2 {
-      width: 500px;
-      height: 500px;
-      background: linear-gradient(135deg, var(--cyan), var(--blue));
-      top: 50%;
-      right: -150px;
-      animation-delay: -7s;
-    }
-    
-    .bg-orb-3 {
-      width: 400px;
-      height: 400px;
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      bottom: -100px;
-      left: 30%;
-      animation-delay: -14s;
-    }
-    
-    @keyframes orb-float {
-      0%, 100% { transform: translate(0, 0) scale(1); }
-      25% { transform: translate(30px, -30px) scale(1.05); }
-      50% { transform: translate(-20px, 20px) scale(0.95); }
-      75% { transform: translate(40px, 10px) scale(1.02); }
-    }
-
-    /* URGENCY BANNER */
-    .urgency-banner {
-      background: linear-gradient(90deg, #059669, #10b981, #34d399, #10b981, #059669);
-      background-size: 200% 100%;
-      animation: gradient-x 3s ease infinite;
-      padding: 10px 12px;
-      text-align: center;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 1001;
-      box-shadow: 0 4px 30px rgba(16, 185, 129, 0.3);
-    }
-    
-    @keyframes gradient-x {
-      0%, 100% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-    }
-    
-    .urgency-content {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      max-width: 1200px;
-      margin: 0 auto;
-      flex-wrap: wrap;
-    }
-    
-    .urgency-text {
-      font-size: 13px;
-      font-weight: 600;
-      color: white;
-    }
-    
-    .countdown {
-      display: flex;
-      gap: 4px;
-    }
-    
-    .countdown-item {
-      background: rgba(0,0,0,0.3);
-      backdrop-filter: blur(10px);
-      padding: 4px 6px;
-      border-radius: 6px;
-      min-width: 40px;
-      text-align: center;
-      border: 1px solid rgba(255,255,255,0.15);
-    }
-    
-    .countdown-number {
-      font-size: 15px;
-      font-weight: 800;
-      color: white;
-      display: block;
-      line-height: 1.2;
-    }
-    
-    .countdown-label {
-      font-size: 7px;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.8);
-    }
-    
-    .urgency-cta {
-      background: white;
-      color: #059669;
-      padding: 8px 16px;
-      border-radius: 100px;
-      font-size: 11px;
-      font-weight: 700;
-      text-decoration: none;
-      transition: all 0.3s;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    }
-    
-    .urgency-cta:hover {
-      transform: scale(1.05);
-    }
-
-    /* NAV */
-    nav {
-      position: fixed;
-      top: 44px;
-      left: 0;
-      right: 0;
-      z-index: 1000;
-      padding: 12px 20px;
-      background: rgba(3, 0, 20, 0.8);
-      backdrop-filter: blur(20px);
-      border-bottom: 1px solid var(--border);
-    }
-    
-    .nav-inner {
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    
-    .nav-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      text-decoration: none;
-    }
-    
-    .nav-logo img {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
-    }
-    
-    .nav-logo span {
-      font-size: 22px;
-      font-weight: 800;
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    
-    .nav-links {
-      display: flex;
-      gap: 30px;
-      align-items: center;
-    }
-    
-    .nav-links a {
-      color: var(--text-secondary);
-      text-decoration: none;
-      font-size: 14px;
-      font-weight: 500;
-      transition: color 0.3s;
-    }
-    
-    .nav-links a:hover {
-      color: var(--primary);
-    }
-    
-    .nav-cta {
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      color: white !important;
-      padding: 10px 20px;
-      border-radius: 100px;
-      font-weight: 600 !important;
-    }
-
-    /* CONTAINER */
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 0 20px;
-      position: relative;
-      z-index: 1;
-    }
-
-    /* HERO */
-    .hero {
-      min-height: 100vh;
-      padding: 180px 20px 80px;
-      display: flex;
-      align-items: center;
-    }
-    
-    .hero-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 60px;
-      align-items: center;
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    
-    .hero-content {
-      max-width: 600px;
-    }
-    
-    .hero-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: var(--glow-primary);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 8px 16px;
-      border-radius: 100px;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--primary-light);
-      margin-bottom: 24px;
-    }
-    
-    .hero-badge::before {
-      content: '';
-      width: 8px;
-      height: 8px;
-      background: var(--primary);
-      border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.5; transform: scale(1.2); }
-    }
-    
-    .hero h1 {
-      font-size: clamp(36px, 5vw, 56px);
-      font-weight: 800;
-      line-height: 1.1;
-      margin-bottom: 24px;
-    }
-    
-    .hero h1 span {
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    
-    .hero p {
-      font-size: 18px;
-      color: var(--text-secondary);
-      margin-bottom: 32px;
-      line-height: 1.7;
-    }
-    
-    .hero-buttons {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 16px 32px;
-      border-radius: 100px;
-      font-size: 16px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.3s;
-      border: none;
-      cursor: pointer;
-    }
-    
-    .btn-primary {
-      background: linear-gradient(135deg, var(--primary), #059669);
-      color: white;
-      box-shadow: 0 8px 30px rgba(16, 185, 129, 0.4);
-    }
-    
-    .btn-primary:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 40px rgba(16, 185, 129, 0.5);
-    }
-    
-    .btn-secondary {
-      background: rgba(255,255,255,0.05);
-      color: white;
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    .btn-secondary:hover {
-      background: rgba(255,255,255,0.1);
-      border-color: var(--primary);
-    }
-    
-    .btn-whatsapp {
-      background: var(--whatsapp);
-      color: white;
-      box-shadow: 0 8px 30px rgba(37, 211, 102, 0.4);
-    }
-    
-    .btn-whatsapp:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 40px rgba(37, 211, 102, 0.5);
-    }
-
-    /* WHATSAPP CHAT ANIMATION */
-    .hero-visual {
-      position: relative;
-    }
-    
-    .chat-phone {
-      width: 320px;
-      height: 640px;
-      background: linear-gradient(145deg, #1a1a2e, #16213e);
-      border-radius: 40px;
-      padding: 12px;
-      box-shadow: 
-        0 50px 100px rgba(0,0,0,0.5),
-        0 0 0 1px rgba(255,255,255,0.1),
-        inset 0 0 30px rgba(16, 185, 129, 0.1);
-      margin: 0 auto;
-      position: relative;
-      overflow: hidden;
-    }
-    
-    .chat-phone::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 120px;
-      height: 30px;
-      background: #0a0a1a;
-      border-radius: 0 0 20px 20px;
-      z-index: 10;
-    }
-    
-    .chat-screen {
-      width: 100%;
-      height: 100%;
-      background: #0b141a;
-      border-radius: 30px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .chat-header {
-      background: #1f2c34;
-      padding: 50px 16px 12px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    
-    .chat-avatar {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    }
-    
-    .chat-info h4 {
-      font-size: 16px;
-      font-weight: 600;
-      color: white;
-    }
-    
-    .chat-info span {
-      font-size: 12px;
-      color: var(--primary);
-    }
-    
-    .chat-messages {
-      flex: 1;
-      padding: 16px;
-      overflow: hidden;
-      position: relative;
-      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-    }
-    
-    .chat-scroll {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      animation: chat-scroll 20s linear infinite;
-    }
-    
-    @keyframes chat-scroll {
-      0% { transform: translateY(0); }
-      100% { transform: translateY(-50%); }
-    }
-    
-    .message {
-      max-width: 85%;
-      padding: 10px 14px;
-      border-radius: 12px;
-      font-size: 14px;
-      line-height: 1.4;
-      opacity: 0;
-      animation: message-appear 0.5s forwards;
-    }
-    
-    .message-in {
-      background: #1f2c34;
-      color: white;
-      align-self: flex-start;
-      border-bottom-left-radius: 4px;
-    }
-    
-    .message-out {
-      background: #005c4b;
-      color: white;
-      align-self: flex-end;
-      border-bottom-right-radius: 4px;
-    }
-    
-    .message-time {
-      font-size: 11px;
-      color: rgba(255,255,255,0.5);
-      text-align: right;
-      margin-top: 4px;
-    }
-    
-    .message-check {
-      color: #53bdeb;
-      margin-left: 4px;
-    }
-    
-    @keyframes message-appear {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .typing-indicator {
-      display: flex;
-      gap: 4px;
-      padding: 12px 16px;
-      background: #1f2c34;
-      border-radius: 12px;
-      width: fit-content;
-    }
-    
-    .typing-dot {
-      width: 8px;
-      height: 8px;
-      background: rgba(255,255,255,0.5);
-      border-radius: 50%;
-      animation: typing 1.4s infinite;
-    }
-    
-    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    
-    @keyframes typing {
-      0%, 60%, 100% { transform: translateY(0); }
-      30% { transform: translateY(-6px); }
-    }
-
-    /* FLOATING BADGES */
-    .float-badge {
-      position: absolute;
-      background: rgba(15, 15, 35, 0.9);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255,255,255,0.1);
-      padding: 12px 16px;
-      border-radius: 12px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      animation: float 3s ease-in-out infinite;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-    }
-    
-    .float-badge-icon {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-    }
-    
-    .float-badge-text {
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-    
-    .float-badge-text strong {
-      display: block;
-      color: white;
-      font-size: 14px;
-    }
-    
-    .float-badge-1 {
-      top: 20%;
-      left: -60px;
-      animation-delay: 0s;
-    }
-    
-    .float-badge-1 .float-badge-icon {
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-    }
-    
-    .float-badge-2 {
-      bottom: 25%;
-      right: -40px;
-      animation-delay: -1.5s;
-    }
-    
-    .float-badge-2 .float-badge-icon {
-      background: linear-gradient(135deg, var(--purple), var(--pink));
-    }
-    
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
-    }
-
-    /* SECTION STYLES */
-    section {
-      padding: 100px 0;
-      position: relative;
-    }
-    
-    .section-header {
-      text-align: center;
-      max-width: 700px;
-      margin: 0 auto 60px;
-    }
-    
-    .section-tag {
-      display: inline-block;
-      background: var(--glow-primary);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 6px 16px;
-      border-radius: 100px;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--primary-light);
-      margin-bottom: 16px;
-    }
-    
-    .section-header h2 {
-      font-size: clamp(32px, 4vw, 48px);
-      font-weight: 800;
-      margin-bottom: 16px;
-    }
-    
-    .section-header p {
-      color: var(--text-secondary);
-      font-size: 18px;
-    }
-
-    /* FEATURES SECTION */
-    .features {
-      background: linear-gradient(180deg, transparent, rgba(16, 185, 129, 0.03), transparent);
-    }
-    
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 24px;
-    }
-    
-    .feature-card {
-      background: var(--bg-card);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 32px;
-      transition: all 0.4s;
-      position: relative;
-      overflow: hidden;
-    }
-    
-    .feature-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, var(--primary), transparent);
-      opacity: 0;
-      transition: opacity 0.4s;
-    }
-    
-    .feature-card:hover {
-      transform: translateY(-8px);
-      border-color: rgba(16, 185, 129, 0.3);
-      box-shadow: 0 20px 60px rgba(16, 185, 129, 0.1);
-    }
-    
-    .feature-card:hover::before {
-      opacity: 1;
-    }
-    
-    .feature-icon {
-      width: 56px;
-      height: 56px;
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
-      margin-bottom: 20px;
-    }
-    
-    .feature-card h3 {
-      font-size: 20px;
-      font-weight: 700;
-      margin-bottom: 12px;
-    }
-    
-    .feature-card p {
-      color: var(--text-secondary);
-      font-size: 15px;
-      line-height: 1.6;
-    }
-
-    /* CRM & AGENDA SHOWCASE */
-    .showcase {
-      padding: 120px 0;
-      background: linear-gradient(180deg, var(--bg), rgba(16, 185, 129, 0.02), var(--bg));
-    }
-    
-    .showcase-item {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 80px;
-      align-items: center;
-      margin-bottom: 120px;
-    }
-    
-    .showcase-item:last-child {
-      margin-bottom: 0;
-    }
-    
-    .showcase-item.reverse {
-      direction: rtl;
-    }
-    
-    .showcase-item.reverse > * {
-      direction: ltr;
-    }
-    
-    .showcase-content h3 {
-      font-size: 36px;
-      font-weight: 800;
-      margin-bottom: 20px;
-    }
-    
-    .showcase-content h3 span {
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    
-    .showcase-content p {
-      color: var(--text-secondary);
-      font-size: 18px;
-      line-height: 1.7;
-      margin-bottom: 24px;
-    }
-    
-    .showcase-features {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    
-    .showcase-feature {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 16px;
-    }
-    
-    .showcase-feature-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: var(--glow-primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--primary);
-      font-size: 16px;
-    }
-    
-    .showcase-image {
-      position: relative;
-    }
-    
-    .showcase-image img {
-      width: 100%;
-      border-radius: 20px;
-      box-shadow: 
-        0 50px 100px rgba(0,0,0,0.5),
-        0 0 0 1px rgba(255,255,255,0.1);
-    }
-    
-    .showcase-image::before {
-      content: '';
-      position: absolute;
-      inset: -20px;
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      border-radius: 30px;
-      opacity: 0.1;
-      filter: blur(40px);
-      z-index: -1;
-    }
-    
-    .showcase-badge {
-      position: absolute;
-      background: rgba(15, 15, 35, 0.95);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      padding: 16px 20px;
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      animation: float 4s ease-in-out infinite;
-    }
-    
-    .showcase-badge-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 22px;
-    }
-    
-    .showcase-badge-text span {
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-    
-    .showcase-badge-text strong {
-      display: block;
-      font-size: 18px;
-      color: white;
-    }
-
-    /* PRICING */
-    .pricing {
-      padding: 120px 0;
-      background: linear-gradient(180deg, var(--bg), rgba(16, 185, 129, 0.02), var(--bg));
-    }
-    
-    .pricing-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 32px;
-      max-width: 900px;
-      margin: 0 auto;
-    }
-    
-    .pricing-card {
-      background: var(--bg-card);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 40px;
-      position: relative;
-      transition: all 0.4s;
-    }
-    
-    .pricing-card:hover {
-      transform: translateY(-8px);
-      box-shadow: 0 30px 80px rgba(16, 185, 129, 0.15);
-    }
-    
-    .pricing-card.popular {
-      border-color: var(--primary);
-      background: linear-gradient(180deg, rgba(16, 185, 129, 0.1), var(--bg-card));
-    }
-    
-    .popular-badge {
-      position: absolute;
-      top: -14px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      padding: 8px 24px;
-      border-radius: 100px;
-      font-size: 13px;
-      font-weight: 700;
-      color: white;
-      white-space: nowrap;
-    }
-    
-    .pricing-name {
-      font-size: 24px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-    
-    .pricing-desc {
-      color: var(--text-secondary);
-      font-size: 15px;
-      margin-bottom: 24px;
-    }
-    
-    .pricing-price {
-      display: flex;
-      align-items: baseline;
-      gap: 4px;
-      margin-bottom: 8px;
-    }
-    
-    .pricing-currency {
-      font-size: 20px;
-      font-weight: 600;
-      color: var(--text-secondary);
-    }
-    
-    .pricing-amount {
-      font-size: 56px;
-      font-weight: 800;
-      background: linear-gradient(135deg, var(--primary), var(--cyan));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    
-    .pricing-period {
-      color: var(--text-muted);
-      font-size: 14px;
-    }
-    
-    .pricing-note {
-      background: rgba(16, 185, 129, 0.1);
-      border: 1px solid rgba(16, 185, 129, 0.2);
-      padding: 10px 16px;
-      border-radius: 10px;
-      font-size: 14px;
-      color: var(--primary-light);
-      margin: 20px 0;
-      text-align: center;
-    }
-    
-    .pricing-features {
-      list-style: none;
-      margin-bottom: 32px;
-    }
-    
-    .pricing-features li {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
-      font-size: 15px;
-    }
-    
-    .pricing-features li::before {
-      content: '✓';
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: var(--glow-primary);
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 700;
-      flex-shrink: 0;
-    }
-    
-    .pricing-features li.disabled {
-      color: var(--text-muted);
-    }
-    
-    .pricing-features li.disabled::before {
-      content: '✕';
-      background: rgba(255,255,255,0.05);
-      color: var(--text-muted);
-    }
-    
-    .pricing-btn {
-      display: block;
-      width: 100%;
-      padding: 16px;
-      border-radius: 12px;
-      font-size: 16px;
-      font-weight: 700;
-      text-align: center;
-      text-decoration: none;
-      transition: all 0.3s;
-    }
-    
-    .pricing-btn-primary {
-      background: linear-gradient(135deg, var(--primary), #059669);
-      color: white;
-      box-shadow: 0 8px 30px rgba(16, 185, 129, 0.4);
-    }
-    
-    .pricing-btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 12px 40px rgba(16, 185, 129, 0.5);
-    }
-    
-    .pricing-btn-secondary {
-      background: rgba(255,255,255,0.05);
-      color: white;
-      border: 1px solid var(--border);
-    }
-    
-    .pricing-btn-secondary:hover {
-      background: rgba(255,255,255,0.1);
-      border-color: var(--primary);
-    }
-    
-    .api-note {
-      max-width: 700px;
-      margin: 60px auto 0;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px 32px;
-      text-align: center;
-    }
-    
-    .api-note h4 {
-      font-size: 18px;
-      margin-bottom: 12px;
-      color: var(--primary);
-    }
-    
-    .api-note p {
-      color: var(--text-secondary);
-      font-size: 15px;
-      line-height: 1.7;
-    }
-
-    /* FAQ */
-    .faq {
-      padding: 100px 0;
-    }
-    
-    .faq-list {
-      max-width: 800px;
-      margin: 0 auto;
-    }
-    
-    .faq-item {
-      border-bottom: 1px solid var(--border);
-    }
-    
-    .faq-question {
-      padding: 24px 0;
-      font-size: 18px;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      transition: color 0.3s;
-    }
-    
-    .faq-question:hover {
-      color: var(--primary);
-    }
-    
-    .faq-icon {
-      font-size: 24px;
-      color: var(--primary);
-      transition: transform 0.3s;
-    }
-    
-    .faq-item.open .faq-icon {
-      transform: rotate(45deg);
-    }
-    
-    .faq-answer {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.3s, padding 0.3s;
-    }
-    
-    .faq-item.open .faq-answer {
-      max-height: 200px;
-      padding-bottom: 24px;
-    }
-    
-    .faq-answer p {
-      color: var(--text-secondary);
-      font-size: 16px;
-      line-height: 1.7;
-    }
-
-    /* CTA FINAL */
-    .cta-final {
-      padding: 120px 0;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-    
-    .cta-glow {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 600px;
-      height: 600px;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.15), transparent 70%);
-      pointer-events: none;
-    }
-    
-    .cta-final img {
-      width: 100px;
-      height: 100px;
-      border-radius: 24px;
-      margin-bottom: 32px;
-      box-shadow: 0 20px 60px rgba(16, 185, 129, 0.3);
-    }
-    
-    .cta-final h2 {
-      font-size: clamp(32px, 4vw, 48px);
-      font-weight: 800;
-      margin-bottom: 16px;
-    }
-    
-    .cta-final p {
-      color: var(--text-secondary);
-      font-size: 18px;
-      max-width: 600px;
-      margin: 0 auto 32px;
-    }
-    
-    .cta-buttons {
-      display: flex;
-      gap: 16px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    /* FOOTER */
-    footer {
-      padding: 40px 0;
-      text-align: center;
-      border-top: 1px solid var(--border);
-    }
-    
-    .footer-logo {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      margin-bottom: 16px;
-    }
-    
-    .footer-logo img {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-    }
-    
-    .footer-logo span {
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--primary);
-    }
-    
-    footer p {
-      color: var(--text-muted);
-      font-size: 14px;
-    }
-    
-    footer a {
-      color: var(--primary);
-      text-decoration: none;
-    }
-
-    /* ANIMATIONS */
-    .fade-up {
-      opacity: 0;
-      transform: translateY(30px);
-      transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    
-    .fade-up.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    /* RESPONSIVE */
-    @media (max-width: 1024px) {
-      .hero-grid {
-        grid-template-columns: 1fr;
-        text-align: center;
-      }
-      
-      .hero-content {
-        max-width: 100%;
-      }
-      
-      .hero-buttons {
-        justify-content: center;
-      }
-      
-      .hero-visual {
-        max-width: 350px;
-        margin: 0 auto;
-      }
-      
-      .float-badge {
-        display: none;
-      }
-      
-      .features-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-      
-      .showcase-item {
-        grid-template-columns: 1fr;
-        gap: 40px;
-      }
-      
-      .showcase-item.reverse {
-        direction: ltr;
-      }
-    }
-    
-    @media (max-width: 768px) {
-      .nav-links {
-        display: none;
-      }
-      
-      .features-grid {
-        grid-template-columns: 1fr;
-      }
-      
-      .pricing-grid {
-        grid-template-columns: 1fr;
-      }
-      
-      .hero {
-        padding: 160px 20px 60px;
-      }
-      
-      .chat-phone {
-        width: 280px;
-        height: 560px;
-      }
-      
-      .urgency-text {
-        font-size: 11px;
-      }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: #030014; color: #fff; }
+    
+    .banner { background: linear-gradient(90deg, #059669, #10b981, #34d399, #10b981); background-size: 200% 100%; animation: gradient 3s ease infinite; padding: 10px 20px; text-align: center; position: fixed; top: 0; left: 0; right: 0; z-index: 1001; }
+    @keyframes gradient { 0%,100%{background-position:0 50%} 50%{background-position:100% 50%} }
+    .banner-content { display: flex; align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap; }
+    .banner-text { font-size: 13px; font-weight: 600; }
+    .countdown { display: flex; gap: 5px; }
+    .countdown-item { background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 6px; text-align: center; min-width: 40px; }
+    .countdown-num { font-size: 14px; font-weight: 800; display: block; }
+    .countdown-label { font-size: 8px; opacity: 0.8; }
+    .banner-btn { background: #fff; color: #059669; padding: 8px 16px; border-radius: 50px; font-size: 12px; font-weight: 700; text-decoration: none; }
+    
+    nav { position: fixed; top: 44px; left: 0; right: 0; z-index: 1000; padding: 12px 20px; background: rgba(3,0,20,0.9); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(255,255,255,0.1); }
+    .nav-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; color: #fff; }
+    .nav-logo img { width: 36px; height: 36px; border-radius: 8px; }
+    .nav-logo span { font-size: 20px; font-weight: 800; color: #10b981; }
+    .nav-links { display: flex; gap: 25px; align-items: center; }
+    .nav-links a { color: #a1a1aa; text-decoration: none; font-size: 14px; }
+    .nav-links a:hover { color: #10b981; }
+    .nav-cta { background: linear-gradient(135deg, #10b981, #059669); color: #fff !important; padding: 10px 20px; border-radius: 50px; font-weight: 600; }
+    
+    .hero { min-height: 100vh; padding: 160px 20px 80px; display: flex; align-items: center; }
+    .hero-inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; }
+    .hero-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); padding: 8px 16px; border-radius: 50px; font-size: 13px; color: #34d399; margin-bottom: 20px; }
+    .hero-badge::before { content: ''; width: 8px; height: 8px; background: #10b981; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(1.2)} }
+    .hero h1 { font-size: 48px; font-weight: 800; line-height: 1.1; margin-bottom: 20px; }
+    .hero h1 span { color: #10b981; }
+    .hero p { color: #a1a1aa; font-size: 18px; line-height: 1.6; margin-bottom: 30px; }
+    .hero-btns { display: flex; gap: 15px; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 16px 32px; border-radius: 50px; font-size: 16px; font-weight: 600; text-decoration: none; transition: transform 0.3s; }
+    .btn:hover { transform: translateY(-3px); }
+    .btn-green { background: #25D366; color: #fff; }
+    .btn-primary { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
+    
+    .phone { width: 300px; height: 600px; background: linear-gradient(145deg, #1a1a2e, #16213e); border-radius: 40px; padding: 10px; margin: 0 auto; box-shadow: 0 50px 100px rgba(0,0,0,0.5); position: relative; }
+    .phone::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 100px; height: 25px; background: #0a0a1a; border-radius: 0 0 15px 15px; }
+    .phone-screen { width: 100%; height: 100%; background: #0b141a; border-radius: 32px; overflow: hidden; }
+    .chat-header { background: #1f2c34; padding: 45px 15px 12px; display: flex; align-items: center; gap: 10px; }
+    .chat-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #10b981, #06b6d4); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .chat-name { font-size: 15px; font-weight: 600; }
+    .chat-status { font-size: 11px; color: #10b981; }
+    .chat-body { padding: 15px; height: calc(100% - 80px); overflow: hidden; }
+    .chat-messages { display: flex; flex-direction: column; gap: 10px; animation: scroll-chat 15s linear infinite; }
+    @keyframes scroll-chat { 0%{transform:translateY(0)} 100%{transform:translateY(-50%)} }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
+    .msg-in { background: #1f2c34; align-self: flex-start; border-bottom-left-radius: 4px; }
+    .msg-out { background: #005c4b; align-self: flex-end; border-bottom-right-radius: 4px; }
+    .msg-time { font-size: 10px; opacity: 0.6; text-align: right; margin-top: 4px; }
+    
+    .float-badge { position: absolute; background: rgba(15,15,35,0.95); border: 1px solid rgba(255,255,255,0.1); padding: 12px 16px; border-radius: 12px; display: flex; align-items: center; gap: 10px; animation: float 3s ease-in-out infinite; }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+    .float-badge-icon { width: 36px; height: 36px; border-radius: 8px; background: linear-gradient(135deg, #10b981, #06b6d4); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    .float-badge-text { font-size: 11px; color: #a1a1aa; }
+    .float-badge-text strong { display: block; color: #fff; font-size: 13px; }
+    .float-1 { top: 15%; left: -50px; }
+    .float-2 { bottom: 20%; right: -40px; animation-delay: -1.5s; }
+    
+    .features { padding: 100px 20px; background: linear-gradient(180deg, transparent, rgba(16,185,129,0.03), transparent); }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .section-header { text-align: center; margin-bottom: 60px; }
+    .section-tag { display: inline-block; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); padding: 6px 16px; border-radius: 50px; font-size: 13px; color: #34d399; margin-bottom: 15px; }
+    .section-header h2 { font-size: 40px; font-weight: 800; margin-bottom: 15px; }
+    .section-header p { color: #a1a1aa; font-size: 18px; }
+    .features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .feature-card { background: rgba(15,15,35,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 30px; transition: all 0.3s; }
+    .feature-card:hover { transform: translateY(-5px); border-color: rgba(16,185,129,0.3); }
+    .feature-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; margin-bottom: 20px; }
+    .feature-card h3 { font-size: 18px; margin-bottom: 10px; }
+    .feature-card p { color: #a1a1aa; font-size: 14px; line-height: 1.6; }
+    
+    .showcase { padding: 100px 20px; }
+    .showcase-item { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; margin-bottom: 100px; }
+    .showcase-item.reverse { direction: rtl; }
+    .showcase-item.reverse > * { direction: ltr; }
+    .showcase-content h3 { font-size: 32px; font-weight: 800; margin-bottom: 15px; }
+    .showcase-content h3 span { color: #10b981; }
+    .showcase-content p { color: #a1a1aa; font-size: 17px; line-height: 1.7; margin-bottom: 20px; }
+    .showcase-list { display: flex; flex-direction: column; gap: 12px; }
+    .showcase-list-item { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+    .showcase-list-item::before { content: '✓'; width: 24px; height: 24px; background: rgba(16,185,129,0.15); color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .showcase-img { background: #0f0f23; border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 20px; }
+    .showcase-img img { width: 100%; border-radius: 8px; }
+    
+    .pricing { padding: 100px 20px; background: linear-gradient(180deg, transparent, rgba(16,185,129,0.03), transparent); }
+    .pricing-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 30px; max-width: 900px; margin: 0 auto; }
+    .pricing-card { background: rgba(15,15,35,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 24px; padding: 40px; position: relative; }
+    .pricing-card.popular { border-color: #10b981; background: linear-gradient(180deg, rgba(16,185,129,0.1), rgba(15,15,35,0.6)); }
+    .popular-badge { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #10b981, #06b6d4); padding: 6px 20px; border-radius: 50px; font-size: 12px; font-weight: 700; }
+    .pricing-name { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .pricing-desc { color: #a1a1aa; font-size: 14px; margin-bottom: 20px; }
+    .pricing-price { display: flex; align-items: baseline; gap: 4px; margin-bottom: 5px; }
+    .pricing-currency { font-size: 18px; color: #a1a1aa; }
+    .pricing-amount { font-size: 48px; font-weight: 800; color: #10b981; }
+    .pricing-period { color: #71717a; font-size: 14px; }
+    .pricing-note { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); padding: 10px; border-radius: 10px; font-size: 13px; color: #34d399; text-align: center; margin: 20px 0; }
+    .pricing-features { list-style: none; margin-bottom: 30px; }
+    .pricing-features li { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
+    .pricing-features li::before { content: '✓'; width: 20px; height: 20px; background: rgba(16,185,129,0.15); color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+    .pricing-features li.disabled { color: #71717a; }
+    .pricing-features li.disabled::before { content: '✕'; background: rgba(255,255,255,0.05); color: #71717a; }
+    .pricing-btn { display: block; width: 100%; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 700; text-align: center; text-decoration: none; }
+    .pricing-btn-primary { background: linear-gradient(135deg, #10b981, #059669); color: #fff; }
+    .pricing-btn-secondary { background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); }
+    
+    .api-note { max-width: 700px; margin: 50px auto 0; background: rgba(15,15,35,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; text-align: center; }
+    .api-note h4 { color: #10b981; margin-bottom: 10px; }
+    .api-note p { color: #a1a1aa; font-size: 14px; line-height: 1.6; }
+    
+    .faq { padding: 100px 20px; }
+    .faq-list { max-width: 800px; margin: 0 auto; }
+    .faq-item { border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .faq-q { padding: 20px 0; font-size: 17px; font-weight: 600; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .faq-q:hover { color: #10b981; }
+    .faq-icon { font-size: 20px; color: #10b981; transition: transform 0.3s; }
+    .faq-item.open .faq-icon { transform: rotate(45deg); }
+    .faq-a { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
+    .faq-item.open .faq-a { max-height: 200px; }
+    .faq-a p { color: #a1a1aa; font-size: 15px; line-height: 1.7; padding-bottom: 20px; }
+    
+    .cta { padding: 100px 20px; text-align: center; position: relative; }
+    .cta-glow { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 500px; height: 500px; background: radial-gradient(circle, rgba(16,185,129,0.15), transparent 70%); pointer-events: none; }
+    .cta img { width: 80px; height: 80px; border-radius: 20px; margin-bottom: 25px; }
+    .cta h2 { font-size: 40px; font-weight: 800; margin-bottom: 15px; }
+    .cta p { color: #a1a1aa; font-size: 18px; max-width: 500px; margin: 0 auto 30px; }
+    .cta-btns { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
+    
+    footer { padding: 40px 20px; text-align: center; border-top: 1px solid rgba(255,255,255,0.08); }
+    .footer-logo { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 15px; }
+    .footer-logo img { width: 28px; height: 28px; border-radius: 6px; }
+    .footer-logo span { font-size: 16px; font-weight: 700; color: #10b981; }
+    footer p { color: #71717a; font-size: 13px; }
+    footer a { color: #10b981; text-decoration: none; }
+    
+    @media (max-width: 900px) {
+      .hero-inner, .showcase-item, .features-grid, .pricing-grid { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 36px; }
+      .hero-inner { text-align: center; }
+      .hero-btns { justify-content: center; }
+      .phone { margin-top: 40px; }
+      .float-badge { display: none; }
+      .showcase-item.reverse { direction: ltr; }
+      .nav-links { display: none; }
     }
   </style>
 </head>
 <body>
 
-<!-- BACKGROUND EFFECTS -->
-<div class="bg-effects">
-  <div class="bg-grid"></div>
-  <div class="bg-orb bg-orb-1"></div>
-  <div class="bg-orb bg-orb-2"></div>
-  <div class="bg-orb bg-orb-3"></div>
-</div>
-
-<!-- URGENCY BANNER -->
-<div class="urgency-banner">
-  <div class="urgency-content">
-    <span class="urgency-text">🔥 Oferta especial: 7 días GRATIS</span>
+<div class="banner">
+  <div class="banner-content">
+    <span class="banner-text">🔥 Oferta especial: 7 días GRATIS</span>
     <div class="countdown">
-      <div class="countdown-item">
-        <span class="countdown-number" id="c-days">00</span>
-        <span class="countdown-label">Días</span>
-      </div>
-      <div class="countdown-item">
-        <span class="countdown-number" id="hours">00</span>
-        <span class="countdown-label">Horas</span>
-      </div>
-      <div class="countdown-item">
-        <span class="countdown-number" id="minutes">00</span>
-        <span class="countdown-label">Min</span>
-      </div>
-      <div class="countdown-item">
-        <span class="countdown-number" id="seconds">00</span>
-        <span class="countdown-label">Seg</span>
-      </div>
+      <div class="countdown-item"><span class="countdown-num" id="hours">00</span><span class="countdown-label">HORAS</span></div>
+      <div class="countdown-item"><span class="countdown-num" id="mins">00</span><span class="countdown-label">MIN</span></div>
+      <div class="countdown-item"><span class="countdown-num" id="secs">00</span><span class="countdown-label">SEG</span></div>
     </div>
-    <a href="#pricing" class="urgency-cta">ACTIVAR AHORA →</a>
+    <a href="#pricing" class="banner-btn">ACTIVAR AHORA →</a>
   </div>
 </div>
 
-<!-- NAV -->
 <nav>
   <div class="nav-inner">
     <a href="#" class="nav-logo">
@@ -1313,215 +190,146 @@
       <a href="#crm">CRM</a>
       <a href="#pricing">Precios</a>
       <a href="#faq">FAQ</a>
-      <a href="https://agentes-elisa-ia.vercel.app/register" class="nav-cta" onclick="fbq('track', 'Lead');">Comenzar Gratis</a>
+      <a href="https://agentes-elisa-ia.vercel.app/register" class="nav-cta">Comenzar Gratis</a>
     </div>
   </div>
 </nav>
 
-<!-- HERO -->
 <section class="hero">
-  <div class="hero-grid">
+  <div class="hero-inner">
     <div class="hero-content">
-      <div class="hero-badge fade-up">CRM + Agente IA para WhatsApp</div>
-      <h1 class="fade-up" style="animation-delay: 0.1s">
-        Vende más con tu <span>Agente IA</span> que nunca duerme
-      </h1>
-      <p class="fade-up" style="animation-delay: 0.2s">
-        CRM automático tipo Pipeline, agenda de citas y un asistente IA que responde 
-        a tus clientes 24/7 con la información de tu negocio. Todo en WhatsApp.
-      </p>
-      <div class="hero-buttons fade-up" style="animation-delay: 0.3s">
-        <a href="https://wa.me/573118083993?text=Hola%2C%20quiero%20activar%20mi%20prueba%20gratis%20de%20Bizonne" class="btn btn-whatsapp" target="_blank">
-          💬 Hablar con Agente IA
-        </a>
-        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary" onclick="fbq('track', 'CompleteRegistration');">
-          🚀 7 días gratis
-        </a>
+      <div class="hero-badge">CRM + Agente IA para WhatsApp</div>
+      <h1>Vende más con tu <span>Agente IA</span> que nunca duerme</h1>
+      <p>CRM automático tipo Pipeline, agenda de citas y un asistente IA que responde a tus clientes 24/7 con la información de tu negocio. Todo en WhatsApp.</p>
+      <div class="hero-btns">
+        <a href="https://wa.me/573118083993?text=Hola%2C%20quiero%20activar%20mi%20prueba%20gratis" class="btn btn-green" target="_blank">💬 Hablar con Agente IA</a>
+        <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary">🚀 7 días gratis</a>
       </div>
     </div>
-    
-    <div class="hero-visual fade-up" style="animation-delay: 0.4s">
-      <!-- WHATSAPP CHAT ANIMATION -->
-      <div class="chat-phone">
-        <div class="chat-screen">
+    <div class="hero-visual" style="position:relative;">
+      <div class="phone">
+        <div class="phone-screen">
           <div class="chat-header">
             <div class="chat-avatar">🤖</div>
-            <div class="chat-info">
-              <h4>Bizonne IA</h4>
-              <span>En línea</span>
+            <div>
+              <div class="chat-name">Bizonne IA</div>
+              <div class="chat-status">En línea</div>
             </div>
           </div>
-          <div class="chat-messages">
-            <div class="chat-scroll" id="chatScroll">
-              <!-- Messages will be injected by JS -->
+          <div class="chat-body">
+            <div class="chat-messages">
+              <div class="msg msg-in">Hola, ¿tienen la camiseta negra en talla M?<div class="msg-time">10:30 PM</div></div>
+              <div class="msg msg-out">¡Hola! 👋 Sí, tenemos disponible. El precio es $45.000 con envío gratis. ¿Te la aparto?<div class="msg-time">10:30 PM ✓✓</div></div>
+              <div class="msg msg-in">Sí, quiero comprarla<div class="msg-time">10:31 PM</div></div>
+              <div class="msg msg-out">¡Perfecto! 🎉 Te envío el link de pago...<div class="msg-time">10:31 PM ✓✓</div></div>
+              <div class="msg msg-in">¿Cuánto demora el envío?<div class="msg-time">10:32 PM</div></div>
+              <div class="msg msg-out">El envío tarda 2-3 días hábiles. Te enviamos guía apenas despachemos 📦<div class="msg-time">10:32 PM ✓✓</div></div>
+              <div class="msg msg-in">Genial, ya pagué<div class="msg-time">10:33 PM</div></div>
+              <div class="msg msg-out">¡Excelente! ✅ Pedido #1234 confirmado. Te avisamos cuando lo despachemos.<div class="msg-time">10:33 PM ✓✓</div></div>
+              <div class="msg msg-in">Hola, ¿tienen la camiseta negra en talla M?<div class="msg-time">10:30 PM</div></div>
+              <div class="msg msg-out">¡Hola! 👋 Sí, tenemos disponible. El precio es $45.000 con envío gratis. ¿Te la aparto?<div class="msg-time">10:30 PM ✓✓</div></div>
             </div>
           </div>
         </div>
       </div>
-      
-      <!-- FLOATING BADGES -->
-      <div class="float-badge float-badge-1">
+      <div class="float-badge float-1">
         <div class="float-badge-icon">⚡</div>
-        <div class="float-badge-text">
-          Respuesta en
-          <strong>< 3 segundos</strong>
-        </div>
+        <div class="float-badge-text">Respuesta en<strong>&lt; 3 segundos</strong></div>
       </div>
-      <div class="float-badge float-badge-2">
+      <div class="float-badge float-2">
         <div class="float-badge-icon">📊</div>
-        <div class="float-badge-text">
-          CRM Pipeline
-          <strong>Automático</strong>
-        </div>
+        <div class="float-badge-text">CRM Pipeline<strong>Automático</strong></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- FEATURES -->
 <section class="features" id="features">
   <div class="container">
     <div class="section-header">
-      <span class="section-tag fade-up">Funciones Principales</span>
-      <h2 class="fade-up" style="animation-delay: 0.1s">Todo lo que necesitas para vender más</h2>
-      <p class="fade-up" style="animation-delay: 0.2s">Automatiza tu WhatsApp y gestiona clientes como un profesional</p>
+      <span class="section-tag">Funciones Principales</span>
+      <h2>Todo lo que necesitas para vender más</h2>
+      <p>Automatiza tu WhatsApp y gestiona clientes como un profesional</p>
     </div>
-    
     <div class="features-grid">
-      <div class="feature-card fade-up">
-        <div class="feature-icon" style="background: linear-gradient(135deg, var(--primary), var(--cyan));">🤖</div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:linear-gradient(135deg,#10b981,#06b6d4)">🤖</div>
         <h3>Agente IA 24/7</h3>
         <p>Tu asistente responde automáticamente con la información de tu negocio. Precios, horarios, dudas... todo al instante.</p>
       </div>
-      
-      <div class="feature-card fade-up" style="animation-delay: 0.1s">
-        <div class="feature-icon" style="background: linear-gradient(135deg, var(--cyan), var(--blue));">📊</div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">📊</div>
         <h3>CRM Pipeline</h3>
         <p>Visualiza todos tus clientes en un embudo automático. Sabe en qué etapa está cada uno sin mover un dedo.</p>
       </div>
-      
-      <div class="feature-card fade-up" style="animation-delay: 0.2s">
-        <div class="feature-icon" style="background: linear-gradient(135deg, var(--purple), var(--pink));">📅</div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:linear-gradient(135deg,#8b5cf6,#ec4899)">📅</div>
         <h3>Agenda Integrada</h3>
         <p>Citas y pedidos organizados en un calendario. Vinculados a cada cliente automáticamente.</p>
       </div>
-      
-      <div class="feature-card fade-up" style="animation-delay: 0.3s">
-        <div class="feature-icon" style="background: linear-gradient(135deg, var(--pink), #f43f5e);">📱</div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:linear-gradient(135deg,#ec4899,#f43f5e)">📱</div>
         <h3>Multi-Línea</h3>
         <p>Conecta varios WhatsApp. Cada línea con su propio asistente y configuración independiente.</p>
       </div>
-      
-      <div class="feature-card fade-up" style="animation-delay: 0.4s">
-        <div class="feature-icon" style="background: linear-gradient(135deg, #f59e0b, #f97316);">👥</div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:linear-gradient(135deg,#f59e0b,#f97316)">👥</div>
         <h3>Gestión de Equipo</h3>
         <p>Agrega vendedores y soporte con roles. Cada uno ve solo lo que necesita.</p>
       </div>
-      
-      <div class="feature-card fade-up" style="animation-delay: 0.5s">
-        <div class="feature-icon" style="background: linear-gradient(135deg, var(--emerald), #22c55e);">🎤</div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:linear-gradient(135deg,#10b981,#22c55e)">🎤</div>
         <h3>Transcripción de Audios</h3>
-        <p>Los audios de tus clientes se transcriben automáticamente y la IA responde como si los hubiera escuchado.</p>
+        <p>Los audios de tus clientes se transcriben y la IA responde como si los hubiera escuchado.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CRM SHOWCASE -->
 <section class="showcase" id="crm">
   <div class="container">
-    <!-- CRM PIPELINE -->
-    <div class="showcase-item fade-up">
+    <div class="showcase-item">
       <div class="showcase-content">
         <h3>CRM <span>Pipeline</span> Automático</h3>
-        <p>
-          Visualiza todos tus clientes en un tablero tipo Kanban. El sistema detecta automáticamente 
-          en qué etapa está cada conversación: Interesado, Cotización, Pedido, Confirmado...
-        </p>
-        <div class="showcase-features">
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Detección automática de etapas con IA</span>
-          </div>
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Etapas personalizables según tu negocio</span>
-          </div>
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Mensajes masivos por etapa</span>
-          </div>
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Historial completo de cada cliente</span>
-          </div>
+        <p>Visualiza todos tus clientes en un tablero tipo Kanban. El sistema detecta automáticamente en qué etapa está cada conversación.</p>
+        <div class="showcase-list">
+          <div class="showcase-list-item">Detección automática de etapas con IA</div>
+          <div class="showcase-list-item">Etapas personalizables según tu negocio</div>
+          <div class="showcase-list-item">Mensajes masivos por etapa</div>
+          <div class="showcase-list-item">Historial completo de cada cliente</div>
         </div>
       </div>
-      <div class="showcase-image">
-        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'%3E%3Crect fill='%230f0f23' width='600' height='400' rx='16'/%3E%3Crect fill='%231a1a2e' x='20' y='20' width='560' height='50' rx='8'/%3E%3Ctext x='40' y='52' fill='%2310b981' font-family='Arial' font-size='18' font-weight='bold'%3ECRM Pipeline%3C/text%3E%3Crect fill='%23059669' x='480' y='30' width='80' height='30' rx='6'/%3E%3Ctext x='495' y='52' fill='white' font-family='Arial' font-size='12'%3E+ Nuevo%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='85' width='85' height='25' rx='12'/%3E%3Ctext x='35' y='102' fill='%2371717a' font-family='Arial' font-size='11'%3ESaludo (5)%3C/text%3E%3Crect fill='%23065f46' x='115' y='85' width='95' height='25' rx='12'/%3E%3Ctext x='125' y='102' fill='%2310b981' font-family='Arial' font-size='11'%3EInteresado (12)%3C/text%3E%3Crect fill='%23854d0e' x='220' y='85' width='100' height='25' rx='12'/%3E%3Ctext x='235' y='102' fill='%23fbbf24' font-family='Arial' font-size='11'%3ECotización (8)%3C/text%3E%3Crect fill='%23166534' x='330' y='85' width='100' height='25' rx='12'/%3E%3Ctext x='340' y='102' fill='%2322c55e' font-family='Arial' font-size='11'%3EConfirmado (3)%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='125' width='135' height='80' rx='12'/%3E%3Ccircle fill='%233b82f6' cx='45' cy='150' r='15'/%3E%3Ctext x='40' y='155' fill='white' font-family='Arial' font-size='12'%3EM%3C/text%3E%3Ctext x='70' y='150' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3EMaria López%3C/text%3E%3Ctext x='70' y='168' fill='%2371717a' font-family='Arial' font-size='10'%3EHola, me interesa...%3C/text%3E%3Crect fill='%23065f46' x='30' y='180' width='60' height='18' rx='9'/%3E%3Ctext x='40' y='193' fill='%2310b981' font-family='Arial' font-size='9'%3EInteresado%3C/text%3E%3Crect fill='%231a1a2e' x='165' y='125' width='135' height='80' rx='12'/%3E%3Ccircle fill='%238b5cf6' cx='190' cy='150' r='15'/%3E%3Ctext x='185' y='155' fill='white' font-family='Arial' font-size='12'%3EJ%3C/text%3E%3Ctext x='215' y='150' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3EJuan Pérez%3C/text%3E%3Ctext x='215' y='168' fill='%2371717a' font-family='Arial' font-size='10'%3E¿Cuánto cuesta?%3C/text%3E%3Crect fill='%23854d0e' x='175' y='180' width='60' height='18' rx='9'/%3E%3Ctext x='182' y='193' fill='%23fbbf24' font-family='Arial' font-size='9'%3ECotización%3C/text%3E%3Crect fill='%231a1a2e' x='310' y='125' width='135' height='80' rx='12'/%3E%3Ccircle fill='%23ec4899' cx='335' cy='150' r='15'/%3E%3Ctext x='330' y='155' fill='white' font-family='Arial' font-size='12'%3EA%3C/text%3E%3Ctext x='360' y='150' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3EAna García%3C/text%3E%3Ctext x='360' y='168' fill='%2371717a' font-family='Arial' font-size='10'%3EPedido confirmado%3C/text%3E%3Crect fill='%23166534' x='320' y='180' width='70' height='18' rx='9'/%3E%3Ctext x='328' y='193' fill='%2322c55e' font-family='Arial' font-size='9'%3EConfirmado%3C/text%3E%3Crect fill='%231a1a2e' x='455' y='125' width='125' height='80' rx='12'/%3E%3Ccircle fill='%2306b6d4' cx='480' cy='150' r='15'/%3E%3Ctext x='475' y='155' fill='white' font-family='Arial' font-size='12'%3EC%3C/text%3E%3Ctext x='505' y='150' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3ECarlos R.%3C/text%3E%3Ctext x='505' y='168' fill='%2371717a' font-family='Arial' font-size='10'%3ESí, lo quiero%3C/text%3E%3Crect fill='%23065f46' x='465' y='180' width='55' height='18' rx='9'/%3E%3Ctext x='472' y='193' fill='%2310b981' font-family='Arial' font-size='9'%3EPedido%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='215' width='135' height='80' rx='12'/%3E%3Ccircle fill='%23f59e0b' cx='45' cy='240' r='15'/%3E%3Ctext x='40' y='245' fill='white' font-family='Arial' font-size='12'%3EL%3C/text%3E%3Ctext x='70' y='240' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3ELaura M.%3C/text%3E%3Ctext x='70' y='258' fill='%2371717a' font-family='Arial' font-size='10'%3E¿Tienen talla M?%3C/text%3E%3Crect fill='%23854d0e' x='30' y='270' width='60' height='18' rx='9'/%3E%3Ctext x='40' y='283' fill='%23fbbf24' font-family='Arial' font-size='9'%3ECotización%3C/text%3E%3C/svg%3E" alt="CRM Pipeline Bizonne">
-        <div class="showcase-badge" style="top: -20px; right: 20px;">
-          <div class="showcase-badge-icon">🎯</div>
-          <div class="showcase-badge-text">
-            <span>Detección automática</span>
-            <strong>con IA</strong>
-          </div>
-        </div>
+      <div class="showcase-img">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='300' viewBox='0 0 500 300'%3E%3Crect fill='%230f0f23' width='500' height='300' rx='12'/%3E%3Ctext x='20' y='35' fill='%2310b981' font-family='Arial' font-size='16' font-weight='bold'%3ECRM Pipeline%3C/text%3E%3Crect fill='%23059669' x='400' y='15' width='80' height='28' rx='6'/%3E%3Ctext x='415' y='34' fill='white' font-family='Arial' font-size='11'%3E+ Nuevo%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='55' width='70' height='22' rx='11'/%3E%3Ctext x='30' y='70' fill='%2371717a' font-family='Arial' font-size='10'%3ESaludo (5)%3C/text%3E%3Crect fill='%23065f46' x='100' y='55' width='85' height='22' rx='11'/%3E%3Ctext x='108' y='70' fill='%2310b981' font-family='Arial' font-size='10'%3EInteresado (12)%3C/text%3E%3Crect fill='%23854d0e' x='195' y='55' width='85' height='22' rx='11'/%3E%3Ctext x='205' y='70' fill='%23fbbf24' font-family='Arial' font-size='10'%3ECotización (8)%3C/text%3E%3Crect fill='%23166534' x='290' y='55' width='90' height='22' rx='11'/%3E%3Ctext x='298' y='70' fill='%2322c55e' font-family='Arial' font-size='10'%3EConfirmado (3)%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='90' width='140' height='70' rx='10'/%3E%3Ccircle fill='%233b82f6' cx='45' cy='115' r='12'/%3E%3Ctext x='40' y='119' fill='white' font-family='Arial' font-size='10'%3EM%3C/text%3E%3Ctext x='65' y='112' fill='white' font-family='Arial' font-size='11' font-weight='bold'%3EMaria López%3C/text%3E%3Ctext x='65' y='128' fill='%2371717a' font-family='Arial' font-size='9'%3EHola, me interesa...%3C/text%3E%3Crect fill='%23065f46' x='30' y='140' width='55' height='16' rx='8'/%3E%3Ctext x='38' y='152' fill='%2310b981' font-family='Arial' font-size='8'%3EInteresado%3C/text%3E%3Crect fill='%231a1a2e' x='170' y='90' width='140' height='70' rx='10'/%3E%3Ccircle fill='%238b5cf6' cx='195' cy='115' r='12'/%3E%3Ctext x='190' y='119' fill='white' font-family='Arial' font-size='10'%3EJ%3C/text%3E%3Ctext x='215' y='112' fill='white' font-family='Arial' font-size='11' font-weight='bold'%3EJuan Pérez%3C/text%3E%3Ctext x='215' y='128' fill='%2371717a' font-family='Arial' font-size='9'%3E¿Cuánto cuesta?%3C/text%3E%3Crect fill='%23854d0e' x='180' y='140' width='55' height='16' rx='8'/%3E%3Ctext x='188' y='152' fill='%23fbbf24' font-family='Arial' font-size='8'%3ECotización%3C/text%3E%3Crect fill='%231a1a2e' x='320' y='90' width='140' height='70' rx='10'/%3E%3Ccircle fill='%23ec4899' cx='345' cy='115' r='12'/%3E%3Ctext x='340' y='119' fill='white' font-family='Arial' font-size='10'%3EA%3C/text%3E%3Ctext x='365' y='112' fill='white' font-family='Arial' font-size='11' font-weight='bold'%3EAna García%3C/text%3E%3Ctext x='365' y='128' fill='%2371717a' font-family='Arial' font-size='9'%3EPedido confirmado%3C/text%3E%3Crect fill='%23166534' x='330' y='140' width='60' height='16' rx='8'/%3E%3Ctext x='336' y='152' fill='%2322c55e' font-family='Arial' font-size='8'%3EConfirmado%3C/text%3E%3C/svg%3E" alt="CRM Pipeline">
       </div>
     </div>
-    
-    <!-- AGENDA -->
-    <div class="showcase-item reverse fade-up">
+    <div class="showcase-item reverse">
       <div class="showcase-content">
         <h3>Agenda de <span>Citas</span> Integrada</h3>
-        <p>
-          Organiza todas tus citas y pedidos en un calendario visual. Cada cita se vincula 
-          automáticamente al cliente del CRM. Perfecto para consultorios, servicios y más.
-        </p>
-        <div class="showcase-features">
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Vista de calendario mensual/semanal</span>
-          </div>
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Vinculación automática con clientes</span>
-          </div>
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Estados: Pendiente, Confirmada, Completada</span>
-          </div>
-          <div class="showcase-feature">
-            <div class="showcase-feature-icon">✓</div>
-            <span>Total de pedidos y métricas</span>
-          </div>
+        <p>Organiza todas tus citas y pedidos en un calendario visual. Cada cita se vincula automáticamente al cliente del CRM.</p>
+        <div class="showcase-list">
+          <div class="showcase-list-item">Vista de calendario mensual/semanal</div>
+          <div class="showcase-list-item">Vinculación automática con clientes</div>
+          <div class="showcase-list-item">Estados: Pendiente, Confirmada, Completada</div>
+          <div class="showcase-list-item">Total de pedidos y métricas</div>
         </div>
       </div>
-      <div class="showcase-image">
-        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'%3E%3Crect fill='%230f0f23' width='600' height='400' rx='16'/%3E%3Crect fill='%231a1a2e' x='20' y='20' width='130' height='70' rx='12'/%3E%3Ctext x='40' y='50' fill='%2310b981' font-family='Arial' font-size='28' font-weight='bold'%3E12%3C/text%3E%3Ctext x='40' y='72' fill='%2371717a' font-family='Arial' font-size='11'%3EHOY%3C/text%3E%3Crect fill='%231a1a2e' x='160' y='20' width='130' height='70' rx='12'/%3E%3Ctext x='180' y='50' fill='%23fbbf24' font-family='Arial' font-size='28' font-weight='bold'%3E8%3C/text%3E%3Ctext x='180' y='72' fill='%2371717a' font-family='Arial' font-size='11'%3EPENDIENTES%3C/text%3E%3Crect fill='%231a1a2e' x='300' y='20' width='130' height='70' rx='12'/%3E%3Ctext x='320' y='50' fill='%2322c55e' font-family='Arial' font-size='28' font-weight='bold'%3E45%3C/text%3E%3Ctext x='320' y='72' fill='%2371717a' font-family='Arial' font-size='11'%3ECONFIRMADAS%3C/text%3E%3Crect fill='%231a1a2e' x='440' y='20' width='140' height='70' rx='12'/%3E%3Ctext x='460' y='50' fill='%2306b6d4' font-family='Arial' font-size='20' font-weight='bold'%3E$2.5M%3C/text%3E%3Ctext x='460' y='72' fill='%2371717a' font-family='Arial' font-size='11'%3ETOTAL PEDIDOS%3C/text%3E%3Crect fill='%23059669' x='30' y='105' width='90' height='32' rx='6'/%3E%3Ctext x='45' y='126' fill='white' font-family='Arial' font-size='12'%3E📅 Calendario%3C/text%3E%3Crect fill='%231a1a2e' x='130' y='105' width='60' height='32' rx='6'/%3E%3Ctext x='145' y='126' fill='%2371717a' font-family='Arial' font-size='12'%3E📋 Lista%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='150' width='400' height='230' rx='12'/%3E%3Ctext x='180' y='180' fill='white' font-family='Arial' font-size='16' font-weight='bold'%3Efebrero 2026%3C/text%3E%3Ctext x='45' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3EDom%3C/text%3E%3Ctext x='95' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3ELun%3C/text%3E%3Ctext x='145' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3EMar%3C/text%3E%3Ctext x='195' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3EMié%3C/text%3E%3Ctext x='245' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3EJue%3C/text%3E%3Ctext x='295' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3EVie%3C/text%3E%3Ctext x='345' y='210' fill='%2371717a' font-family='Arial' font-size='11'%3ESáb%3C/text%3E%3Ctext x='50' y='245' fill='%2371717a' font-family='Arial' font-size='14'%3E1%3C/text%3E%3Ctext x='100' y='245' fill='%2371717a' font-family='Arial' font-size='14'%3E2%3C/text%3E%3Ctext x='150' y='245' fill='%2371717a' font-family='Arial' font-size='14'%3E3%3C/text%3E%3Ctext x='200' y='245' fill='%2371717a' font-family='Arial' font-size='14'%3E4%3C/text%3E%3Ctext x='250' y='245' fill='%2371717a' font-family='Arial' font-size='14'%3E5%3C/text%3E%3Crect fill='%23059669' x='285' y='225' width='30' height='30' rx='8'/%3E%3Ctext x='295' y='245' fill='white' font-family='Arial' font-size='14' font-weight='bold'%3E6%3C/text%3E%3Ccircle fill='%2310b981' cx='300' cy='252' r='3'/%3E%3Ctext x='350' y='245' fill='%2371717a' font-family='Arial' font-size='14'%3E7%3C/text%3E%3Ctext x='50' y='285' fill='white' font-family='Arial' font-size='14'%3E8%3C/text%3E%3Ctext x='100' y='285' fill='white' font-family='Arial' font-size='14'%3E9%3C/text%3E%3Ctext x='150' y='285' fill='white' font-family='Arial' font-size='14'%3E10%3C/text%3E%3Ctext x='200' y='285' fill='white' font-family='Arial' font-size='14'%3E11%3C/text%3E%3Ctext x='250' y='285' fill='white' font-family='Arial' font-size='14'%3E12%3C/text%3E%3Ctext x='300' y='285' fill='white' font-family='Arial' font-size='14'%3E13%3C/text%3E%3Ccircle fill='%23fbbf24' cx='305' cy='292' r='3'/%3E%3Ctext x='350' y='285' fill='white' font-family='Arial' font-size='14'%3E14%3C/text%3E%3Crect fill='%230f0f23' x='430' y='150' width='150' height='230' rx='12'/%3E%3Ctext x='450' y='180' fill='white' font-family='Arial' font-size='14' font-weight='bold'%3ESelecciona un día%3C/text%3E%3Ctext x='470' y='270' fill='%2371717a' font-family='Arial' font-size='12'%3ENo hay citas%3C/text%3E%3C/svg%3E" alt="Agenda Bizonne">
-        <div class="showcase-badge" style="bottom: -20px; left: 20px; animation-delay: -2s;">
-          <div class="showcase-badge-icon">📅</div>
-          <div class="showcase-badge-text">
-            <span>Citas organizadas</span>
-            <strong>automáticamente</strong>
-          </div>
-        </div>
+      <div class="showcase-img">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='500' height='300' viewBox='0 0 500 300'%3E%3Crect fill='%230f0f23' width='500' height='300' rx='12'/%3E%3Crect fill='%231a1a2e' x='20' y='20' width='100' height='55' rx='10'/%3E%3Ctext x='40' y='48' fill='%2310b981' font-family='Arial' font-size='22' font-weight='bold'%3E12%3C/text%3E%3Ctext x='40' y='65' fill='%2371717a' font-family='Arial' font-size='10'%3EHOY%3C/text%3E%3Crect fill='%231a1a2e' x='130' y='20' width='100' height='55' rx='10'/%3E%3Ctext x='150' y='48' fill='%23fbbf24' font-family='Arial' font-size='22' font-weight='bold'%3E8%3C/text%3E%3Ctext x='150' y='65' fill='%2371717a' font-family='Arial' font-size='10'%3EPENDIENTES%3C/text%3E%3Crect fill='%231a1a2e' x='240' y='20' width='100' height='55' rx='10'/%3E%3Ctext x='260' y='48' fill='%2322c55e' font-family='Arial' font-size='22' font-weight='bold'%3E45%3C/text%3E%3Ctext x='260' y='65' fill='%2371717a' font-family='Arial' font-size='10'%3ECONFIRMADAS%3C/text%3E%3Crect fill='%23059669' x='30' y='90' width='80' height='26' rx='6'/%3E%3Ctext x='42' y='108' fill='white' font-family='Arial' font-size='11'%3E📅 Calendario%3C/text%3E%3Crect fill='%231a1a2e' x='120' y='90' width='50' height='26' rx='6'/%3E%3Ctext x='132' y='108' fill='%2371717a' font-family='Arial' font-size='11'%3E📋 Lista%3C/text%3E%3Crect fill='%231a1a2e' x='20' y='130' width='320' height='150' rx='10'/%3E%3Ctext x='140' y='155' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3Efebrero 2026%3C/text%3E%3Ctext x='40' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3EDom%3C/text%3E%3Ctext x='85' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3ELun%3C/text%3E%3Ctext x='130' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3EMar%3C/text%3E%3Ctext x='175' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3EMié%3C/text%3E%3Ctext x='220' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3EJue%3C/text%3E%3Ctext x='265' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3EVie%3C/text%3E%3Ctext x='305' y='180' fill='%2371717a' font-family='Arial' font-size='10'%3ESáb%3C/text%3E%3Ctext x='45' y='210' fill='white' font-family='Arial' font-size='12'%3E1%3C/text%3E%3Ctext x='90' y='210' fill='white' font-family='Arial' font-size='12'%3E2%3C/text%3E%3Ctext x='135' y='210' fill='white' font-family='Arial' font-size='12'%3E3%3C/text%3E%3Ctext x='180' y='210' fill='white' font-family='Arial' font-size='12'%3E4%3C/text%3E%3Ctext x='225' y='210' fill='white' font-family='Arial' font-size='12'%3E5%3C/text%3E%3Crect fill='%23059669' x='255' y='195' width='26' height='26' rx='6'/%3E%3Ctext x='263' y='213' fill='white' font-family='Arial' font-size='12' font-weight='bold'%3E6%3C/text%3E%3Ccircle fill='%2310b981' cx='268' cy='218' r='2'/%3E%3Ctext x='310' y='210' fill='white' font-family='Arial' font-size='12'%3E7%3C/text%3E%3C/svg%3E" alt="Agenda">
       </div>
     </div>
   </div>
 </section>
 
-<!-- PRICING -->
 <section class="pricing" id="pricing">
   <div class="container">
     <div class="section-header">
-      <span class="section-tag fade-up">Precios Simples</span>
-      <h2 class="fade-up" style="animation-delay: 0.1s">Elige tu plan</h2>
-      <p class="fade-up" style="animation-delay: 0.2s">Sin sorpresas. Cancela cuando quieras.</p>
+      <span class="section-tag">Precios Simples</span>
+      <h2>Elige tu plan</h2>
+      <p>Sin sorpresas. Cancela cuando quieras.</p>
     </div>
-
     <div class="pricing-grid">
-      <!-- STARTER -->
-      <div class="pricing-card fade-up">
+      <div class="pricing-card">
         <h3 class="pricing-name">Starter</h3>
         <p class="pricing-desc">Para emprendedores y negocios pequeños</p>
         <div class="pricing-price">
@@ -1541,11 +349,9 @@
           <li class="disabled">Módulo de agenda</li>
           <li class="disabled">Gestión de equipo</li>
         </ul>
-        <a href="https://agentes-elisa-ia.vercel.app/register?plan=starter" class="pricing-btn pricing-btn-secondary" onclick="fbq('track', 'CompleteRegistration');">Comenzar Gratis</a>
+        <a href="https://agentes-elisa-ia.vercel.app/register?plan=starter" class="pricing-btn pricing-btn-secondary">Comenzar Gratis</a>
       </div>
-
-      <!-- BUSINESS -->
-      <div class="pricing-card popular fade-up" style="animation-delay: 0.1s">
+      <div class="pricing-card popular">
         <span class="popular-badge">⭐ Más Popular</span>
         <h3 class="pricing-name">Business</h3>
         <p class="pricing-desc">Para negocios en crecimiento con equipo</p>
@@ -1566,117 +372,61 @@
           <li>Mensajes masivos por etapa</li>
           <li>Dashboards separados por línea</li>
         </ul>
-        <a href="https://agentes-elisa-ia.vercel.app/register?plan=business" class="pricing-btn pricing-btn-primary" onclick="fbq('track', 'CompleteRegistration');">Comenzar Gratis</a>
+        <a href="https://agentes-elisa-ia.vercel.app/register?plan=business" class="pricing-btn pricing-btn-primary">Comenzar Gratis</a>
       </div>
     </div>
-
-    <!-- API NOTE -->
-    <div class="api-note fade-up">
+    <div class="api-note">
       <h4>💡 Sobre los créditos de IA</h4>
-      <p>
-        El precio del plan incluye toda la plataforma. Para que la IA funcione, conectas tu propia API Key de OpenAI 
-        (muy fácil de obtener). <strong>Los créditos son muy económicos: la mayoría gasta entre $3-10 USD al mes</strong>. 
-        Así tienes control total de tus costos.
-      </p>
+      <p>El precio del plan incluye toda la plataforma. Para que la IA funcione, conectas tu propia API Key de OpenAI. <strong>Los créditos son muy económicos: la mayoría gasta entre $3-10 USD al mes</strong>.</p>
     </div>
   </div>
 </section>
 
-<!-- FAQ -->
 <section class="faq" id="faq">
   <div class="container">
     <div class="section-header">
-      <span class="section-tag fade-up">Preguntas Frecuentes</span>
-      <h2 class="fade-up" style="animation-delay: 0.1s">¿Tienes dudas?</h2>
-      <p class="fade-up" style="animation-delay: 0.2s">Aquí respondemos las preguntas más comunes</p>
+      <span class="section-tag">Preguntas Frecuentes</span>
+      <h2>¿Tienes dudas?</h2>
+      <p>Aquí respondemos las preguntas más comunes</p>
     </div>
-
     <div class="faq-list">
-      <div class="faq-item fade-up">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
-          ¿Cómo funciona la prueba gratis?
-          <span class="faq-icon">+</span>
-        </div>
-        <div class="faq-answer">
-          <p>Te registras con tu email, conectas tu WhatsApp escaneando un QR, y tienes 7 días para probar todas las funciones. No pedimos tarjeta de crédito. Si te gusta, eliges un plan. Si no, no pasa nada.</p>
-        </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">¿Cómo funciona la prueba gratis?<span class="faq-icon">+</span></div>
+        <div class="faq-a"><p>Te registras con tu email, conectas tu WhatsApp escaneando un QR, y tienes 7 días para probar todas las funciones. No pedimos tarjeta de crédito.</p></div>
       </div>
-
-      <div class="faq-item fade-up">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
-          ¿Por qué necesito una API Key de OpenAI?
-          <span class="faq-icon">+</span>
-        </div>
-        <div class="faq-answer">
-          <p>Usamos la inteligencia artificial de OpenAI (ChatGPT) para que tu asistente responda. Al usar tu propia API Key, tú controlas exactamente cuánto gastas. Es muy económico: aproximadamente $3-10 USD al mes.</p>
-        </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">¿Por qué necesito una API Key de OpenAI?<span class="faq-icon">+</span></div>
+        <div class="faq-a"><p>Usamos la IA de OpenAI para que tu asistente responda. Al usar tu propia API Key, tú controlas exactamente cuánto gastas. Es muy económico: $3-10 USD al mes.</p></div>
       </div>
-
-      <div class="faq-item fade-up">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
-          ¿Qué diferencia hay entre Starter y Business?
-          <span class="faq-icon">+</span>
-        </div>
-        <div class="faq-answer">
-          <p>Starter es perfecto para emprendedores solos (3 líneas de WhatsApp). Business incluye CRM Pipeline completo, agenda de citas, gestión de equipo con roles, y hasta 5 líneas con dashboards independientes.</p>
-        </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">¿Qué diferencia hay entre Starter y Business?<span class="faq-icon">+</span></div>
+        <div class="faq-a"><p>Starter es para emprendedores solos (3 líneas). Business incluye CRM Pipeline completo, agenda de citas, gestión de equipo con roles, y hasta 5 líneas.</p></div>
       </div>
-
-      <div class="faq-item fade-up">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
-          ¿Puedo tomar el control si quiero responder yo?
-          <span class="faq-icon">+</span>
-        </div>
-        <div class="faq-answer">
-          <p>¡Claro! Solo escribe ".." en el chat y la IA se pausa. Respondes tú lo que necesites, y cuando termines escribes "." para que la IA vuelva a atender.</p>
-        </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">¿Puedo tomar el control si quiero responder yo?<span class="faq-icon">+</span></div>
+        <div class="faq-a"><p>¡Claro! Escribe ".." en el chat y la IA se pausa. Respondes tú, y cuando termines escribes "." para que la IA vuelva a atender.</p></div>
       </div>
-
-      <div class="faq-item fade-up">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
-          ¿Funciona con WhatsApp Business?
-          <span class="faq-icon">+</span>
-        </div>
-        <div class="faq-answer">
-          <p>Sí, funciona tanto con WhatsApp normal como con WhatsApp Business. Solo necesitas poder escanear un código QR desde tu teléfono.</p>
-        </div>
-      </div>
-
-      <div class="faq-item fade-up">
-        <div class="faq-question" onclick="this.parentElement.classList.toggle('open')">
-          ¿Puedo cancelar en cualquier momento?
-          <span class="faq-icon">+</span>
-        </div>
-        <div class="faq-answer">
-          <p>Sí, sin compromisos ni penalidades. Puedes cancelar cuando quieras desde tu panel de suscripción.</p>
-        </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="this.parentElement.classList.toggle('open')">¿Funciona con WhatsApp Business?<span class="faq-icon">+</span></div>
+        <div class="faq-a"><p>Sí, funciona con WhatsApp normal y WhatsApp Business. Solo necesitas escanear un código QR desde tu teléfono.</p></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA FINAL -->
-<section class="cta-final">
+<section class="cta">
   <div class="cta-glow"></div>
-  <div class="container">
-    <img src="../Bizonne.png" alt="Bizonne" class="fade-up">
-    <h2 class="fade-up" style="animation-delay: 0.1s">¿Listo para vender más?</h2>
-    <p class="fade-up" style="animation-delay: 0.2s">
-      Cada mensaje sin responder es un cliente que se va con tu competencia. 
-      Activa tu CRM + Agente IA hoy.
-    </p>
-    <div class="cta-buttons fade-up" style="animation-delay: 0.3s">
-      <a href="https://wa.me/573118083993?text=Hola%2C%20quiero%20activar%20mi%20prueba%20gratis%20de%20Bizonne" class="btn btn-whatsapp" target="_blank">
-        💬 Hablar con Agente IA
-      </a>
-      <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary" onclick="fbq('track', 'CompleteRegistration');">
-        🚀 Comenzar 7 días gratis
-      </a>
+  <div class="container" style="position:relative;z-index:1">
+    <img src="../Bizonne.png" alt="Bizonne">
+    <h2>¿Listo para vender más?</h2>
+    <p>Cada mensaje sin responder es un cliente que se va con tu competencia. Activa tu CRM + Agente IA hoy.</p>
+    <div class="cta-btns">
+      <a href="https://wa.me/573118083993?text=Hola%2C%20quiero%20activar%20mi%20prueba%20gratis" class="btn btn-green" target="_blank">💬 Hablar con Agente IA</a>
+      <a href="https://agentes-elisa-ia.vercel.app/register" class="btn btn-primary">🚀 Comenzar 7 días gratis</a>
     </div>
   </div>
 </section>
 
-<!-- FOOTER -->
 <footer>
   <div class="container">
     <div class="footer-logo">
@@ -1684,101 +434,27 @@
       <span>Bizonne</span>
     </div>
     <p>© 2026 Bizonne · CRM + Agente IA para WhatsApp</p>
-    <p style="margin-top: 8px;"><a href="/cdn-cgi/l/email-protection#c3b0acb3acb1b7a683a1aab9acadada6eda0acae"><span class="__cf_email__" data-cfemail="50233f203f2224351032392a3f3e3e357e333f3d">[email&#160;protected]</span></a></p>
+    <p style="margin-top:8px"><a href="mailto:soporte@bizonne.com">soporte@bizonne.com</a></p>
   </div>
 </footer>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
-  // POSITION NAV BELOW BANNER
-  function positionNav() {
-    const banner = document.querySelector('.urgency-banner');
-    const nav = document.querySelector('nav');
-    if (banner && nav) {
-      nav.style.top = banner.offsetHeight + 'px';
-    }
-  }
-  positionNav();
-  window.addEventListener('resize', positionNav);
+<script>
+function startCountdown() {
+  let end = localStorage.getItem('bzCountdown');
+  if (!end) { end = Date.now() + 24*60*60*1000; localStorage.setItem('bzCountdown', end); }
+  else { end = parseInt(end); if (end < Date.now()) { end = Date.now() + 24*60*60*1000; localStorage.setItem('bzCountdown', end); } }
+  setInterval(function() {
+    var diff = Math.max(0, end - Date.now());
+    var h = Math.floor(diff / 3600000);
+    var m = Math.floor((diff % 3600000) / 60000);
+    var s = Math.floor((diff % 60000) / 1000);
+    document.getElementById('hours').textContent = String(h).padStart(2, '0');
+    document.getElementById('mins').textContent = String(m).padStart(2, '0');
+    document.getElementById('secs').textContent = String(s).padStart(2, '0');
+  }, 1000);
+}
+startCountdown();
+</script>
 
-  // COUNTDOWN TIMER
-  function startCountdown() {
-    let endDate = localStorage.getItem('bizonneCountdown');
-    if (!endDate) {
-      const now = new Date();
-      now.setHours(now.getHours() + 24);
-      endDate = now.getTime();
-      localStorage.setItem('bizonneCountdown', endDate);
-    } else {
-      endDate = parseInt(endDate);
-    }
-    function updateCountdown() {
-      const now = new Date().getTime();
-      let distance = endDate - now;
-      if (distance < 0) {
-        const newEnd = new Date();
-        newEnd.setHours(newEnd.getHours() + 24);
-        endDate = newEnd.getTime();
-        localStorage.setItem('bizonneCountdown', endDate);
-        distance = endDate - now;
-      }
-      const hours = Math.floor(distance / (1000 * 60 * 60));
-      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
-      document.getElementById('c-days').textContent = '00';
-      document.getElementById('hours').textContent = String(hours).padStart(2, '0');
-      document.getElementById('minutes').textContent = String(minutes).padStart(2, '0');
-      document.getElementById('seconds').textContent = String(seconds).padStart(2, '0');
-    }
-    updateCountdown();
-    setInterval(updateCountdown, 1000);
-  }
-  startCountdown();
-
-  // WHATSAPP CHAT ANIMATION
-  const chatMessages = [
-    { type: 'in', text: 'Hola, ¿tienen la camiseta negra en talla M?' },
-    { type: 'out', text: '¡Hola! 👋 Sí, tenemos disponible. El precio es $45.000 con envío gratis. ¿Te la aparto?' },
-    { type: 'in', text: 'Sí, quiero comprarla' },
-    { type: 'out', text: '¡Perfecto! 🎉 Te envío el link de pago...' },
-    { type: 'in', text: '¿Cuánto demora el envío?' },
-    { type: 'out', text: 'El envío tarda 2-3 días hábiles a tu ciudad. Te enviamos el número de guía apenas despachemos 📦' },
-    { type: 'in', text: 'Genial, ya pagué' },
-    { type: 'out', text: '¡Excelente! ✅ Tu pedido #1234 ha sido confirmado. Te avisamos cuando lo despachemos.' },
-    { type: 'in', text: '¿También tienen gorras?' },
-    { type: 'out', text: 'Sí, tenemos gorras en negro, blanco y azul. Desde $25.000. ¿Te muestro el catálogo? 🧢' },
-    { type: 'in', text: 'Sí, por favor' },
-    { type: 'out', text: 'Aquí tienes nuestro catálogo de gorras 👆 ¿Cuál te gusta?' },
-    { type: 'in', text: 'La azul está genial' },
-    { type: 'out', text: '¡Buena elección! La gorra azul cuesta $28.000. ¿La agrego a tu pedido anterior?' },
-  ];
-
-  function initChat() {
-    const scrollContainer = document.getElementById('chatScroll');
-    let html = '';
-    
-    // Duplicamos los mensajes para el loop infinito
-    const allMessages = [...chatMessages, ...chatMessages];
-    
-    allMessages.forEach((msg, i) => {
-      const time = `${10 + Math.floor(i/2)}:${30 + (i % 2) * 1} PM`;
-      html += `
-        <div class="message message-${msg.type}" style="animation-delay: ${i * 0.3}s">
-          ${msg.text}
-          <div class="message-time">${time}${msg.type === 'out' ? '<span class="message-check">✓✓</span>' : ''}</div>
-        </div>
-      `;
-    });
-    
-    scrollContainer.innerHTML = html;
-  }
-  
-  initChat();
-
-  // SCROLL ANIMATIONS
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) { 
-        entry.target.classList.add('visible'); 
-      }
-    });
-  }, { threshold: 0.1, rootMargin: '0px 0px -50px 
+</body>
+</html>

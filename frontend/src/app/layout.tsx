@@ -8,7 +8,7 @@ import {
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
   ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
-  ExternalLink
+  ExternalLink, Code
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -36,7 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [showWelcome, setShowWelcome] = useState(false);
 
   const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
-  const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo', '/guia'];
+  const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo', '/guia', '/integraciones'];
   const isGlobalPage = globalPages.some(p => pathname === p || pathname.startsWith(p + '/'));
 
   useEffect(() => { checkAuth(); }, [pathname]);
@@ -112,6 +112,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
+    { name: 'Integraciones', href: '/integraciones', icon: Code, perm: 'config', badge: 'Nuevo' },
     { name: 'Guía', href: '/guia', icon: BookOpen, perm: 'dashboard' },
   ];
 

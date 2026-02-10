@@ -46,6 +46,8 @@ model User {
   subscription    Subscription?
   payments        Payment[]
   whatsappLines   WhatsappLine[]
+  apiKeys         UserApiKey[]
+  webhooks        UserWebhook[]
 
   @@index([parentUserId])
   @@index([role])
@@ -329,4 +331,63 @@ model WhatsappLine {
   updatedAt       DateTime  @updatedAt
 
   @@index([userId])
+}
+
+// ====================================================
+// 🔌 API & INTEGRATIONS
+// ====================================================
+
+model UserApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String    @default("default")
+  key         String    @unique              // Hashed API key
+  prefix      String                         // Primeros chars visibles: bz_xxxx...
+  isActive    Boolean   @default(true)
+  lastUsedAt  DateTime?
+  totalCalls  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model UserWebhook {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  url         String
+  secret      String?                        // HMAC SHA256 signing secret
+  events      String[]  @default([])         // Eventos suscritos
+  isActive    Boolean   @default(true)
+  lastStatus  Int?                           // Último HTTP status
+  lastError   String?
+  totalSent   Int       @default(0)
+  totalFailed Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  logs        WebhookLog[]
+
+  @@index([userId])
+  @@index([userId, isActive])
+}
+
+model WebhookLog {
+  id          String    @id @default(cuid())
+  webhookId   String
+  webhook     UserWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  userId      String
+  event       String
+  payload     Json?
+  statusCode  Int?
+  response    String?
+  duration    Int?                           // ms
+  success     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@index([webhookId])
+  @@index([userId, createdAt(sort: Desc)])
 }

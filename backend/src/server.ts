@@ -13,6 +13,7 @@ import appointmentsRoutes from './routes/appointments.routes';
 import teamRoutes from './routes/team.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import stagesRoutes from './routes/stages.routes';
+import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 
 const app = express();
@@ -73,6 +74,10 @@ app.use('/api/appointments', authMiddleware, appointmentsRoutes);
 app.use('/api/team', authMiddleware, teamRoutes);
 app.use('/api/subscription', authMiddleware, subscriptionRoutes);
 app.use('/api/stages', authMiddleware, stagesRoutes);
+
+// ===== API & INTEGRACIONES =====
+app.use('/api/integrations', authMiddleware, apiRoutes);   // Gestión keys/webhooks (JWT)
+app.use('/api/v1', apiPublicRoutes);                        // API pública (API Key)
 
 // ===== HEALTH CHECK =====
 app.get('/', (req, res) => {

@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation';
 import { 
   Shield, Users, CreditCard, Clock, Search, 
   RefreshCw, X,
-  DollarSign, UserCheck, UserX, Edit3, Save, Lock, Eye, EyeOff
+  DollarSign, UserCheck, UserX, Edit3, Save, Lock, Eye, EyeOff,
+  Tag, Plus, Trash2, ToggleLeft, ToggleRight, Gift, Percent, Copy, Check
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://elisa-ia-agentes-production.up.railway.app';
@@ -19,7 +20,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'users' | 'payments'>('users');
+  const [tab, setTab] = useState<'users' | 'payments' | 'discounts'>('users');
   const [search, setSearch] = useState('');
   const [filterPlan, setFilterPlan] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -28,6 +29,23 @@ export default function AdminPage() {
   const [editDays, setEditDays] = useState(30);
   const [actionLoading, setActionLoading] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Discount codes state
+  const [discounts, setDiscounts] = useState<any[]>([]);
+  const [showCreateDiscount, setShowCreateDiscount] = useState(false);
+  const [newDiscount, setNewDiscount] = useState({
+    code: '',
+    description: '',
+    discountType: 'percent',
+    discountValue: '',
+    applicablePlans: [] as string[],
+    applicablePeriods: [] as string[],
+    maxUses: '',
+    maxUsesPerUser: '1',
+    expiresAt: ''
+  });
+  const [discountLoading, setDiscountLoading] = useState(false);
+  const [copiedCode, setCopiedCode] = useState('');
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
@@ -58,13 +76,15 @@ export default function AdminPage() {
     setRefreshing(true);
     setLoading(true);
     try {
-      const [usersRes, paymentsRes] = await Promise.all([
+      const [usersRes, paymentsRes, discountsRes] = await Promise.all([
         fetch(`${API_URL}/api/subscription/admin/users`, { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/subscription/admin/payments`, { headers: { Authorization: `Bearer ${token}` } })
+        fetch(`${API_URL}/api/subscription/admin/payments`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/subscription/admin/discounts`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
       if (usersRes.ok) setUsers((await usersRes.json()).users || []);
       else if (usersRes.status === 403) { alert('No tienes permisos de administrador'); router.push('/dashboard'); return; }
       if (paymentsRes.ok) setPayments((await paymentsRes.json()).payments || []);
+      if (discountsRes.ok) setDiscounts((await discountsRes.json()).discounts || []);
     } catch (e) { console.error(e); }
     setLoading(false);
     setRefreshing(false);
@@ -82,6 +102,86 @@ export default function AdminPage() {
       else alert('❌ Error al actualizar');
     } catch (e) { alert('❌ Error de conexión'); }
     setActionLoading('');
+  };
+
+  // ===== DISCOUNT FUNCTIONS =====
+  const handleCreateDiscount = async () => {
+    if (!newDiscount.code || !newDiscount.discountValue) {
+      alert('Código y valor son requeridos');
+      return;
+    }
+
+    setDiscountLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/admin/discounts`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newDiscount,
+          code: newDiscount.code.toUpperCase().trim()
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        alert('✅ Código de descuento creado');
+        setShowCreateDiscount(false);
+        setNewDiscount({
+          code: '', description: '', discountType: 'percent', discountValue: '',
+          applicablePlans: [], applicablePeriods: [], maxUses: '', maxUsesPerUser: '1', expiresAt: ''
+        });
+        loadAll();
+      } else {
+        alert(`❌ ${data.error || 'Error al crear'}`);
+      }
+    } catch (e) { alert('❌ Error de conexión'); }
+    setDiscountLoading(false);
+  };
+
+  const handleToggleDiscount = async (id: string, currentActive: boolean) => {
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/admin/discounts/${id}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !currentActive })
+      });
+      if (res.ok) loadAll();
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDeleteDiscount = async (id: string, code: string) => {
+    if (!confirm(`¿Eliminar el código "${code}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/admin/discounts/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) { alert('✅ Código eliminado'); loadAll(); }
+    } catch (e) { alert('❌ Error'); }
+  };
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(''), 2000);
+  };
+
+  const togglePlan = (plan: string) => {
+    setNewDiscount(prev => ({
+      ...prev,
+      applicablePlans: prev.applicablePlans.includes(plan)
+        ? prev.applicablePlans.filter(p => p !== plan)
+        : [...prev.applicablePlans, plan]
+    }));
+  };
+
+  const togglePeriod = (period: string) => {
+    setNewDiscount(prev => ({
+      ...prev,
+      applicablePeriods: prev.applicablePeriods.includes(period)
+        ? prev.applicablePeriods.filter(p => p !== period)
+        : [...prev.applicablePeriods, period]
+    }));
   };
 
   const formatCOP = (n: number) => '$' + Math.round(n).toLocaleString('es-CO');
@@ -188,10 +288,12 @@ export default function AdminPage() {
         ))}
       </div>
 
+      {/* Tabs */}
       <div className="flex gap-2 border-b border-white/10">
         {[
           { id: 'users' as const, label: 'Usuarios', icon: Users, count: totalUsers },
           { id: 'payments' as const, label: 'Pagos', icon: CreditCard, count: payments.length },
+          { id: 'discounts' as const, label: 'Descuentos', icon: Tag, count: discounts.length },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition ${tab === t.id ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
@@ -200,6 +302,7 @@ export default function AdminPage() {
         ))}
       </div>
 
+      {/* ===== USERS TAB ===== */}
       {tab === 'users' && (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-3 items-center">
@@ -269,6 +372,7 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ===== PAYMENTS TAB ===== */}
       {tab === 'payments' && (
         <div className="space-y-4">
           {payments.length === 0 ? (
@@ -281,6 +385,7 @@ export default function AdminPage() {
                   <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Plan</th>
                   <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">USD</th>
                   <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">COP</th>
+                  <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Descuento</th>
                   <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Método</th>
                   <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Estado</th>
                   <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Fecha</th>
@@ -292,6 +397,14 @@ export default function AdminPage() {
                       <td className="px-5 py-4"><span className="text-xs font-bold">{p.plan === 'business' ? '🏢 Business' : '🚀 Starter'}</span></td>
                       <td className="px-5 py-4 text-sm font-semibold text-white">${p.amountUsd}</td>
                       <td className="px-5 py-4 text-sm text-emerald-400">{formatCOP(p.totalCop)}</td>
+                      <td className="px-5 py-4">
+                        {p.discountCode ? (
+                          <div>
+                            <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold">🏷️ {p.discountCode}</span>
+                            {p.discountAmount && <div className="text-[10px] text-purple-400 mt-1">-{formatCOP(p.discountAmount)}</div>}
+                          </div>
+                        ) : <span className="text-xs text-gray-600">—</span>}
+                      </td>
                       <td className="px-5 py-4 text-xs text-gray-400">{p.method || '—'}</td>
                       <td className="px-5 py-4"><span className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' : p.status === 'pending' ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
                         {p.status === 'approved' ? '✅ Aprobado' : p.status === 'pending' ? '⏳ Pendiente' : '❌ ' + p.status}
@@ -308,6 +421,260 @@ export default function AdminPage() {
               <div className="bg-emerald-500/10 rounded-2xl p-5 border border-emerald-500/20"><p className="text-xs text-gray-500 mb-1">Total COP</p><p className="text-2xl font-black text-emerald-400">{formatCOP(totalRevenue)}</p></div>
               <div className="bg-green-500/10 rounded-2xl p-5 border border-green-500/20"><p className="text-xs text-gray-500 mb-1">Total USD</p><p className="text-2xl font-black text-green-400">${totalRevenueUsd.toLocaleString()}</p></div>
               <div className="bg-blue-500/10 rounded-2xl p-5 border border-blue-500/20"><p className="text-xs text-gray-500 mb-1">Pagos Aprobados</p><p className="text-2xl font-black text-blue-400">{payments.filter(p => p.status === 'approved').length}</p></div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== DISCOUNTS TAB ===== */}
+      {tab === 'discounts' && (
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-white flex items-center gap-2"><Tag className="w-5 h-5 text-purple-400" /> Códigos de Descuento</h2>
+              <p className="text-gray-500 text-sm mt-1">Crea y gestiona códigos para campañas y promociones</p>
+            </div>
+            <button
+              onClick={() => setShowCreateDiscount(!showCreateDiscount)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-purple-500/20 border border-purple-500/30 text-purple-300 rounded-xl text-sm font-semibold hover:bg-purple-500/30 transition">
+              <Plus className="w-4 h-4" /> Crear Código
+            </button>
+          </div>
+
+          {/* Create Form */}
+          {showCreateDiscount && (
+            <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-6 space-y-5">
+              <h3 className="font-bold text-purple-300 flex items-center gap-2"><Gift className="w-5 h-5" /> Nuevo Código de Descuento</h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Code */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Código *</label>
+                  <input
+                    type="text"
+                    value={newDiscount.code}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, code: e.target.value.toUpperCase().replace(/\s/g, '') }))}
+                    placeholder="Ej: BIENVENIDO20"
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:border-purple-500/50 focus:outline-none uppercase tracking-wider"
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Descripción</label>
+                  <input
+                    type="text"
+                    value={newDiscount.description}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Ej: Descuento de bienvenida"
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+                  />
+                </div>
+
+                {/* Discount Type */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Tipo de descuento</label>
+                  <select
+                    value={newDiscount.discountType}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, discountType: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm focus:outline-none">
+                    <option value="percent">Porcentaje (%)</option>
+                    <option value="fixed_usd">Monto fijo USD ($)</option>
+                    <option value="fixed_cop">Monto fijo COP ($)</option>
+                  </select>
+                </div>
+
+                {/* Discount Value */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">
+                    Valor * {newDiscount.discountType === 'percent' ? '(%)' : newDiscount.discountType === 'fixed_usd' ? '(USD)' : '(COP)'}
+                  </label>
+                  <input
+                    type="number"
+                    value={newDiscount.discountValue}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, discountValue: e.target.value }))}
+                    placeholder={newDiscount.discountType === 'percent' ? 'Ej: 20' : newDiscount.discountType === 'fixed_usd' ? 'Ej: 10' : 'Ej: 50000'}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+                  />
+                </div>
+
+                {/* Max Uses */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Usos máximos totales</label>
+                  <input
+                    type="number"
+                    value={newDiscount.maxUses}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, maxUses: e.target.value }))}
+                    placeholder="Vacío = ilimitado"
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+                  />
+                </div>
+
+                {/* Max Uses Per User */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Usos por usuario</label>
+                  <input
+                    type="number"
+                    value={newDiscount.maxUsesPerUser}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, maxUsesPerUser: e.target.value }))}
+                    placeholder="1"
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+                  />
+                </div>
+
+                {/* Expiry */}
+                <div>
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5 block">Fecha de expiración</label>
+                  <input
+                    type="datetime-local"
+                    value={newDiscount.expiresAt}
+                    onChange={e => setNewDiscount(prev => ({ ...prev, expiresAt: e.target.value }))}
+                    className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white text-sm focus:border-purple-500/50 focus:outline-none"
+                  />
+                  <p className="text-gray-600 text-[10px] mt-1">Vacío = sin expiración</p>
+                </div>
+              </div>
+
+              {/* Applicable Plans */}
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Planes aplicables (vacío = todos)</label>
+                <div className="flex gap-2">
+                  {['starter', 'business'].map(p => (
+                    <button key={p} onClick={() => togglePlan(p)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold border transition ${
+                        newDiscount.applicablePlans.includes(p)
+                          ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                          : 'bg-white/5 border-white/10 text-gray-500 hover:text-gray-300'
+                      }`}>
+                      {p === 'starter' ? '🚀 Starter' : '🏢 Business'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Applicable Periods */}
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Periodos aplicables (vacío = todos)</label>
+                <div className="flex gap-2">
+                  {[
+                    { id: 'monthly', label: 'Mensual' },
+                    { id: 'semiannual', label: '6 Meses' },
+                    { id: 'annual', label: 'Anual' }
+                  ].map(p => (
+                    <button key={p.id} onClick={() => togglePeriod(p.id)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold border transition ${
+                        newDiscount.applicablePeriods.includes(p.id)
+                          ? 'bg-purple-500/20 border-purple-500/40 text-purple-300'
+                          : 'bg-white/5 border-white/10 text-gray-500 hover:text-gray-300'
+                      }`}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={handleCreateDiscount}
+                  disabled={discountLoading || !newDiscount.code || !newDiscount.discountValue}
+                  className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl font-semibold text-sm hover:bg-purple-500 transition disabled:opacity-40">
+                  {discountLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Crear Código
+                </button>
+                <button onClick={() => setShowCreateDiscount(false)}
+                  className="px-6 py-3 bg-white/5 text-gray-400 rounded-xl text-sm hover:bg-white/10 transition">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Discounts List */}
+          {discounts.length === 0 ? (
+            <div className="text-center py-16 text-gray-500">
+              <Tag className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p className="text-lg font-semibold">No hay códigos de descuento</p>
+              <p className="text-sm mt-1">Crea tu primer código para ofrecer promociones a tus clientes</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {discounts.map(d => (
+                <div key={d.id} className={`rounded-2xl border p-5 transition ${d.isActive ? 'bg-white/[0.02] border-white/10' : 'bg-red-500/5 border-red-500/10 opacity-60'}`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-4">
+                      {/* Code Badge */}
+                      <div className="flex items-center gap-2">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${d.isActive ? 'bg-purple-500/20' : 'bg-gray-500/20'}`}>
+                          <Tag className={`w-6 h-6 ${d.isActive ? 'text-purple-400' : 'text-gray-500'}`} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-lg text-white tracking-wider">{d.code}</span>
+                            <button onClick={() => copyCode(d.code)} className="p-1 hover:bg-white/10 rounded-lg transition" title="Copiar código">
+                              {copiedCode === d.code ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-gray-500" />}
+                            </button>
+                            {!d.isActive && <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full font-bold">INACTIVO</span>}
+                          </div>
+                          {d.description && <p className="text-xs text-gray-500 mt-0.5">{d.description}</p>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleToggleDiscount(d.id, d.isActive)}
+                        className={`p-2 rounded-lg transition ${d.isActive ? 'hover:bg-amber-500/10 text-emerald-400' : 'hover:bg-emerald-500/10 text-gray-500'}`}
+                        title={d.isActive ? 'Desactivar' : 'Activar'}>
+                        {d.isActive ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                      </button>
+                      <button onClick={() => handleDeleteDiscount(d.id, d.code)}
+                        className="p-2 hover:bg-red-500/10 rounded-lg text-gray-500 hover:text-red-400 transition"
+                        title="Eliminar">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Details Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 pt-4 border-t border-white/5">
+                    <div>
+                      <span className="text-[10px] text-gray-600 uppercase font-semibold">Descuento</span>
+                      <div className="text-sm font-bold text-purple-400 mt-0.5">
+                        {d.discountType === 'percent' ? `${d.discountValue}%` : 
+                         d.discountType === 'fixed_usd' ? `$${d.discountValue} USD` : 
+                         `$${d.discountValue.toLocaleString('es-CO')} COP`}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-600 uppercase font-semibold">Usos</span>
+                      <div className="text-sm font-bold text-white mt-0.5">
+                        {d.currentUses}{d.maxUses ? ` / ${d.maxUses}` : ' / ∞'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-600 uppercase font-semibold">Por usuario</span>
+                      <div className="text-sm font-bold text-white mt-0.5">{d.maxUsesPerUser}x</div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-600 uppercase font-semibold">Planes</span>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {d.applicablePlans?.length > 0 ? d.applicablePlans.join(', ') : 'Todos'}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-gray-600 uppercase font-semibold">Expira</span>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {d.expiresAt ? formatDate(d.expiresAt) : 'Sin expiración'}
+                        {d.expiresAt && new Date(d.expiresAt) < new Date() && (
+                          <span className="text-red-400 text-[10px] ml-1">(vencido)</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

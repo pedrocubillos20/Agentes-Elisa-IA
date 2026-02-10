@@ -32,24 +32,134 @@ const WOMPI_API_URL = WOMPI_ENVIRONMENT === 'test'
   ? 'https://sandbox.wompi.co/v1'
   : 'https://production.wompi.co/v1';
 
-// ===== OBTENER TASA DE CAMBIO USD→COP =====
-async function getExchangeRate(): Promise<number> {
+// =====================================================
+// ===== TRM - TASA REPRESENTATIVA DEL MERCADO =====
+// =====================================================
+
+// Cache de TRM para no consultar cada request
+let cachedTRM: { rate: number; date: string; source: string; updatedAt: number } | null = null;
+const TRM_CACHE_DURATION = 4 * 60 * 60 * 1000; // 4 horas en ms
+
+async function getTRM(): Promise<{ rate: number; source: string; date: string }> {
+  // Si hay cache válido, usarlo
+  if (cachedTRM && (Date.now() - cachedTRM.updatedAt) < TRM_CACHE_DURATION) {
+    return { rate: cachedTRM.rate, source: cachedTRM.source, date: cachedTRM.date };
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // === FUENTE 1: API Banco de la República (datos.gov.co) ===
   try {
-    const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
+    const banrepUrl = `https://www.datos.gov.co/resource/32sa-8pi3.json?$where=vigenciadesde>='${today}T00:00:00'&$order=vigenciadesde DESC&$limit=1`;
+    const res = await fetch(banrepUrl, { 
+      signal: AbortSignal.timeout(5000),
+      headers: { 'Accept': 'application/json' }
+    });
     if (res.ok) {
-      const data = await res.json() as any;
-      return data.rates?.COP || 4200;
+      const data = await res.json() as any[];
+      if (data.length > 0 && data[0].valor) {
+        const rate = parseFloat(data[0].valor);
+        if (rate > 3000 && rate < 6000) {
+          cachedTRM = { rate, date: data[0].vigenciadesde?.split('T')[0] || today, source: 'Banco de la República (TRM oficial)', updatedAt: Date.now() };
+          console.log(`✅ TRM obtenida de Banco de la República: $${rate}`);
+          return { rate: cachedTRM.rate, source: cachedTRM.source, date: cachedTRM.date };
+        }
+      }
     }
   } catch (e) {
-    console.error('Error tasa cambio:', e);
+    console.warn('⚠️ Error consultando Banco de la República:', (e as Error).message);
   }
-  return 4200; // Fallback
+
+  // Si no hay datos de hoy, buscar la más reciente
+  try {
+    const banrepRecentUrl = `https://www.datos.gov.co/resource/32sa-8pi3.json?$order=vigenciadesde DESC&$limit=1`;
+    const res = await fetch(banrepRecentUrl, { 
+      signal: AbortSignal.timeout(5000),
+      headers: { 'Accept': 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json() as any[];
+      if (data.length > 0 && data[0].valor) {
+        const rate = parseFloat(data[0].valor);
+        if (rate > 3000 && rate < 6000) {
+          cachedTRM = { rate, date: data[0].vigenciadesde?.split('T')[0] || today, source: 'Banco de la República (TRM reciente)', updatedAt: Date.now() };
+          console.log(`✅ TRM reciente de Banco de la República: $${rate}`);
+          return { rate: cachedTRM.rate, source: cachedTRM.source, date: cachedTRM.date };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Error consultando TRM reciente:', (e as Error).message);
+  }
+
+  // === FUENTE 2: ExchangeRate API (fallback) ===
+  try {
+    const res = await fetch('https://api.exchangerate-api.com/v4/latest/USD', {
+      signal: AbortSignal.timeout(5000)
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const rate = data.rates?.COP;
+      if (rate && rate > 3000 && rate < 6000) {
+        cachedTRM = { rate: Math.round(rate * 100) / 100, date: today, source: 'ExchangeRate API', updatedAt: Date.now() };
+        console.log(`✅ Tasa de ExchangeRate API: $${rate}`);
+        return { rate: cachedTRM.rate, source: cachedTRM.source, date: cachedTRM.date };
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Error consultando ExchangeRate API:', (e as Error).message);
+  }
+
+  // === FUENTE 3: Open Exchange Rates (segundo fallback) ===
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+      signal: AbortSignal.timeout(5000)
+    });
+    if (res.ok) {
+      const data = await res.json() as any;
+      const rate = data.rates?.COP;
+      if (rate && rate > 3000 && rate < 6000) {
+        cachedTRM = { rate: Math.round(rate * 100) / 100, date: today, source: 'Open ExchangeRate', updatedAt: Date.now() };
+        console.log(`✅ Tasa de Open ExchangeRate: $${rate}`);
+        return { rate: cachedTRM.rate, source: cachedTRM.source, date: cachedTRM.date };
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ Error consultando Open ExchangeRate:', (e as Error).message);
+  }
+
+  // === FALLBACK: usar cache anterior o valor fijo ===
+  if (cachedTRM) {
+    console.warn('⚠️ Usando TRM cacheada anterior:', cachedTRM.rate);
+    return { rate: cachedTRM.rate, source: cachedTRM.source + ' (cache)', date: cachedTRM.date };
+  }
+
+  console.error('❌ No se pudo obtener TRM, usando fallback 4200');
+  return { rate: 4200, source: 'Fallback fijo', date: today };
 }
+
+// ===== GET /api/subscription/exchange-rate =====
+// Endpoint público para consultar la TRM actual
+router.get('/exchange-rate', async (req: Request, res: Response) => {
+  try {
+    const trm = await getTRM();
+    res.json({
+      rate: trm.rate,
+      source: trm.source,
+      date: trm.date,
+      cached: cachedTRM ? true : false,
+      cacheAge: cachedTRM ? Math.round((Date.now() - cachedTRM.updatedAt) / 60000) + ' min' : null
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener tasa de cambio' });
+  }
+});
 
 // ===== GET /api/subscription/plans =====
 router.get('/plans', async (req: Request, res: Response) => {
   try {
-    const rate = await getExchangeRate();
+    const trm = await getTRM();
+    const rate = trm.rate;
     
     const plans = Object.entries(PLANS).map(([id, plan]) => ({
       id,
@@ -83,7 +193,13 @@ router.get('/plans', async (req: Request, res: Response) => {
       }
     }));
 
-    res.json({ plans, exchangeRate: rate, cardSurcharge: CARD_SURCHARGE * 100 });
+    res.json({ 
+      plans, 
+      exchangeRate: rate, 
+      exchangeSource: trm.source,
+      exchangeDate: trm.date,
+      cardSurcharge: CARD_SURCHARGE * 100 
+    });
   } catch (error) {
     console.error('Error planes:', error);
     res.status(500).json({ error: 'Error al obtener planes' });
@@ -149,7 +265,10 @@ router.get('/status', async (req: Request, res: Response) => {
         amountUsd: p.amountUsd,
         method: p.method,
         status: p.status,
-        date: p.createdAt
+        date: p.createdAt,
+        discountCode: p.discountCode,
+        discountPercent: p.discountPercent,
+        discountAmount: p.discountAmount
       })),
       registeredAt: user.createdAt
     });
@@ -159,14 +278,124 @@ router.get('/status', async (req: Request, res: Response) => {
   }
 });
 
+// =====================================================
+// ===== CÓDIGOS DE DESCUENTO - VALIDACIÓN =====
+// =====================================================
+
+// POST /api/subscription/validate-discount
+router.post('/validate-discount', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const { code, plan, period } = req.body;
+    if (!code) { res.status(400).json({ error: 'Código requerido' }); return; }
+
+    const discount = await prisma.discountCode.findUnique({
+      where: { code: code.toUpperCase().trim() },
+      include: { usages: { where: { userId } } }
+    });
+
+    if (!discount) {
+      res.status(404).json({ error: 'Código de descuento no encontrado', valid: false });
+      return;
+    }
+
+    // Validaciones
+    if (!discount.isActive) {
+      res.json({ valid: false, error: 'Este código está desactivado' });
+      return;
+    }
+
+    if (discount.expiresAt && new Date(discount.expiresAt) < new Date()) {
+      res.json({ valid: false, error: 'Este código ha expirado' });
+      return;
+    }
+
+    if (discount.startsAt && new Date(discount.startsAt) > new Date()) {
+      res.json({ valid: false, error: 'Este código aún no está activo' });
+      return;
+    }
+
+    if (discount.maxUses && discount.currentUses >= discount.maxUses) {
+      res.json({ valid: false, error: 'Este código ha alcanzado su límite de usos' });
+      return;
+    }
+
+    if (discount.usages.length >= discount.maxUsesPerUser) {
+      res.json({ valid: false, error: 'Ya has usado este código' });
+      return;
+    }
+
+    // Validar plan aplicable
+    if (discount.applicablePlans.length > 0 && plan && !discount.applicablePlans.includes(plan)) {
+      res.json({ valid: false, error: `Este código no aplica para el plan ${plan}` });
+      return;
+    }
+
+    // Validar periodo aplicable
+    if (discount.applicablePeriods.length > 0 && period && !discount.applicablePeriods.includes(period)) {
+      res.json({ valid: false, error: `Este código no aplica para el periodo ${period}` });
+      return;
+    }
+
+    // Calcular descuento
+    const trm = await getTRM();
+    let discountPreview = null;
+
+    if (plan && period) {
+      const planConfig = PLANS[plan as keyof typeof PLANS];
+      if (planConfig) {
+        const priceUsd = planConfig[period as keyof typeof planConfig] as number;
+        const priceCop = Math.round(priceUsd * trm.rate);
+
+        let discountAmountCop = 0;
+        if (discount.discountType === 'percent') {
+          discountAmountCop = Math.round(priceCop * (discount.discountValue / 100));
+        } else if (discount.discountType === 'fixed_usd') {
+          discountAmountCop = Math.round(discount.discountValue * trm.rate);
+        } else if (discount.discountType === 'fixed_cop') {
+          discountAmountCop = Math.round(discount.discountValue);
+        }
+
+        // No puede ser mayor al precio total
+        discountAmountCop = Math.min(discountAmountCop, priceCop);
+
+        const finalCop = priceCop - discountAmountCop;
+
+        discountPreview = {
+          originalCop: priceCop,
+          discountAmountCop,
+          finalCop,
+          finalWithCard: Math.round(finalCop * (1 + CARD_SURCHARGE)),
+          savedPercent: Math.round((discountAmountCop / priceCop) * 100)
+        };
+      }
+    }
+
+    res.json({
+      valid: true,
+      code: discount.code,
+      description: discount.description,
+      discountType: discount.discountType,
+      discountValue: discount.discountValue,
+      applicablePlans: discount.applicablePlans,
+      applicablePeriods: discount.applicablePeriods,
+      preview: discountPreview
+    });
+  } catch (error) {
+    console.error('Error validar descuento:', error);
+    res.status(500).json({ error: 'Error al validar código' });
+  }
+});
+
 // ===== POST /api/subscription/create-payment =====
-// Crea un link de pago en Wompi
 router.post('/create-payment', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const { plan, period } = req.body;
+    const { plan, period, discountCode: rawDiscountCode } = req.body;
     if (!plan || !period) { res.status(400).json({ error: 'Plan y periodo requeridos' }); return; }
     if (!PLANS[plan as keyof typeof PLANS]) { res.status(400).json({ error: 'Plan inválido' }); return; }
     if (!['monthly', 'semiannual', 'annual'].includes(period)) { res.status(400).json({ error: 'Periodo inválido' }); return; }
@@ -176,10 +405,58 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 
     const planConfig = PLANS[plan as keyof typeof PLANS];
     const priceUsd = planConfig[period as keyof typeof planConfig] as number;
-    const rate = await getExchangeRate();
-    const priceCop = Math.round(priceUsd * rate);
+    const trm = await getTRM();
+    const rate = trm.rate;
+    const originalCop = Math.round(priceUsd * rate);
+
+    // === PROCESAR CÓDIGO DE DESCUENTO ===
+    let discountAmountCop = 0;
+    let discountPercent: number | null = null;
+    let appliedCode: string | null = null;
+    let discountRecord: any = null;
+
+    if (rawDiscountCode) {
+      const code = rawDiscountCode.toUpperCase().trim();
+      const discount = await prisma.discountCode.findUnique({
+        where: { code },
+        include: { usages: { where: { userId } } }
+      });
+
+      if (discount && discount.isActive) {
+        // Re-validar todas las condiciones
+        const now = new Date();
+        const isExpired = discount.expiresAt && new Date(discount.expiresAt) < now;
+        const notStarted = discount.startsAt && new Date(discount.startsAt) > now;
+        const maxUsesReached = discount.maxUses && discount.currentUses >= discount.maxUses;
+        const userMaxReached = discount.usages.length >= discount.maxUsesPerUser;
+        const planNotAllowed = discount.applicablePlans.length > 0 && !discount.applicablePlans.includes(plan);
+        const periodNotAllowed = discount.applicablePeriods.length > 0 && !discount.applicablePeriods.includes(period);
+        const minNotMet = discount.minAmountUsd && priceUsd < discount.minAmountUsd;
+
+        if (!isExpired && !notStarted && !maxUsesReached && !userMaxReached && !planNotAllowed && !periodNotAllowed && !minNotMet) {
+          // Calcular descuento
+          if (discount.discountType === 'percent') {
+            discountAmountCop = Math.round(originalCop * (discount.discountValue / 100));
+            discountPercent = discount.discountValue;
+          } else if (discount.discountType === 'fixed_usd') {
+            discountAmountCop = Math.round(discount.discountValue * rate);
+            discountPercent = Math.round((discountAmountCop / originalCop) * 100);
+          } else if (discount.discountType === 'fixed_cop') {
+            discountAmountCop = Math.round(discount.discountValue);
+            discountPercent = Math.round((discountAmountCop / originalCop) * 100);
+          }
+
+          // No puede ser mayor al precio
+          discountAmountCop = Math.min(discountAmountCop, originalCop);
+          appliedCode = code;
+          discountRecord = discount;
+        }
+      }
+    }
+
+    const finalCop = originalCop - discountAmountCop;
     // Wompi recibe montos en centavos
-    const amountInCents = priceCop * 100;
+    const amountInCents = finalCop * 100;
 
     const reference = `ELISA-${userId.slice(-8)}-${plan}-${period}-${Date.now()}`;
 
@@ -189,20 +466,40 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const signature = crypto.createHash('sha256').update(signatureString).digest('hex');
 
     // Crear registro de pago pendiente
-    await prisma.payment.create({
+    const payment = await prisma.payment.create({
       data: {
         userId,
         type: 'subscription',
         plan,
         period,
         amountUsd: priceUsd,
-        amountCop: priceCop,
+        amountCop: finalCop,
         exchangeRate: rate,
-        totalCop: priceCop,
+        totalCop: finalCop,
         status: 'pending',
-        wompiReference: reference
+        wompiReference: reference,
+        discountCode: appliedCode,
+        discountPercent,
+        discountAmount: discountAmountCop > 0 ? discountAmountCop : null,
+        originalCop: discountAmountCop > 0 ? originalCop : null
       }
     });
+
+    // Registrar uso del código
+    if (discountRecord && appliedCode) {
+      await prisma.discountCode.update({
+        where: { id: discountRecord.id },
+        data: { currentUses: { increment: 1 } }
+      });
+      await prisma.discountUsage.create({
+        data: {
+          discountCodeId: discountRecord.id,
+          userId,
+          paymentId: payment.id,
+          amountSaved: discountAmountCop
+        }
+      });
+    }
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://agentes-elisa-ia.vercel.app';
 
@@ -218,8 +515,16 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       plan,
       period,
       priceUsd,
-      priceCop,
-      exchangeRate: rate
+      originalCop,
+      priceCop: finalCop,
+      exchangeRate: rate,
+      exchangeSource: trm.source,
+      discount: appliedCode ? {
+        code: appliedCode,
+        percent: discountPercent,
+        amountCop: discountAmountCop,
+        originalCop
+      } : null
     });
   } catch (error) {
     console.error('Error crear pago:', error);
@@ -228,28 +533,25 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 });
 
 // ===== POST /api/subscription/webhook/wompi =====
-// Webhook de Wompi para confirmar pagos (PÚBLICO, sin auth)
 router.post('/webhook/wompi', async (req: Request, res: Response) => {
   try {
     const event = req.body;
-    console.log('💳 Webhook Wompi:', JSON.stringify(event).substring(0, 500));
+    console.log('💳 Webhook Wompi:', JSON.stringify(event).substring(0, 200));
 
-    // Verificar firma del webhook
-    if (WOMPI_EVENT_SECRET && event.signature) {
-      const properties = event.signature?.properties || [];
-      const checksum = event.signature?.checksum;
-      
-      let concatenated = '';
-      for (const prop of properties) {
-        const keys = prop.split('.');
-        let value: any = event;
-        for (const key of keys) value = value?.[key];
-        concatenated += value;
-      }
-      concatenated += event.timestamp + WOMPI_EVENT_SECRET;
+    // Verificar firma si viene con checksum
+    if (event.signature?.checksum && WOMPI_EVENT_SECRET) {
+      const properties = event.signature.properties || [];
+      const concatenated = properties
+        .map((prop: string) => {
+          const keys = prop.split('.');
+          let value: any = event;
+          for (const key of keys) value = value?.[key];
+          return value;
+        })
+        .join('') + event.timestamp + WOMPI_EVENT_SECRET;
       
       const computed = crypto.createHash('sha256').update(concatenated).digest('hex');
-      if (computed !== checksum) {
+      if (computed !== event.signature.checksum) {
         console.error('❌ Firma Wompi inválida');
         res.status(400).json({ error: 'Firma inválida' });
         return;
@@ -323,8 +625,24 @@ router.post('/webhook/wompi', async (req: Request, res: Response) => {
         data: { plan: payment.plan }
       });
 
-      console.log(`✅ Pago aprobado: ${payment.plan} ${payment.period} para usuario ${payment.userId}`);
+      console.log(`✅ Pago aprobado: ${payment.plan} ${payment.period} para usuario ${payment.userId}${payment.discountCode ? ` (código: ${payment.discountCode})` : ''}`);
     } else if (event.event === 'transaction.updated' && status === 'DECLINED') {
+      // Si fue rechazado y tenía código de descuento, revertir el uso
+      const payment = await prisma.payment.findFirst({
+        where: { wompiReference: reference, status: 'pending' }
+      });
+
+      if (payment?.discountCode) {
+        // Revertir uso del código
+        await prisma.discountCode.updateMany({
+          where: { code: payment.discountCode, currentUses: { gt: 0 } },
+          data: { currentUses: { decrement: 1 } }
+        });
+        await prisma.discountUsage.deleteMany({
+          where: { paymentId: payment.id }
+        });
+      }
+
       await prisma.payment.updateMany({
         where: { wompiReference: reference, status: 'pending' },
         data: { status: 'declined', wompiTransactionId: String(transactionId) }
@@ -340,14 +658,12 @@ router.post('/webhook/wompi', async (req: Request, res: Response) => {
 });
 
 // ===== POST /api/subscription/verify-payment =====
-// Verificar estado de pago directamente con Wompi
 router.post('/verify-payment', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { reference } = req.body;
     if (!userId || !reference) { res.status(400).json({ error: 'Referencia requerida' }); return; }
 
-    // Consultar Wompi
     const wompiRes = await fetch(`${WOMPI_API_URL}/transactions?reference=${reference}`, {
       headers: { 'Authorization': `Bearer ${WOMPI_PRIVATE_KEY}` }
     });
@@ -370,11 +686,136 @@ router.post('/verify-payment', async (req: Request, res: Response) => {
   }
 });
 
+// =====================================================
+// ===== ADMIN: CÓDIGOS DE DESCUENTO =====
+// =====================================================
+
+// Helper: verificar admin
+async function isAdmin(userId: string | undefined): Promise<boolean> {
+  if (!userId) return false;
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  return !!user && !user.parentUserId;
+}
+
+// GET /api/subscription/admin/discounts
+router.get('/admin/discounts', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!(await isAdmin(userId))) { res.status(403).json({ error: 'No autorizado' }); return; }
+
+    const discounts = await prisma.discountCode.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: { select: { usages: true } },
+        usages: {
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+          select: { userId: true, amountSaved: true, createdAt: true }
+        }
+      }
+    });
+
+    res.json({ discounts });
+  } catch (error) {
+    console.error('Error listar descuentos:', error);
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+// POST /api/subscription/admin/discounts
+router.post('/admin/discounts', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!(await isAdmin(userId))) { res.status(403).json({ error: 'No autorizado' }); return; }
+
+    const { code, description, discountType, discountValue, applicablePlans, applicablePeriods, maxUses, maxUsesPerUser, startsAt, expiresAt } = req.body;
+
+    if (!code || !discountValue) {
+      res.status(400).json({ error: 'Código y valor de descuento son requeridos' });
+      return;
+    }
+
+    // Verificar código único
+    const existing = await prisma.discountCode.findUnique({ where: { code: code.toUpperCase().trim() } });
+    if (existing) {
+      res.status(400).json({ error: 'Ya existe un código con ese nombre' });
+      return;
+    }
+
+    const discount = await prisma.discountCode.create({
+      data: {
+        code: code.toUpperCase().trim(),
+        description: description || null,
+        discountType: discountType || 'percent',
+        discountValue: parseFloat(discountValue),
+        applicablePlans: applicablePlans || [],
+        applicablePeriods: applicablePeriods || [],
+        maxUses: maxUses ? parseInt(maxUses) : null,
+        maxUsesPerUser: maxUsesPerUser ? parseInt(maxUsesPerUser) : 1,
+        startsAt: startsAt ? new Date(startsAt) : new Date(),
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        isActive: true
+      }
+    });
+
+    console.log(`🏷️ Código de descuento creado: ${discount.code} (${discount.discountType}: ${discount.discountValue})`);
+    res.json({ success: true, discount });
+  } catch (error) {
+    console.error('Error crear descuento:', error);
+    res.status(500).json({ error: 'Error al crear código' });
+  }
+});
+
+// PUT /api/subscription/admin/discounts/:id
+router.put('/admin/discounts/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!(await isAdmin(userId))) { res.status(403).json({ error: 'No autorizado' }); return; }
+
+    const { id } = req.params;
+    const { description, discountType, discountValue, applicablePlans, applicablePeriods, maxUses, maxUsesPerUser, startsAt, expiresAt, isActive } = req.body;
+
+    const discount = await prisma.discountCode.update({
+      where: { id },
+      data: {
+        ...(description !== undefined && { description }),
+        ...(discountType && { discountType }),
+        ...(discountValue !== undefined && { discountValue: parseFloat(discountValue) }),
+        ...(applicablePlans && { applicablePlans }),
+        ...(applicablePeriods && { applicablePeriods }),
+        ...(maxUses !== undefined && { maxUses: maxUses ? parseInt(maxUses) : null }),
+        ...(maxUsesPerUser !== undefined && { maxUsesPerUser: parseInt(maxUsesPerUser) }),
+        ...(startsAt && { startsAt: new Date(startsAt) }),
+        ...(expiresAt !== undefined && { expiresAt: expiresAt ? new Date(expiresAt) : null }),
+        ...(isActive !== undefined && { isActive })
+      }
+    });
+
+    res.json({ success: true, discount });
+  } catch (error) {
+    console.error('Error actualizar descuento:', error);
+    res.status(500).json({ error: 'Error al actualizar' });
+  }
+});
+
+// DELETE /api/subscription/admin/discounts/:id
+router.delete('/admin/discounts/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!(await isAdmin(userId))) { res.status(403).json({ error: 'No autorizado' }); return; }
+
+    await prisma.discountCode.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error eliminar descuento:', error);
+    res.status(500).json({ error: 'Error al eliminar' });
+  }
+});
+
 // ===== ADMIN: GET /api/subscription/admin/users =====
 router.get('/admin/users', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-    // Solo super admin (primer usuario o email específico)
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.parentUserId) { res.status(403).json({ error: 'No autorizado' }); return; }
 
@@ -429,7 +870,6 @@ router.put('/admin/extend', async (req: Request, res: Response) => {
     periodEnd.setDate(periodEnd.getDate() + days);
 
     if (plan && plan !== 'trial') {
-      // Crear/actualizar suscripción manual
       await prisma.subscription.upsert({
         where: { userId: targetUserId },
         create: {
@@ -444,7 +884,6 @@ router.put('/admin/extend', async (req: Request, res: Response) => {
       });
       await prisma.user.update({ where: { id: targetUserId }, data: { plan } });
     } else {
-      // Extender trial
       await prisma.user.update({
         where: { id: targetUserId },
         data: { trialEndsAt: periodEnd, plan: 'trial' }

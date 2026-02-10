@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Crown, Check, X, Clock, CreditCard, Shield, Zap, ArrowLeft, AlertTriangle, Star, Sparkles, Building2, Rocket, ChevronDown } from 'lucide-react';
+import { Crown, Check, X, Clock, CreditCard, Shield, Zap, ArrowLeft, AlertTriangle, Star, Sparkles, Building2, Rocket, ChevronDown, Tag, Percent, Gift, Info } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://elisa-ia-agentes-production.up.railway.app';
 
@@ -42,14 +42,30 @@ export default function SubscriptionPage() {
   const [user, setUser] = useState<any>(null);
   const [plans, setPlans] = useState<any[]>([]);
   const [exchangeRate, setExchangeRate] = useState(4200);
+  const [exchangeSource, setExchangeSource] = useState('');
+  const [exchangeDate, setExchangeDate] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState<'monthly' | 'semiannual' | 'annual'>('monthly');
   const [loading, setLoading] = useState(true);
   const [paymentLoading, setPaymentLoading] = useState('');
   const [subStatus, setSubStatus] = useState<any>(null);
 
+  // Discount code state
+  const [discountCode, setDiscountCode] = useState('');
+  const [discountLoading, setDiscountLoading] = useState(false);
+  const [discountResult, setDiscountResult] = useState<any>(null);
+  const [discountError, setDiscountError] = useState('');
+  const [appliedDiscount, setAppliedDiscount] = useState<any>(null);
+
   useEffect(() => {
     loadData();
   }, []);
+
+  // Re-validate discount when plan/period changes
+  useEffect(() => {
+    if (appliedDiscount) {
+      validateDiscount(appliedDiscount.code);
+    }
+  }, [selectedPeriod]);
 
   const loadData = async () => {
     const token = localStorage.getItem('token');
@@ -70,6 +86,8 @@ export default function SubscriptionPage() {
         const d = await plansRes.json();
         setPlans(d.plans);
         setExchangeRate(d.exchangeRate);
+        setExchangeSource(d.exchangeSource || '');
+        setExchangeDate(d.exchangeDate || '');
       }
       if (statusRes.ok) {
         const d = await statusRes.json();
@@ -81,6 +99,49 @@ export default function SubscriptionPage() {
     setLoading(false);
   };
 
+  const validateDiscount = async (code: string, planId?: string) => {
+    const token = localStorage.getItem('token');
+    setDiscountLoading(true);
+    setDiscountError('');
+    setDiscountResult(null);
+
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/validate-discount`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, plan: planId || '', period: selectedPeriod })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.valid) {
+        setDiscountError(data.error || 'Código inválido');
+        setAppliedDiscount(null);
+        setDiscountResult(null);
+      } else {
+        setDiscountResult(data);
+        setAppliedDiscount(data);
+        setDiscountError('');
+      }
+    } catch (e) {
+      setDiscountError('Error al validar código');
+      setAppliedDiscount(null);
+    }
+    setDiscountLoading(false);
+  };
+
+  const handleApplyDiscount = () => {
+    if (!discountCode.trim()) return;
+    validateDiscount(discountCode.trim());
+  };
+
+  const handleRemoveDiscount = () => {
+    setDiscountCode('');
+    setDiscountResult(null);
+    setAppliedDiscount(null);
+    setDiscountError('');
+  };
+
   const handlePayment = async (planId: string) => {
     const token = localStorage.getItem('token');
     setPaymentLoading(planId);
@@ -89,7 +150,11 @@ export default function SubscriptionPage() {
       const res = await fetch(`${API_URL}/api/subscription/create-payment`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plan: planId, period: selectedPeriod })
+        body: JSON.stringify({ 
+          plan: planId, 
+          period: selectedPeriod,
+          discountCode: appliedDiscount?.code || null
+        })
       });
 
       if (!res.ok) throw new Error('Error al crear pago');
@@ -113,6 +178,7 @@ export default function SubscriptionPage() {
         const transaction = result.transaction;
         if (transaction?.status === 'APPROVED') {
           alert('✅ ¡Pago aprobado! Tu plan se activará en segundos.');
+          handleRemoveDiscount();
           setTimeout(() => loadData(), 3000);
         } else if (transaction?.status === 'DECLINED') {
           alert('❌ Pago rechazado. Intenta con otro método.');
@@ -127,6 +193,39 @@ export default function SubscriptionPage() {
   };
 
   const formatCOP = (n: number) => '$' + n.toLocaleString('es-CO');
+
+  // Calculate discounted price for a plan
+  const getDiscountedPrice = (planId: string, originalCop: number, copWithCard: number) => {
+    if (!appliedDiscount || !appliedDiscount.valid) return null;
+    
+    // Check if discount applies to this plan
+    if (appliedDiscount.applicablePlans?.length > 0 && !appliedDiscount.applicablePlans.includes(planId)) {
+      return null;
+    }
+    if (appliedDiscount.applicablePeriods?.length > 0 && !appliedDiscount.applicablePeriods.includes(selectedPeriod)) {
+      return null;
+    }
+
+    let discountAmount = 0;
+    if (appliedDiscount.discountType === 'percent') {
+      discountAmount = Math.round(originalCop * (appliedDiscount.discountValue / 100));
+    } else if (appliedDiscount.discountType === 'fixed_usd') {
+      discountAmount = Math.round(appliedDiscount.discountValue * exchangeRate);
+    } else if (appliedDiscount.discountType === 'fixed_cop') {
+      discountAmount = Math.round(appliedDiscount.discountValue);
+    }
+
+    discountAmount = Math.min(discountAmount, originalCop);
+    const finalCop = originalCop - discountAmount;
+    const finalWithCard = Math.round(finalCop * 1.05);
+
+    return {
+      discountAmount,
+      finalCop,
+      finalWithCard,
+      savedPercent: Math.round((discountAmount / originalCop) * 100)
+    };
+  };
 
   if (loading) return (
     <div className="min-h-screen bg-[#06060b] flex items-center justify-center">
@@ -183,17 +282,14 @@ export default function SubscriptionPage() {
           </div>
         )}
 
-        {/* Active Subscription Info */}
         {hasActiveSub && (
-          <div className="mb-10 p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+          <div className="mb-10 p-6 rounded-2xl border bg-emerald-500/10 border-emerald-500/30">
             <div className="flex items-center gap-4">
               <Shield className="w-8 h-8 text-emerald-400" />
               <div>
-                <h3 className="text-lg font-bold text-emerald-400">
-                  Plan {subStatus.subscription.plan === 'starter' ? 'Starter' : 'Business'} Activo
-                </h3>
-                <p className="text-gray-400 text-sm">
-                  Válido hasta {new Date(subStatus.subscription.currentPeriodEnd).toLocaleDateString('es-CO')} · {subStatus.daysRemaining} días restantes
+                <h3 className="text-lg font-bold text-emerald-400">✅ Plan {subStatus.subscription.plan === 'business' ? 'Business' : 'Starter'} activo</h3>
+                <p className="text-gray-400 text-sm mt-1">
+                  Tu suscripción está activa hasta {new Date(subStatus.subscription.currentPeriodEnd).toLocaleDateString('es-CO')}
                 </p>
               </div>
             </div>
@@ -211,7 +307,7 @@ export default function SubscriptionPage() {
         </div>
 
         {/* Period Selector */}
-        <div className="flex justify-center mb-12">
+        <div className="flex justify-center mb-8">
           <div className="flex bg-white/5 rounded-2xl p-1.5 border border-white/10">
             {[
               { id: 'monthly' as const, label: 'Mensual' },
@@ -229,6 +325,74 @@ export default function SubscriptionPage() {
           </div>
         </div>
 
+        {/* Discount Code Section */}
+        <div className="max-w-lg mx-auto mb-10">
+          <div className="bg-white/5 rounded-2xl border border-white/10 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Tag className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-semibold text-gray-300">¿Tienes un código de descuento?</span>
+            </div>
+
+            {appliedDiscount ? (
+              // Discount applied - show badge
+              <div className="flex items-center justify-between bg-purple-500/10 border border-purple-500/30 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                    <Gift className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-purple-300">{appliedDiscount.code}</span>
+                      <span className="text-[10px] bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full font-bold">
+                        {appliedDiscount.discountType === 'percent' ? `${appliedDiscount.discountValue}% OFF` : 
+                         appliedDiscount.discountType === 'fixed_usd' ? `$${appliedDiscount.discountValue} USD OFF` :
+                         `${formatCOP(appliedDiscount.discountValue)} OFF`}
+                      </span>
+                    </div>
+                    {appliedDiscount.description && (
+                      <p className="text-xs text-gray-500 mt-0.5">{appliedDiscount.description}</p>
+                    )}
+                  </div>
+                </div>
+                <button onClick={handleRemoveDiscount} className="p-1.5 hover:bg-white/10 rounded-lg transition">
+                  <X className="w-4 h-4 text-gray-500 hover:text-red-400" />
+                </button>
+              </div>
+            ) : (
+              // Input to enter code
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={discountCode}
+                  onChange={e => { setDiscountCode(e.target.value.toUpperCase()); setDiscountError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && handleApplyDiscount()}
+                  placeholder="Ej: BIENVENIDO20"
+                  className="flex-1 px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-sm placeholder-gray-600 focus:border-purple-500/50 focus:outline-none uppercase tracking-wider"
+                />
+                <button
+                  onClick={handleApplyDiscount}
+                  disabled={!discountCode.trim() || discountLoading}
+                  className="px-5 py-3 bg-purple-500/20 border border-purple-500/30 text-purple-300 rounded-xl text-sm font-semibold hover:bg-purple-500/30 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {discountLoading ? (
+                    <div className="w-4 h-4 border-2 border-purple-300/30 border-t-purple-300 rounded-full animate-spin" />
+                  ) : (
+                    <>
+                      <Percent className="w-4 h-4" /> Aplicar
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
+            {discountError && (
+              <p className="text-red-400 text-xs mt-2 flex items-center gap-1">
+                <X className="w-3 h-3" /> {discountError}
+              </p>
+            )}
+          </div>
+        </div>
+
         {/* Plan Cards */}
         <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
           {plans.map(plan => {
@@ -236,6 +400,7 @@ export default function SubscriptionPage() {
             const features = PLAN_FEATURES[plan.id as keyof typeof PLAN_FEATURES];
             const isBusiness = plan.id === 'business';
             const isCurrentPlan = subStatus?.subscription?.plan === plan.id;
+            const discount = getDiscountedPrice(plan.id, price.cop, price.copWithCard);
 
             return (
               <div key={plan.id}
@@ -272,17 +437,39 @@ export default function SubscriptionPage() {
                   <div className="text-gray-500 text-sm mt-1">
                     {selectedPeriod === 'monthly' ? 'por mes' : selectedPeriod === 'semiannual' ? 'por 6 meses' : 'por año'}
                   </div>
-                  <div className="mt-2 text-emerald-400 text-sm font-semibold">
-                    ≈ {formatCOP(price.cop)} COP
-                  </div>
-                  {price.savedPercent && (
-                    <div className="mt-1 text-amber-400 text-xs font-bold">
-                      💰 Ahorras USD${price.savedUsd} ({price.savedPercent}% de descuento)
+
+                  {/* Price with/without discount */}
+                  {discount ? (
+                    <div className="mt-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-sm line-through">{formatCOP(price.cop)}</span>
+                        <span className="text-purple-400 text-lg font-black">{formatCOP(discount.finalCop)} COP</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Tag className="w-3 h-3 text-purple-400" />
+                        <span className="text-purple-300 text-xs font-bold">
+                          Ahorras {formatCOP(discount.discountAmount)} ({discount.savedPercent}% OFF)
+                        </span>
+                      </div>
+                      <div className="text-gray-600 text-xs mt-1">
+                        💳 Con tarjeta: {formatCOP(discount.finalWithCard)} COP (+5% procesadora)
+                      </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="mt-2 text-emerald-400 text-sm font-semibold">
+                        ≈ {formatCOP(price.cop)} COP
+                      </div>
+                      {price.savedPercent && (
+                        <div className="mt-1 text-amber-400 text-xs font-bold">
+                          💰 Ahorras USD${price.savedUsd} ({price.savedPercent}% de descuento)
+                        </div>
+                      )}
+                      <div className="mt-2 text-gray-600 text-xs">
+                        💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5% procesadora)
+                      </div>
+                    </>
                   )}
-                  <div className="mt-2 text-gray-600 text-xs">
-                    💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5% procesadora)
-                  </div>
                 </div>
 
                 {/* Features */}
@@ -341,9 +528,19 @@ export default function SubscriptionPage() {
           <p className="text-gray-600 text-xs mt-4">
             ⚡ Cada usuario conecta su propia API Key de OpenAI. Tú controlas tu consumo.
           </p>
-          <p className="text-gray-600 text-xs mt-1">
-            Pagos procesados de forma segura por <strong>Wompi</strong> · Tasa de cambio: 1 USD ≈ {formatCOP(exchangeRate)} COP
-          </p>
+          <div className="flex items-center justify-center gap-1 mt-2">
+            <p className="text-gray-600 text-xs">
+              Pagos procesados de forma segura por <strong>Wompi</strong> · TRM: 1 USD ≈ {formatCOP(exchangeRate)} COP
+            </p>
+            {exchangeSource && (
+              <div className="group relative">
+                <Info className="w-3 h-3 text-gray-600 cursor-help" />
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-800 text-gray-300 text-[10px] px-3 py-1.5 rounded-lg whitespace-nowrap border border-white/10 shadow-lg z-10">
+                  Fuente: {exchangeSource}{exchangeDate ? ` · ${exchangeDate}` : ''}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Payment History */}
@@ -356,9 +553,17 @@ export default function SubscriptionPage() {
                   <div>
                     <span className="font-semibold">{p.plan === 'starter' ? 'Starter' : 'Business'}</span>
                     <span className="text-gray-500 text-sm ml-2">({p.period})</span>
+                    {p.discountCode && (
+                      <span className="ml-2 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold">
+                        🏷️ {p.discountCode} {p.discountPercent ? `(-${p.discountPercent}%)` : ''}
+                      </span>
+                    )}
                   </div>
                   <div className="text-right">
                     <div className="text-emerald-400 font-bold">{formatCOP(p.amountCop)}</div>
+                    {p.discountAmount && (
+                      <div className="text-purple-400 text-[10px]">Ahorraste {formatCOP(p.discountAmount)}</div>
+                    )}
                     <div className="text-gray-500 text-xs">{new Date(p.date).toLocaleDateString('es-CO')}</div>
                   </div>
                   <span className={`text-xs px-2 py-1 rounded-full ${p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>

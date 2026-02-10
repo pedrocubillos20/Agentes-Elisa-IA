@@ -231,6 +231,12 @@ model Payment {
   cardSurcharge   Float    @default(0)            // Recargo 5% tarjeta
   totalCop        Float                           // Total final en COP
   
+  // === DESCUENTO APLICADO ===
+  discountCode    String?                         // Código usado
+  discountPercent Float?                          // % descuento aplicado
+  discountAmount  Float?                          // Monto COP descontado
+  originalCop     Float?                          // Precio original sin descuento
+  
   status          String   @default("pending")    // pending, approved, declined, voided, error
   method          String?                         // CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER
   
@@ -244,6 +250,57 @@ model Payment {
   @@index([userId])
   @@index([status])
   @@index([wompiTransactionId])
+}
+
+// ===== CÓDIGOS DE DESCUENTO =====
+model DiscountCode {
+  id              String    @id @default(cuid())
+  
+  code            String    @unique               // Código único (ej: BIENVENIDO20, PROMO50)
+  description     String?                         // Descripción interna
+  
+  discountType    String    @default("percent")   // percent, fixed_usd, fixed_cop
+  discountValue   Float                           // Valor: 20 = 20% ó $20 USD ó $50000 COP
+  
+  // === RESTRICCIONES ===
+  applicablePlans String[]  @default([])          // [] = todos, ["starter"], ["business"], ["starter","business"]
+  applicablePeriods String[] @default([])         // [] = todos, ["monthly"], ["annual"], etc.
+  minAmountUsd    Float?                          // Monto mínimo USD para aplicar
+  
+  // === LÍMITES ===
+  maxUses         Int?                            // null = ilimitado
+  maxUsesPerUser  Int       @default(1)           // Máximo usos por usuario
+  currentUses     Int       @default(0)           // Usos actuales
+  
+  // === VIGENCIA ===
+  startsAt        DateTime  @default(now())       // Fecha inicio
+  expiresAt       DateTime?                       // null = no expira
+  
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  usages          DiscountUsage[]
+
+  @@index([code])
+  @@index([isActive])
+}
+
+// === REGISTRO DE USO DE CÓDIGOS ===
+model DiscountUsage {
+  id              String       @id @default(cuid())
+  discountCodeId  String
+  discountCode    DiscountCode @relation(fields: [discountCodeId], references: [id], onDelete: Cascade)
+  userId          String
+  paymentId       String?
+  
+  amountSaved     Float                           // Monto ahorrado en COP
+  
+  createdAt       DateTime     @default(now())
+
+  @@index([discountCodeId])
+  @@index([userId])
+  @@unique([discountCodeId, userId, paymentId])
 }
 
 // ===== MULTI-LÍNEA WHATSAPP =====

@@ -57,6 +57,11 @@ app.get('/api/subscription/plans', (req, res, next) => {
   req.url = '/plans';
   subscriptionRoutes(req, res, next);
 });
+// TRM / Tasa de cambio pública
+app.get('/api/subscription/exchange-rate', (req, res, next) => {
+  req.url = '/exchange-rate';
+  subscriptionRoutes(req, res, next);
+});
 
 // ===== RUTAS PROTEGIDAS =====
 app.use('/api/assistants', authMiddleware, assistantsRoutes);

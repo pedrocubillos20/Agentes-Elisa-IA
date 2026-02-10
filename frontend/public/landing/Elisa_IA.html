@@ -45,20 +45,17 @@
     
     .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
     
-    /* BANNER URGENCIA */
+    /* BANNER URGENCIA - Minimalista */
     .banner {
-      background: linear-gradient(90deg, #dc2626, #ef4444, #f87171, #ef4444, #dc2626);
-      background-size: 200% 100%;
-      animation: gradient 3s ease infinite;
-      padding: 14px 30px;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      padding: 10px 20px;
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
       z-index: 1001;
-      min-height: 56px;
+      border-bottom: 1px solid rgba(16,185,129,0.3);
     }
-    @keyframes gradient { 0%,100%{background-position:0 50%} 50%{background-position:100% 50%} }
     
     .banner-content {
       max-width: 1200px;
@@ -66,80 +63,75 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 30px;
-      flex-wrap: wrap;
+      gap: 20px;
     }
     
     .banner-text {
-      font-size: 15px;
-      font-weight: 700;
+      font-size: 13px;
+      font-weight: 600;
+      color: #94a3b8;
       display: flex;
       align-items: center;
-      gap: 10px;
-      white-space: nowrap;
+      gap: 8px;
     }
     
-    .banner-text .fire { animation: shake 0.5s infinite; }
+    .banner-text .highlight {
+      color: var(--primary);
+      font-weight: 700;
+    }
+    
+    .banner-text .fire { animation: shake 0.5s infinite; font-size: 14px; }
     @keyframes shake { 0%,100%{transform:rotate(-5deg)} 50%{transform:rotate(5deg)} }
     
     .countdown {
       display: flex;
-      gap: 8px;
+      gap: 6px;
     }
     
     .countdown-item {
-      background: rgba(0,0,0,0.3);
-      padding: 8px 12px;
-      border-radius: 8px;
+      background: rgba(16,185,129,0.1);
+      border: 1px solid rgba(16,185,129,0.2);
+      padding: 4px 8px;
+      border-radius: 6px;
       text-align: center;
-      min-width: 55px;
+      min-width: 42px;
     }
     
     .countdown-num {
-      font-size: 20px;
-      font-weight: 800;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--primary);
       display: block;
-      line-height: 1;
+      line-height: 1.2;
     }
     
     .countdown-label {
-      font-size: 9px;
-      opacity: 0.8;
+      font-size: 8px;
+      color: #64748b;
       text-transform: uppercase;
-      margin-top: 2px;
-      display: block;
     }
     
     .banner-btn {
-      background: #fff;
-      color: #dc2626;
-      padding: 12px 28px;
-      border-radius: 50px;
-      font-size: 14px;
-      font-weight: 800;
+      background: var(--primary);
+      color: #fff;
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
       text-decoration: none;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
       transition: all 0.3s;
-      animation: pulse-btn 2s infinite;
-      white-space: nowrap;
     }
     
-    @keyframes pulse-btn {
-      0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.7); }
-      50% { box-shadow: 0 0 0 10px rgba(255,255,255,0); }
-    }
-    
-    .banner-btn:hover { transform: scale(1.05); }
+    .banner-btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
     
     /* NAV */
     nav {
       position: fixed;
-      top: 56px;
+      top: 44px;
       left: 0;
       right: 0;
       z-index: 1000;
-      padding: 16px 30px;
+      padding: 14px 20px;
       background: rgba(3,0,20,0.98);
       backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--border);
@@ -204,7 +196,7 @@
     /* HERO */
     .hero {
       min-height: 100vh;
-      padding: 200px 20px 100px;
+      padding: 160px 20px 80px;
       position: relative;
       overflow: hidden;
     }
@@ -862,33 +854,24 @@
     .testimonial-role { color: var(--text-muted); font-size: 13px; }
     
     
-    /* TESTIMONIALS CAROUSEL */
-    .testimonials-wrapper {
-      overflow: hidden;
-      position: relative;
-      margin: 0 -20px;
-      padding: 0 20px;
-    }
-    
-    .testimonials-track {
-      display: flex;
-      gap: 30px;
-      animation: scroll-testimonials 45s linear infinite;
-      width: max-content;
-    }
-    
-    .testimonials-track:hover {
-      animation-play-state: paused;
-    }
-    
-    @keyframes scroll-testimonials {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-50%); }
+    /* TESTIMONIALS - Grid minimalista */
+    .testimonials-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
     }
     
     .testimonial-card {
-      min-width: 380px;
-      flex-shrink: 0;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      transition: all 0.3s;
+    }
+    
+    .testimonial-card:hover {
+      border-color: rgba(16,185,129,0.3);
+      transform: translateY(-4px);
     }
 
     /* PRICING */
@@ -1316,13 +1299,13 @@
 <!-- BANNER URGENCIA -->
 <div class="banner">
   <div class="banner-content">
-    <span class="banner-text"><span class="fire">🔥</span> ÚLTIMAS HORAS: 50% OFF en Plan Business</span>
+    <span class="banner-text"><span class="fire">⚡</span> <span class="highlight">50% OFF</span> en Plan Business · Termina en</span>
     <div class="countdown">
-      <div class="countdown-item"><span class="countdown-num" id="hours">00</span><span class="countdown-label">Horas</span></div>
-      <div class="countdown-item"><span class="countdown-num" id="mins">00</span><span class="countdown-label">Min</span></div>
-      <div class="countdown-item"><span class="countdown-num" id="secs">00</span><span class="countdown-label">Seg</span></div>
+      <div class="countdown-item"><span class="countdown-num" id="hours">00</span><span class="countdown-label">hrs</span></div>
+      <div class="countdown-item"><span class="countdown-num" id="mins">00</span><span class="countdown-label">min</span></div>
+      <div class="countdown-item"><span class="countdown-num" id="secs">00</span><span class="countdown-label">seg</span></div>
     </div>
-    <a href="#pricing" class="banner-btn">Activar Oferta →</a>
+    <a href="#pricing" class="banner-btn">Activar →</a>
   </div>
 </div>
 
@@ -1529,7 +1512,7 @@
         <a href="https://agentes-elisa-ia.vercel.app/register" class="showcase-cta">Ver conversaciones →</a>
       </div>
       <div class="showcase-image">
-        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='650' height='420' viewBox='0 0 650 420'%3E%3Crect fill='%230a0a1a' width='650' height='420' rx='12'/%3E%3Crect fill='%231a1a2e' x='15' y='15' width='190' height='390' rx='10'/%3E%3Ctext x='30' y='42' fill='white' font-family='Arial' font-size='15' font-weight='bold'%3EConversaciones%3C/text%3E%3Ctext x='30' y='58' fill='%2371717a' font-family='Arial' font-size='10'%3E74 chats%3C/text%3E%3Crect fill='%230a0a1a' x='25' y='70' width='170' height='28' rx='6'/%3E%3Ctext x='40' y='88' fill='%2371717a' font-family='Arial' font-size='10'%3E🔍 Buscar...%3C/text%3E%3Crect fill='%23065f46' x='25' y='108' width='170' height='52' rx='8'/%3E%3Ccircle fill='%233b82f6' cx='45' cy='127' r='10'/%3E%3Ctext x='40' y='131' fill='white' font-family='Arial' font-size='9'%3EM%3C/text%3E%3Ctext x='62' y='124' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3EMaria López%3C/text%3E%3Ctext x='62' y='138' fill='rgba(255,255,255,0.7)' font-family='Arial' font-size='8'%3E¡Perfecto! Te envío el link...%3C/text%3E%3Crect fill='%23166534' x='62' y='145' width='55' height='12' rx='6'/%3E%3Ctext x='70' y='154' fill='%2322c55e' font-family='Arial' font-size='7'%3EConfirmado%3C/text%3E%3Crect fill='%230a0a1a' x='25' y='168' width='170' height='52' rx='8'/%3E%3Ccircle fill='%238b5cf6' cx='45' cy='187' r='10'/%3E%3Ctext x='40' y='191' fill='white' font-family='Arial' font-size='9'%3EC%3C/text%3E%3Ctext x='62' y='184' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3ECarmenza%3C/text%3E%3Ctext x='62' y='198' fill='%2371717a' font-family='Arial' font-size='8'%3E¿Tienen talla M disponible?%3C/text%3E%3Crect fill='%23065f46' x='62' y='205' width='50' height='12' rx='6'/%3E%3Ctext x='70' y='214' fill='%2310b981' font-family='Arial' font-size='7'%3EInteresado%3C/text%3E%3Crect fill='%230a0a1a' x='25' y='228' width='170' height='52' rx='8'/%3E%3Ccircle fill='%23ec4899' cx='45' cy='247' r='10'/%3E%3Ctext x='40' y='251' fill='white' font-family='Arial' font-size='9'%3EA%3C/text%3E%3Ctext x='62' y='244' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3EAntonio%3C/text%3E%3Ctext x='62' y='258' fill='%2371717a' font-family='Arial' font-size='8'%3E¿Cuánto cuesta el hoodie?%3C/text%3E%3Crect fill='%23854d0e' x='62' y='265' width='50' height='12' rx='6'/%3E%3Ctext x='68' y='274' fill='%23fbbf24' font-family='Arial' font-size='7'%3ECotización%3C/text%3E%3Crect fill='%230a0a1a' x='25' y='288' width='170' height='52' rx='8'/%3E%3Ccircle fill='%2306b6d4' cx='45' cy='307' r='10'/%3E%3Ctext x='40' y='311' fill='white' font-family='Arial' font-size='9'%3EJ%3C/text%3E%3Ctext x='62' y='304' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3EJuan Pérez%3C/text%3E%3Ctext x='62' y='318' fill='%2371717a' font-family='Arial' font-size='8'%3EHola, buenos días%3C/text%3E%3Crect fill='%231a1a2e' x='62' y='325' width='40' height='12' rx='6'/%3E%3Ctext x='70' y='334' fill='%2371717a' font-family='Arial' font-size='7'%3ESaludo%3C/text%3E%3Crect fill='%230f0f23' x='215' y='15' width='420' height='390' rx='10'/%3E%3Crect fill='%231f2c34' x='225' y='25' width='400' height='50' rx='8'/%3E%3Ccircle fill='%233b82f6' cx='255' cy='50' r='15'/%3E%3Ctext x='248' y='55' fill='white' font-family='Arial' font-size='12'%3EM%3C/text%3E%3Ctext x='280' y='45' fill='white' font-family='Arial' font-size='13' font-weight='bold'%3EMaria López%3C/text%3E%3Ctext x='280' y='60' fill='%2310b981' font-family='Arial' font-size='10'%3EEn línea%3C/text%3E%3Crect fill='%23166534' x='540' y='38' width='70' height='22' rx='11'/%3E%3Ctext x='552' y='53' fill='%2322c55e' font-family='Arial' font-size='9'%3EConfirmado%3C/text%3E%3Crect fill='%231f2c34' x='235' y='90' width='200' height='35' rx='8'/%3E%3Ctext x='248' y='112' fill='white' font-family='Arial' font-size='10'%3EHola, ¿tienen el buzo negro en M?%3C/text%3E%3Ctext x='400' y='118' fill='%2371717a' font-family='Arial' font-size='8'%3E10:30 AM%3C/text%3E%3Crect fill='%23005c4b' x='320' y='135' width='230' height='50' rx='8'/%3E%3Ctext x='333' y='152' fill='white' font-family='Arial' font-size='10'%3E¡Hola María! 👋 Sí, tenemos disponible.%3C/text%3E%3Ctext x='333' y='167' fill='white' font-family='Arial' font-size='10'%3EPrecio: $85.000 con envío gratis 🚚%3C/text%3E%3Ctext x='510' y='178' fill='rgba(255,255,255,0.6)' font-family='Arial' font-size='8'%3E10:30 AM ✓✓%3C/text%3E%3Crect fill='%231f2c34' x='235' y='195' width='120' height='30' rx='8'/%3E%3Ctext x='248' y='214' fill='white' font-family='Arial' font-size='10'%3EPerfecto, lo quiero%3C/text%3E%3Crect fill='%23005c4b' x='380' y='235' width='170' height='45' rx='8'/%3E%3Ctext x='393' y='252' fill='white' font-family='Arial' font-size='10'%3E¡Excelente! 🎉 Te envío el link%3C/text%3E%3Ctext x='393' y='267' fill='white' font-family='Arial' font-size='10'%3Ede pago: pay.bizonne.co/m123%3C/text%3E%3Ctext x='510' y='273' fill='rgba(255,255,255,0.6)' font-family='Arial' font-size='8'%3E10:31 AM ✓✓%3C/text%3E%3Crect fill='%231f2c34' x='235' y='290' width='80' height='30' rx='8'/%3E%3Ctext x='248' y='309' fill='white' font-family='Arial' font-size='10'%3EYa pagué ✅%3C/text%3E%3Crect fill='%23005c4b' x='330' y='330' width='220' height='60' rx='8'/%3E%3Ctext x='343' y='347' fill='white' font-family='Arial' font-size='10'%3E¡Pedido #4521 confirmado! 🎊%3C/text%3E%3Ctext x='343' y='362' fill='white' font-family='Arial' font-size='10'%3EEnvío: 2-3 días hábiles%3C/text%3E%3Ctext x='343' y='377' fill='white' font-family='Arial' font-size='10'%3ETe enviamos guía cuando despachemos 📦%3C/text%3E%3Ctext x='510' y='383' fill='rgba(255,255,255,0.6)' font-family='Arial' font-size='8'%3E10:32 AM ✓✓%3C/text%3E%3C/svg%3E" alt="Conversaciones Bizonne">
+        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='400' viewBox='0 0 600 400'%3E%3Crect fill='%230a0a1a' width='600' height='400' rx='12'/%3E%3Crect fill='%231a1a2e' x='12' y='12' width='175' height='376' rx='10'/%3E%3Ctext x='24' y='38' fill='white' font-family='Arial' font-size='14' font-weight='bold'%3EConversaciones%3C/text%3E%3Ctext x='24' y='52' fill='%2371717a' font-family='Arial' font-size='10'%3E74 chats%3C/text%3E%3Crect fill='%230a0a1a' x='20' y='62' width='160' height='26' rx='6'/%3E%3Ctext x='32' y='80' fill='%2371717a' font-family='Arial' font-size='10'%3EBuscar...%3C/text%3E%3Crect fill='%23065f46' x='20' y='96' width='160' height='50' rx='8'/%3E%3Ccircle fill='%233b82f6' cx='38' cy='114' r='10'/%3E%3Ctext x='33' y='118' fill='white' font-family='Arial' font-size='9'%3EM%3C/text%3E%3Ctext x='54' y='110' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3EMaria Lopez%3C/text%3E%3Ctext x='54' y='124' fill='rgba(255,255,255,0.7)' font-family='Arial' font-size='8'%3EPerfecto! Te envio el link...%3C/text%3E%3Crect fill='%23166534' x='54' y='132' width='52' height='11' rx='5'/%3E%3Ctext x='60' y='140' fill='%2322c55e' font-family='Arial' font-size='7'%3EConfirmado%3C/text%3E%3Crect fill='%230a0a1a' x='20' y='152' width='160' height='50' rx='8'/%3E%3Ccircle fill='%238b5cf6' cx='38' cy='170' r='10'/%3E%3Ctext x='33' y='174' fill='white' font-family='Arial' font-size='9'%3EC%3C/text%3E%3Ctext x='54' y='166' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3ECarmenza%3C/text%3E%3Ctext x='54' y='180' fill='%2371717a' font-family='Arial' font-size='8'%3ETienen talla M disponible?%3C/text%3E%3Crect fill='%23065f46' x='54' y='188' width='48' height='11' rx='5'/%3E%3Ctext x='60' y='196' fill='%2310b981' font-family='Arial' font-size='7'%3EInteresado%3C/text%3E%3Crect fill='%230a0a1a' x='20' y='208' width='160' height='50' rx='8'/%3E%3Ccircle fill='%23ec4899' cx='38' cy='226' r='10'/%3E%3Ctext x='33' y='230' fill='white' font-family='Arial' font-size='9'%3EA%3C/text%3E%3Ctext x='54' y='222' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3EAntonio%3C/text%3E%3Ctext x='54' y='236' fill='%2371717a' font-family='Arial' font-size='8'%3ECuanto cuesta el hoodie?%3C/text%3E%3Crect fill='%23854d0e' x='54' y='244' width='48' height='11' rx='5'/%3E%3Ctext x='60' y='252' fill='%23fbbf24' font-family='Arial' font-size='7'%3ECotizacion%3C/text%3E%3Crect fill='%230a0a1a' x='20' y='264' width='160' height='50' rx='8'/%3E%3Ccircle fill='%2306b6d4' cx='38' cy='282' r='10'/%3E%3Ctext x='33' y='286' fill='white' font-family='Arial' font-size='9'%3EJ%3C/text%3E%3Ctext x='54' y='278' fill='white' font-family='Arial' font-size='10' font-weight='bold'%3EJuan Perez%3C/text%3E%3Ctext x='54' y='292' fill='%2371717a' font-family='Arial' font-size='8'%3EHola, buenos dias%3C/text%3E%3Crect fill='%231a1a2e' x='54' y='300' width='36' height='11' rx='5'/%3E%3Ctext x='60' y='308' fill='%2371717a' font-family='Arial' font-size='7'%3ESaludo%3C/text%3E%3Crect fill='%230f0f23' x='195' y='12' width='393' height='376' rx='10'/%3E%3Crect fill='%231f2c34' x='205' y='22' width='373' height='46' rx='8'/%3E%3Ccircle fill='%233b82f6' cx='230' cy='45' r='14'/%3E%3Ctext x='224' y='50' fill='white' font-family='Arial' font-size='11'%3EM%3C/text%3E%3Ctext x='252' y='40' fill='white' font-family='Arial' font-size='12' font-weight='bold'%3EMaria Lopez%3C/text%3E%3Ctext x='252' y='54' fill='%2310b981' font-family='Arial' font-size='9'%3EEn linea%3C/text%3E%3Crect fill='%23166534' x='500' y='34' width='65' height='20' rx='10'/%3E%3Ctext x='510' y='48' fill='%2322c55e' font-family='Arial' font-size='8'%3EConfirmado%3C/text%3E%3Crect fill='%231f2c34' x='215' y='80' width='180' height='32' rx='8'/%3E%3Ctext x='226' y='100' fill='white' font-family='Arial' font-size='9'%3EHola, tienen el buzo negro en M?%3C/text%3E%3Ctext x='365' y='106' fill='%2371717a' font-family='Arial' font-size='7'%3E10:30 AM%3C/text%3E%3Crect fill='%23005c4b' x='310' y='120' width='210' height='44' rx='8'/%3E%3Ctext x='320' y='138' fill='white' font-family='Arial' font-size='9'%3EHola Maria! Si, tenemos disponible.%3C/text%3E%3Ctext x='320' y='152' fill='white' font-family='Arial' font-size='9'%3EPrecio: $85.000 con envio gratis%3C/text%3E%3Ctext x='480' y='158' fill='rgba(255,255,255,0.5)' font-family='Arial' font-size='7'%3E10:30%3C/text%3E%3Crect fill='%231f2c34' x='215' y='172' width='110' height='28' rx='8'/%3E%3Ctext x='226' y='190' fill='white' font-family='Arial' font-size='9'%3EPerfecto, lo quiero%3C/text%3E%3Crect fill='%23005c4b' x='350' y='208' width='170' height='40' rx='8'/%3E%3Ctext x='360' y='224' fill='white' font-family='Arial' font-size='9'%3EExcelente! Te envio el link%3C/text%3E%3Ctext x='360' y='238' fill='white' font-family='Arial' font-size='9'%3Ede pago: pay.bizonne.co/m123%3C/text%3E%3Crect fill='%231f2c34' x='215' y='256' width='70' height='28' rx='8'/%3E%3Ctext x='226' y='274' fill='white' font-family='Arial' font-size='9'%3EYa pague%3C/text%3E%3Crect fill='%23005c4b' x='320' y='292' width='200' height='52' rx='8'/%3E%3Ctext x='330' y='310' fill='white' font-family='Arial' font-size='9'%3EPedido %234521 confirmado!%3C/text%3E%3Ctext x='330' y='324' fill='white' font-family='Arial' font-size='9'%3EEnvio: 2-3 dias habiles%3C/text%3E%3Ctext x='330' y='338' fill='white' font-family='Arial' font-size='9'%3ETe enviamos guia cuando despachemos%3C/text%3E%3C/svg%3E" alt="Conversaciones Bizonne">
         <div class="showcase-badge" style="bottom:-20px;left:30px;animation-delay:-2s;">
           <div class="showcase-badge-icon">💬</div>
           <div class="showcase-badge-text">Chats<strong>En tiempo real</strong></div>
@@ -1596,150 +1579,39 @@
       <p>Más de 500 negocios ya transformaron su WhatsApp con Bizonne IA</p>
     </div>
     
-    <div class="testimonials-wrapper">
-      <div class="testimonials-track">
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"Increíble herramienta. Mis ventas aumentaron 40% desde que la IA responde 24/7. Antes perdía clientes que escribían de noche."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--primary),var(--cyan))">MC</div>
-            <div>
-              <div class="testimonial-name">María Castillo</div>
-              <div class="testimonial-role">Boutique Online • Bogotá</div>
-            </div>
+    <div class="testimonials-grid">
+      <div class="testimonial-card">
+        <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+        <p class="testimonial-text">"Mis ventas aumentaron 40% desde que la IA responde 24/7. Antes perdía clientes de noche."</p>
+        <div class="testimonial-author">
+          <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--primary),var(--cyan))">MC</div>
+          <div>
+            <div class="testimonial-name">María Castillo</div>
+            <div class="testimonial-role">Boutique • Bogotá</div>
           </div>
         </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"El CRM automático es genial. Ya no tengo que preguntar en qué quedamos, todo está organizado por etapas. Muy profesional."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--purple),#ec4899)">JR</div>
-            <div>
-              <div class="testimonial-name">Juan Rodríguez</div>
-              <div class="testimonial-role">Inmobiliaria • Medellín</div>
-            </div>
+      </div>
+      
+      <div class="testimonial-card">
+        <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+        <p class="testimonial-text">"El CRM automático organiza todo por etapas. Ya no pregunto en qué quedamos con cada cliente."</p>
+        <div class="testimonial-author">
+          <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--purple),#ec4899)">JR</div>
+          <div>
+            <div class="testimonial-name">Juan Rodríguez</div>
+            <div class="testimonial-role">Inmobiliaria • Medellín</div>
           </div>
         </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"Antes tardaba horas respondiendo las mismas preguntas. Ahora la IA hace el 90% del trabajo y yo solo cierro las ventas."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--yellow),#f97316)">LP</div>
-            <div>
-              <div class="testimonial-name">Laura Pérez</div>
-              <div class="testimonial-role">Tienda de Ropa • Cali</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"La agenda integrada me salvó la vida. Antes olvidaba citas, ahora todo está vinculado al cliente. Mis entregas nunca fallan."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,#ec4899,#f43f5e)">CR</div>
-            <div>
-              <div class="testimonial-name">Carlos Ramírez</div>
-              <div class="testimonial-role">Delivery de Comida • Barranquilla</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"Tengo 3 vendedores y cada uno maneja sus chats sin problemas. Los roles funcionan perfecto, cada quien ve lo que necesita."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--cyan),#3b82f6)">AM</div>
-            <div>
-              <div class="testimonial-name">Andrea Mendoza</div>
-              <div class="testimonial-role">Distribuidora • Cartagena</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"La transcripción de audios es increíble. Mis clientes mandan notas de voz y la IA responde como si los escuchara. Magia pura."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,#22c55e,var(--primary))">DL</div>
-            <div>
-              <div class="testimonial-name">Diego López</div>
-              <div class="testimonial-role">Taller Mecánico • Pereira</div>
-            </div>
-          </div>
-        </div>
-        
-        <!-- Duplicados para loop infinito -->
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"Increíble herramienta. Mis ventas aumentaron 40% desde que la IA responde 24/7. Antes perdía clientes que escribían de noche."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--primary),var(--cyan))">MC</div>
-            <div>
-              <div class="testimonial-name">María Castillo</div>
-              <div class="testimonial-role">Boutique Online • Bogotá</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"El CRM automático es genial. Ya no tengo que preguntar en qué quedamos, todo está organizado por etapas. Muy profesional."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--purple),#ec4899)">JR</div>
-            <div>
-              <div class="testimonial-name">Juan Rodríguez</div>
-              <div class="testimonial-role">Inmobiliaria • Medellín</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"Antes tardaba horas respondiendo las mismas preguntas. Ahora la IA hace el 90% del trabajo y yo solo cierro las ventas."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--yellow),#f97316)">LP</div>
-            <div>
-              <div class="testimonial-name">Laura Pérez</div>
-              <div class="testimonial-role">Tienda de Ropa • Cali</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"La agenda integrada me salvó la vida. Antes olvidaba citas, ahora todo está vinculado al cliente. Mis entregas nunca fallan."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,#ec4899,#f43f5e)">CR</div>
-            <div>
-              <div class="testimonial-name">Carlos Ramírez</div>
-              <div class="testimonial-role">Delivery de Comida • Barranquilla</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"Tengo 3 vendedores y cada uno maneja sus chats sin problemas. Los roles funcionan perfecto, cada quien ve lo que necesita."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--cyan),#3b82f6)">AM</div>
-            <div>
-              <div class="testimonial-name">Andrea Mendoza</div>
-              <div class="testimonial-role">Distribuidora • Cartagena</div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="testimonial-card">
-          <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
-          <p class="testimonial-text">"La transcripción de audios es increíble. Mis clientes mandan notas de voz y la IA responde como si los escuchara. Magia pura."</p>
-          <div class="testimonial-author">
-            <div class="testimonial-avatar" style="background:linear-gradient(135deg,#22c55e,var(--primary))">DL</div>
-            <div>
-              <div class="testimonial-name">Diego López</div>
-              <div class="testimonial-role">Taller Mecánico • Pereira</div>
-            </div>
+      </div>
+      
+      <div class="testimonial-card">
+        <div class="testimonial-stars">⭐⭐⭐⭐⭐</div>
+        <p class="testimonial-text">"La IA hace el 90% del trabajo. Yo solo cierro ventas. Ahorro horas cada día."</p>
+        <div class="testimonial-author">
+          <div class="testimonial-avatar" style="background:linear-gradient(135deg,var(--yellow),#f97316)">LP</div>
+          <div>
+            <div class="testimonial-name">Laura Pérez</div>
+            <div class="testimonial-role">Tienda de Ropa • Cali</div>
           </div>
         </div>
       </div>

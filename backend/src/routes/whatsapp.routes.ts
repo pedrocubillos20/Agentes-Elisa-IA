@@ -17,9 +17,12 @@ const getWahaHeaders = () => {
 // ====================================================
 // 📦 MESSAGE BUFFER — Agrupa mensajes enviados en ráfaga
 // Si el usuario manda 3 líneas rápido, espera y responde UNA vez
+// MEJORADO: Lock de procesamiento para evitar respuestas duplicadas
 // ====================================================
-const BUFFER_WAIT_MS = 3000; // Esperar 3 segundos por más mensajes
+const BUFFER_WAIT_MS = 5000; // Esperar 5 segundos por más mensajes (antes 3s)
 const recentlyProcessed = new Set<string>(); // Deduplicación de mensajes
+const processingLock = new Set<string>(); // 🔒 Lock: evita que la IA procese 2 veces al mismo contacto
+
 const messageBuffer: Map<string, {
   messages: string[];
   timer: ReturnType<typeof setTimeout>;
@@ -969,6 +972,24 @@ const processBufferedMessages = async (bufferKey: string) => {
   if (!buf) return;
   messageBuffer.delete(bufferKey);
 
+  // 🔒 Si ya se está procesando para este contacto, re-encolar
+  if (processingLock.has(bufferKey)) {
+    console.log(`🔒 Lock activo para ${buf.senderName} — re-encolando ${buf.messages.length} mensaje(s)`);
+    const existing = messageBuffer.get(bufferKey);
+    if (existing) {
+      existing.messages.push(...buf.messages);
+      clearTimeout(existing.timer);
+      existing.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+    } else {
+      buf.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      messageBuffer.set(bufferKey, buf);
+    }
+    return;
+  }
+
+  // 🔒 Activar lock
+  processingLock.add(bufferKey);
+
   const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
   const combinedMessage = msgs.join('\n');
 
@@ -988,7 +1009,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     const mediaItems = (assistant?.mediaItems as any[]) || [];
     const matchedMedia = findMediaTrigger(combinedMessage, mediaItems);
 
-    // ⌨️🎙️ Typing/Recording (refrescar porque ya pasaron 3 seg)
+    // ⌨️🎙️ Typing/Recording (refrescar porque ya pasaron 5 seg)
     if (isVoiceMode) {
       await setPresence(sessionName, from, 'recording');
     } else {
@@ -1035,6 +1056,18 @@ const processBufferedMessages = async (bufferKey: string) => {
     }
   } catch (e: any) {
     console.error(`❌ Error procesando buffer de ${senderName}:`, e.message);
+  } finally {
+    // 🔓 Liberar lock
+    processingLock.delete(bufferKey);
+
+    // 🔄 Verificar si llegaron mensajes mientras procesábamos
+    const pending = messageBuffer.get(bufferKey);
+    if (pending) {
+      console.log(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
+      clearTimeout(pending.timer);
+      // Esperar un poco más por si siguen llegando
+      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+    }
   }
 };
 
@@ -1571,7 +1604,9 @@ router.get('/debug', async (req: Request, res: Response) => {
       assistant: assistant ? { id: assistant.id, name: assistant.name, contextLength: assistant.context?.length || 0 } : null,
       conversations: await prisma.conversation.count({ where: { userId: ownerId } }),
       teamMembers: team,
-      activeBuffers: messageBuffer.size
+      activeBuffers: messageBuffer.size,
+      activeLocks: processingLock.size,
+      bufferWaitMs: BUFFER_WAIT_MS
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -1813,10 +1848,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // ====================================================
     // 📦 MESSAGE BUFFER — Agrupar mensajes en ráfaga
-    // Usuario manda varias líneas rápido → espera 3s → responde UNA vez
+    // Usuario manda varias líneas rápido → espera 5s → responde UNA vez
+    // Si la IA ya está procesando → encolar para después
     // ====================================================
     const bufferKey = `${userId}_${recipientId}`;
     const existingBuffer = messageBuffer.get(bufferKey);
+    const isLocked = processingLock.has(bufferKey);
 
     if (existingBuffer) {
       // Ya hay mensajes en buffer → agregar y resetear timer
@@ -1824,6 +1861,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
       clearTimeout(existingBuffer.timer);
       existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       console.log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
+    } else if (isLocked) {
+      // 🔒 IA procesando → crear buffer nuevo que se procesará cuando termine
+      const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      messageBuffer.set(bufferKey, {
+        messages: [messageForAI],
+        timer,
+        sessionName,
+        from,
+        senderName,
+        userId,
+        convId: conv.id,
+        whatsappLineId
+      });
+      console.log(`🔒 Buffer (lock activo): nuevo de ${senderName} → se procesará cuando la IA termine`);
     } else {
       // Primer mensaje → crear buffer, mostrar typing inmediato
       // Buscar asistente de la línea para verificar modo voz

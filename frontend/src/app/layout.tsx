@@ -258,7 +258,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               )}
 
               {/* Nav */}
-              <nav className="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar">
+              <nav className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll">
                 {navigation.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                   return (

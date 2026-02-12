@@ -1901,12 +1901,12 @@
       </div>
     </div>
     <div class="footer-bottom">
-      <p>© 2026 Bizonne IA · CRM + Agente IA para WhatsApp · <a href="/cdn-cgi/l/email-protection#70031f001f0204153012190a1f1e1e155e131f1d" style="color:var(--primary)"><span class="__cf_email__" data-cfemail="11627e617e6365745173786b7e7f7f743f727e7c">[email&#160;protected]</span></a></p>
+      <p>© 2026 Bizonne IA · CRM + Agente IA para WhatsApp · <a href="mailto:soporte@bizonne.com" style="color:var(--primary)">soporte@bizonne.com</a></p>
     </div>
   </div>
 </footer>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script>
 // Countdown
 function startCountdown() {
   let end = localStorage.getItem('bzOffer');
@@ -1917,4 +1917,73 @@ function startCountdown() {
     document.getElementById('hours').textContent = String(Math.floor(diff / 3600000)).padStart(2, '0');
     document.getElementById('mins').textContent = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
     document.getElementById('secs').textContent = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
-  }, 10
+  }, 1000);
+}
+startCountdown();
+
+// ===== FACEBOOK PIXEL EVENTS =====
+(function() {
+  function track(event, data) {
+    if (typeof fbq !== 'undefined') fbq('track', event, data || {});
+  }
+
+  // 1. LEAD - Click "Comenzar 7 días gratis" (registro)
+  document.querySelectorAll('a[href*="register"]').forEach(function(a) {
+    a.addEventListener('click', function() {
+      var href = a.getAttribute('href') || '';
+      var plan = 'free_trial';
+      if (href.indexOf('plan=business') > -1) plan = 'business';
+      else if (href.indexOf('plan=starter') > -1) plan = 'starter';
+      track('Lead', { content_name: plan, content_category: 'registro' });
+    });
+  });
+
+  // 2. CONTACT - Click "Ver demo en vivo" (WhatsApp)
+  document.querySelectorAll('a[href*="wa.me"]').forEach(function(a) {
+    a.addEventListener('click', function() {
+      track('Contact', { content_name: 'whatsapp_demo', content_category: 'demo' });
+    });
+  });
+
+  // 3. INITIATE CHECKOUT - Click botones de planes/precios
+  document.querySelectorAll('.pricing-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var plan = 'starter';
+      if (btn.getAttribute('href') && btn.getAttribute('href').indexOf('business') > -1) plan = 'business';
+      track('InitiateCheckout', { content_name: plan, currency: 'COP', value: plan === 'business' ? 165200 : 82600 });
+    });
+  });
+
+  // 4. VIEW CONTENT - Banner "Activar" (scroll a precios)
+  document.querySelectorAll('.banner-btn').forEach(function(a) {
+    a.addEventListener('click', function() {
+      track('ViewContent', { content_name: 'pricing_section', content_category: 'banner_cta' });
+    });
+  });
+
+  // 5. VIEW CONTENT - Scroll al section de precios (automático)
+  var pricingTracked = false;
+  var pricingSection = document.getElementById('pricing');
+  if (pricingSection) {
+    var observer = new IntersectionObserver(function(entries) {
+      if (entries[0].isIntersecting && !pricingTracked) {
+        pricingTracked = true;
+        track('ViewContent', { content_name: 'pricing_section', content_category: 'scroll' });
+      }
+    }, { threshold: 0.3 });
+    observer.observe(pricingSection);
+  }
+
+  // 6. VIEW CONTENT - Scroll 50% de la página
+  var scrollTracked = false;
+  window.addEventListener('scroll', function() {
+    if (!scrollTracked && window.scrollY > document.body.scrollHeight * 0.5) {
+      scrollTracked = true;
+      track('ViewContent', { content_name: 'page_50_percent', content_category: 'engagement' });
+    }
+  });
+})();
+</script>
+
+</body>
+</html>

@@ -57,7 +57,8 @@ const generateResetCode = (): string => {
 // ====================================================
 router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
+    const { email: rawEmail } = req.body;
+    const email = rawEmail?.trim().toLowerCase();
     if (!email) { 
       res.status(400).json({ error: 'Email es requerido' }); 
       return; 
@@ -137,7 +138,8 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 // ====================================================
 router.post('/verify-reset-code', async (req: Request, res: Response) => {
   try {
-    const { email, code } = req.body;
+    const { email: rawEmail, code } = req.body;
+    const email = rawEmail?.trim().toLowerCase();
     if (!email || !code) { 
       res.status(400).json({ error: 'Email y código son requeridos' }); 
       return; 
@@ -233,7 +235,8 @@ router.post('/reset-password', async (req: Request, res: Response) => {
 // POST /api/auth/register
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email: rawEmail, password, name } = req.body;
+    const email = rawEmail?.trim().toLowerCase();
     if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
 
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -257,7 +260,8 @@ router.post('/register', async (req: Request, res: Response) => {
 // POST /api/auth/login
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email: rawEmail, password } = req.body;
+    const email = rawEmail?.trim().toLowerCase();
     if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
 
     const user = await prisma.user.findUnique({ where: { email } });

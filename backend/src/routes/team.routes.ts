@@ -70,7 +70,8 @@ router.post('/', async (req: Request, res: Response) => {
     if (!(await hasPermission(userId, 'team'))) { res.status(403).json({ error: 'Sin permiso' }); return; }
 
     const ownerId = await getOwnerId(userId);
-    const { email, password, name, role, permissions } = req.body;
+    const { email: rawEmail, password, name, role, permissions } = req.body;
+    const email = rawEmail?.trim().toLowerCase();
 
     if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
 

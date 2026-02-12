@@ -27,7 +27,8 @@ const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
 const WOMPI_PUBLIC_KEY = process.env.WOMPI_PUBLIC_KEY || '';
 const WOMPI_PRIVATE_KEY = process.env.WOMPI_PRIVATE_KEY || '';
 const WOMPI_EVENT_SECRET = process.env.WOMPI_EVENT_SECRET || '';
-const WOMPI_ENVIRONMENT = process.env.WOMPI_ENVIRONMENT || 'production';
+const WOMPI_INTEGRITY_KEY = process.env.WOMPI_INTEGRITY_KEY || process.env.WOMPI_ENVIRONMENT || '';
+const WOMPI_ENVIRONMENT = process.env.WOMPI_ENV || 'production';
 const WOMPI_API_URL = WOMPI_ENVIRONMENT === 'test'
   ? 'https://sandbox.wompi.co/v1'
   : 'https://production.wompi.co/v1';
@@ -461,9 +462,12 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const reference = `ELISA-${userId.slice(-8)}-${plan}-${period}-${Date.now()}`;
 
     // Generar firma de integridad para Wompi
-    const integritySecret = WOMPI_EVENT_SECRET;
+    // IMPORTANTE: Usar la llave de integridad, NO el secreto de eventos
+    const integritySecret = WOMPI_INTEGRITY_KEY;
     const signatureString = `${reference}${amountInCents}COP${integritySecret}`;
     const signature = crypto.createHash('sha256').update(signatureString).digest('hex');
+
+    console.log(`🔐 Firma generada - Ref: ${reference}, Monto: ${amountInCents}, Integridad: ${integritySecret ? '✓ configurada' : '❌ FALTA'}`);
 
     // Crear registro de pago pendiente
     const payment = await prisma.payment.create({

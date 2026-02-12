@@ -165,21 +165,42 @@ export default function CRMPage() {
     setSendingMass(true);
     const token = localStorage.getItem('token');
     const stageConvs = getConvsByStage(selectedStage);
-    let sent = 0;
-    for (const conv of stageConvs) {
-      try {
-        const res = await fetch(`${API_URL}/api/whatsapp/send`, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: conv.recipientId, message: massMessageText, lineId: getLineId() })
-        });
-        if (res.ok) sent++;
-        await new Promise(r => setTimeout(r, 1500));
-      } catch {}
+    
+    try {
+      const contacts = stageConvs.map(c => ({
+        phone: c.recipientId,
+        name: c.recipientName || c.recipientId,
+        conversationId: c.id
+      }));
+
+      // 🚀 USAR /send-bulk — El backend maneja los delays de 3s entre cada envío
+      const res = await fetch(`${API_URL}/api/whatsapp/send-bulk`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          contacts,
+          message: massMessageText,
+          whatsappLineId: getLineId()  // ✅ FIX: era "lineId", ahora "whatsappLineId"
+        })
+      });
+
+      if (res.ok) {
+        // Esperar tiempo estimado para que el backend envíe todo
+        const waitTime = stageConvs.length * 3500 + 2000;
+        setTimeout(() => {
+          alert(`✅ Mensaje masivo enviado a ${stageConvs.length} contactos`);
+          setSendingMass(false);
+          setShowMassMessage(false);
+          setMassMessageText('');
+          fetchAll();
+        }, Math.min(waitTime, 60000)); // Máximo 60 segundos de espera en UI
+      } else {
+        throw new Error('Error');
+      }
+    } catch {
+      alert('❌ Error al enviar mensaje masivo');
+      setSendingMass(false);
     }
-    alert(`✅ Enviado a ${sent} contactos`);
-    setSendingMass(false);
-    setShowMassMessage(false);
-    setMassMessageText('');
   };
 
   const handleSaveClient = async () => {

@@ -1544,30 +1544,198 @@ router.post('/disconnect', async (req: Request, res: Response) => {
 router.post('/send', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-    const { to, message } = req.body;
-    if (!userId || !to || !message) { res.status(400).json({ error: 'Faltan datos' }); return; }
+    const { to, message, whatsappLineId, lineId: legacyLineId, mediaUrl, mediaType: sendMediaType } = req.body;
+    if (!userId || !to || (!message && !mediaUrl)) { res.status(400).json({ error: 'Faltan datos' }); return; }
     const ownerId = await getOwnerId(userId);
-    const session = await findActiveSession(ownerId);
-    const sn = session?.name || getUserSessionName(ownerId);
     const chatId = to.includes('@') ? to : `${to.replace(/\D/g, '')}@c.us`;
-    const r = await fetch(`${WAHA_API_URL}/api/sendText`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ session: sn, chatId, text: message }) });
-    if (r.ok) {
-      const cleanNumber = to.replace(/\D/g, '');
-      // 🔍 Búsqueda flexible: exacto, sin "+", últimos 10 dígitos
-      let conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: cleanNumber } });
-      if (!conv) conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: `+${cleanNumber}` } });
-      if (!conv) conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: to } });
-      if (!conv && cleanNumber.length >= 10) {
-        const last10 = cleanNumber.slice(-10);
-        conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: { endsWith: last10 } } });
+    const cleanNumber = to.replace(/\D/g, '');
+
+    // 🔗 DETERMINAR SESIÓN CORRECTA: usar la línea específica, NO findActiveSession
+    let sessionName: string | null = null;
+    let lineId: string | null = whatsappLineId || legacyLineId || null; // ✅ Acepta ambos nombres
+
+    if (whatsappLineId) {
+      // Buscar sesión de la línea específica
+      const line = await prisma.whatsappLine.findFirst({ where: { id: whatsappLineId, userId: ownerId } });
+      if (line) {
+        sessionName = line.sessionName;
+        lineId = line.id;
       }
-      if (!conv) conv = await prisma.conversation.create({ data: { userId: ownerId, recipientId: cleanNumber, lastMessage: message, stage: 'new' } });
+    }
+    
+    if (!sessionName) {
+      // Fallback: buscar la conversación para saber de qué línea es
+      const existingConv = await prisma.conversation.findFirst({ 
+        where: { userId: ownerId, recipientId: { endsWith: cleanNumber.slice(-10) } },
+        select: { whatsappLineId: true }
+      });
+      if (existingConv?.whatsappLineId) {
+        const line = await prisma.whatsappLine.findUnique({ where: { id: existingConv.whatsappLineId } });
+        if (line) {
+          sessionName = line.sessionName;
+          lineId = line.id;
+        }
+      }
+    }
+
+    if (!sessionName) {
+      // Último fallback: primera línea conectada del usuario
+      const firstLine = await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected' } });
+      if (firstLine) {
+        sessionName = firstLine.sessionName;
+        lineId = firstLine.id;
+      } else {
+        // Legacy: findActiveSession
+        const session = await findActiveSession(ownerId);
+        sessionName = session?.name || getUserSessionName(ownerId);
+      }
+    }
+
+    // 📤 ENVIAR MENSAJE
+    let sent = false;
+    if (message) {
+      sent = await sendWahaMessage(sessionName, chatId, message);
+    }
+
+    // 📤 ENVIAR MEDIA (si hay)
+    if (mediaUrl) {
+      const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
+      const mediaSent = await sendWahaMedia(sessionName, chatId, mediaObj, !message ? '' : undefined);
+      sent = sent || mediaSent;
+    }
+
+    if (sent) {
+      // 🔍 Buscar conversación CORRECTA (filtrar por línea)
+      let conv = null;
+      if (lineId) {
+        conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: cleanNumber, whatsappLineId: lineId } });
+        if (!conv && cleanNumber.length >= 10) {
+          const last10 = cleanNumber.slice(-10);
+          conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: { endsWith: last10 }, whatsappLineId: lineId } });
+        }
+      } else {
+        conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: cleanNumber } });
+        if (!conv && cleanNumber.length >= 10) {
+          const last10 = cleanNumber.slice(-10);
+          conv = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: { endsWith: last10 } } });
+        }
+      }
       
-      await prisma.message.create({ data: { conversationId: conv.id, content: message, fromMe: true, userId, role: 'assistant' } });
-      await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: message } });
+      if (!conv) {
+        conv = await prisma.conversation.create({ 
+          data: { userId: ownerId, recipientId: cleanNumber, lastMessage: message || '📎 Media', stage: 'new', ...(lineId ? { whatsappLineId: lineId } : {}) } 
+        });
+      }
+
+      const content = message || (sendMediaType === 'image' ? '📷 [Imagen]' : sendMediaType === 'audio' ? '🎤 [Audio]' : '📎 [Archivo]');
+      await prisma.message.create({ 
+        data: { 
+          conversationId: conv.id, content, fromMe: true, userId, role: 'assistant',
+          ...(mediaUrl && { mediaUrl, mediaType: sendMediaType || 'image' })
+        } 
+      });
+      await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: content } });
       res.json({ success: true });
-    } else { res.json({ success: false }); }
+    } else { res.json({ success: false, error: 'No se pudo enviar' }); }
   } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ====================================================
+// 📢 ENVÍO MASIVO — Enviar mensaje a múltiples contactos
+// Con delays para evitar ban de WhatsApp
+// ====================================================
+router.post('/send-bulk', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    const { contacts, message, whatsappLineId, lineId: legacyBulkLineId, mediaUrl, mediaType: bulkMediaType } = req.body;
+    if (!contacts?.length || (!message && !mediaUrl)) { 
+      res.status(400).json({ error: 'Se requieren contactos y mensaje o media' }); return; 
+    }
+
+    const effectiveLineId = whatsappLineId || legacyBulkLineId || null; // ✅ Acepta ambos
+
+    // Determinar sesión de la línea
+    let sessionName: string | null = null;
+    if (effectiveLineId) {
+      const line = await prisma.whatsappLine.findFirst({ where: { id: effectiveLineId, userId: ownerId } });
+      if (line) sessionName = line.sessionName;
+    }
+    if (!sessionName) {
+      const firstLine = await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected' } });
+      if (firstLine) sessionName = firstLine.sessionName;
+      else {
+        const session = await findActiveSession(ownerId);
+        sessionName = session?.name || getUserSessionName(ownerId);
+      }
+    }
+
+    console.log(`📢 Envío masivo: ${contacts.length} contactos, sesión: ${sessionName}`);
+
+    // Responder inmediatamente y procesar en background
+    res.json({ success: true, message: `Enviando a ${contacts.length} contactos...`, total: contacts.length });
+
+    // Procesar en background con delays
+    let sent = 0;
+    let failed = 0;
+    const DELAY_BETWEEN_MESSAGES = 3000; // 3 segundos entre cada mensaje (evitar ban)
+
+    for (const contact of contacts) {
+      try {
+        const phone = (contact.phone || contact.recipientId || contact).replace(/\D/g, '');
+        if (!phone) { failed++; continue; }
+
+        const chatId = `${phone}@c.us`;
+
+        // Enviar texto
+        if (message) {
+          const textSent = await sendWahaMessage(sessionName!, chatId, message);
+          if (!textSent) { failed++; continue; }
+        }
+
+        // Enviar media si hay
+        if (mediaUrl) {
+          const mediaObj = { url: mediaUrl, type: bulkMediaType || 'image', name: 'media' };
+          await sendWahaMedia(sessionName!, chatId, mediaObj);
+        }
+
+        // Guardar en DB
+        const cleanNumber = phone;
+        let conv = await prisma.conversation.findFirst({ 
+          where: { userId: ownerId, recipientId: { endsWith: cleanNumber.slice(-10) }, ...(effectiveLineId ? { whatsappLineId: effectiveLineId } : {}) } 
+        });
+        
+        if (conv) {
+          const content = message || '📎 [Media]';
+          await prisma.message.create({ 
+            data: { 
+              conversationId: conv.id, content, fromMe: true, userId, role: 'assistant',
+              ...(mediaUrl && { mediaUrl, mediaType: bulkMediaType || 'image' })
+            } 
+          });
+          await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: content } });
+        }
+
+        sent++;
+        console.log(`📢 Masivo ${sent}/${contacts.length}: ✅ ${phone}`);
+
+        // Delay entre mensajes para evitar ban de WhatsApp
+        if (sent < contacts.length) {
+          await new Promise(r => setTimeout(r, DELAY_BETWEEN_MESSAGES));
+        }
+      } catch (e: any) {
+        console.error(`📢 Masivo: ❌ Error enviando a contacto:`, e.message);
+        failed++;
+      }
+    }
+
+    console.log(`📢 Envío masivo completado: ${sent} enviados, ${failed} fallidos de ${contacts.length}`);
+  } catch (e: any) { 
+    console.error('❌ Error envío masivo:', e.message);
+    res.status(500).json({ success: false, message: e.message }); 
+  }
 });
 
 // ====================================================

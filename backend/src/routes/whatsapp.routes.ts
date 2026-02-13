@@ -752,8 +752,8 @@ INSTRUCCIONES:
             
             // 🎯 DETECTAR ETAPA basándose en datos extraídos (solo si hay etapas configuradas)
             let fallbackStage = '';
+            const lastMsgLower = (message || '').toLowerCase();
             if (pipelineStages.length > 0) {
-              const lastMsgLower = (message || '').toLowerCase();
             
             if (lastMsgLower.includes('no me interesa') || lastMsgLower.includes('no gracias') || lastMsgLower.includes('cancelar')) {
               fallbackStage = 'Perdido';

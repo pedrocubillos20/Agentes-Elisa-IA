@@ -58,6 +58,8 @@ export default function SubscriptionPage() {
 
   useEffect(() => {
     loadData();
+    // Verificar si hay un pago pendiente al cargar (ej: retorno de Wompi redirect)
+    checkPendingPayment();
   }, []);
 
   // Re-validate discount when plan/period changes
@@ -66,6 +68,38 @@ export default function SubscriptionPage() {
       validateDiscount(appliedDiscount.code);
     }
   }, [selectedPeriod]);
+
+  // Verificar pagos pendientes al cargar la página (retorno de Wompi)
+  const checkPendingPayment = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    
+    // Buscar la referencia más reciente en localStorage
+    const lastRef = localStorage.getItem('lastPaymentReference');
+    if (!lastRef) return;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/verify-payment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reference: lastRef })
+      });
+      const data = await res.json();
+      
+      if (data.status === 'APPROVED' && data.activated) {
+        localStorage.removeItem('lastPaymentReference');
+        alert(`✅ ¡Tu plan ${data.plan} ha sido activado exitosamente!`);
+        loadData();
+      } else if (data.status === 'PENDING') {
+        // Seguir esperando — no hacer nada
+        console.log('⏳ Pago aún pendiente:', lastRef);
+      } else if (data.status === 'DECLINED' || data.status === 'ERROR') {
+        localStorage.removeItem('lastPaymentReference');
+      }
+    } catch (e) {
+      console.error('Error verificando pago pendiente:', e);
+    }
+  };
 
   const loadData = async () => {
     const token = localStorage.getItem('token');
@@ -160,6 +194,9 @@ export default function SubscriptionPage() {
       if (!res.ok) throw new Error('Error al crear pago');
       const data = await res.json();
 
+      // Guardar referencia para verificar después
+      localStorage.setItem('lastPaymentReference', data.reference);
+
       // Abrir widget de Wompi
       const checkout = new (window as any).WidgetCheckout({
         currency: 'COP',
@@ -174,14 +211,86 @@ export default function SubscriptionPage() {
         }
       });
 
-      checkout.open((result: any) => {
+      checkout.open(async (result: any) => {
         const transaction = result.transaction;
+        console.log('💳 Wompi resultado:', transaction?.status, transaction?.id);
+        
         if (transaction?.status === 'APPROVED') {
-          alert('✅ ¡Pago aprobado! Tu plan se activará en segundos.');
+          // Verificar y activar inmediatamente
+          try {
+            const verifyRes = await fetch(`${API_URL}/api/subscription/verify-payment`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ reference: data.reference })
+            });
+            const verifyData = await verifyRes.json();
+            if (verifyData.activated) {
+              alert(`✅ ¡Pago aprobado! Tu plan ${verifyData.plan} está activo.`);
+            } else {
+              alert('✅ ¡Pago aprobado! Tu plan se activará en segundos.');
+            }
+          } catch (e) {
+            alert('✅ ¡Pago aprobado! Tu plan se activará en segundos.');
+          }
           handleRemoveDiscount();
-          setTimeout(() => loadData(), 3000);
+          localStorage.removeItem('lastPaymentReference');
+          setTimeout(() => loadData(), 2000);
+        } else if (transaction?.status === 'PENDING') {
+          // Nequi, PSE — pago pendiente, necesita polling
+          alert('⏳ Pago pendiente. Si pagaste con Nequi, confirma en tu app. Verificaremos automáticamente...');
+          // Polling cada 5 segundos, máximo 12 intentos (60 seg)
+          let attempts = 0;
+          const pollInterval = setInterval(async () => {
+            attempts++;
+            try {
+              const verifyRes = await fetch(`${API_URL}/api/subscription/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reference: data.reference })
+              });
+              const verifyData = await verifyRes.json();
+              
+              if (verifyData.status === 'APPROVED' && verifyData.activated) {
+                clearInterval(pollInterval);
+                localStorage.removeItem('lastPaymentReference');
+                alert(`✅ ¡Pago confirmado! Tu plan ${verifyData.plan} está activo.`);
+                handleRemoveDiscount();
+                loadData();
+              } else if (verifyData.status === 'DECLINED' || verifyData.status === 'ERROR' || verifyData.status === 'VOIDED') {
+                clearInterval(pollInterval);
+                localStorage.removeItem('lastPaymentReference');
+                alert('❌ Pago rechazado o cancelado. Intenta con otro método.');
+              }
+            } catch (e) {
+              console.error('Error verificando pago:', e);
+            }
+            if (attempts >= 12) {
+              clearInterval(pollInterval);
+              loadData(); // Cargar estado final
+            }
+          }, 5000);
         } else if (transaction?.status === 'DECLINED') {
           alert('❌ Pago rechazado. Intenta con otro método.');
+          localStorage.removeItem('lastPaymentReference');
+        } else {
+          // Widget cerrado sin resultado claro — verificar por si acaso
+          setTimeout(async () => {
+            try {
+              const verifyRes = await fetch(`${API_URL}/api/subscription/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reference: data.reference })
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyData.status === 'APPROVED' && verifyData.activated) {
+                alert(`✅ ¡Pago confirmado! Tu plan ${verifyData.plan} está activo.`);
+                handleRemoveDiscount();
+              }
+              loadData();
+            } catch (e) {
+              loadData();
+            }
+          }, 3000);
         }
         setPaymentLoading('');
       });

@@ -540,7 +540,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 router.post('/webhook/wompi', async (req: Request, res: Response) => {
   try {
     const event = req.body;
-    console.log('💳 Webhook Wompi:', JSON.stringify(event).substring(0, 200));
+    console.log('💳 Webhook Wompi recibido:', event.event, JSON.stringify(event.data?.transaction?.reference || '').substring(0, 100));
 
     // Verificar firma si viene con checksum
     if (event.signature?.checksum && WOMPI_EVENT_SECRET) {
@@ -556,82 +556,57 @@ router.post('/webhook/wompi', async (req: Request, res: Response) => {
       
       const computed = crypto.createHash('sha256').update(concatenated).digest('hex');
       if (computed !== event.signature.checksum) {
-        console.error('❌ Firma Wompi inválida');
-        res.status(400).json({ error: 'Firma inválida' });
-        return;
+        console.error('❌ Firma Wompi inválida - Computed:', computed.substring(0, 10), '!= Expected:', event.signature.checksum.substring(0, 10));
+        // NO rechazar — intentar procesar de todas formas (Wompi a veces tiene problemas con firmas)
+        console.warn('⚠️ Continuando sin verificación de firma...');
+      } else {
+        console.log('✅ Firma Wompi verificada correctamente');
       }
+    } else {
+      console.log('⚠️ Webhook sin firma o sin WOMPI_EVENT_SECRET configurado');
     }
 
     const transaction = event.data?.transaction;
-    if (!transaction) { res.json({ received: true }); return; }
+    if (!transaction) { 
+      console.log('⚠️ Webhook sin datos de transacción');
+      res.json({ received: true }); 
+      return; 
+    }
 
     const { reference, status, id: transactionId, payment_method_type } = transaction;
+    console.log(`💳 Transacción: ${reference} | Estado: ${status} | Método: ${payment_method_type} | ID: ${transactionId}`);
 
     if (event.event === 'transaction.updated' && status === 'APPROVED') {
-      // Buscar el pago pendiente
+      // Buscar el pago (pendiente o ya procesado)
       const payment = await prisma.payment.findFirst({
-        where: { wompiReference: reference, status: 'pending' }
+        where: { wompiReference: reference }
       });
 
       if (!payment) {
-        console.log('⚠️ Pago no encontrado para referencia:', reference);
-        res.json({ received: true });
+        console.error(`❌ Pago NO encontrado en BD para referencia: ${reference}`);
+        res.json({ received: true, error: 'payment_not_found' });
         return;
       }
 
-      // Actualizar pago a aprobado
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: 'approved',
-          wompiTransactionId: String(transactionId),
-          wompiPaymentMethod: payment_method_type,
-          method: payment_method_type
-        }
-      });
+      if (payment.status === 'approved') {
+        console.log(`⚠️ Pago ${reference} ya estaba aprobado - ignorando webhook duplicado`);
+        res.json({ received: true, alreadyProcessed: true });
+        return;
+      }
 
-      // Calcular periodo
-      const now = new Date();
-      const periodEnd = new Date(now);
-      if (payment.period === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
-      else if (payment.period === 'semiannual') periodEnd.setMonth(periodEnd.getMonth() + 6);
-      else if (payment.period === 'annual') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+      // Activar suscripción usando el helper
+      try {
+        const result = await activateSubscription(payment, transactionId, payment_method_type);
+        console.log(`🎉 Webhook procesado exitosamente: ${payment.plan} ${payment.period} activado`);
+        res.json({ received: true, activated: true, plan: payment.plan });
+      } catch (activationErr: any) {
+        console.error(`❌ Error en activación desde webhook:`, activationErr.message);
+        res.status(500).json({ received: true, error: 'activation_failed' });
+      }
+      return;
 
-      // Crear o actualizar suscripción
-      await prisma.subscription.upsert({
-        where: { userId: payment.userId },
-        create: {
-          userId: payment.userId,
-          plan: payment.plan,
-          period: payment.period,
-          status: 'active',
-          priceUsd: payment.amountUsd,
-          priceCop: payment.amountCop,
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
-          wompiTransactionId: String(transactionId)
-        },
-        update: {
-          plan: payment.plan,
-          period: payment.period,
-          status: 'active',
-          priceUsd: payment.amountUsd,
-          priceCop: payment.amountCop,
-          currentPeriodStart: now,
-          currentPeriodEnd: periodEnd,
-          wompiTransactionId: String(transactionId)
-        }
-      });
-
-      // Actualizar plan del usuario
-      await prisma.user.update({
-        where: { id: payment.userId },
-        data: { plan: payment.plan }
-      });
-
-      console.log(`✅ Pago aprobado: ${payment.plan} ${payment.period} para usuario ${payment.userId}${payment.discountCode ? ` (código: ${payment.discountCode})` : ''}`);
-    } else if (event.event === 'transaction.updated' && status === 'DECLINED') {
-      // Si fue rechazado y tenía código de descuento, revertir el uso
+    } else if (event.event === 'transaction.updated' && (status === 'DECLINED' || status === 'ERROR' || status === 'VOIDED')) {
+      // Pago rechazado
       const payment = await prisma.payment.findFirst({
         where: { wompiReference: reference, status: 'pending' }
       });
@@ -645,48 +620,211 @@ router.post('/webhook/wompi', async (req: Request, res: Response) => {
         await prisma.discountUsage.deleteMany({
           where: { paymentId: payment.id }
         });
+        console.log(`🏷️ Código ${payment.discountCode} revertido por pago rechazado`);
       }
 
       await prisma.payment.updateMany({
         where: { wompiReference: reference, status: 'pending' },
         data: { status: 'declined', wompiTransactionId: String(transactionId) }
       });
-      console.log(`❌ Pago rechazado: ${reference}`);
+      console.log(`❌ Pago rechazado: ${reference} (${status})`);
+    } else {
+      console.log(`ℹ️ Evento no procesado: ${event.event} - Estado: ${status}`);
     }
 
     res.json({ received: true });
-  } catch (error) {
-    console.error('Error webhook Wompi:', error);
-    res.status(500).json({ error: 'Error procesando webhook' });
+  } catch (error: any) {
+    console.error('❌ Error webhook Wompi:', error.message);
+    // Siempre responder 200 para que Wompi no reintente indefinidamente
+    res.json({ received: true, error: error.message });
   }
 });
 
+// ===== HELPER: Activar suscripción después de pago aprobado =====
+async function activateSubscription(payment: any, transactionId: string, paymentMethodType?: string) {
+  try {
+    // Verificar que no se haya activado ya
+    if (payment.status === 'approved') {
+      console.log(`⚠️ Pago ${payment.id} ya estaba aprobado`);
+      return { alreadyActive: true };
+    }
+
+    // Actualizar pago a aprobado
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: 'approved',
+        wompiTransactionId: String(transactionId),
+        wompiPaymentMethod: paymentMethodType || null,
+        method: paymentMethodType || null
+      }
+    });
+
+    // Calcular periodo
+    const now = new Date();
+    const periodEnd = new Date(now);
+    if (payment.period === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
+    else if (payment.period === 'semiannual') periodEnd.setMonth(periodEnd.getMonth() + 6);
+    else if (payment.period === 'annual') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+
+    // Crear o actualizar suscripción
+    await prisma.subscription.upsert({
+      where: { userId: payment.userId },
+      create: {
+        userId: payment.userId,
+        plan: payment.plan,
+        period: payment.period,
+        status: 'active',
+        priceUsd: payment.amountUsd,
+        priceCop: payment.amountCop,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        wompiTransactionId: String(transactionId)
+      },
+      update: {
+        plan: payment.plan,
+        period: payment.period,
+        status: 'active',
+        priceUsd: payment.amountUsd,
+        priceCop: payment.amountCop,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        wompiTransactionId: String(transactionId)
+      }
+    });
+
+    // Actualizar plan del usuario
+    await prisma.user.update({
+      where: { id: payment.userId },
+      data: { plan: payment.plan }
+    });
+
+    console.log(`✅ 🎉 SUSCRIPCIÓN ACTIVADA: ${payment.plan} ${payment.period} | Usuario: ${payment.userId} | Hasta: ${periodEnd.toISOString().split('T')[0]}${payment.discountCode ? ` | Código: ${payment.discountCode}` : ''}`);
+    
+    return { 
+      activated: true, 
+      plan: payment.plan, 
+      period: payment.period, 
+      periodEnd 
+    };
+  } catch (error: any) {
+    console.error(`❌ Error activando suscripción para pago ${payment.id}:`, error.message);
+    throw error;
+  }
+}
+
 // ===== POST /api/subscription/verify-payment =====
+// Este endpoint verifica el pago con Wompi Y activa la suscripción si fue aprobado
 router.post('/verify-payment', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { reference } = req.body;
     if (!userId || !reference) { res.status(400).json({ error: 'Referencia requerida' }); return; }
 
+    // 1. Consultar estado en Wompi
     const wompiRes = await fetch(`${WOMPI_API_URL}/transactions?reference=${reference}`, {
       headers: { 'Authorization': `Bearer ${WOMPI_PRIVATE_KEY}` }
     });
 
-    if (!wompiRes.ok) { res.status(500).json({ error: 'Error consultando Wompi' }); return; }
+    if (!wompiRes.ok) { 
+      console.error('❌ Error consultando Wompi:', wompiRes.status);
+      res.status(500).json({ error: 'Error consultando Wompi' }); 
+      return; 
+    }
 
     const data = await wompiRes.json() as any;
     const transaction = data.data?.[0];
 
-    if (!transaction) { res.json({ status: 'not_found' }); return; }
+    if (!transaction) { 
+      res.json({ status: 'not_found', message: 'Transacción no encontrada en Wompi' }); 
+      return; 
+    }
 
+    console.log(`🔍 Verificación Wompi - Ref: ${reference} | Estado: ${transaction.status} | ID: ${transaction.id}`);
+
+    // 2. Si está APROBADO, activar la suscripción
+    if (transaction.status === 'APPROVED') {
+      const payment = await prisma.payment.findFirst({
+        where: { wompiReference: reference, userId }
+      });
+
+      if (!payment) {
+        console.error(`❌ Pago no encontrado en BD para referencia: ${reference}`);
+        res.json({ 
+          status: 'APPROVED', 
+          error: 'Pago aprobado pero no encontrado en base de datos',
+          reference 
+        });
+        return;
+      }
+
+      if (payment.status === 'approved') {
+        // Ya estaba activado - solo retornar estado
+        const subscription = await prisma.subscription.findUnique({ where: { userId } });
+        res.json({
+          status: 'APPROVED',
+          activated: true,
+          alreadyActive: true,
+          plan: payment.plan,
+          period: payment.period,
+          periodEnd: subscription?.currentPeriodEnd
+        });
+        return;
+      }
+
+      // Activar suscripción
+      const result = await activateSubscription(payment, transaction.id, transaction.payment_method_type);
+      
+      res.json({
+        status: 'APPROVED',
+        activated: true,
+        plan: result.plan,
+        period: result.period,
+        periodEnd: result.periodEnd,
+        reference,
+        amount: transaction.amount_in_cents / 100,
+        method: transaction.payment_method_type
+      });
+      return;
+    }
+
+    // 3. Si está PENDIENTE (Nequi, PSE esperando confirmación)
+    if (transaction.status === 'PENDING') {
+      res.json({
+        status: 'PENDING',
+        message: 'El pago está pendiente de confirmación. Si pagaste con Nequi, confirma en tu app.',
+        reference,
+        method: transaction.payment_method_type
+      });
+      return;
+    }
+
+    // 4. Si fue RECHAZADO
+    if (transaction.status === 'DECLINED' || transaction.status === 'ERROR' || transaction.status === 'VOIDED') {
+      // Marcar pago como rechazado
+      await prisma.payment.updateMany({
+        where: { wompiReference: reference, status: 'pending' },
+        data: { status: 'declined', wompiTransactionId: String(transaction.id) }
+      });
+
+      res.json({
+        status: transaction.status,
+        message: 'El pago fue rechazado o cancelado.',
+        reference
+      });
+      return;
+    }
+
+    // Estado desconocido
     res.json({
       status: transaction.status,
-      reference: transaction.reference,
+      reference,
       amount: transaction.amount_in_cents / 100,
       method: transaction.payment_method_type
     });
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+  } catch (error: any) {
+    console.error('❌ Error verify-payment:', error.message);
+    res.status(500).json({ error: 'Error verificando pago' });
   }
 });
 

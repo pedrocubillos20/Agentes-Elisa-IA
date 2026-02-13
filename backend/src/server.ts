@@ -16,6 +16,7 @@ import stagesRoutes from './routes/stages.routes';
 import scheduledRoutes, { startScheduledMessagesCron } from './routes/scheduled.routes';
 import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes';
 import { authMiddleware } from './middleware/auth.middleware';
+import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -66,19 +67,22 @@ app.get('/api/subscription/exchange-rate', (req, res, next) => {
 });
 
 // ===== RUTAS PROTEGIDAS =====
-app.use('/api/assistants', authMiddleware, assistantsRoutes);
-app.use('/api/conversations', authMiddleware, conversationsRoutes);
-app.use('/api/whatsapp', authMiddleware, whatsappRoutes);
-app.use('/api/products', authMiddleware, productsRoutes);
-app.use('/api/clients', authMiddleware, clientsRoutes);
-app.use('/api/appointments', authMiddleware, appointmentsRoutes);
-app.use('/api/team', authMiddleware, teamRoutes);
+// 🔒 Rutas con verificación de suscripción (bloqueadas si expiró)
+app.use('/api/assistants', authMiddleware, subscriptionMiddleware, assistantsRoutes);
+app.use('/api/conversations', authMiddleware, subscriptionMiddleware, conversationsRoutes);
+app.use('/api/whatsapp', authMiddleware, subscriptionMiddleware, whatsappRoutes);
+app.use('/api/products', authMiddleware, subscriptionMiddleware, productsRoutes);
+app.use('/api/clients', authMiddleware, subscriptionMiddleware, clientsRoutes);
+app.use('/api/appointments', authMiddleware, subscriptionMiddleware, appointmentsRoutes);
+app.use('/api/team', authMiddleware, subscriptionMiddleware, teamRoutes);
+app.use('/api/stages', authMiddleware, subscriptionMiddleware, stagesRoutes);
+app.use('/api/scheduled', authMiddleware, subscriptionMiddleware, scheduledRoutes);
+
+// 🔓 Suscripción SIN bloqueo (para que pueda pagar)
 app.use('/api/subscription', authMiddleware, subscriptionRoutes);
-app.use('/api/stages', authMiddleware, stagesRoutes);
-app.use('/api/scheduled', authMiddleware, scheduledRoutes);
 
 // ===== API & INTEGRACIONES =====
-app.use('/api/integrations', authMiddleware, apiRoutes);   // Gestión keys/webhooks (JWT)
+app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);   // Gestión keys/webhooks (JWT)
 app.use('/api/v1', apiPublicRoutes);                        // API pública (API Key)
 
 // ===== HEALTH CHECK =====

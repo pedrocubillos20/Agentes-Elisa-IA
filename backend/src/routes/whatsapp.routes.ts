@@ -443,8 +443,30 @@ const extractMediaInfo = (payload: any): { hasMedia: boolean; mediaType: string;
 // ===== AI RESPONSE (🧠 MEMORIA PERSISTENTE + AUTO-APRENDIZAJE) =====
 const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null): Promise<string | null> => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, apiKeyConnected: true } });
-    if (!user?.apiKey || !user.apiKeyConnected) return null;
+    // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
+    const owner = await prisma.user.findUnique({ 
+      where: { id: ownerId }, 
+      select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true } 
+    });
+    if (!owner?.apiKey || !owner.apiKeyConnected) return null;
+
+    // Verificar si la suscripción está activa
+    let isExpired = false;
+    if (owner.plan === 'trial') {
+      if (owner.trialEndsAt && owner.trialEndsAt.getTime() < Date.now()) isExpired = true;
+    } else {
+      const sub = await prisma.subscription.findUnique({ where: { userId: ownerId } });
+      if (!sub || sub.currentPeriodEnd.getTime() < Date.now() || sub.status === 'expired' || sub.status === 'cancelled') {
+        isExpired = true;
+      }
+    }
+
+    if (isExpired) {
+      console.log(`🔒 AI bloqueada — Suscripción expirada para usuario ${ownerId}`);
+      return null;
+    }
+
+    const user = owner;
 
     let assistant = null;
 

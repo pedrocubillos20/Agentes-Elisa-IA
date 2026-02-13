@@ -8,8 +8,9 @@ import {
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
   ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
-  ExternalLink, Code
+  ExternalLink, Code, Lock, Zap, Clock
 } from 'lucide-react';
+import Paywall from '../components/Paywall';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573123538300';
@@ -249,13 +250,36 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {/* Plan badge */}
               {user?.plan && (
                 <div className="px-4 pt-3">
-                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide ${
-                    user.plan === 'business' ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
-                    : user.plan === 'starter' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
-                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                  }`}>
-                    <span>👑</span><span>{planLabel}</span>
-                  </div>
+                  {user.isBlocked ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide bg-red-500/15 text-red-400 border border-red-500/30">
+                        <Lock className="w-3 h-3" /><span>EXPIRADO</span>
+                      </div>
+                      <Link href="/subscription" className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/80 transition-all animate-pulse">
+                        <Zap className="w-3 h-3" />Activar Plan
+                      </Link>
+                    </div>
+                  ) : user.daysRemaining !== undefined && user.daysRemaining <= 3 && user.daysRemaining > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        <Clock className="w-3 h-3" /><span>{user.daysRemaining}d restantes</span>
+                      </div>
+                      <Link href="/subscription" className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-all">
+                        <Zap className="w-3 h-3" />Renovar ahora
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide ${
+                      user.plan === 'business' ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
+                      : user.plan === 'starter' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                      : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                    }`}>
+                      <span>👑</span><span>{planLabel}</span>
+                      {user.daysRemaining !== undefined && user.daysRemaining > 0 && user.daysRemaining <= 7 && (
+                        <span className="text-[9px] opacity-60">({user.daysRemaining}d)</span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -334,6 +358,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className="flex-1 p-6 lg:p-8 overflow-auto">
                 <div className="animate-fade-in">{children}</div>
               </div>
+
+              {/* 🔒 PAYWALL — Bloquear acceso cuando suscripción expiró */}
+              {user?.isBlocked && pathname !== '/subscription' && (
+                <Paywall plan={user.plan || 'trial'} />
+              )}
             </main>
           </div>
         </LineContext.Provider>

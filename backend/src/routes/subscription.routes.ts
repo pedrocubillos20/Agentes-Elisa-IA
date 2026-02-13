@@ -445,19 +445,89 @@ router.post('/validate-discount', async (req: Request, res: Response) => {
   }
 });
 
+// ===== POST /api/subscription/upgrade-preview =====
+// Calcula el excedente para upgrade de Starter → Business
+router.post('/upgrade-preview', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const subscription = await prisma.subscription.findUnique({ where: { userId } });
+    if (!subscription || subscription.status !== 'active') {
+      res.status(400).json({ error: 'No tienes una suscripción activa' }); return;
+    }
+    if (subscription.plan !== 'starter') {
+      res.status(400).json({ error: 'Solo puedes hacer upgrade desde el plan Starter' }); return;
+    }
+
+    // Calcular días restantes del periodo actual
+    const now = new Date();
+    const periodEnd = new Date(subscription.currentPeriodEnd);
+    const periodStart = new Date(subscription.currentPeriodStart);
+    const totalDays = Math.max(1, Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)));
+    const remainingDays = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+
+    // Valor diario de cada plan según el periodo actual
+    const currentPeriod = subscription.period;
+    const starterPriceUsd = PLANS.starter[currentPeriod as string] || PLANS.starter.monthly;
+    const businessPriceUsd = PLANS.business[currentPeriod as string] || PLANS.business.monthly;
+
+    const starterDaily = starterPriceUsd / totalDays;
+    const businessDaily = businessPriceUsd / totalDays;
+
+    // Crédito por los días no usados del Starter
+    const creditUsd = Math.round((starterDaily * remainingDays) * 100) / 100;
+    // Costo del Business por los mismos días restantes
+    const businessRemainingUsd = Math.round((businessDaily * remainingDays) * 100) / 100;
+    // Diferencia a pagar (excedente)
+    const upgradeUsd = Math.max(0, Math.round((businessRemainingUsd - creditUsd) * 100) / 100);
+
+    const trm = await getTRM();
+    const rate = trm.rate;
+
+    res.json({
+      currentPlan: 'starter',
+      targetPlan: 'business',
+      period: currentPeriod,
+      remainingDays,
+      totalDays,
+      creditUsd,
+      creditCop: Math.round(creditUsd * rate),
+      businessRemainingUsd,
+      businessRemainingCop: Math.round(businessRemainingUsd * rate),
+      upgradeUsd,
+      upgradeCop: Math.round(upgradeUsd * rate),
+      upgradeCopWithCard: Math.round(upgradeUsd * rate * (1 + CARD_SURCHARGE)),
+      periodEnd: periodEnd.toISOString(),
+      exchangeRate: rate
+    });
+  } catch (error) {
+    console.error('Error upgrade preview:', error);
+    res.status(500).json({ error: 'Error calculando upgrade' });
+  }
+});
+
 // ===== POST /api/subscription/create-payment =====
 router.post('/create-payment', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const { plan, period, discountCode: rawDiscountCode, includeImplementation, addons } = req.body;
+    const { plan, period, discountCode: rawDiscountCode, includeImplementation, addons, type: paymentType } = req.body;
     
     // Determinar si es compra de addon solamente o plan + addon
     const isAddonOnly = plan === 'implementation';
+    const isUpgrade = paymentType === 'upgrade';
     
     if (isAddonOnly) {
       // Compra solo del addon de implementación
+      // Verificar que ya tenga un plan activo
+      const existingSub = await prisma.subscription.findUnique({ where: { userId } });
+      if (!existingSub || existingSub.status !== 'active') {
+        res.status(400).json({ error: 'Necesitas un plan activo para comprar la implementación por separado. Elige un plan primero.' });
+        return;
+      }
+      
       let priceAddon = IMPLEMENTATION_ADDON.price;
       if (addons?.extraLines > 0) priceAddon += addons.extraLines * IMPLEMENTATION_ADDON.extras.extraLinesCost;
       if (addons?.extraProducts > 0) priceAddon += addons.extraProducts * IMPLEMENTATION_ADDON.extras.extraProductsCost;
@@ -496,16 +566,52 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       return;
     }
     
-    // Compra de plan normal (starter / business)
+    // Compra de plan normal (starter / business) o upgrade
     if (!plan || !PLANS[plan]) { res.status(400).json({ error: 'Plan inválido' }); return; }
-    if (!period || !['monthly', 'semiannual', 'annual'].includes(period)) { res.status(400).json({ error: 'Periodo inválido' }); return; }
-
+    
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
     const planConfig = PLANS[plan];
-    let priceUsd: number = planConfig[period as string] as number;
-    const effectivePeriod = period;
+    let priceUsd: number;
+    let effectivePeriod: string;
+    let upgradeCredit = 0;
+    
+    if (isUpgrade && plan === 'business') {
+      // UPGRADE: Starter → Business — cobrar solo el excedente
+      const subscription = await prisma.subscription.findUnique({ where: { userId } });
+      if (!subscription || subscription.status !== 'active' || subscription.plan !== 'starter') {
+        res.status(400).json({ error: 'Solo puedes hacer upgrade desde un plan Starter activo' }); return;
+      }
+      
+      effectivePeriod = subscription.period; // Mantener el mismo periodo
+      
+      // Calcular excedente proporcional
+      const now = new Date();
+      const periodEnd = new Date(subscription.currentPeriodEnd);
+      const periodStart = new Date(subscription.currentPeriodStart);
+      const totalDays = Math.max(1, Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (1000 * 60 * 60 * 24)));
+      const remainingDays = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      
+      const starterTotal = PLANS.starter[effectivePeriod as string] || PLANS.starter.monthly;
+      const businessTotal = PLANS.business[effectivePeriod as string] || PLANS.business.monthly;
+      
+      const creditPerDay = starterTotal / totalDays;
+      const businessPerDay = businessTotal / totalDays;
+      
+      upgradeCredit = Math.round((creditPerDay * remainingDays) * 100) / 100;
+      const businessRemaining = Math.round((businessPerDay * remainingDays) * 100) / 100;
+      priceUsd = Math.max(1, Math.round((businessRemaining - upgradeCredit) * 100) / 100); // Mínimo $1 USD
+      
+      console.log(`⬆️ UPGRADE Starter→Business: ${remainingDays}d restantes, crédito $${upgradeCredit}, costo upgrade $${priceUsd}`);
+    } else {
+      // Compra normal de plan
+      if (!period || !['monthly', 'semiannual', 'annual'].includes(period)) { 
+        res.status(400).json({ error: 'Periodo inválido' }); return; 
+      }
+      effectivePeriod = period;
+      priceUsd = planConfig[period as string] as number;
+    }
     
     // Si incluye implementación, sumar al total
     if (includeImplementation) {
@@ -582,7 +688,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const payment = await prisma.payment.create({
       data: {
         userId,
-        type: includeImplementation ? 'subscription_with_addon' : 'subscription',
+        type: isUpgrade ? 'upgrade' : includeImplementation ? 'subscription_with_addon' : 'subscription',
         plan,
         period: effectivePeriod,
         amountUsd: priceUsd,
@@ -770,11 +876,11 @@ async function activateSubscription(payment: any, transactionId: string, payment
     });
 
     const now = new Date();
-    const isAddon = payment.type === 'addon' || payment.plan === 'implementation';
+    const isAddon = payment.type === 'addon' || (payment.plan === 'implementation' && payment.type !== 'subscription_with_addon');
+    const isUpgrade = payment.type === 'upgrade';
     
     if (isAddon) {
       // Addon de implementación — NO cambia el plan del usuario
-      // Solo registra el pago como aprobado
       console.log(`✅ 🛠️ ADD-ON IMPLEMENTACIÓN PAGADO | Usuario: ${payment.userId}`);
       return { 
         activated: true, 
@@ -784,8 +890,35 @@ async function activateSubscription(payment: any, transactionId: string, payment
       };
     }
 
+    if (isUpgrade) {
+      // UPGRADE: Solo cambiar el plan, mantener el periodo actual
+      const existingSub = await prisma.subscription.findUnique({ where: { userId: payment.userId } });
+      if (existingSub) {
+        await prisma.subscription.update({
+          where: { userId: payment.userId },
+          data: { 
+            plan: payment.plan, // business
+            status: 'active',
+            wompiTransactionId: String(transactionId)
+          }
+        });
+      }
+      await prisma.user.update({
+        where: { id: payment.userId },
+        data: { plan: payment.plan }
+      });
+      
+      console.log(`✅ ⬆️ UPGRADE ACTIVADO: starter → ${payment.plan} | Usuario: ${payment.userId} | Periodo actual se mantiene hasta: ${existingSub?.currentPeriodEnd?.toISOString().split('T')[0]}`);
+      return { 
+        activated: true, 
+        plan: payment.plan, 
+        period: existingSub?.period || payment.period, 
+        periodEnd: existingSub?.currentPeriodEnd 
+      };
+    }
+
     // Plan normal (starter / business)
-    const effectivePlan = payment.plan === 'implementation' ? 'business' : payment.plan;
+    const effectivePlan = payment.plan;
     
     // Calcular periodo
     const periodEnd = new Date(now);

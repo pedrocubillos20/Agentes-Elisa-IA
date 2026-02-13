@@ -58,6 +58,9 @@ export default function SubscriptionPage() {
   // Implementation addon (order bump / upsell)
   const [addon, setAddon] = useState<any>(null);
   const [includeImplementation, setIncludeImplementation] = useState(false);
+  
+  // Upgrade preview
+  const [upgradePreview, setUpgradePreview] = useState<any>(null);
 
   useEffect(() => {
     loadData();
@@ -130,6 +133,20 @@ export default function SubscriptionPage() {
       if (statusRes.ok) {
         const d = await statusRes.json();
         setSubStatus(d);
+        
+        // Si tiene Starter activo, cargar preview de upgrade
+        if (d.subscription?.plan === 'starter' && d.subscription?.status === 'active') {
+          try {
+            const upgradeRes = await fetch(`${API_URL}/api/subscription/upgrade-preview`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+            });
+            if (upgradeRes.ok) {
+              const upgradeData = await upgradeRes.json();
+              setUpgradePreview(upgradeData);
+            }
+          } catch (e) { console.error('Error loading upgrade preview:', e); }
+        }
       }
     } catch (e) {
       console.error(e);
@@ -180,7 +197,7 @@ export default function SubscriptionPage() {
     setDiscountError('');
   };
 
-  const handlePayment = async (planId: string) => {
+  const handlePayment = async (planId: string, paymentType?: string) => {
     const token = localStorage.getItem('token');
     setPaymentLoading(planId);
 
@@ -192,7 +209,8 @@ export default function SubscriptionPage() {
           plan: planId, 
           period: selectedPeriod,
           discountCode: appliedDiscount?.code || null,
-          includeImplementation
+          includeImplementation: planId !== 'implementation' ? includeImplementation : false,
+          type: paymentType || undefined
         })
       });
 
@@ -515,7 +533,11 @@ export default function SubscriptionPage() {
             const features = PLAN_FEATURES[plan.id as keyof typeof PLAN_FEATURES];
             if (!features) return null;
             const isBusiness = plan.id === 'business';
-            const isCurrentPlan = subStatus?.subscription?.plan === plan.id;
+            const isCurrentPlan = subStatus?.subscription?.plan === plan.id && subStatus?.subscription?.status === 'active';
+            const currentPlan = subStatus?.subscription?.plan;
+            const hasActiveSub = subStatus?.subscription?.status === 'active';
+            const isDowngrade = hasActiveSub && currentPlan === 'business' && plan.id === 'starter';
+            const canUpgrade = hasActiveSub && currentPlan === 'starter' && plan.id === 'business';
             const discount = getDiscountedPrice(plan.id, price.cop, price.copWithCard);
 
             // Precio base + implementación si está seleccionada
@@ -530,7 +552,7 @@ export default function SubscriptionPage() {
                   isBusiness
                     ? 'bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 border-emerald-500/40 shadow-xl shadow-emerald-500/10'
                     : 'bg-white/5 border-white/10 hover:border-white/20'
-                }`}>
+                } ${isDowngrade ? 'opacity-50' : ''}`}>
                 
                 {isBusiness && (
                   <div className="absolute -top-4 left-1/2 -translate-x-1/2">
@@ -552,36 +574,59 @@ export default function SubscriptionPage() {
 
                 {/* Pricing */}
                 <div className="mb-8">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-gray-500 text-lg">USD$</span>
-                    <span className="text-5xl font-black">{price.usd}</span>
-                  </div>
-                  <div className="text-gray-500 text-sm mt-1">
-                    {selectedPeriod === 'monthly' ? 'por mes' : selectedPeriod === 'semiannual' ? 'por 6 meses' : 'por año'}
-                  </div>
-
-                  {discount ? (
-                    <div className="mt-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-500 text-sm line-through">{formatCOP(price.cop)}</span>
-                        <span className="text-purple-400 text-lg font-black">{formatCOP(discount.finalCop)} COP</span>
+                  {/* Upgrade pricing */}
+                  {canUpgrade && upgradePreview ? (
+                    <div className="mb-3 p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
+                      <div className="text-cyan-300 text-xs font-bold mb-1">⬆️ Upgrade desde Starter</div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-gray-500 text-sm line-through">USD$ {price.usd}</span>
+                        <span className="text-3xl font-black text-cyan-400">USD$ {upgradePreview.upgradeUsd}</span>
                       </div>
-                      <div className="text-purple-300 text-xs font-bold mt-1">
-                        💰 Ahorras {formatCOP(discount.discountAmount)} ({discount.savedPercent}% OFF)
+                      <div className="text-gray-400 text-xs mt-1">
+                        ≈ {formatCOP(upgradePreview.upgradeCop)} COP • Crédito Starter: -${upgradePreview.creditUsd} USD
+                      </div>
+                      <div className="text-gray-500 text-[10px] mt-1">
+                        Solo pagas el excedente por los {upgradePreview.remainingDays} días restantes de tu periodo
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="mt-2 text-emerald-400 text-sm font-semibold">≈ {formatCOP(price.cop)} COP</div>
-                      {price.savedPercent && (
-                        <div className="mt-1 text-amber-400 text-xs font-bold">💰 Ahorras {price.savedPercent}%</div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-gray-500 text-lg">USD$</span>
+                        <span className="text-5xl font-black">{price.usd}</span>
+                      </div>
+                      <div className="text-gray-500 text-sm mt-1">
+                        {selectedPeriod === 'monthly' ? 'por mes' : selectedPeriod === 'semiannual' ? 'por 6 meses' : 'por año'}
+                      </div>
+                    </>
+                  )}
+
+                  {!canUpgrade && (
+                    <>
+                      {discount ? (
+                        <div className="mt-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-500 text-sm line-through">{formatCOP(price.cop)}</span>
+                            <span className="text-purple-400 text-lg font-black">{formatCOP(discount.finalCop)} COP</span>
+                          </div>
+                          <div className="text-purple-300 text-xs font-bold mt-1">
+                            💰 Ahorras {formatCOP(discount.discountAmount)} ({discount.savedPercent}% OFF)
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mt-2 text-emerald-400 text-sm font-semibold">≈ {formatCOP(price.cop)} COP</div>
+                          {price.savedPercent && (
+                            <div className="mt-1 text-amber-400 text-xs font-bold">💰 Ahorras {price.savedPercent}%</div>
+                          )}
+                          <div className="mt-2 text-gray-600 text-xs">💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5%)</div>
+                        </>
                       )}
-                      <div className="mt-2 text-gray-600 text-xs">💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5%)</div>
                     </>
                   )}
 
                   {/* Mostrar total con implementación */}
-                  {includeImplementation && addon && (
+                  {includeImplementation && addon && !isCurrentPlan && !isDowngrade && !canUpgrade && (
                     <div className="mt-3 p-2 bg-orange-500/10 border border-orange-500/20 rounded-xl">
                       <div className="text-orange-400 text-xs font-bold">
                         + Implementación: ${addon.priceUsd} USD (≈ {formatCOP(addon.priceCop)} COP)
@@ -609,21 +654,35 @@ export default function SubscriptionPage() {
                   ))}
                 </div>
 
-                {/* CTA */}
+                {/* CTA Button — Smart logic */}
                 <button
-                  onClick={() => handlePayment(plan.id)}
-                  disabled={!!paymentLoading || isCurrentPlan}
+                  onClick={() => canUpgrade 
+                    ? handlePayment('business', 'upgrade') 
+                    : handlePayment(plan.id)
+                  }
+                  disabled={!!paymentLoading || isCurrentPlan || isDowngrade}
                   className={`w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2 ${
                     isCurrentPlan
                       ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                      : isBusiness
-                        ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-[1.02]'
-                        : 'bg-white/10 text-white border border-white/20 hover:bg-white/15 hover:scale-[1.02]'
+                      : isDowngrade
+                        ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
+                        : canUpgrade
+                          ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white hover:shadow-lg hover:shadow-cyan-500/30 hover:scale-[1.02]'
+                          : isBusiness
+                            ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:shadow-lg hover:shadow-emerald-500/30 hover:scale-[1.02]'
+                            : 'bg-white/10 text-white border border-white/20 hover:bg-white/15 hover:scale-[1.02]'
                   }`}>
                   {paymentLoading === plan.id ? (
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   ) : isCurrentPlan ? (
-                    <>Plan Actual</>
+                    <>✅ Plan Actual</>
+                  ) : isDowngrade ? (
+                    <>Plan inferior al actual</>
+                  ) : canUpgrade ? (
+                    <>
+                      <Zap className="w-5 h-5" /> Upgrade a Business
+                      {upgradePreview && <span className="text-sm opacity-80">— ${upgradePreview.upgradeUsd} USD</span>}
+                    </>
                   ) : (
                     <><CreditCard className="w-5 h-5" /> {isBusiness ? 'Activar Business' : 'Activar Starter'}{includeImplementation ? ' + Implementación' : ''}</>
                   )}
@@ -633,78 +692,120 @@ export default function SubscriptionPage() {
           })}
         </div>
 
-        {/* ===== ORDER BUMP: IMPLEMENTACIÓN ===== */}
-        {addon && !subStatus?.hasImplementation && (
-          <div className="max-w-5xl mx-auto mt-10">
-            <div 
-              onClick={() => setIncludeImplementation(!includeImplementation)}
-              className={`relative cursor-pointer rounded-2xl border-2 p-6 transition-all ${
-                includeImplementation 
-                  ? 'bg-gradient-to-r from-orange-500/10 to-amber-500/5 border-orange-500/50 shadow-lg shadow-orange-500/10' 
-                  : 'bg-white/5 border-dashed border-gray-600 hover:border-orange-500/40'
-              }`}>
-              
-              {/* Badge */}
-              <div className="absolute -top-3 left-6">
-                <span className={`text-xs font-black px-3 py-1 rounded-full ${
-                  includeImplementation 
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white' 
-                    : 'bg-gray-700 text-gray-400'
+        {/* ===== IMPLEMENTACIÓN: Order Bump o Compra Standalone ===== */}
+        {addon && !subStatus?.hasImplementation && (() => {
+          const userHasActivePlan = subStatus?.subscription?.status === 'active';
+          
+          return (
+            <div className="max-w-5xl mx-auto mt-10">
+              <div 
+                onClick={() => !userHasActivePlan && setIncludeImplementation(!includeImplementation)}
+                className={`relative rounded-2xl border-2 p-6 transition-all ${
+                  userHasActivePlan
+                    ? 'bg-gradient-to-r from-orange-500/5 to-amber-500/5 border-orange-500/30'
+                    : includeImplementation 
+                      ? 'bg-gradient-to-r from-orange-500/10 to-amber-500/5 border-orange-500/50 shadow-lg shadow-orange-500/10 cursor-pointer' 
+                      : 'bg-white/5 border-dashed border-gray-600 hover:border-orange-500/40 cursor-pointer'
                 }`}>
-                  🛠️ SERVICIO DE IMPLEMENTACIÓN — Pago único
-                </span>
-              </div>
-
-              <div className="flex items-start gap-4 mt-2">
-                {/* Checkbox */}
-                <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center mt-1 transition-all ${
-                  includeImplementation 
-                    ? 'bg-orange-500 border-orange-500' 
-                    : 'border-gray-500'
-                }`}>
-                  {includeImplementation && <Check className="w-4 h-4 text-white" />}
+                
+                {/* Badge */}
+                <div className="absolute -top-3 left-6">
+                  <span className={`text-xs font-black px-3 py-1 rounded-full ${
+                    userHasActivePlan || includeImplementation 
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white' 
+                      : 'bg-gray-700 text-gray-400'
+                  }`}>
+                    🛠️ SERVICIO DE IMPLEMENTACIÓN — Pago único
+                  </span>
                 </div>
 
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h4 className="text-lg font-black text-white">{addon.name}</h4>
-                      <p className="text-gray-400 text-sm">Nosotros configuramos todo tu negocio. Tú solo vendes.</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-black text-orange-400">${addon.priceUsd} USD</div>
-                      <div className="text-gray-500 text-xs">≈ {formatCOP(addon.priceCop)} COP</div>
-                      <div className="text-orange-300 text-xs font-bold">💎 Pago único</div>
-                    </div>
-                  </div>
-
-                  {/* Features grid */}
-                  <div className="grid grid-cols-2 gap-2 mt-4">
-                    {addon.features.map((f: string, i: number) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <Check className={`w-3.5 h-3.5 flex-shrink-0 ${includeImplementation ? 'text-orange-400' : 'text-gray-600'}`} />
-                        <span className={`text-xs ${includeImplementation ? 'text-gray-300' : 'text-gray-500'}`}>{f}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Extras */}
-                  {addon.extras && (
-                    <div className="mt-3 flex gap-4 text-[10px] text-gray-500">
-                      <span>📱 Línea adicional: ${addon.extras.extraLine.usd} USD c/u</span>
-                      <span>📦 +10 productos: ${addon.extras.extraProducts.usd} USD</span>
+                <div className="flex items-start gap-4 mt-2">
+                  {/* Checkbox — solo si NO tiene plan activo (order bump) */}
+                  {!userHasActivePlan && (
+                    <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center mt-1 transition-all ${
+                      includeImplementation 
+                        ? 'bg-orange-500 border-orange-500' 
+                        : 'border-gray-500'
+                    }`}>
+                      {includeImplementation && <Check className="w-4 h-4 text-white" />}
                     </div>
                   )}
+
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className="text-lg font-black text-white">{addon.name}</h4>
+                        <p className="text-gray-400 text-sm">Nosotros configuramos todo tu negocio. Tú solo vendes.</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-black text-orange-400">${addon.priceUsd} USD</div>
+                        <div className="text-gray-500 text-xs">≈ {formatCOP(addon.priceCop)} COP</div>
+                        <div className="text-orange-300 text-xs font-bold">💎 Pago único</div>
+                      </div>
+                    </div>
+
+                    {/* Features grid */}
+                    <div className="grid grid-cols-2 gap-2 mt-4">
+                      {addon.features.map((f: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Check className={`w-3.5 h-3.5 flex-shrink-0 ${
+                            userHasActivePlan || includeImplementation ? 'text-orange-400' : 'text-gray-600'
+                          }`} />
+                          <span className={`text-xs ${
+                            userHasActivePlan || includeImplementation ? 'text-gray-300' : 'text-gray-500'
+                          }`}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Extras */}
+                    {addon.extras && (
+                      <div className="mt-3 flex gap-4 text-[10px] text-gray-500">
+                        <span>📱 Línea adicional: ${addon.extras.extraLine.usd} USD c/u</span>
+                        <span>📦 +10 productos: ${addon.extras.extraProducts.usd} USD</span>
+                      </div>
+                    )}
+
+                    {/* Botón de compra standalone (ya tiene plan) */}
+                    {userHasActivePlan && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handlePayment('implementation'); }}
+                        disabled={!!paymentLoading}
+                        className="mt-4 w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg hover:shadow-orange-500/30 hover:scale-[1.01]"
+                      >
+                        {paymentLoading === 'implementation' ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          <><Shield className="w-4 h-4" /> Contratar Implementación — ${addon.priceUsd} USD</>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Urgency / Social proof */}
-            {!includeImplementation && (
-              <p className="text-center text-gray-500 text-xs mt-3 animate-pulse">
-                💡 El 78% de nuestros clientes eligen implementación para empezar a vender más rápido
-              </p>
-            )}
+              {/* Social proof */}
+              {!userHasActivePlan && !includeImplementation && (
+                <p className="text-center text-gray-500 text-xs mt-3 animate-pulse">
+                  💡 El 78% de nuestros clientes eligen implementación para empezar a vender más rápido
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Implementación ya comprada */}
+        {subStatus?.hasImplementation && (
+          <div className="max-w-5xl mx-auto mt-10">
+            <div className="rounded-2xl border border-green-500/30 bg-green-500/5 p-4 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-green-500/20 flex items-center justify-center">
+                <Check className="w-5 h-5 text-green-400" />
+              </div>
+              <div>
+                <h4 className="text-green-400 font-bold">Implementación contratada ✅</h4>
+                <p className="text-gray-500 text-xs">Nuestro equipo está configurando tu negocio. Contacta soporte si necesitas ayuda.</p>
+              </div>
+            </div>
           </div>
         )}
 

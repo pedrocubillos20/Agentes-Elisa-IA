@@ -28,9 +28,10 @@ export default function WhatsAppPage() {
   // Plan limits
   const plan = user?.plan || 'trial';
   const features = user?.planFeatures || {};
-  const maxLines = features.maxWhatsappLines || 3;
+  const planLimits: Record<string, number> = { trial: 1, starter: 2, business: 5 };
+  const maxLines = planLimits[plan] || features.maxWhatsappLines || 1;
   const isBusiness = plan === 'business';
-  const canAddMore = isBusiness || lines.length < maxLines;
+  const canAddMore = lines.length < maxLines;
 
   useEffect(() => {
     loadAll();
@@ -207,7 +208,7 @@ export default function WhatsAppPage() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-sm text-[var(--text-muted)]">
-            {lines.length}/{isBusiness ? '∞' : maxLines} líneas
+            {lines.length}/{maxLines} líneas
           </span>
           <button
             onClick={() => { resetForm(); setShowModal(true); }}
@@ -221,7 +222,7 @@ export default function WhatsAppPage() {
       </div>
 
       {/* Plan limit banner */}
-      {!canAddMore && !isBusiness && (
+      {!canAddMore && (
         <div className="card p-5 border-amber-500/30 bg-amber-500/5">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center flex-shrink-0">
@@ -230,12 +231,14 @@ export default function WhatsAppPage() {
             <div className="flex-1">
               <h3 className="text-white font-semibold">Límite de líneas alcanzado</h3>
               <p className="text-sm text-gray-400">
-                Tu plan Starter permite hasta {maxLines} líneas. Actualiza a <span className="text-emerald-400 font-bold">Business</span> para líneas ilimitadas.
+                Tu plan permite hasta {maxLines} línea{maxLines !== 1 ? 's' : ''}. {!isBusiness && <><a href="/subscription" className="text-emerald-400 font-bold hover:underline">Upgrade a Business</a> para 5 líneas.</>}
               </p>
             </div>
-            <a href="/subscription" className="btn-primary flex-shrink-0">
-              <Crown className="w-4 h-4" /> Upgrade
-            </a>
+            {!isBusiness && (
+              <a href="/subscription" className="btn-primary flex-shrink-0">
+                <Crown className="w-4 h-4" /> Upgrade
+              </a>
+            )}
           </div>
         </div>
       )}
@@ -368,7 +371,7 @@ export default function WhatsAppPage() {
           </div>
           <h3 className="font-semibold text-white mb-2">Multi-Línea</h3>
           <p className="text-sm text-[var(--text-muted)]">
-            {isBusiness ? 'Líneas ilimitadas para tu equipo' : `Hasta ${maxLines} líneas en tu plan`}
+            {`Hasta ${maxLines} línea${maxLines !== 1 ? 's' : ''} en tu plan`}
           </p>
         </div>
         <div className="card text-center">

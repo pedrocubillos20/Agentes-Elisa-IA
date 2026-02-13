@@ -19,18 +19,8 @@ const STAGE_COLORS: Record<string, string> = {
   pink: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
 };
 
-const DEFAULT_STAGES = [
-  { id: 'Saludo', label: 'Saludo', color: 'blue' },
-  { id: 'Interesado', label: 'Interesado', color: 'cyan' },
-  { id: 'En Cotización', label: 'En Cotización', color: 'yellow' },
-  { id: 'Pendiente Color', label: 'Pendiente Color', color: 'orange' },
-  { id: 'Pendiente Talla', label: 'Pendiente Talla', color: 'orange' },
-  { id: 'Pendiente Calidad', label: 'Pendiente Calidad', color: 'orange' },
-  { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green' },
-  { id: 'Pendiente Pago', label: 'Pendiente Pago', color: 'pink' },
-  { id: 'Confirmado', label: 'Confirmado', color: 'purple' },
-  { id: 'Perdido', label: 'Perdido', color: 'red' },
-];
+// ❌ Sin etapas por defecto — se cargan de la base de conocimiento de cada línea
+const DEFAULT_STAGES: any[] = [];
 
 export default function ConversacionesPage() {
   const [conversations, setConversations] = useState<any[]>([]);
@@ -514,8 +504,8 @@ export default function ConversacionesPage() {
             {!selectedConv.isGroup && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                 <p className="text-[10px] text-[var(--text-muted)] mb-1">Etapa actual</p>
-                <div className={`px-2 py-1 rounded text-xs text-center border ${getStageColor(selectedConv.stage || 'Saludo')}`}>
-                  {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Saludo'}
+                <div className={`px-2 py-1 rounded text-xs text-center border ${getStageColor(selectedConv.stage || '')}`}>
+                  {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Sin etapa'}
                 </div>
                 <p className="text-[9px] text-emerald-400 text-center mt-1">✨ Auto-detectada</p>
               </div>

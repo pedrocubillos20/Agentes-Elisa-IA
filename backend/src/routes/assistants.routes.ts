@@ -181,9 +181,9 @@ function extractStagesFromContext(context: string): any[] {
     }
   }
   
-  // Si encontramos menos de 3 items, no es una sección válida de etapas
-  if (foundItems.length < 3) {
-    console.log(`  📋 Muy pocas etapas encontradas (${foundItems.length}), usando defaults`);
+  // Si encontramos menos de 2 items, no es una sección válida de etapas
+  if (foundItems.length < 2) {
+    console.log(`  📋 Muy pocas etapas encontradas (${foundItems.length}), retornando vacío`);
     return [];
   }
   
@@ -198,19 +198,7 @@ function extractStagesFromContext(context: string): any[] {
     });
   });
   
-  // Si no encontramos nada, crear etapas por defecto básicas
-  if (stages.length === 0) {
-    return [
-      { id: 'Saludo', label: 'Saludo', color: 'blue', description: 'Primer contacto' },
-      { id: 'Interesado', label: 'Interesado', color: 'cyan', description: 'Mostró interés' },
-      { id: 'En Cotización', label: 'En Cotización', color: 'yellow', description: 'Pidiendo información' },
-      { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange', description: 'Faltan datos' },
-      { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green', description: 'Confirmó compra' },
-      { id: 'Confirmado', label: 'Confirmado', color: 'purple', description: 'Pedido completo' },
-      { id: 'Perdido', label: 'Perdido', color: 'red', description: 'No compró' }
-    ];
-  }
-  
+  // Si no encontramos nada, retornar vacío — el usuario debe definir etapas en su base de conocimiento
   return stages;
 }
 

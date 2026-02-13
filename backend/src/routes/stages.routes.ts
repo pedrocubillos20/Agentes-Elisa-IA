@@ -4,16 +4,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Default stages
-const DEFAULT_STAGES = [
-  { id: 'Saludo', label: 'Saludo', color: 'blue', description: 'Primer contacto' },
-  { id: 'Interesado', label: 'Interesado', color: 'cyan', description: 'Mostró interés' },
-  { id: 'En Cotización', label: 'En Cotización', color: 'yellow', description: 'Pidiendo información' },
-  { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange', description: 'Faltan datos' },
-  { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green', description: 'Confirmó compra' },
-  { id: 'Confirmado', label: 'Confirmado', color: 'purple', description: 'Pedido completo' },
-  { id: 'Perdido', label: 'Perdido', color: 'red', description: 'No compró' },
-];
+// ❌ NO hay DEFAULT_STAGES — las etapas vienen SOLO de la base de conocimiento de cada línea/asistente
 
 // GET /api/stages - Get stages (supports lineId query param for line-specific stages)
 router.get('/', async (req: Request, res: Response) => {
@@ -23,8 +14,9 @@ router.get('/', async (req: Request, res: Response) => {
 
     const lineId = req.query.lineId as string | undefined;
     
-    let stages = DEFAULT_STAGES;
-    
+    let stages: any[] = [];
+    let configured = false;
+
     // Si hay lineId, buscar etapas de la línea
     if (lineId) {
       const line = await prisma.whatsappLine.findFirst({ 
@@ -34,20 +26,49 @@ router.get('/', async (req: Request, res: Response) => {
       
       if (line?.customStages && Array.isArray(line.customStages) && (line.customStages as any[]).length > 0) {
         stages = line.customStages as any[];
+        configured = line.stagesConfigured || false;
       }
       
-      res.json({ stages, configured: line?.stagesConfigured || false, source: 'line' });
+      // Si no tiene etapas configuradas, intentar extraerlas del asistente
+      if (stages.length === 0) {
+        const assistant = await prisma.assistant.findFirst({
+          where: { userId, whatsappLineId: lineId },
+          select: { context: true }
+        });
+        
+        if (assistant?.context) {
+          const extracted = extractStagesFromContext(assistant.context);
+          if (extracted.length > 0) {
+            await prisma.whatsappLine.update({
+              where: { id: lineId },
+              data: { customStages: extracted, stagesConfigured: true }
+            });
+            stages = extracted;
+            configured = true;
+            console.log(`🎯 Auto-extracción: ${extracted.length} etapas desde base de conocimiento de línea ${lineId}`);
+          }
+        }
+      }
+      
+      res.json({ stages, configured, source: 'line' });
       return;
     }
     
-    // Fallback: buscar en user (legacy)
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { customStages: true } });
+    // Sin lineId: buscar la primera línea del usuario que tenga etapas
+    const lines = await prisma.whatsappLine.findMany({
+      where: { userId },
+      select: { id: true, customStages: true, stagesConfigured: true }
+    });
     
-    if (user?.customStages && Array.isArray(user.customStages) && (user.customStages as any[]).length > 0) {
-      stages = user.customStages as any[];
+    for (const line of lines) {
+      if (line.customStages && Array.isArray(line.customStages) && (line.customStages as any[]).length > 0) {
+        stages = line.customStages as any[];
+        configured = true;
+        break;
+      }
     }
 
-    res.json({ stages, source: 'user' });
+    res.json({ stages, configured, source: stages.length > 0 ? 'line' : 'none' });
   } catch (error) {
     console.error('Error getting stages:', error);
     res.status(500).json({ error: 'Error' });
@@ -67,7 +88,6 @@ router.put('/', async (req: Request, res: Response) => {
       return;
     }
 
-    // Validate each stage has required fields
     for (const stage of stages) {
       if (!stage.id || !stage.label || !stage.color) {
         res.status(400).json({ error: 'Each stage needs id, label, and color' });
@@ -75,7 +95,6 @@ router.put('/', async (req: Request, res: Response) => {
       }
     }
 
-    // Si hay lineId, guardar en la línea
     if (lineId) {
       await prisma.whatsappLine.update({
         where: { id: lineId },
@@ -86,11 +105,13 @@ router.put('/', async (req: Request, res: Response) => {
       return;
     }
 
-    // Fallback: guardar en user (legacy)
-    await prisma.user.update({
-      where: { id: userId },
-      data: { customStages: stages }
-    });
+    const firstLine = await prisma.whatsappLine.findFirst({ where: { userId } });
+    if (firstLine) {
+      await prisma.whatsappLine.update({
+        where: { id: firstLine.id },
+        data: { customStages: stages, stagesConfigured: true }
+      });
+    }
 
     console.log(`✅ Stages saved for ${userId}: ${stages.length} stages`);
     res.json({ stages, message: 'Etapas guardadas' });
@@ -109,32 +130,29 @@ router.post('/sync', async (req: Request, res: Response) => {
     const { lineId } = req.body;
     if (!lineId) { res.status(400).json({ error: 'lineId requerido' }); return; }
 
-    // Buscar asistente de la línea
     const assistant = await prisma.assistant.findFirst({
       where: { userId, whatsappLineId: lineId },
       select: { context: true }
     });
 
     if (!assistant?.context) {
-      res.status(400).json({ error: 'No hay base de conocimiento configurada para esta línea' });
+      res.status(400).json({ error: 'No hay base de conocimiento configurada para esta línea. Configura tu asistente primero.' });
       return;
     }
 
-    // Extraer etapas del contexto
     const stages = extractStagesFromContext(assistant.context);
     
     if (stages.length === 0) {
-      res.status(400).json({ error: 'No se encontraron etapas en la base de conocimiento. Agrega una sección de ETAPAS o FLUJO.' });
+      res.status(400).json({ error: 'No se encontraron etapas en la base de conocimiento. Define las etapas de tu negocio en la base de conocimiento del asistente.' });
       return;
     }
 
-    // Guardar etapas en la línea
     await prisma.whatsappLine.update({
       where: { id: lineId },
       data: { customStages: stages, stagesConfigured: true }
     });
 
-    console.log(`🎯 Etapas sincronizadas para línea ${lineId}: ${stages.map(s => s.label).join(', ')}`);
+    console.log(`🎯 Etapas sincronizadas para línea ${lineId}: ${stages.map((s: any) => s.label).join(', ')}`);
     res.json({ stages, message: `${stages.length} etapas sincronizadas correctamente` });
   } catch (error) {
     console.error('Error syncing stages:', error);
@@ -142,17 +160,16 @@ router.post('/sync', async (req: Request, res: Response) => {
   }
 });
 
-// 🎯 FUNCIÓN: Extraer etapas automáticamente del contexto/base de conocimiento
+// 🎯 Extraer etapas automáticamente del contexto/base de conocimiento
 function extractStagesFromContext(context: string): any[] {
   if (!context || context.length < 50) return [];
   
   const stages: any[] = [];
   const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
   
-  // Buscar secciones que contengan etapas
   const sectionPatterns = [
-    /##?\s*(?:ETAPAS?|FLUJO|EMBUDO|PIPELINE|FASES?|PROCESO)[^\n]*\n([\s\S]*?)(?=\n##|\n\n\n|$)/gi,
-    /(?:etapas?|flujo|embudo|pipeline|fases?|proceso)[\s:]+\n?([\s\S]*?)(?=\n##|\n\n\n|$)/gi
+    /##?\s*(?:ETAPAS?|FLUJO|EMBUDO|PIPELINE|FASES?|PROCESO|PASOS?|ESTADOS?)[^\n]*\n([\s\S]*?)(?=\n##|\n\n\n|$)/gi,
+    /(?:etapas?|flujo|embudo|pipeline|fases?|proceso|pasos?|estados?)\s*[:\-]\s*\n?([\s\S]*?)(?=\n##|\n\n\n|$)/gi
   ];
   
   let foundItems: string[] = [];
@@ -161,11 +178,14 @@ function extractStagesFromContext(context: string): any[] {
     const matches = context.matchAll(pattern);
     for (const match of matches) {
       const section = match[1] || '';
-      const items = section.match(/[-•*\d.]\s*\*?\*?([^*\n-•]+)/g);
+      const items = section.match(/[-•*\d.]\s*\*?\*?([^*\n\-•]+)/g);
       if (items) {
         items.forEach(item => {
-          const clean = item.replace(/[-•*\d.]/g, '').replace(/\*\*/g, '').trim();
-          if (clean && clean.length > 2 && clean.length < 50) {
+          let clean = item.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
+          if (clean.includes(':')) clean = clean.split(':')[0].trim();
+          if (clean.includes('→')) clean = clean.split('→')[0].trim();
+          if (clean.includes('–')) clean = clean.split('–')[0].trim();
+          if (clean && clean.length > 1 && clean.length < 40) {
             foundItems.push(clean);
           }
         });
@@ -173,12 +193,13 @@ function extractStagesFromContext(context: string): any[] {
     }
   }
   
-  // Si no encontramos con patrones de sección, buscar keywords comunes
-  if (foundItems.length === 0) {
+  if (foundItems.length < 3) {
     const keywords = [
       'saludo', 'interesado', 'cotización', 'cotizacion', 'pendiente', 'pedido', 
       'confirmado', 'perdido', 'nuevo', 'calidad', 'color', 'talla', 'pago',
-      'entrega', 'enviado', 'completado', 'cerrado', 'seguimiento'
+      'entrega', 'enviado', 'completado', 'cerrado', 'seguimiento', 'demo',
+      'contacto', 'negociación', 'negociacion', 'propuesta', 'cierre', 'postventa',
+      'agendado', 'activación', 'activacion', 'onboarding', 'prueba', 'trial'
     ];
     
     const lines = context.split('\n');
@@ -186,14 +207,17 @@ function extractStagesFromContext(context: string): any[] {
       const lower = line.toLowerCase();
       for (const kw of keywords) {
         if (lower.includes(kw) && line.match(/[-•*\d.]\s/)) {
-          const clean = line.replace(/[-•*\d.]/g, '').replace(/\*\*/g, '').trim();
-          if (clean && clean.length > 2 && clean.length < 50 && !foundItems.includes(clean)) {
+          let clean = line.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
+          if (clean.includes(':')) clean = clean.split(':')[0].trim();
+          if (clean && clean.length > 1 && clean.length < 40 && !foundItems.includes(clean)) {
             foundItems.push(clean);
           }
         }
       }
     }
   }
+  
+  if (foundItems.length < 2) return [];
   
   const unique = Array.from(new Set(foundItems));
   unique.slice(0, 12).forEach((label, index) => {
@@ -204,18 +228,6 @@ function extractStagesFromContext(context: string): any[] {
       description: ''
     });
   });
-  
-  if (stages.length === 0) {
-    return [
-      { id: 'Saludo', label: 'Saludo', color: 'blue', description: 'Primer contacto' },
-      { id: 'Interesado', label: 'Interesado', color: 'cyan', description: 'Mostró interés' },
-      { id: 'En Cotización', label: 'En Cotización', color: 'yellow', description: 'Pidiendo información' },
-      { id: 'Pendiente Info', label: 'Pendiente Info', color: 'orange', description: 'Faltan datos' },
-      { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green', description: 'Confirmó compra' },
-      { id: 'Confirmado', label: 'Confirmado', color: 'purple', description: 'Pedido completo' },
-      { id: 'Perdido', label: 'Perdido', color: 'red', description: 'No compró' }
-    ];
-  }
   
   return stages;
 }

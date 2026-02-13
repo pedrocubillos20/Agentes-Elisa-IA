@@ -586,53 +586,37 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       }
     }
     
-    // Si no hay etapas configuradas, usar default (THE FOUR)
-    if (pipelineStages.length === 0) {
-      pipelineStages = [
-        { id: 'Saludo', label: 'Saludo' },
-        { id: 'Interesado', label: 'Interesado' },
-        { id: 'En Cotización', label: 'En Cotización' },
-        { id: 'Pendiente Color', label: 'Pendiente Color' },
-        { id: 'Pendiente Talla', label: 'Pendiente Talla' },
-        { id: 'Pendiente Calidad', label: 'Pendiente Calidad' },
-        { id: 'Realizó Pedido', label: 'Realizó Pedido' },
-        { id: 'Pendiente Pago', label: 'Pendiente Pago' },
-        { id: 'Confirmado', label: 'Confirmado' },
-        { id: 'Perdido', label: 'Perdido' }
-      ];
-    }
+    // Si no hay etapas configuradas, la IA no detecta etapas automáticamente
+    // El usuario debe configurar su asistente con base de conocimiento para activar etapas
     
-    const stagesList = pipelineStages.map((s: any) => s.id || s.label).join(', ');
+    const stagesList = pipelineStages.length > 0 
+      ? pipelineStages.map((s: any) => s.id || s.label).join(', ')
+      : '';
 
     // 🧠 INSTRUCCIONES DE MEMORIA — Esto le dice a la IA que devuelva un bloque de datos
-    promptParts.push(`
+    let memoryPrompt = `
 === REGLAS DE MEMORIA (OBLIGATORIO) ===
 
 1. NUNCA preguntes algo que el cliente ya dijo en la conversación o que esté en la MEMORIA GUARDADA.
-2. Si ya sabes el nombre, talla, color, ciudad, cantidad, calidad u OTRO dato — ÚSALO, no lo vuelvas a preguntar.
+2. Si ya sabes algún dato del cliente — ÚSALO, no lo vuelvas a preguntar.
 3. Lee TODO el historial antes de responder. Si el cliente mencionó algo antes, recuérdalo.
 4. Si el cliente vuelve después de días, salúdalo por su nombre y retoma donde quedaron.
 5. Responde de forma natural, como un humano por WhatsApp.
+`;
 
+    // 🎯 SOLO incluir detección de etapas si hay etapas configuradas
+    if (pipelineStages.length > 0) {
+      memoryPrompt += `
 === ETAPAS DEL PIPELINE (DETECCIÓN AUTOMÁTICA) ===
 Las etapas disponibles son: ${stagesList}
 
-⚠️ IMPORTANTE: Detecta la etapa basándote en QUÉ INFORMACIÓN YA TIENES del cliente:
+⚠️ IMPORTANTE: Detecta la etapa basándote en la conversación y la información que ya tienes del cliente.
+Analiza el contexto de la conversación y asigna la etapa que mejor corresponda de las disponibles arriba.
+El campo "etapa_actual" en el bloque de memoria DEBE ser una de las etapas listadas arriba.
+`;
+    }
 
-REGLA DE DETECCIÓN (seguir en orden):
-1. Si el cliente dijo "no me interesa", "no gracias", "ya no quiero" → etapa_actual = "Perdido"
-2. Si se CONFIRMÓ una cita/reunión con fecha y hora → etapa_actual = "Confirmado"
-3. Si se CONFIRMÓ un pedido con fecha de entrega → etapa_actual = "Confirmado"
-4. Si YA tienes todos los datos del pedido PERO falta fecha_entrega → etapa_actual = "Pendiente Entrega"
-5. Si YA confirmó que quiere comprar PERO falta método de pago → etapa_actual = "Pendiente Pago"
-6. Si YA tienes nombre, talla, color, calidad, cantidad, ciudad → etapa_actual = "Realizó Pedido"
-7. Si FALTA la calidad (Premium/Mónaco) → etapa_actual = "Pendiente Calidad"
-8. Si FALTA la talla → etapa_actual = "Pendiente Talla"
-9. Si FALTA el color → etapa_actual = "Pendiente Color"
-10. Si mostró interés, preguntó por precios o productos → etapa_actual = "En Cotización"
-11. Si preguntó algo pero no ha dado datos → etapa_actual = "Interesado"
-12. Si solo saludó → etapa_actual = "Saludo"
-
+    memoryPrompt += `
 === 🚨 ACCIONES AUTOMÁTICAS — MUY IMPORTANTE 🚨 ===
 
 El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
@@ -661,26 +645,18 @@ FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 INSTRUCCIONES:
 - Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
 - "nombre" = Nombre del cliente
-- "etapa_actual" = OBLIGATORIO. Usa la REGLA DE DETECCIÓN de arriba.
+- "etapa_actual" = ${pipelineStages.length > 0 ? 'OBLIGATORIO. Debe ser una de las etapas listadas arriba.' : 'Déjalo vacío si no hay etapas configuradas.'}
 - "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. Vacío en otros casos.
-- "fecha_cita" = Fecha de la cita confirmada. Formato "YYYY-MM-DD" o texto como "mañana", "viernes", "13 de febrero".
-- "hora_cita" = Hora de la cita. Ej: "8:00", "14:30", "3:00 pm".
+- "fecha_cita" = Fecha de la cita confirmada (YYYY-MM-DD o texto como "mañana").
+- "hora_cita" = Hora de la cita (ej: "8:00", "14:30").
 - "tipo_cita" = Tipo: "demostración", "reunión", "consulta", "asesoría", etc.
-- "cita" = NO lo llenes tú. El sistema lo pone en "creada" automáticamente.
-- "pedido" = NO lo llenes tú. El sistema lo pone en "creado" automáticamente.
+- "cita" y "pedido" = NO los llenes tú, el sistema los actualiza automáticamente.
 - El bloque va en la ÚLTIMA LÍNEA de tu respuesta.
 - NO expliques el bloque al cliente, es interno/oculto.
+`;
 
-EJEMPLO — Cita confirmada:
-"¡Perfecto! Queda agendada tu demostración para mañana a las 8:00 am. 😊
+    promptParts.push(memoryPrompt);
 
-<<MEMORY_JSON>>{"nombre":"Carlos","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"mañana","hora_cita":"8:00","tipo_cita":"demostración","cita":"","etapa_actual":"Confirmado","accion":"crear_cita"}<<END_MEMORY>>"
-
-EJEMPLO — Solo saludo:
-"¡Hola! 👋 Bienvenido. ¿En qué puedo ayudarte hoy?
-
-<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","etapa_actual":"Saludo","accion":""}<<END_MEMORY>>"
-`);
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     console.log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
@@ -774,9 +750,10 @@ EJEMPLO — Solo saludo:
               extractedData.ciudad = ciudadMatch[1].trim();
             }
             
-            // 🎯 DETECTAR ETAPA basándose en datos extraídos
-            let fallbackStage = 'Interesado';
-            const lastMsgLower = (message || '').toLowerCase();
+            // 🎯 DETECTAR ETAPA basándose en datos extraídos (solo si hay etapas configuradas)
+            let fallbackStage = '';
+            if (pipelineStages.length > 0) {
+              const lastMsgLower = (message || '').toLowerCase();
             
             if (lastMsgLower.includes('no me interesa') || lastMsgLower.includes('no gracias') || lastMsgLower.includes('cancelar')) {
               fallbackStage = 'Perdido';
@@ -805,17 +782,18 @@ EJEMPLO — Solo saludo:
             } else if (extractedData.nombre || replyLower.includes('$') || replyLower.includes('precio')) {
               fallbackStage = 'En Cotización';
             }
+            } // fin de if (pipelineStages.length > 0)
             
             // Guardar datos extraídos y actualizar etapa
-            const validStage = pipelineStages.find((s: any) => 
+            const validStage = fallbackStage ? pipelineStages.find((s: any) => 
               s.id === fallbackStage || s.label === fallbackStage ||
               s.id?.toLowerCase() === fallbackStage.toLowerCase()
-            );
+            ) : null;
             
             const updateData: any = {};
             if (Object.keys(extractedData).length > Object.keys(savedContext).length) {
               updateData.contextData = extractedData;
-              extractedData.etapa_actual = fallbackStage;
+              if (fallbackStage) extractedData.etapa_actual = fallbackStage;
               console.log(`🔍 Datos extraídos: ${JSON.stringify(extractedData)}`);
             }
             if (validStage) {
@@ -2472,6 +2450,18 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
     const ownerId = user.parentUserId || user.id;
     const { lineId } = req.body;
 
+    // Cargar etapas configuradas de la línea
+    let configuredStages: string[] = [];
+    if (lineId) {
+      const line = await prisma.whatsappLine.findFirst({
+        where: { id: lineId, userId: ownerId },
+        select: { customStages: true }
+      });
+      if (line?.customStages && Array.isArray(line.customStages)) {
+        configuredStages = (line.customStages as any[]).map(s => s.id || s.label);
+      }
+    }
+
     // Obtener conversaciones
     const whereClause: any = { userId: ownerId };
     if (lineId) whereClause.whatsappLineId = lineId;
@@ -2501,7 +2491,10 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
       }
       
       // 🎯 PRIORIDAD 2: Solo si NO hay etapa_actual, aplicar reglas básicas
-      let newStage = conv.stage || 'Saludo';
+      // Solo asignar etapas si hay etapas configuradas
+      if (configuredStages.length === 0) continue;
+      
+      let newStage = conv.stage || configuredStages[0];
       
       // Detectar si perdido (por mensaje)
       const lastMsg = (conv.lastMessage || '').toLowerCase();
@@ -2514,15 +2507,19 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
       const hasAnyData = ctx.nombre || ctx.direccion || ctx.total || ctx.cantidad;
       
       if (isPerdido) {
-        newStage = 'Perdido';
-      } else if (ctx.pedido === 'creado' || ctx.fecha_entrega) {
-        newStage = 'Confirmado';
+        // Buscar una etapa que contenga "perdido" o usar la última configurada
+        newStage = configuredStages.find(s => s.toLowerCase().includes('perdido')) || configuredStages[configuredStages.length - 1];
+      } else if (ctx.pedido === 'creado' || ctx.fecha_entrega || ctx.cita === 'creada') {
+        newStage = configuredStages.find(s => s.toLowerCase().includes('confirmado') || s.toLowerCase().includes('cerrado') || s.toLowerCase().includes('completado')) || configuredStages[configuredStages.length - 2] || configuredStages[configuredStages.length - 1];
       } else if (hasAnyData && ctx.direccion) {
-        newStage = 'Realizó Pedido';
+        // Etapa avanzada - buscar algo como "pedido" o "orden" o usar mitad+1 del pipeline
+        newStage = configuredStages.find(s => s.toLowerCase().includes('pedido') || s.toLowerCase().includes('orden')) || configuredStages[Math.min(Math.floor(configuredStages.length * 0.7), configuredStages.length - 1)];
       } else if (hasAnyData) {
-        newStage = 'En Cotización';
+        // Etapa media - buscar "cotización" o usar el tercio del pipeline
+        newStage = configuredStages.find(s => s.toLowerCase().includes('cotiza') || s.toLowerCase().includes('negoci') || s.toLowerCase().includes('propuesta')) || configuredStages[Math.min(Math.floor(configuredStages.length * 0.4), configuredStages.length - 1)];
       } else if (conv.lastMessage && conv.lastMessage.length > 20) {
-        newStage = 'Interesado';
+        // Etapa inicial con interés - buscar "interesado" o segundo stage
+        newStage = configuredStages.find(s => s.toLowerCase().includes('interesado') || s.toLowerCase().includes('contacto')) || configuredStages[Math.min(1, configuredStages.length - 1)];
       }
 
       // Actualizar solo si cambió
@@ -2578,19 +2575,21 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
     const ownerId = user.parentUserId || user.id;
     const { lineId } = req.body;
 
-    // Etapas del pipeline de THE FOUR (tienda de buzos)
-    const pipelineStages = [
-      { id: 'Saludo', label: 'Saludo' },
-      { id: 'Interesado', label: 'Interesado' },
-      { id: 'En Cotización', label: 'En Cotización' },
-      { id: 'Pendiente Color', label: 'Pendiente Color' },
-      { id: 'Pendiente Talla', label: 'Pendiente Talla' },
-      { id: 'Pendiente Calidad', label: 'Pendiente Calidad' },
-      { id: 'Realizó Pedido', label: 'Realizó Pedido' },
-      { id: 'Pendiente Pago', label: 'Pendiente Pago' },
-      { id: 'Confirmado', label: 'Confirmado' },
-      { id: 'Perdido', label: 'Perdido' }
-    ];
+    // Cargar etapas configuradas de la línea (NO hardcodeadas)
+    let pipelineStages: any[] = [];
+    if (lineId) {
+      const line = await prisma.whatsappLine.findFirst({
+        where: { id: lineId, userId: ownerId },
+        select: { customStages: true }
+      });
+      if (line?.customStages && Array.isArray(line.customStages)) {
+        pipelineStages = line.customStages as any[];
+      }
+    }
+    
+    if (pipelineStages.length === 0) {
+      return res.status(400).json({ error: 'No hay etapas configuradas. Configura tu asistente IA primero.' });
+    }
 
     const stagesList = pipelineStages.map((s: any) => s.label || s.id).join(', ');
 
@@ -2623,34 +2622,23 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
           `${m.fromMe ? 'ASISTENTE' : 'CLIENTE'}: ${m.content}`
         ).join('\n');
 
-        // Prompt para detectar etapa - Optimizado para THE FOUR (buzos)
-        const prompt = `Analiza esta conversación de WhatsApp de una tienda de buzos y determina la etapa del pipeline.
+        // Prompt para detectar etapa - Dinámico según etapas configuradas
+        const prompt = `Analiza esta conversación de WhatsApp y determina la etapa del pipeline de ventas.
 
 ETAPAS DISPONIBLES: ${stagesList}
 
-CRITERIOS DE DETECCIÓN (en orden de prioridad):
-
-1. "Perdido" = Cliente dijo "no me interesa", "no gracias", "cancelar" o no responde
-2. "Confirmado" = Tiene número de pedido (#TF-), dirección completa, celular, método de pago
-3. "Pendiente Pago" = Confirmó pedido pero falta método de pago
-4. "Realizó Pedido" = Confirmó que quiere comprar, tiene nombre + talla + color + calidad + cantidad + ciudad
-5. "Pendiente Calidad" = Tiene talla y color pero falta elegir calidad (Premium/Mónaco)
-6. "Pendiente Talla" = Ya eligió color pero falta la talla
-7. "Pendiente Color" = Ya sabe qué quiere pero falta el color (marfil/blanco/negro/azul oscuro)
-8. "En Cotización" = Preguntando precios, tallas, colores, calidades disponibles
-9. "Interesado" = Mostró interés en buzos/hoodies, ya dio su nombre
-10. "Saludo" = Solo saludos iniciales, no ha dicho su nombre
-
-PALABRAS CLAVE:
-- Si menciona "Premium" o "Mónaco" = ya eligió calidad
-- Si menciona XS, S, M, L, XL, 2XL, 3XL, 4XL = ya eligió talla
-- Si menciona marfil, blanco, negro, azul oscuro = ya eligió color
-- Si dice "confirmado", "sí quiero", "dale" después del resumen = Realizó Pedido
+INSTRUCCIONES:
+- Analiza el contenido de la conversación para determinar en qué etapa se encuentra el cliente.
+- Usa el contexto de los mensajes para inferir la etapa correcta.
+- Si el cliente dijo "no me interesa", "no gracias", "cancelar" o dejó de responder, asigna la última etapa (generalmente la de abandono/pérdida).
+- Si el cliente confirmó una compra, cita o servicio, asigna la etapa de confirmación.
+- Si el cliente está preguntando precios o información, asigna una etapa intermedia.
+- Si solo saludó, asigna la primera etapa.
 
 CONVERSACIÓN:
 ${history}
 
-Responde SOLO con el nombre exacto de la etapa. Nada más.`;
+Responde SOLO con el nombre exacto de una de las etapas listadas arriba. Nada más.`;
 
         // Llamar a OpenAI
         const apiKey = user.apiKey || process.env.OPENAI_API_KEY;

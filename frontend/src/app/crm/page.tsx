@@ -11,18 +11,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 interface Stage { id: string; label: string; color: string; }
 interface Conversation { id: string; recipientId: string; recipientName: string; lastMessage: string; stage: string; updatedAt: string; aiPaused: boolean; }
 
-const DEFAULT_STAGES: Stage[] = [
-  { id: 'Saludo', label: 'Saludo', color: 'blue' },
-  { id: 'Interesado', label: 'Interesado', color: 'cyan' },
-  { id: 'En Cotización', label: 'En Cotización', color: 'yellow' },
-  { id: 'Pendiente Color', label: 'Pendiente Color', color: 'orange' },
-  { id: 'Pendiente Talla', label: 'Pendiente Talla', color: 'orange' },
-  { id: 'Pendiente Calidad', label: 'Pendiente Calidad', color: 'orange' },
-  { id: 'Realizó Pedido', label: 'Realizó Pedido', color: 'green' },
-  { id: 'Pendiente Pago', label: 'Pendiente Pago', color: 'pink' },
-  { id: 'Confirmado', label: 'Confirmado', color: 'purple' },
-  { id: 'Perdido', label: 'Perdido', color: 'red' },
-];
+// ❌ Sin etapas por defecto — se cargan de la base de conocimiento de cada línea
+const DEFAULT_STAGES: Stage[] = [];
 
 const STAGE_COLORS: Record<string, string> = {
   blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
@@ -385,6 +375,27 @@ export default function CRMPage() {
 
           {/* Grid de conversaciones */}
           <div className="flex-1 overflow-y-auto">
+            {stages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mb-4">
+                  <Sparkles className="w-8 h-8 text-purple-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">Configura tus etapas</h3>
+                <p className="text-[var(--text-muted)] text-sm max-w-md mb-4">
+                  Las etapas del pipeline se generan automáticamente desde la base de conocimiento de tu asistente IA. 
+                  Ve a <strong className="text-white">Asistentes IA</strong> y define las etapas de tu negocio en la base de conocimiento.
+                </p>
+                <button
+                  onClick={detectStages}
+                  disabled={detecting}
+                  className="px-4 py-2 bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-all text-sm flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {detecting ? 'Detectando...' : 'Detectar etapas ahora'}
+                </button>
+              </div>
+            ) : (
+            <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {(selectedStage ? getConvsByStage(selectedStage) : conversations)
                 .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm))
@@ -416,6 +427,8 @@ export default function CRMPage() {
                 <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p>No hay conversaciones</p>
               </div>
+            )}
+            </>
             )}
           </div>
         </div>

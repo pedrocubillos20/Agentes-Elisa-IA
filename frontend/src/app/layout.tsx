@@ -109,6 +109,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants' },
     { name: 'CRM', href: '/crm', icon: Users, perm: 'crm', badge: 'Nuevo' },
     { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', badge: 'Nuevo' },
+    { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations', badge: 'Nuevo' },
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },

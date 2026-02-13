@@ -42,6 +42,8 @@ export default function ConversacionesPage() {
   const [groupSettingsLocal, setGroupSettingsLocal] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
+  const selectedConvRef = useRef<any>(null); // Ref para polling de mensajes
+  const lastMessageCountRef = useRef<number>(0);
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
@@ -50,14 +52,24 @@ export default function ConversacionesPage() {
     return STAGE_COLORS[stage?.color || 'blue'] || STAGE_COLORS.blue;
   };
 
+  // Mantener ref sincronizado con state
+  useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
+
+  // Polling de lista de conversaciones (cada 2s)
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
   }, []);
 
+  // Cargar mensajes cuando se selecciona una conversación
   useEffect(() => {
-    if (selectedConv) fetchMessages(selectedConv.id);
+    if (selectedConv) {
+      lastMessageCountRef.current = 0;
+      fetchMessages(selectedConv.id);
+    }
     // Load group settings if it's a group
     if (selectedConv?.isGroup) {
       const gs = (selectedConv.groupSettings as any) || { aiEnabled: true, respondTo: 'all', triggerWords: [] };
@@ -66,6 +78,46 @@ export default function ConversacionesPage() {
       setGroupSettingsLocal(null);
     }
   }, [selectedConv?.id]);
+
+  // 🔥 POLLING DE MENSAJES — refresca cada 3s la conversación activa
+  useEffect(() => {
+    const pollMessages = async () => {
+      const conv = selectedConvRef.current;
+      if (!conv) return;
+      
+      const token = localStorage.getItem('token');
+      try {
+        const res = await fetch(`${API_URL}/api/conversations/${conv.id}/messages?limit=100`, { 
+          headers: { 'Authorization': `Bearer ${token}` } 
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const newMsgs = data.messages || [];
+          // Solo actualizar si hay mensajes nuevos (evita scroll jumps)
+          if (newMsgs.length !== lastMessageCountRef.current || 
+              (newMsgs.length > 0 && lastMessageCountRef.current > 0 && 
+               newMsgs[newMsgs.length - 1]?.id !== undefined)) {
+            // Comparar último mensaje para evitar updates innecesarios
+            setMessages(prev => {
+              const prevLast = prev[prev.length - 1];
+              const newLast = newMsgs[newMsgs.length - 1];
+              // Si el último mensaje es diferente O hay diferente cantidad → actualizar
+              if (prev.length !== newMsgs.length || 
+                  prevLast?.id !== newLast?.id || 
+                  prevLast?.content !== newLast?.content) {
+                lastMessageCountRef.current = newMsgs.length;
+                return newMsgs;
+              }
+              return prev; // Sin cambios, no re-render
+            });
+          }
+        }
+      } catch {}
+    };
+
+    const msgInterval = setInterval(pollMessages, 3000);
+    return () => clearInterval(msgInterval);
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -88,7 +140,23 @@ export default function ConversacionesPage() {
 
       if (convRes.ok) {
         const data = await convRes.json();
-        setConversations(data.conversations || []);
+        const convs = data.conversations || [];
+        setConversations(convs);
+        
+        // Mantener selectedConv sincronizado con datos frescos
+        const currentSelected = selectedConvRef.current;
+        if (currentSelected) {
+          const updated = convs.find((c: any) => c.id === currentSelected.id);
+          if (updated) {
+            // Solo actualizar si algo cambió (evita re-renders innecesarios)
+            if (updated.lastMessage !== currentSelected.lastMessage || 
+                updated.aiPaused !== currentSelected.aiPaused ||
+                updated.stageId !== currentSelected.stageId ||
+                updated.recipientName !== currentSelected.recipientName) {
+              setSelectedConv(updated);
+            }
+          }
+        }
       }
       if (stagesRes.ok) {
         const data = await stagesRes.json();

@@ -441,6 +441,18 @@ const extractMediaInfo = (payload: any): { hasMedia: boolean; mediaType: string;
 };
 
 // ===== AI RESPONSE (🧠 MEMORIA PERSISTENTE + AUTO-APRENDIZAJE) =====
+// 🔍 Helper: Buscar etapa por keyword parcial en el nombre
+function findStageByKeyword(stages: any[], keywords: string[]): string {
+  for (const kw of keywords) {
+    const found = stages.find((s: any) => {
+      const name = (s.label || s.id || '').toLowerCase();
+      return name.includes(kw.toLowerCase());
+    });
+    if (found) return found.label || found.id;
+  }
+  return '';
+}
+
 const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null): Promise<string | null> => {
   try {
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
@@ -630,11 +642,16 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     if (pipelineStages.length > 0) {
       memoryPrompt += `
 === ETAPAS DEL PIPELINE (DETECCIÓN AUTOMÁTICA) ===
-Las etapas disponibles son: ${stagesList}
 
-⚠️ IMPORTANTE: Detecta la etapa basándote en la conversación y la información que ya tienes del cliente.
-Analiza el contexto de la conversación y asigna la etapa que mejor corresponda de las disponibles arriba.
-El campo "etapa_actual" en el bloque de memoria DEBE ser una de las etapas listadas arriba.
+🚨 LISTA EXACTA DE ETAPAS PERMITIDAS (NO PUEDES INVENTAR OTRAS):
+${pipelineStages.map((s: any) => `- "${s.label || s.id}"`).join('\n')}
+
+⚠️ REGLAS ESTRICTAS DE ETAPAS:
+1. El campo "etapa_actual" SOLO puede contener una etapa de la lista de arriba, EXACTAMENTE como está escrita
+2. NUNCA inventes etapas nuevas que no estén en la lista
+3. Si no estás seguro, usa la etapa más cercana de la lista
+4. Copia el nombre EXACTO — respeta mayúsculas, acentos y espacios
+5. Si ninguna etapa aplica, déjalo vacío ""
 `;
     }
 
@@ -667,7 +684,7 @@ FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 INSTRUCCIONES:
 - Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
 - "nombre" = Nombre del cliente
-- "etapa_actual" = ${pipelineStages.length > 0 ? 'OBLIGATORIO. Debe ser una de las etapas listadas arriba.' : 'Déjalo vacío si no hay etapas configuradas.'}
+- "etapa_actual" = ${pipelineStages.length > 0 ? `OBLIGATORIO. SOLO puede ser una de estas exactas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(', ')}. NO inventes otras.` : 'Déjalo vacío si no hay etapas configuradas.'}
 - "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. Vacío en otros casos.
 - "fecha_cita" = Fecha de la cita confirmada (YYYY-MM-DD o texto como "mañana").
 - "hora_cita" = Hora de la cita (ej: "8:00", "14:30").
@@ -772,54 +789,102 @@ INSTRUCCIONES:
               extractedData.ciudad = ciudadMatch[1].trim();
             }
             
-            // 🎯 DETECTAR ETAPA basándose en datos extraídos (solo si hay etapas configuradas)
+            // 🎯 DETECTAR ETAPA — DINÁMICO basado en las etapas configuradas del pipeline
             let fallbackStage = '';
             const lastMsgLower = (message || '').toLowerCase();
             if (pipelineStages.length > 0) {
-            
-            if (lastMsgLower.includes('no me interesa') || lastMsgLower.includes('no gracias') || lastMsgLower.includes('cancelar')) {
-              fallbackStage = 'Perdido';
-            } else if (extractedData.fecha_entrega || replyLower.includes('pedido agendado') || replyLower.includes('número de pedido')) {
-              fallbackStage = 'Confirmado';
-            } else if (extractedData.nombre && extractedData.talla && extractedData.color && extractedData.calidad && extractedData.cantidad && extractedData.ciudad) {
-              if (replyLower.includes('fecha') || replyLower.includes('qué día')) {
-                fallbackStage = 'Pendiente Entrega';
-              } else if (replyLower.includes('pago') || replyLower.includes('cómo deseas pagar')) {
-                fallbackStage = 'Pendiente Pago';
-              } else {
-                fallbackStage = 'Realizó Pedido';
+              
+              // Crear mapa de etapas con keywords inteligentes para matching
+              const stageKeywords: Record<string, string[]> = {};
+              for (const s of pipelineStages) {
+                const name = (s.label || s.id || '').toLowerCase();
+                const keywords: string[] = [name];
+                
+                // Auto-generar keywords basadas en el nombre de la etapa
+                if (name.includes('saludo') || name.includes('bienvenida')) keywords.push('hola', 'bienvenido', 'cómo te llamas');
+                if (name.includes('interesado') || name.includes('interés')) keywords.push('interesado', 'quiero', 'me interesa');
+                if (name.includes('cotización') || name.includes('cotizacion')) keywords.push('precio', 'cuánto', 'cuanto', '$');
+                if (name.includes('color')) keywords.push('color', 'colores', 'qué color');
+                if (name.includes('talla')) keywords.push('talla', 'tallas', 'tamaño', 'qué talla');
+                if (name.includes('calidad')) keywords.push('calidad', 'premium', 'mónaco', 'tipo de');
+                if (name.includes('pago')) keywords.push('pago', 'pagar', 'nequi', 'daviplata', 'transferencia', 'tarjeta', 'contra entrega');
+                if (name.includes('pedido') || name.includes('orden')) keywords.push('pedido', 'confirmó', 'confirmo', 'dale', 'listo');
+                if (name.includes('datos') || name.includes('envío') || name.includes('envio') || name.includes('dirección')) keywords.push('dirección', 'barrio', 'celular', 'datos');
+                if (name.includes('agenda') || name.includes('entrega') || name.includes('cita')) keywords.push('fecha', 'hora', 'cuándo', 'agendar', 'mañana');
+                if (name.includes('confirm')) keywords.push('confirmado', 'agendado', 'número de pedido', '#');
+                if (name.includes('perdido') || name.includes('cancelado')) keywords.push('no me interesa', 'no gracias', 'cancelar', 'no quiero');
+                if (name.includes('seguimiento')) keywords.push('seguimiento', 'cómo va', 'mi pedido');
+                if (name.includes('nuevo') || name.includes('nuevo contacto')) keywords.push('nuevo');
+                
+                stageKeywords[s.label || s.id] = keywords;
               }
-            } else if (extractedData.nombre && extractedData.talla && extractedData.color && extractedData.calidad && extractedData.cantidad && !extractedData.ciudad) {
-              fallbackStage = 'En Cotización'; // Falta ciudad
-            } else if (extractedData.nombre && extractedData.talla && extractedData.color && extractedData.calidad && !extractedData.cantidad) {
-              fallbackStage = 'En Cotización'; // Falta cantidad
-            } else if (extractedData.nombre && extractedData.talla && extractedData.color && !extractedData.calidad) {
-              fallbackStage = 'Pendiente Calidad';
-            } else if (extractedData.nombre && extractedData.talla && !extractedData.color) {
-              fallbackStage = 'Pendiente Color';
-            } else if (extractedData.nombre && !extractedData.talla) {
-              fallbackStage = 'Pendiente Talla';
-            } else if (replyLower.includes('cómo te llamas') || replyLower.includes('bienvenido')) {
-              fallbackStage = 'Saludo';
-            } else if (extractedData.nombre || replyLower.includes('$') || replyLower.includes('precio')) {
-              fallbackStage = 'En Cotización';
-            }
+              
+              // 1. Prioridad: Si el cliente dice algo de "no interesa" / "cancelar"
+              const perdidoStage = pipelineStages.find((s: any) => {
+                const n = (s.label || s.id || '').toLowerCase();
+                return n.includes('perdido') || n.includes('cancelado') || n.includes('no interesado');
+              });
+              if (perdidoStage && (lastMsgLower.includes('no me interesa') || lastMsgLower.includes('no gracias') || lastMsgLower.includes('cancelar'))) {
+                fallbackStage = perdidoStage.label || perdidoStage.id;
+              }
+              
+              // 2. Detección por datos extraídos (de más completo a menos completo)
+              if (!fallbackStage) {
+                const d = extractedData;
+                const hasName = !!d.nombre;
+                const hasTalla = !!d.talla;
+                const hasColor = !!d.color;
+                const hasCalidad = !!d.calidad;
+                const hasCantidad = !!d.cantidad;
+                const hasCiudad = !!d.ciudad;
+                const hasDireccion = !!d.direccion;
+                const hasPago = !!d.metodo_pago;
+                const hasFecha = !!d.fecha_entrega || !!d.fecha_cita;
+                const hasPedido = !!d.pedido;
+                
+                // Buscar la etapa que mejor corresponde según los datos que tenemos
+                // Prioridad: de más avanzado a menos avanzado
+                if (hasPedido || hasFecha) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['confirm', 'completo', 'finalizado', 'cerrado']);
+                } else if (hasDireccion && hasPago) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['agenda', 'entrega', 'cita', 'program']);
+                } else if (hasCiudad && hasCantidad && hasCalidad && hasColor && hasTalla) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['pago', 'realiz', 'pedido', 'orden']);
+                } else if (hasName && hasTalla && hasColor && hasCalidad && !hasCantidad) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['cotizaci', 'precio']);
+                } else if (hasName && hasTalla && hasColor && !hasCalidad) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['calidad']);
+                } else if (hasName && hasTalla && !hasColor) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['color']);
+                } else if (hasName && !hasTalla) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['talla', 'interes']);
+                } else if (!hasName) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['saludo', 'bienven', 'nuevo']);
+                }
+                
+                // Si no encontró match exacto pero tiene datos, usar "En Cotización" o similar
+                if (!fallbackStage && hasName) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['cotizaci', 'interes', 'proceso']);
+                }
+              }
+              
             } // fin de if (pipelineStages.length > 0)
             
-            // Guardar datos extraídos y actualizar etapa
-            const validStage = fallbackStage ? pipelineStages.find((s: any) => 
+            // ⚠️ VALIDACIÓN ESTRICTA — Solo guardar si la etapa EXISTE en el pipeline
+            const validFallbackStage = fallbackStage ? pipelineStages.find((s: any) => 
               s.id === fallbackStage || s.label === fallbackStage ||
-              s.id?.toLowerCase() === fallbackStage.toLowerCase()
+              s.id?.toLowerCase() === fallbackStage.toLowerCase() ||
+              s.label?.toLowerCase() === fallbackStage.toLowerCase()
             ) : null;
             
             const updateData: any = {};
             if (Object.keys(extractedData).length > Object.keys(savedContext).length) {
               updateData.contextData = extractedData;
-              if (fallbackStage) extractedData.etapa_actual = fallbackStage;
+              if (validFallbackStage) extractedData.etapa_actual = validFallbackStage.label || validFallbackStage.id;
               console.log(`🔍 Datos extraídos: ${JSON.stringify(extractedData)}`);
             }
-            if (validStage) {
-              updateData.stage = validStage.id || validStage.label;
+            if (validFallbackStage) {
+              updateData.stage = validFallbackStage.id || validFallbackStage.label;
               console.log(`🔄 Etapa por fallback: ${updateData.stage}`);
             }
             
@@ -935,21 +1000,34 @@ INSTRUCCIONES:
               }
               
               // 🎯 DETECTAR ETAPA AUTOMÁTICA
-              const detectedStage = memoryData.etapa_actual || memoryData.paso_actual || '';
+              const detectedStage = (memoryData.etapa_actual || memoryData.paso_actual || '').trim();
               const actionToTake = memoryData.accion || '';
               
               // Actualizar conversación con memoria Y etapa
               const updateData: any = { contextData: merged };
-              if (detectedStage) {
-                // Verificar que la etapa existe en el pipeline
-                const validStage = pipelineStages.find((s: any) => 
+              if (detectedStage && pipelineStages.length > 0) {
+                // Verificar que la etapa existe en el pipeline (match exacto o fuzzy)
+                let validStage = pipelineStages.find((s: any) => 
                   s.id === detectedStage || s.label === detectedStage ||
-                  s.id?.toLowerCase() === detectedStage.toLowerCase() ||
-                  s.label?.toLowerCase() === detectedStage.toLowerCase()
+                  s.id?.toLowerCase().trim() === detectedStage.toLowerCase().trim() ||
+                  s.label?.toLowerCase().trim() === detectedStage.toLowerCase().trim()
                 );
+                
+                // Fuzzy match: si no hay exacto, buscar coincidencia parcial
+                if (!validStage) {
+                  const detectedLower = detectedStage.toLowerCase().trim();
+                  validStage = pipelineStages.find((s: any) => {
+                    const label = (s.label || s.id || '').toLowerCase().trim();
+                    return label.includes(detectedLower) || detectedLower.includes(label);
+                  });
+                }
+                
                 if (validStage) {
                   updateData.stage = validStage.id || validStage.label;
                   console.log(`🎯 Etapa automática: ${updateData.stage}`);
+                } else {
+                  // ⚠️ La IA sugirió una etapa que NO existe — rechazar
+                  console.log(`⚠️ Etapa RECHAZADA (no existe en pipeline): "${detectedStage}" | Etapas válidas: [${pipelineStages.map((s: any) => s.label || s.id).join(', ')}]`);
                 }
               }
               
@@ -2514,18 +2592,43 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
     for (const conv of conversations) {
       const ctx = (conv.contextData as any) || {};
       
-      // 🎯 PRIORIDAD 1: Si la IA ya detectó una etapa en contextData, USAR ESA
+      // 🎯 PRIORIDAD 1: Si la IA ya detectó una etapa en contextData, USAR ESA (pero validar)
       if (ctx.etapa_actual && ctx.etapa_actual !== '') {
-        const iaStage = ctx.etapa_actual;
-        if (iaStage !== conv.stage) {
+        const iaStage = ctx.etapa_actual.trim();
+        
+        // ⚠️ VALIDAR que la etapa existe en las configuradas
+        const isValid = configuredStages.length === 0 || configuredStages.some(s => 
+          s === iaStage || 
+          s.toLowerCase().trim() === iaStage.toLowerCase().trim() ||
+          s.toLowerCase().trim().includes(iaStage.toLowerCase().trim()) ||
+          iaStage.toLowerCase().trim().includes(s.toLowerCase().trim())
+        );
+        
+        if (isValid && iaStage !== conv.stage) {
+          // Encontrar el nombre exacto de la etapa configurada
+          const exactStage = configuredStages.find(s => 
+            s.toLowerCase().trim() === iaStage.toLowerCase().trim()
+          ) || configuredStages.find(s =>
+            s.toLowerCase().trim().includes(iaStage.toLowerCase().trim()) ||
+            iaStage.toLowerCase().trim().includes(s.toLowerCase().trim())
+          ) || iaStage;
+          
           await prisma.conversation.update({
             where: { id: conv.id },
-            data: { stage: iaStage }
+            data: { stage: exactStage }
           });
           updated++;
-          console.log(`🎯 Etapa sincronizada (IA): ${conv.stage} → ${iaStage}`);
+        } else if (!isValid) {
+          console.log(`⚠️ quick-sync: Etapa RECHAZADA "${iaStage}" — no existe en [${configuredStages.join(', ')}]`);
+          // Limpiar la etapa inválida del contextData
+          const cleanCtx = { ...ctx };
+          delete cleanCtx.etapa_actual;
+          await prisma.conversation.update({
+            where: { id: conv.id },
+            data: { contextData: cleanCtx, stage: conv.stage || configuredStages[0] || 'new' }
+          });
         }
-        continue; // No aplicar reglas manuales si la IA ya detectó
+        continue;
       }
       
       // 🎯 PRIORIDAD 2: Solo si NO hay etapa_actual, aplicar reglas básicas

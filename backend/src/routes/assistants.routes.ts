@@ -143,11 +143,10 @@ function extractStagesFromContext(context: string): any[] {
   const stages: any[] = [];
   const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
   
-  // Buscar SOLO la sección específica de etapas del pipeline
-  // Permite emojis y caracteres especiales antes de ETAPAS
+  // ===== BUSCAR SECCIÓN DE ETAPAS =====
   // Formatos válidos:
   // ## ETAPAS DEL PIPELINE
-  // ## 🎯 ETAPAS DEL PIPELINE (CRM AUTOMÁTICO)
+  // ## 🎯 ETAPAS DEL PIPELINE (CRM AUTOMÁTICO)  
   // # ETAPAS
   
   const sectionMatch = context.match(/##?\s*[^\n]*?ETAPAS[^\n]*(?:PIPELINE|CRM|FLUJO|AUTOMÁTICO)?[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
@@ -160,28 +159,48 @@ function extractStagesFromContext(context: string): any[] {
   const section = sectionMatch[1];
   const foundItems: string[] = [];
   
-  // Extraer items que empiezan con - ** o - 
   const lines = section.split('\n');
   for (const line of lines) {
-    // Debe empezar con - o * seguido de texto
-    const match = line.match(/^[-*]\s*\*?\*?([^→\n]+?)(?:\*\*)?(?:\s*→.*)?$/);
-    if (match) {
-      let clean = match[1].replace(/\*\*/g, '').trim();
-      // Filtrar líneas que son descripciones o explicaciones largas
-      if (clean && 
-          clean.length >= 3 && 
-          clean.length <= 30 && 
-          !clean.includes(':') &&
-          !clean.includes('(') &&
-          !clean.toLowerCase().includes('cliente') &&
-          !clean.toLowerCase().includes('sistema') &&
-          !clean.toLowerCase().includes('bot')) {
-        foundItems.push(clean);
+    let stageName = '';
+    
+    // FORMATO 1: Tabla Markdown → | **Etapa** | Descripción |
+    const tableMatch = line.match(/\|\s*\*\*([^*|]+)\*\*\s*\|/);
+    if (tableMatch) {
+      stageName = tableMatch[1].trim();
+    }
+    
+    // FORMATO 2: Lista → - **Etapa** → Descripción  o  - Etapa
+    if (!stageName) {
+      const listMatch = line.match(/^[-*]\s*\*?\*?([^→\n|]+?)(?:\*\*)?(?:\s*[→|:].*)?$/);
+      if (listMatch) {
+        stageName = listMatch[1].replace(/\*\*/g, '').trim();
       }
+    }
+    
+    // FORMATO 3: Lista numerada → 1. **Etapa** o 1. Etapa
+    if (!stageName) {
+      const numMatch = line.match(/^\d+\.\s*\*?\*?([^→\n|]+?)(?:\*\*)?(?:\s*[→|:].*)?$/);
+      if (numMatch) {
+        stageName = numMatch[1].replace(/\*\*/g, '').trim();
+      }
+    }
+    
+    // Validar que es un nombre de etapa válido
+    if (stageName && 
+        stageName.length >= 2 && 
+        stageName.length <= 40 && 
+        !stageName.toLowerCase().includes('etapa') &&     // Evitar header "Etapa"
+        !stageName.toLowerCase().includes('descripción') && // Evitar header "Descripción"
+        !stageName.toLowerCase().includes('cliente') &&
+        !stageName.toLowerCase().includes('sistema') &&
+        !stageName.toLowerCase().includes('bot') &&
+        !stageName.includes('---') &&                       // Evitar separadores de tabla
+        !stageName.match(/^[-|]+$/)) {                      // Evitar líneas de tabla
+      foundItems.push(stageName);
     }
   }
   
-  // Si encontramos menos de 2 items, no es una sección válida de etapas
+  // Necesitamos al menos 2 etapas válidas
   if (foundItems.length < 2) {
     console.log(`  📋 Muy pocas etapas encontradas (${foundItems.length}), retornando vacío`);
     return [];
@@ -189,7 +208,9 @@ function extractStagesFromContext(context: string): any[] {
   
   // Eliminar duplicados y crear stages con colores
   const unique = Array.from(new Set(foundItems));
-  unique.slice(0, 12).forEach((label, index) => {
+  console.log(`  📋 Etapas extraídas del MD: [${unique.join(', ')}]`);
+  
+  unique.slice(0, 15).forEach((label, index) => {
     stages.push({
       id: label,
       label: label,
@@ -198,7 +219,6 @@ function extractStagesFromContext(context: string): any[] {
     });
   });
   
-  // Si no encontramos nada, retornar vacío — el usuario debe definir etapas en su base de conocimiento
   return stages;
 }
 

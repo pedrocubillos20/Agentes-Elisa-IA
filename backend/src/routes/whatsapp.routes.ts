@@ -621,16 +621,32 @@ Las etapas disponibles son: ${stagesList}
 
 REGLA DE DETECCIÓN (seguir en orden):
 1. Si el cliente dijo "no me interesa", "no gracias", "ya no quiero" → etapa_actual = "Perdido"
-2. Si YA tienes fecha_entrega Y datos de envío completos → etapa_actual = "Confirmado"
-3. Si YA tienes todos los datos del pedido PERO falta fecha_entrega → etapa_actual = "Pendiente Entrega"
-4. Si YA confirmó que quiere comprar PERO falta método de pago → etapa_actual = "Pendiente Pago"
-5. Si YA tienes nombre, talla, color, calidad, cantidad, ciudad → etapa_actual = "Realizó Pedido"
-6. Si FALTA la calidad (Premium/Mónaco) → etapa_actual = "Pendiente Calidad"
-7. Si FALTA la talla → etapa_actual = "Pendiente Talla"
-8. Si FALTA el color → etapa_actual = "Pendiente Color"
-9. Si mostró interés, preguntó por precios o productos → etapa_actual = "En Cotización"
-10. Si preguntó algo pero no ha dado datos → etapa_actual = "Interesado"
-11. Si solo saludó → etapa_actual = "Saludo"
+2. Si se CONFIRMÓ una cita/reunión con fecha y hora → etapa_actual = "Confirmado"
+3. Si se CONFIRMÓ un pedido con fecha de entrega → etapa_actual = "Confirmado"
+4. Si YA tienes todos los datos del pedido PERO falta fecha_entrega → etapa_actual = "Pendiente Entrega"
+5. Si YA confirmó que quiere comprar PERO falta método de pago → etapa_actual = "Pendiente Pago"
+6. Si YA tienes nombre, talla, color, calidad, cantidad, ciudad → etapa_actual = "Realizó Pedido"
+7. Si FALTA la calidad (Premium/Mónaco) → etapa_actual = "Pendiente Calidad"
+8. Si FALTA la talla → etapa_actual = "Pendiente Talla"
+9. Si FALTA el color → etapa_actual = "Pendiente Color"
+10. Si mostró interés, preguntó por precios o productos → etapa_actual = "En Cotización"
+11. Si preguntó algo pero no ha dado datos → etapa_actual = "Interesado"
+12. Si solo saludó → etapa_actual = "Saludo"
+
+=== 🚨 ACCIONES AUTOMÁTICAS — MUY IMPORTANTE 🚨 ===
+
+El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
+
+📅 accion = "crear_cita" — Cuando el cliente CONFIRMA una cita/reunión/demostración:
+   - El cliente dice "sí, mañana a las 8" y tú confirmas → accion = "crear_cita"
+   - Se agenda una reunión, demo, consulta, etc. con fecha y hora definida → accion = "crear_cita"
+   - Llena también: fecha_cita, hora_cita, tipo_cita (qué tipo: demo, reunión, consulta, etc.)
+
+🛒 accion = "crear_pedido" — Cuando el cliente CONFIRMA un pedido/compra:
+   - El cliente confirma que quiere comprar y tiene datos completos → accion = "crear_pedido"
+   - Llena también: fecha_entrega y todos los datos del pedido
+
+⚠️ IMPORTANTE: Solo usa la accion UNA VEZ cuando se confirma. Si "pedido" ya dice "creado" o "cita" dice "creada" en la memoria guardada, NO vuelvas a poner la accion.
 
 === ⚠️⚠️⚠️ BLOQUE DE MEMORIA - SUPER IMPORTANTE ⚠️⚠️⚠️ ===
 
@@ -640,19 +656,31 @@ REGLA DE DETECCIÓN (seguir en orden):
 
 FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 
-<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","etapa_actual":"","accion":""}<<END_MEMORY>>
+<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
 INSTRUCCIONES:
 - Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
-- "nombre" = Nombre del cliente (extrae de la conversación si dice "soy X" o similar)
+- "nombre" = Nombre del cliente
 - "etapa_actual" = OBLIGATORIO. Usa la REGLA DE DETECCIÓN de arriba.
+- "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. Vacío en otros casos.
+- "fecha_cita" = Fecha de la cita confirmada. Formato "YYYY-MM-DD" o texto como "mañana", "viernes", "13 de febrero".
+- "hora_cita" = Hora de la cita. Ej: "8:00", "14:30", "3:00 pm".
+- "tipo_cita" = Tipo: "demostración", "reunión", "consulta", "asesoría", etc.
+- "cita" = NO lo llenes tú. El sistema lo pone en "creada" automáticamente.
+- "pedido" = NO lo llenes tú. El sistema lo pone en "creado" automáticamente.
 - El bloque va en la ÚLTIMA LÍNEA de tu respuesta.
 - NO expliques el bloque al cliente, es interno/oculto.
 
-EJEMPLO de respuesta correcta:
-"¡Hola! 👋 Bienvenido a nuestra tienda. ¿En qué puedo ayudarte hoy?
+EJEMPLO — Cita confirmada:
+"¡Perfecto! Queda agendada tu demostración para mañana a las 8:00 am. 😊
 
-<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","etapa_actual":"Saludo","accion":""}<<END_MEMORY>>"`);
+<<MEMORY_JSON>>{"nombre":"Carlos","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"mañana","hora_cita":"8:00","tipo_cita":"demostración","cita":"","etapa_actual":"Confirmado","accion":"crear_cita"}<<END_MEMORY>>"
+
+EJEMPLO — Solo saludo:
+"¡Hola! 👋 Bienvenido. ¿En qué puedo ayudarte hoy?
+
+<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","etapa_actual":"Saludo","accion":""}<<END_MEMORY>>"
+`);
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     console.log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
@@ -663,7 +691,7 @@ EJEMPLO de respuesta correcta:
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final de tu respuesta con etapa_actual]`;
+    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido".]`;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
@@ -801,6 +829,98 @@ EJEMPLO de respuesta correcta:
                 data: updateData
               });
             }
+            
+            // 📅 FALLBACK: Detectar citas confirmadas en la respuesta de la IA
+            if (savedContext.cita !== 'creada') {
+              const confirmPatterns = [
+                /(?:agendamos|queda agendad|confirmad|perfecto.*(?:mañana|lunes|martes|miércoles|jueves|viernes|sábado|domingo))/i,
+                /(?:reunión|demostración|cita|demo).*(?:para|el|mañana|a las)/i,
+                /(?:nos vemos|te espero|te esperamos).*(?:mañana|lunes|martes|miércoles|jueves|viernes|sábado|domingo)/i,
+                /(?:a las\s+\d{1,2}[:\s]*\d{0,2}\s*(?:am|pm|a\.m|p\.m)?)/i
+              ];
+              
+              const replyHasConfirm = confirmPatterns.some(p => p.test(replyLower));
+              const clientConfirmed = lastMsgLower.includes('sí') || lastMsgLower.includes('si') || lastMsgLower.includes('ok') || lastMsgLower.includes('claro') || lastMsgLower.includes('dale') || lastMsgLower.includes('perfecto') || lastMsgLower.includes('listo');
+              
+              if (replyHasConfirm && clientConfirmed) {
+                try {
+                  // Extraer hora de la conversación
+                  const horaMatch = (fullConversation + ' ' + reply).match(/(?:a las|las)\s+(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+                  let citaTime = '10:00';
+                  if (horaMatch) {
+                    let h = parseInt(horaMatch[1]);
+                    const m = horaMatch[2] ? parseInt(horaMatch[2]) : 0;
+                    const mer = (horaMatch[3] || '').toLowerCase().replace('.', '');
+                    if (mer === 'pm' && h < 12) h += 12;
+                    if (mer === 'am' && h === 12) h = 0;
+                    citaTime = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                  }
+                  
+                  // Extraer fecha
+                  let citaDate = new Date();
+                  citaDate.setDate(citaDate.getDate() + 1); // Default: mañana
+                  
+                  const fullText = (fullConversation + ' ' + reply).toLowerCase();
+                  if (fullText.includes('hoy')) { citaDate = new Date(); }
+                  else if (fullText.includes('mañana') || fullText.includes('manana')) { citaDate = new Date(); citaDate.setDate(citaDate.getDate() + 1); }
+                  else if (fullText.includes('pasado')) { citaDate = new Date(); citaDate.setDate(citaDate.getDate() + 2); }
+                  else {
+                    const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+                    for (let d = 0; d < dayNames.length; d++) {
+                      if (fullText.includes(dayNames[d])) {
+                        citaDate = new Date();
+                        const diff = d - citaDate.getDay();
+                        citaDate.setDate(citaDate.getDate() + (diff <= 0 ? diff + 7 : diff));
+                        break;
+                      }
+                    }
+                  }
+                  
+                  const nombre = extractedData.nombre || clientName || 'Cliente WhatsApp';
+                  const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  
+                  // Detectar tipo de cita
+                  let tipoCita = 'reunión';
+                  if (replyLower.includes('demo') || replyLower.includes('demostración')) tipoCita = 'demostración';
+                  else if (replyLower.includes('consulta')) tipoCita = 'consulta';
+                  else if (replyLower.includes('asesoría') || replyLower.includes('asesoria')) tipoCita = 'asesoría';
+                  
+                  await prisma.appointment.create({
+                    data: {
+                      userId: ownerId,
+                      type: 'appointment',
+                      clientName: nombre,
+                      clientPhone: phoneClean,
+                      date: citaDate,
+                      time: citaTime,
+                      status: 'pending',
+                      notes: `📅 ${tipoCita.toUpperCase()} — Auto-detectada\n━━━━━━━━━━━━━━━\n👤 ${nombre}\n📱 ${phoneClean}\n🗓️ ${citaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}\n🕐 ${citaTime}`,
+                      whatsappLineId: whatsappLineId || null
+                    }
+                  });
+                  
+                  // Marcar como creada
+                  extractedData.cita = 'creada';
+                  await prisma.conversation.update({
+                    where: { id: conversationId },
+                    data: { contextData: extractedData }
+                  });
+                  
+                  console.log(`📅 FALLBACK: Cita auto-detectada: ${tipoCita} | ${nombre} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
+                  
+                  // Auto CRM
+                  const existingCrm = await prisma.client.findFirst({ where: { userId: ownerId, phone: { endsWith: phoneClean.slice(-10) } } });
+                  if (!existingCrm) {
+                    await prisma.client.create({
+                      data: { userId: ownerId, name: nombre, phone: phoneClean, status: 'active', tags: [tipoCita, 'whatsapp'], lastContact: new Date(), whatsappLineId: whatsappLineId || null }
+                    });
+                    console.log(`👥 CRM: "${nombre}" creado desde fallback`);
+                  }
+                } catch (fbErr: any) {
+                  console.error('📅 Error en fallback cita:', fbErr.message);
+                }
+              }
+            }
           }
           
           if (memoryMatch) {
@@ -899,6 +1019,41 @@ EJEMPLO de respuesta correcta:
                     data: { contextData: merged }
                   });
                   console.log(`🛒 Pedido agendado para ${deliveryDate.toLocaleDateString('es-CO')} - ${merged.nombre || clientName}`);
+                  
+                  // 👥 AUTO-CREAR CLIENTE EN CRM (pedido)
+                  try {
+                    const phoneClean2 = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                    const existingClient2 = await prisma.client.findFirst({
+                      where: { userId: ownerId, phone: { endsWith: phoneClean2.slice(-10) } }
+                    });
+                    if (!existingClient2) {
+                      await prisma.client.create({
+                        data: {
+                          userId: ownerId,
+                          name: merged.nombre || clientName || 'Cliente WhatsApp',
+                          phone: phoneClean2,
+                          email: merged.email || null,
+                          notes: `Cliente registrado automáticamente desde pedido WhatsApp`,
+                          status: 'active',
+                          tags: ['pedido', 'whatsapp'],
+                          totalPurchases: parseFloat(merged.total?.replace(/[^0-9]/g, '')) || 0,
+                          lastContact: new Date(),
+                          whatsappLineId: whatsappLineId || null
+                        }
+                      });
+                      console.log(`👥 CRM: Cliente "${merged.nombre || clientName}" creado desde pedido`);
+                    } else {
+                      await prisma.client.update({
+                        where: { id: existingClient2.id },
+                        data: { 
+                          lastContact: new Date(),
+                          totalPurchases: (existingClient2.totalPurchases || 0) + (parseFloat(merged.total?.replace(/[^0-9]/g, '')) || 0)
+                        }
+                      });
+                    }
+                  } catch (crmErr: any) {
+                    console.error('⚠️ Error auto-CRM pedido:', crmErr.message);
+                  }
                 } catch (orderErr: any) {
                   console.error('❌ Error creando pedido:', orderErr.message);
                 }
@@ -907,26 +1062,130 @@ EJEMPLO de respuesta correcta:
               // 📅 CREAR CITA AUTOMÁTICA
               if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
                 try {
+                  // 🕐 PARSEAR FECHA INTELIGENTE
+                  let citaDate = new Date();
+                  const fechaCitaStr = (merged.fecha_cita || '').toLowerCase().trim();
+                  const hoy = new Date();
+                  
+                  if (fechaCitaStr) {
+                    if (fechaCitaStr.includes('hoy')) {
+                      citaDate = new Date(hoy);
+                    } else if (fechaCitaStr.includes('mañana') || fechaCitaStr.includes('manana')) {
+                      citaDate = new Date(hoy);
+                      citaDate.setDate(citaDate.getDate() + 1);
+                    } else if (fechaCitaStr.includes('pasado')) {
+                      citaDate = new Date(hoy);
+                      citaDate.setDate(citaDate.getDate() + 2);
+                    } else if (fechaCitaStr.includes('lunes') || fechaCitaStr.includes('martes') || fechaCitaStr.includes('miércoles') || fechaCitaStr.includes('miercoles') || fechaCitaStr.includes('jueves') || fechaCitaStr.includes('viernes') || fechaCitaStr.includes('sábado') || fechaCitaStr.includes('sabado') || fechaCitaStr.includes('domingo')) {
+                      const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+                      const dayNamesAlt = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+                      let targetDay = dayNames.findIndex(d => fechaCitaStr.includes(d));
+                      if (targetDay === -1) targetDay = dayNamesAlt.findIndex(d => fechaCitaStr.includes(d));
+                      if (targetDay >= 0) {
+                        citaDate = new Date(hoy);
+                        const currentDay = hoy.getDay();
+                        let daysAhead = targetDay - currentDay;
+                        if (daysAhead <= 0) daysAhead += 7;
+                        citaDate.setDate(citaDate.getDate() + daysAhead);
+                      }
+                    } else {
+                      // Intentar formatos como "13 de febrero", "2025-02-13", "13/02/2025"
+                      const monthNames: Record<string, number> = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
+                      const dateMatch = fechaCitaStr.match(/(\d{1,2})\s*(?:de\s+)?(\w+)/);
+                      if (dateMatch) {
+                        const day = parseInt(dateMatch[1]);
+                        const monthStr = dateMatch[2].toLowerCase();
+                        if (monthNames[monthStr] !== undefined) {
+                          citaDate = new Date(hoy.getFullYear(), monthNames[monthStr], day);
+                          if (citaDate < hoy) citaDate.setFullYear(citaDate.getFullYear() + 1);
+                        }
+                      }
+                      // Formato ISO o slash
+                      const parsed = new Date(merged.fecha_cita);
+                      if (!isNaN(parsed.getTime())) citaDate = parsed;
+                    }
+                  }
+                  
+                  // 🕐 PARSEAR HORA
+                  let citaTime = '10:00';
+                  const horaCitaStr = (merged.hora_cita || '').toLowerCase().trim();
+                  if (horaCitaStr) {
+                    const timeMatch = horaCitaStr.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+                    if (timeMatch) {
+                      let hours = parseInt(timeMatch[1]);
+                      const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                      const meridian = (timeMatch[3] || '').toLowerCase().replace('.', '');
+                      if (meridian === 'pm' && hours < 12) hours += 12;
+                      if (meridian === 'am' && hours === 12) hours = 0;
+                      citaTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                    }
+                  }
+
+                  const tipoCita = merged.tipo_cita || 'cita';
+                  const nombreCliente = merged.nombre || clientName || 'Cliente WhatsApp';
+                  const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+
                   const appointmentData = {
                     userId: ownerId,
                     type: 'appointment',
-                    clientName: merged.nombre || clientName || 'Cliente WhatsApp',
-                    clientPhone: clientPhone.replace('@c.us', ''),
-                    date: merged.fecha_cita ? new Date(merged.fecha_cita) : new Date(),
-                    time: merged.hora_cita || '10:00',
+                    clientName: nombreCliente,
+                    clientPhone: phoneClean,
+                    date: citaDate,
+                    time: citaTime,
                     status: 'pending',
-                    notes: `Cita agendada automáticamente desde WhatsApp.\n${merged.notas_cita || ''}`,
+                    notes: `📅 ${tipoCita.toUpperCase()} — WhatsApp\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           `👤 Cliente: ${nombreCliente}\n` +
+                           `📱 Teléfono: ${phoneClean}\n` +
+                           `🗓️ Fecha: ${citaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}\n` +
+                           `🕐 Hora: ${citaTime}\n` +
+                           `📋 Tipo: ${tipoCita}\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           `${merged.notas_cita || ''}`,
                     address: merged.direccion || merged.ciudad || '',
                     whatsappLineId: whatsappLineId || null
                   };
                   await prisma.appointment.create({ data: appointmentData });
+                  
                   // Marcar cita como creada
                   merged.cita = 'creada';
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
                   });
-                  console.log(`📅 Cita creada automáticamente para ${merged.nombre || clientName}`);
+                  
+                  console.log(`📅 CITA CREADA: ${tipoCita} | ${nombreCliente} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
+
+                  // 👥 AUTO-CREAR CLIENTE EN CRM
+                  try {
+                    const existingClient = await prisma.client.findFirst({
+                      where: { userId: ownerId, phone: { endsWith: phoneClean.slice(-10) } }
+                    });
+                    if (!existingClient) {
+                      await prisma.client.create({
+                        data: {
+                          userId: ownerId,
+                          name: nombreCliente,
+                          phone: phoneClean,
+                          email: merged.email || null,
+                          notes: `Cliente registrado automáticamente desde WhatsApp (${tipoCita})`,
+                          status: 'active',
+                          tags: [tipoCita, 'whatsapp'],
+                          lastContact: new Date(),
+                          whatsappLineId: whatsappLineId || null
+                        }
+                      });
+                      console.log(`👥 CRM: Cliente "${nombreCliente}" creado automáticamente`);
+                    } else {
+                      // Actualizar último contacto
+                      await prisma.client.update({
+                        where: { id: existingClient.id },
+                        data: { lastContact: new Date(), name: nombreCliente || existingClient.name }
+                      });
+                    }
+                  } catch (crmErr: any) {
+                    console.error('⚠️ Error auto-CRM:', crmErr.message);
+                  }
                 } catch (citaErr: any) {
                   console.error('❌ Error creando cita:', citaErr.message);
                 }

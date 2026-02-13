@@ -6,18 +6,37 @@ import crypto from 'crypto';
 const router = Router();
 
 // ===== CONFIGURACIÓN DE PLANES =====
-const PLANS = {
+const PLANS: Record<string, any> = {
   starter: {
     name: 'Elisa Starter',
     monthly: 30,
     semiannual: 150,   // 30×6 = 180 → 150 (17% desc)
     annual: 250,        // 30×12 = 360 → 250 (31% desc)
+    maxLines: 2,
+    maxProducts: 10,
+    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos)', 'Productos y catálogo (10)'],
+    notIncluded: ['Equipo multi-usuario', 'Asignación de chats', 'Integraciones API']
   },
   business: {
     name: 'Elisa Business',
     monthly: 50,
     semiannual: 250,    // 50×6 = 300 → 250 (17% desc)
     annual: 420,        // 50×12 = 600 → 420 (30% desc)
+    maxLines: 5,
+    maxProducts: 999,
+    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Productos ilimitados', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Permisos personalizados', 'Auto-aprendizaje con sugerencias', 'Integraciones API', 'Soporte prioritario'],
+    notIncluded: []
+  },
+  implementation: {
+    name: 'Elisa Implementación',
+    oneTime: 100,       // Pago único $100 USD
+    maxLines: 5,
+    maxProducts: 10,
+    extraLinesCost: 10,   // $10 USD por línea adicional
+    extraProductsCost: 10, // $10 USD por 10 productos adicionales
+    features: ['Implementación completa por expertos', '5 líneas de WhatsApp', 'Configuración de asistentes IA', 'Base de conocimiento personalizada', 'CRM + Pipeline configurado', 'Agenda automática', 'Equipo + asignación de chats', 'Soporte prioritario por WhatsApp', 'Hasta 10 productos incluidos', 'Dashboard de métricas y resultados'],
+    extras: ['Línea adicional: $10 USD c/u', '10 productos adicionales: $10 USD'],
+    notIncluded: []
   }
 };
 
@@ -162,40 +181,74 @@ router.get('/plans', async (req: Request, res: Response) => {
     const trm = await getTRM();
     const rate = trm.rate;
     
-    const plans = Object.entries(PLANS).map(([id, plan]) => ({
-      id,
-      name: plan.name,
-      prices: {
-        monthly: {
-          usd: plan.monthly,
-          cop: Math.round(plan.monthly * rate),
-          copWithCard: Math.round(plan.monthly * rate * (1 + CARD_SURCHARGE)),
-          period: 'monthly',
-          label: 'Mensual'
-        },
-        semiannual: {
-          usd: plan.semiannual,
-          cop: Math.round(plan.semiannual * rate),
-          copWithCard: Math.round(plan.semiannual * rate * (1 + CARD_SURCHARGE)),
-          period: 'semiannual',
-          label: '6 Meses',
-          savedUsd: (plan.monthly * 6) - plan.semiannual,
-          savedPercent: Math.round(((plan.monthly * 6 - plan.semiannual) / (plan.monthly * 6)) * 100)
-        },
-        annual: {
-          usd: plan.annual,
-          cop: Math.round(plan.annual * rate),
-          copWithCard: Math.round(plan.annual * rate * (1 + CARD_SURCHARGE)),
-          period: 'annual',
-          label: 'Anual',
-          savedUsd: (plan.monthly * 12) - plan.annual,
-          savedPercent: Math.round(((plan.monthly * 12 - plan.annual) / (plan.monthly * 12)) * 100)
+    // Planes recurrentes (starter, business)
+    const recurringPlans = ['starter', 'business'].map(id => {
+      const plan = PLANS[id];
+      return {
+        id,
+        name: plan.name,
+        type: 'recurring',
+        maxLines: plan.maxLines,
+        maxProducts: plan.maxProducts,
+        features: plan.features || [],
+        notIncluded: plan.notIncluded || [],
+        prices: {
+          monthly: {
+            usd: plan.monthly,
+            cop: Math.round(plan.monthly * rate),
+            copWithCard: Math.round(plan.monthly * rate * (1 + CARD_SURCHARGE)),
+            period: 'monthly',
+            label: 'Mensual'
+          },
+          semiannual: {
+            usd: plan.semiannual,
+            cop: Math.round(plan.semiannual * rate),
+            copWithCard: Math.round(plan.semiannual * rate * (1 + CARD_SURCHARGE)),
+            period: 'semiannual',
+            label: '6 Meses',
+            savedUsd: (plan.monthly * 6) - plan.semiannual,
+            savedPercent: Math.round(((plan.monthly * 6 - plan.semiannual) / (plan.monthly * 6)) * 100)
+          },
+          annual: {
+            usd: plan.annual,
+            cop: Math.round(plan.annual * rate),
+            copWithCard: Math.round(plan.annual * rate * (1 + CARD_SURCHARGE)),
+            period: 'annual',
+            label: 'Anual',
+            savedUsd: (plan.monthly * 12) - plan.annual,
+            savedPercent: Math.round(((plan.monthly * 12 - plan.annual) / (plan.monthly * 12)) * 100)
+          }
         }
+      };
+    });
+
+    // Plan de implementación (pago único)
+    const implPlan = PLANS.implementation;
+    const implementationPlan = {
+      id: 'implementation',
+      name: implPlan.name,
+      type: 'one_time',
+      maxLines: implPlan.maxLines,
+      maxProducts: implPlan.maxProducts,
+      features: implPlan.features || [],
+      extras: implPlan.extras || [],
+      prices: {
+        oneTime: {
+          usd: implPlan.oneTime,
+          cop: Math.round(implPlan.oneTime * rate),
+          copWithCard: Math.round(implPlan.oneTime * rate * (1 + CARD_SURCHARGE)),
+          period: 'one_time',
+          label: 'Pago único'
+        }
+      },
+      addons: {
+        extraLine: { usd: implPlan.extraLinesCost, cop: Math.round(implPlan.extraLinesCost * rate) },
+        extraProducts: { usd: implPlan.extraProductsCost, cop: Math.round(implPlan.extraProductsCost * rate), quantity: 10 }
       }
-    }));
+    };
 
     res.json({ 
-      plans, 
+      plans: [...recurringPlans, implementationPlan], 
       exchangeRate: rate, 
       exchangeSource: trm.source,
       exchangeDate: trm.date,
@@ -396,16 +449,31 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const { plan, period, discountCode: rawDiscountCode } = req.body;
-    if (!plan || !period) { res.status(400).json({ error: 'Plan y periodo requeridos' }); return; }
-    if (!PLANS[plan as keyof typeof PLANS]) { res.status(400).json({ error: 'Plan inválido' }); return; }
-    if (!['monthly', 'semiannual', 'annual'].includes(period)) { res.status(400).json({ error: 'Periodo inválido' }); return; }
+    const { plan, period, discountCode: rawDiscountCode, addons } = req.body;
+    if (!plan) { res.status(400).json({ error: 'Plan requerido' }); return; }
+    if (!PLANS[plan]) { res.status(400).json({ error: 'Plan inválido' }); return; }
+    
+    // Validar periodo según tipo de plan
+    const isImplementation = plan === 'implementation';
+    if (!isImplementation && !period) { res.status(400).json({ error: 'Periodo requerido' }); return; }
+    if (!isImplementation && !['monthly', 'semiannual', 'annual'].includes(period)) { res.status(400).json({ error: 'Periodo inválido' }); return; }
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
-    const planConfig = PLANS[plan as keyof typeof PLANS];
-    const priceUsd = planConfig[period as keyof typeof planConfig] as number;
+    const planConfig = PLANS[plan];
+    let priceUsd: number;
+    const effectivePeriod = isImplementation ? 'one_time' : period;
+    
+    if (isImplementation) {
+      priceUsd = planConfig.oneTime;
+      // Sumar addons si hay
+      if (addons?.extraLines > 0) priceUsd += addons.extraLines * planConfig.extraLinesCost;
+      if (addons?.extraProducts > 0) priceUsd += addons.extraProducts * planConfig.extraProductsCost;
+    } else {
+      priceUsd = planConfig[period as string] as number;
+    }
+    
     const trm = await getTRM();
     const rate = trm.rate;
     const originalCop = Math.round(priceUsd * rate);
@@ -459,7 +527,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     // Wompi recibe montos en centavos
     const amountInCents = finalCop * 100;
 
-    const reference = `ELISA-${userId.slice(-8)}-${plan}-${period}-${Date.now()}`;
+    const reference = `ELISA-${userId.slice(-8)}-${plan}-${effectivePeriod}-${Date.now()}`;
 
     // Generar firma de integridad para Wompi
     // IMPORTANTE: Usar la llave de integridad, NO el secreto de eventos
@@ -473,9 +541,9 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const payment = await prisma.payment.create({
       data: {
         userId,
-        type: 'subscription',
+        type: isImplementation ? 'implementation' : 'subscription',
         plan,
-        period,
+        period: effectivePeriod,
         amountUsd: priceUsd,
         amountCop: finalCop,
         exchangeRate: rate,
@@ -660,10 +728,15 @@ async function activateSubscription(payment: any, transactionId: string, payment
       }
     });
 
-    // Calcular periodo
     const now = new Date();
+    const isImplementation = payment.plan === 'implementation';
+    
+    // Calcular periodo
     const periodEnd = new Date(now);
-    if (payment.period === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
+    if (isImplementation) {
+      // Implementación: acceso permanente (99 años)
+      periodEnd.setFullYear(periodEnd.getFullYear() + 99);
+    } else if (payment.period === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
     else if (payment.period === 'semiannual') periodEnd.setMonth(periodEnd.getMonth() + 6);
     else if (payment.period === 'annual') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
 
@@ -673,7 +746,7 @@ async function activateSubscription(payment: any, transactionId: string, payment
       create: {
         userId: payment.userId,
         plan: payment.plan,
-        period: payment.period,
+        period: isImplementation ? 'permanent' : payment.period,
         status: 'active',
         priceUsd: payment.amountUsd,
         priceCop: payment.amountCop,
@@ -683,7 +756,7 @@ async function activateSubscription(payment: any, transactionId: string, payment
       },
       update: {
         plan: payment.plan,
-        period: payment.period,
+        period: isImplementation ? 'permanent' : payment.period,
         status: 'active',
         priceUsd: payment.amountUsd,
         priceCop: payment.amountCop,
@@ -699,7 +772,7 @@ async function activateSubscription(payment: any, transactionId: string, payment
       data: { plan: payment.plan }
     });
 
-    console.log(`✅ 🎉 SUSCRIPCIÓN ACTIVADA: ${payment.plan} ${payment.period} | Usuario: ${payment.userId} | Hasta: ${periodEnd.toISOString().split('T')[0]}${payment.discountCode ? ` | Código: ${payment.discountCode}` : ''}`);
+    console.log(`✅ 🎉 SUSCRIPCIÓN ACTIVADA: ${payment.plan} ${isImplementation ? 'PERMANENTE' : payment.period} | Usuario: ${payment.userId} | Hasta: ${periodEnd.toISOString().split('T')[0]}${payment.discountCode ? ` | Código: ${payment.discountCode}` : ''}`);
     
     return { 
       activated: true, 

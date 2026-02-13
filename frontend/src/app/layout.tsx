@@ -102,29 +102,37 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const perms = user?.permissions || {};
   const isAdmin = !user?.parentUserId;
   const hasPerm = (p: string) => isAdmin || perms[p] === true;
+  const isImplementation = user?.plan === 'implementation';
+  const planFeatures = user?.planFeatures || {};
+
+  // 🔒 Páginas bloqueadas para plan implementación (solo implementadores configuran)
+  const implementationLocked = ['assistants', 'config', 'integrations'];
 
   const allNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, perm: 'dashboard' },
     { name: 'Conversaciones', href: '/conversaciones', icon: MessageSquare, perm: 'conversations' },
     { name: 'WhatsApp', href: '/whatsapp', icon: Smartphone, perm: 'whatsapp' },
-    { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants' },
-    { name: 'CRM', href: '/crm', icon: Users, perm: 'crm', badge: 'Nuevo' },
-    { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', badge: 'Nuevo' },
-    { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations', badge: 'Nuevo' },
-    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', badge: 'Nuevo' },
-    { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config' },
+    { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants', featureKey: 'assistants' },
+    { name: 'CRM', href: '/crm', icon: Users, perm: 'crm' },
+    { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda' },
+    { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations' },
+    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team' },
+    { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
-    { name: 'Integraciones', href: '/integraciones', icon: Code, perm: 'config', badge: 'Nuevo' },
+    { name: 'Integraciones', href: '/integraciones', icon: Code, perm: 'config', featureKey: 'integrations' },
     { name: 'Guía', href: '/guia', icon: BookOpen, perm: 'dashboard' },
   ];
 
   const navigation = allNavigation.filter(item => {
     if ((item as any).adminOnly && !isAdmin) return false;
     return hasPerm(item.perm);
-  });
+  }).map(item => ({
+    ...item,
+    locked: isImplementation && item.featureKey && implementationLocked.includes(item.featureKey)
+  }));
 
   const roleLabel = user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Gerente' : user?.role === 'agent' ? 'Vendedor' : user?.role === 'support' ? 'Soporte' : 'Observador';
-  const planLabel = user?.plan === 'business' ? 'PLAN BUSINESS' : user?.plan === 'starter' ? 'PLAN STARTER' : user?.plan === 'trial' ? 'TRIAL' : 'PLAN';
+  const planLabel = user?.plan === 'business' ? 'PLAN BUSINESS' : user?.plan === 'starter' ? 'PLAN STARTER' : user?.plan === 'implementation' ? 'IMPLEMENTACIÓN' : user?.plan === 'trial' ? 'TRIAL' : 'PLAN';
 
   if (loading) {
     return (
@@ -271,10 +279,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   ) : (
                     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide ${
                       user.plan === 'business' ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
+                      : user.plan === 'implementation' ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
                       : user.plan === 'starter' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
                       : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                     }`}>
-                      <span>👑</span><span>{planLabel}</span>
+                      <span>{user.plan === 'implementation' ? '🛠️' : '👑'}</span><span>{planLabel}</span>
                       {user.daysRemaining !== undefined && user.daysRemaining > 0 && user.daysRemaining <= 7 && (
                         <span className="text-[9px] opacity-60">({user.daysRemaining}d)</span>
                       )}
@@ -287,11 +296,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <nav className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll">
                 {navigation.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                  if (item.locked) {
+                    return (
+                      <div key={item.name} className="nav-item opacity-40 cursor-not-allowed" title="Configurado por el equipo de implementación">
+                        <item.icon className="w-5 h-5" />
+                        <span className="flex-1">{item.name}</span>
+                        <Lock className="w-3.5 h-3.5 text-amber-400/70" />
+                      </div>
+                    );
+                  }
                   return (
                     <Link key={item.name} href={item.href} onClick={() => setSidebarOpen(false)} className={`nav-item ${isActive ? 'active' : ''}`}>
                       <item.icon className={`w-5 h-5 ${isActive ? 'text-[var(--accent-primary)]' : ''}`} />
                       <span className="flex-1">{item.name}</span>
-                      {item.badge && <span className="badge-new">{item.badge}</span>}
                       {isActive && <ChevronRight className="w-4 h-4 text-[var(--accent-primary)]" />}
                     </Link>
                   );
@@ -314,6 +331,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <LogOut className="w-5 h-5" /><span className="font-medium">Cerrar Sesión</span>
                 </button>
               </div>
+
+              {/* Soporte WhatsApp para plan implementación */}
+              {isImplementation && (
+                <div className="px-4 pb-2">
+                  <a href="https://wa.me/573118083993?text=Hola%2C%20necesito%20soporte%20con%20mi%20implementación" target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-500/15 border border-green-500/25 hover:bg-green-500/25 transition-all cursor-pointer">
+                    <Phone className="w-4 h-4 text-green-400" />
+                    <span className="text-xs text-green-400 font-semibold">Soporte Prioritario</span>
+                  </a>
+                </div>
+              )}
 
               <div className="px-4 pb-4">
                 <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20">

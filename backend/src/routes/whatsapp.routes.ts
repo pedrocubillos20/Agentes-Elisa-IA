@@ -1387,6 +1387,22 @@ router.post('/lines', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
     
+    // 🔒 Verificar límite de líneas según plan
+    const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
+    const planLimits: Record<string, number> = { trial: 1, starter: 2, business: 5, implementation: 5 };
+    const maxLines = planLimits[owner?.plan || 'trial'] || 1;
+    
+    const currentLineCount = await prisma.whatsappLine.count({ where: { userId: ownerId } });
+    if (currentLineCount >= maxLines) {
+      res.status(403).json({ 
+        error: `Tu plan ${owner?.plan || 'trial'} permite máximo ${maxLines} línea(s) de WhatsApp. Actualiza tu plan para agregar más.`,
+        limit: maxLines,
+        current: currentLineCount,
+        upgrade: true
+      });
+      return;
+    }
+    
     const { label, assignedTo, assistantId } = req.body;
     
     // Generar nombre de sesión único

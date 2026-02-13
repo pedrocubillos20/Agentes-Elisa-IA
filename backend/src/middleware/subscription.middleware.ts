@@ -51,6 +51,27 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
       return;
     }
 
+    // 🔒 Plan implementación: bloquear acceso a rutas de configuración
+    const effectivePlan = user.parentUserId 
+      ? (await prisma.user.findUnique({ where: { id: user.parentUserId }, select: { plan: true } }))?.plan 
+      : user.plan;
+      
+    if (effectivePlan === 'implementation') {
+      const blockedPaths = ['/api/assistants', '/api/integrations'];
+      const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants')
+        || req.path.startsWith('/api/integrations') || req.originalUrl?.includes('/api/integrations');
+      
+      // Allow GET requests (viewing is ok), block POST/PUT/DELETE (modifications)
+      if (isConfigRoute && req.method !== 'GET') {
+        res.status(403).json({
+          error: 'implementation_locked',
+          message: 'Esta función es configurada por el equipo de implementación. Contacta soporte para cambios.',
+          locked: true
+        });
+        return;
+      }
+    }
+
     next();
   } catch (error) {
     // En caso de error, permitir acceso (no bloquear por error del sistema)

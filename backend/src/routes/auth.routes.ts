@@ -337,9 +337,28 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     // Plan features
     const PLAN_FEATURES: Record<string, any> = {
-      trial: { maxWhatsappLines: 3, crm: true, agenda: true, team: true, chatAssignment: true, products: true },
-      starter: { maxWhatsappLines: 3, crm: false, agenda: false, team: false, chatAssignment: false, products: false },
-      business: { maxWhatsappLines: 999, crm: true, agenda: true, team: true, chatAssignment: true, products: true }
+      trial: { 
+        maxWhatsappLines: 1, maxProducts: 5,
+        crm: true, agenda: true, team: true, chatAssignment: true, products: true,
+        assistants: true, config: true, integrations: true
+      },
+      starter: { 
+        maxWhatsappLines: 2, maxProducts: 10,
+        crm: true, agenda: true, team: false, chatAssignment: false, products: true,
+        assistants: true, config: true, integrations: true
+      },
+      business: { 
+        maxWhatsappLines: 5, maxProducts: 999,
+        crm: true, agenda: true, team: true, chatAssignment: true, products: true,
+        assistants: true, config: true, integrations: true
+      },
+      implementation: { 
+        maxWhatsappLines: 5, maxProducts: 10, extraProductsCost: 10, extraLinesCost: 10,
+        crm: true, agenda: true, team: true, chatAssignment: true, products: true,
+        // 🔒 Bloqueados — solo el implementador configura
+        assistants: false, config: false, integrations: false,
+        prioritySupport: true, isImplementation: true
+      }
     };
 
     // For sub-users, get plan from parent

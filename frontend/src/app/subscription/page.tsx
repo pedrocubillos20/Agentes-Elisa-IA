@@ -9,29 +9,44 @@ const PLAN_FEATURES: Record<string, { included: string[]; excluded: string[] }> 
   starter: {
     included: [
       'Asistente IA con WhatsApp',
-      'Hasta 3 líneas de WhatsApp',
-      'Respuestas automáticas 24/7',
-      'Dashboard y métricas',
+      '2 líneas de WhatsApp',
+      'Conversaciones ilimitadas',
+      'CRM + Pipeline de ventas',
+      'Agenda automática',
       'Base de conocimiento',
       'Multimedia (imágenes, videos)',
-      'Pausa/Reactivación de IA',
-      'Indicadores "escribiendo..."',
+      'Dashboard y métricas',
+      'Hasta 10 productos de catálogo',
     ],
-    excluded: ['CRM + Agenda', 'Equipo multi-usuario', 'Asignación de chats']
+    excluded: ['Equipo multi-usuario', 'Asignación de chats', 'Integraciones API']
   },
   business: {
     included: [
       'Todo de Starter +',
-      'Líneas de WhatsApp ilimitadas',
-      'CRM completo con base de datos',
-      'Agenda de citas integrada',
-      'Equipo multi-usuario (roles)',
+      '5 líneas de WhatsApp',
+      'Productos ilimitados',
+      'Equipo completo (roles)',
       'Asignación de chats a vendedores',
       'Dashboard para directivos',
-      'Permisos personalizados por rol',
-      'Auto-aprendizaje con sugerencias',
-      'Productos y catálogo',
+      'Permisos personalizados',
+      'Integraciones API',
       'Soporte prioritario'
+    ],
+    excluded: []
+  },
+  implementation: {
+    included: [
+      'Implementación completa por expertos',
+      '5 líneas de WhatsApp incluidas',
+      'Configuración profesional de IA',
+      'Base de conocimiento personalizada',
+      'CRM + Pipeline configurado',
+      'Agenda automática',
+      'Equipo + asignación de chats',
+      'Soporte prioritario por WhatsApp',
+      '10 productos de catálogo incluidos',
+      'Dashboard de métricas y resultados',
+      'Pago único — Sin mensualidades',
     ],
     excluded: []
   }
@@ -181,13 +196,15 @@ export default function SubscriptionPage() {
     setPaymentLoading(planId);
 
     try {
+      const isImpl = planId === 'implementation';
       const res = await fetch(`${API_URL}/api/subscription/create-payment`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           plan: planId, 
-          period: selectedPeriod,
-          discountCode: appliedDiscount?.code || null
+          period: isImpl ? 'one_time' : selectedPeriod,
+          discountCode: appliedDiscount?.code || null,
+          ...(isImpl && { addons: { extraLines: 0, extraProducts: 0 } })
         })
       });
 
@@ -503,9 +520,10 @@ export default function SubscriptionPage() {
         </div>
 
         {/* Plan Cards */}
-        <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-          {plans.map(plan => {
+        <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+          {plans.filter(p => p.id !== 'implementation').map(plan => {
             const price = plan.prices[selectedPeriod];
+            if (!price) return null;
             const features = PLAN_FEATURES[plan.id as keyof typeof PLAN_FEATURES];
             const isBusiness = plan.id === 'business';
             const isCurrentPlan = subStatus?.subscription?.plan === plan.id;
@@ -513,7 +531,7 @@ export default function SubscriptionPage() {
 
             return (
               <div key={plan.id}
-                className={`relative rounded-3xl p-8 border transition-all ${
+                className={`relative rounded-3xl p-6 border transition-all ${
                   isBusiness
                     ? 'bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 border-emerald-500/40 shadow-xl shadow-emerald-500/10'
                     : 'bg-white/5 border-white/10 hover:border-white/20'
@@ -527,72 +545,59 @@ export default function SubscriptionPage() {
                   </div>
                 )}
 
-                <div className="mb-6">
+                <div className="mb-5">
                   <div className="flex items-center gap-3 mb-2">
-                    {isBusiness ? <Building2 className="w-6 h-6 text-emerald-400" /> : <Rocket className="w-6 h-6 text-indigo-400" />}
-                    <h3 className="text-2xl font-black">{plan.name}</h3>
+                    {isBusiness ? <Building2 className="w-5 h-5 text-emerald-400" /> : <Rocket className="w-5 h-5 text-indigo-400" />}
+                    <h3 className="text-xl font-black">{plan.name}</h3>
                   </div>
-                  <p className="text-gray-500 text-sm">
-                    {isBusiness ? 'Para negocios serios que quieren CRM, equipo y todas las herramientas' : 'Ideal para emprendedores que arrancan con WhatsApp'}
+                  <p className="text-gray-500 text-xs">
+                    {isBusiness ? 'Para negocios que necesitan CRM, equipo y todas las herramientas' : 'Ideal para emprendedores que arrancan con WhatsApp'}
                   </p>
                 </div>
 
                 {/* Pricing */}
-                <div className="mb-8">
+                <div className="mb-6">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-gray-500 text-lg">USD$</span>
-                    <span className="text-5xl font-black">{price.usd}</span>
+                    <span className="text-gray-500 text-sm">USD$</span>
+                    <span className="text-4xl font-black">{price.usd}</span>
                   </div>
-                  <div className="text-gray-500 text-sm mt-1">
+                  <div className="text-gray-500 text-xs mt-1">
                     {selectedPeriod === 'monthly' ? 'por mes' : selectedPeriod === 'semiannual' ? 'por 6 meses' : 'por año'}
                   </div>
 
-                  {/* Price with/without discount */}
                   {discount ? (
-                    <div className="mt-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                    <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded-xl">
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-500 text-sm line-through">{formatCOP(price.cop)}</span>
-                        <span className="text-purple-400 text-lg font-black">{formatCOP(discount.finalCop)} COP</span>
+                        <span className="text-gray-500 text-xs line-through">{formatCOP(price.cop)}</span>
+                        <span className="text-purple-400 text-sm font-black">{formatCOP(discount.finalCop)} COP</span>
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Tag className="w-3 h-3 text-purple-400" />
-                        <span className="text-purple-300 text-xs font-bold">
-                          Ahorras {formatCOP(discount.discountAmount)} ({discount.savedPercent}% OFF)
-                        </span>
-                      </div>
-                      <div className="text-gray-600 text-xs mt-1">
-                        💳 Con tarjeta: {formatCOP(discount.finalWithCard)} COP (+5% procesadora)
+                      <div className="text-purple-300 text-[10px] mt-1">
+                        💰 Ahorras {formatCOP(discount.discountAmount)} ({discount.savedPercent}% OFF)
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="mt-2 text-emerald-400 text-sm font-semibold">
-                        ≈ {formatCOP(price.cop)} COP
-                      </div>
+                      <div className="mt-1 text-emerald-400 text-xs font-semibold">≈ {formatCOP(price.cop)} COP</div>
                       {price.savedPercent && (
-                        <div className="mt-1 text-amber-400 text-xs font-bold">
-                          💰 Ahorras USD${price.savedUsd} ({price.savedPercent}% de descuento)
-                        </div>
+                        <div className="mt-1 text-amber-400 text-[10px] font-bold">💰 Ahorras {price.savedPercent}%</div>
                       )}
-                      <div className="mt-2 text-gray-600 text-xs">
-                        💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5% procesadora)
-                      </div>
+                      <div className="mt-1 text-gray-600 text-[10px]">💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5%)</div>
                     </>
                   )}
                 </div>
 
                 {/* Features */}
-                <div className="space-y-3 mb-8">
-                  {features.included.map((f, i) => (
-                    <div key={i} className="flex items-start gap-3">
-                      <Check className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-300 text-sm">{f}</span>
+                <div className="space-y-2 mb-6">
+                  {features?.included.map((f, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <Check className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-300 text-xs">{f}</span>
                     </div>
                   ))}
-                  {features.excluded.map((f, i) => (
-                    <div key={i} className="flex items-start gap-3 opacity-40">
-                      <X className="w-5 h-5 text-gray-600 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-600 text-sm">{f}</span>
+                  {features?.excluded.map((f, i) => (
+                    <div key={i} className="flex items-start gap-2 opacity-40">
+                      <X className="w-4 h-4 text-gray-600 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-600 text-xs">{f}</span>
                     </div>
                   ))}
                 </div>
@@ -601,7 +606,7 @@ export default function SubscriptionPage() {
                 <button
                   onClick={() => handlePayment(plan.id)}
                   disabled={!!paymentLoading || isCurrentPlan}
-                  className={`w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2 ${
+                  className={`w-full py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
                     isCurrentPlan
                       ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
                       : isBusiness
@@ -613,12 +618,112 @@ export default function SubscriptionPage() {
                   ) : isCurrentPlan ? (
                     <>Plan Actual</>
                   ) : (
-                    <>{isBusiness ? <Sparkles className="w-5 h-5" /> : <CreditCard className="w-5 h-5" />} Comenzar {isTrial ? 'ahora' : ''}</>
+                    <><CreditCard className="w-4 h-4" /> {isBusiness ? 'Activar Business' : 'Activar Starter'}</>
                   )}
                 </button>
               </div>
             );
           })}
+
+          {/* ===== PLAN IMPLEMENTACIÓN ===== */}
+          {(() => {
+            const implPlan = plans.find(p => p.id === 'implementation');
+            if (!implPlan) return null;
+            const implFeatures = PLAN_FEATURES.implementation;
+            const isCurrentImpl = subStatus?.subscription?.plan === 'implementation';
+            const implPrice = implPlan.prices?.oneTime;
+            if (!implPrice) return null;
+            
+            return (
+              <div className="relative rounded-3xl p-6 border bg-gradient-to-br from-orange-500/10 to-amber-500/5 border-orange-500/40 shadow-xl shadow-orange-500/10">
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
+                  <span className="bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-black px-4 py-1.5 rounded-full flex items-center gap-1">
+                    🛠️ SERVICIO COMPLETO
+                  </span>
+                </div>
+
+                <div className="mb-5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Shield className="w-5 h-5 text-orange-400" />
+                    <h3 className="text-xl font-black">{implPlan.name}</h3>
+                  </div>
+                  <p className="text-gray-500 text-xs">
+                    Nosotros configuramos todo tu negocio. Tú solo vendes.
+                  </p>
+                </div>
+
+                {/* Pricing */}
+                <div className="mb-5">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-gray-500 text-sm">USD$</span>
+                    <span className="text-4xl font-black">{implPrice.usd}</span>
+                  </div>
+                  <div className="text-orange-400 text-xs font-bold mt-1">💎 Pago único — Sin mensualidades</div>
+                  <div className="mt-1 text-gray-400 text-xs">≈ {formatCOP(implPrice.cop)} COP</div>
+                  <div className="text-gray-600 text-[10px]">💳 Con tarjeta: {formatCOP(implPrice.copWithCard)} COP (+5%)</div>
+                </div>
+
+                {/* Add-ons */}
+                {implPlan.addons && (
+                  <div className="mb-5 p-3 bg-white/5 rounded-xl border border-white/10">
+                    <div className="text-xs font-bold text-white mb-2 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-orange-400" /> Servicios adicionales
+                    </div>
+                    <div className="space-y-1 text-[10px] text-gray-400">
+                      <div className="flex justify-between">
+                        <span>📱 Línea WhatsApp adicional</span>
+                        <span className="text-orange-300 font-bold">${implPlan.addons.extraLine.usd} USD c/u</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>📦 +10 productos de catálogo</span>
+                        <span className="text-orange-300 font-bold">${implPlan.addons.extraProducts.usd} USD</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Features */}
+                <div className="space-y-2 mb-6">
+                  {implFeatures.included.map((f, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <Check className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-300 text-xs">{f}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* What we do for you */}
+                <div className="mb-5 p-3 bg-orange-500/5 rounded-xl border border-orange-500/15">
+                  <div className="text-xs font-bold text-orange-300 mb-2">🎯 Lo que hacemos por ti:</div>
+                  <div className="space-y-1 text-[10px] text-gray-400">
+                    <div>✓ Configuración completa del asistente IA</div>
+                    <div>✓ Entrenamiento con tu base de conocimiento</div>
+                    <div>✓ Integración y conexión de WhatsApp</div>
+                    <div>✓ Diseño del pipeline de ventas (CRM)</div>
+                    <div>✓ Carga de productos y catálogo</div>
+                    <div>✓ Capacitación de uso de la plataforma</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handlePayment('implementation')}
+                  disabled={!!paymentLoading || isCurrentImpl}
+                  className={`w-full py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                    isCurrentImpl
+                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg hover:shadow-orange-500/30 hover:scale-[1.02]'
+                  }`}>
+                  {paymentLoading === 'implementation' ? (
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : isCurrentImpl ? (
+                    <>Plan Actual</>
+                  ) : (
+                    <><Shield className="w-4 h-4" /> Contratar Implementación</>
+                  )}
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Payment Methods Info */}

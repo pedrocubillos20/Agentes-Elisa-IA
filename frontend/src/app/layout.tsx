@@ -8,7 +8,7 @@ import {
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
   ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
-  ExternalLink, Code, Lock, Zap, Clock
+  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key
 } from 'lucide-react';
 import Paywall from '../components/Paywall';
 
@@ -35,6 +35,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [selectedLine, setSelectedLine] = useState<any>(null);
   const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [apiKeyError, setApiKeyError] = useState<any>(null);
+  const [showApiKeyGuide, setShowApiKeyGuide] = useState(false);
 
   const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
   const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo', '/guia', '/integraciones'];
@@ -42,6 +44,31 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   useEffect(() => { checkAuth(); }, [pathname]);
   useEffect(() => { if (user && !isAuthPage) fetchLines(); }, [user]);
+  
+  // 🔑 Verificar errores de API Key cada 30s
+  useEffect(() => {
+    if (!user || isAuthPage) return;
+    const checkApiKeyError = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/api/whatsapp/api-key-error`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.hasError) {
+            setApiKeyError(data);
+          } else if (!user.apiKeyConnected && user.plan !== 'trial') {
+            // API key no conectada en general
+            setApiKeyError({ type: 'not_connected', message: 'API Key de OpenAI no conectada' });
+          } else {
+            setApiKeyError(null);
+          }
+        }
+      } catch {}
+    };
+    checkApiKeyError();
+    const interval = setInterval(checkApiKeyError, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
@@ -384,6 +411,130 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
               </header>
               <div className="flex-1 p-6 lg:p-8 overflow-auto">
+                {/* 🔑 BANNER DE ERROR API KEY */}
+                {apiKeyError && pathname !== '/configuracion' && (
+                  <div className="mb-6 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                        <AlertTriangle className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-amber-300 flex items-center gap-2">
+                          <Key className="w-4 h-4" />
+                          {apiKeyError.type === 'invalid_key' ? '⚠️ API Key de OpenAI inválida' : 
+                           apiKeyError.type === 'no_credits' ? '💰 Sin créditos en OpenAI' : 
+                           apiKeyError.type === 'not_connected' ? '🔑 API Key no conectada' : 
+                           '⚠️ Error con OpenAI'}
+                        </h3>
+                        <p className="text-xs text-[var(--text-muted)] mt-1">
+                          {apiKeyError.type === 'invalid_key' 
+                            ? 'Tu API Key es incorrecta o fue revocada. Tu asistente IA NO puede responder mensajes de WhatsApp.' 
+                            : apiKeyError.type === 'no_credits'
+                            ? 'Tu cuenta de OpenAI no tiene créditos. Recarga desde $3 USD para que tu asistente siga funcionando.'
+                            : 'Conecta tu API Key de OpenAI para que el asistente IA pueda responder automáticamente.'}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-3">
+                          <a 
+                            href="/configuracion" 
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-medium hover:bg-amber-500/30 transition-colors"
+                          >
+                            <Settings className="w-3.5 h-3.5" />
+                            {apiKeyError.type === 'not_connected' ? 'Conectar API Key' : 'Actualizar API Key'}
+                          </a>
+                          <a 
+                            href="https://auth.openai.com/log-in" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[var(--text-secondary)] text-xs font-medium hover:bg-white/10 transition-colors"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            Ir a OpenAI
+                          </a>
+                          <button 
+                            onClick={() => setShowApiKeyGuide(!showApiKeyGuide)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-[var(--text-secondary)] text-xs font-medium hover:bg-white/10 transition-colors"
+                          >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                            {showApiKeyGuide ? 'Ocultar guía' : 'Ver paso a paso'}
+                          </button>
+                        </div>
+                        
+                        {/* GUÍA PASO A PASO */}
+                        {showApiKeyGuide && (
+                          <div className="mt-4 p-4 rounded-lg bg-black/30 border border-white/5 space-y-3">
+                            <h4 className="text-xs font-semibold text-white">📋 Cómo recargar OpenAI (5 minutos)</h4>
+                            
+                            <div className="space-y-2.5">
+                              <div className="flex gap-2.5">
+                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold flex items-center justify-center">1</span>
+                                <div>
+                                  <p className="text-xs text-white">Ingresa a <a href="https://auth.openai.com/log-in" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">auth.openai.com/log-in</a></p>
+                                  <p className="text-[10px] text-[var(--text-muted)]">Inicia sesión con tu cuenta de OpenAI (o crea una gratis)</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex gap-2.5">
+                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold flex items-center justify-center">2</span>
+                                <div>
+                                  <p className="text-xs text-white">Ve a <strong>Settings → Billing → Add payment method</strong></p>
+                                  <p className="text-[10px] text-[var(--text-muted)]">Agrega tu tarjeta de crédito o débito</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex gap-2.5">
+                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold flex items-center justify-center">3</span>
+                                <div>
+                                  <p className="text-xs text-white">Recarga créditos: <strong>desde $5 USD</strong></p>
+                                  <p className="text-[10px] text-[var(--text-muted)]">💡 Con $5 USD puedes atender aproximadamente <strong>+5,000 mensajes</strong>. El gasto es mínimo.</p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex gap-2.5">
+                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 text-[10px] font-bold flex items-center justify-center">4</span>
+                                <div>
+                                  <p className="text-xs text-white">Copia tu API Key desde <strong>API Keys → Create new secret key</strong></p>
+                                  <p className="text-[10px] text-[var(--text-muted)]">Ve a <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">platform.openai.com/api-keys</a></p>
+                                </div>
+                              </div>
+                              
+                              <div className="flex gap-2.5">
+                                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold flex items-center justify-center">5</span>
+                                <div>
+                                  <p className="text-xs text-white">Pega tu API Key en <a href="/configuracion" className="text-cyan-400 underline">Configuración</a> de Bizonne</p>
+                                  <p className="text-[10px] text-[var(--text-muted)]">¡Listo! Tu asistente IA empezará a responder automáticamente 🚀</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="mt-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                              <p className="text-[10px] text-emerald-400">
+                                💰 <strong>¿Cuánto cuesta?</strong> El modelo GPT-4o-mini que usamos es extremadamente económico. 
+                                Con $5 USD puedes atender miles de conversaciones. La mayoría de negocios gastan menos de $3 USD al mes.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Botón cerrar */}
+                      <button 
+                        onClick={() => {
+                          setApiKeyError(null);
+                          // Limpiar error en backend
+                          const token = localStorage.getItem('token');
+                          fetch(`${API_URL}/api/whatsapp/api-key-error/clear`, { 
+                            method: 'PUT', 
+                            headers: { 'Authorization': `Bearer ${token}` } 
+                          }).catch(() => {});
+                        }}
+                        className="flex-shrink-0 p-1 text-[var(--text-muted)] hover:text-white rounded-lg hover:bg-white/5"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
                 <div className="animate-fade-in">{children}</div>
               </div>
 

@@ -22,6 +22,9 @@ const getWahaHeaders = () => {
 const BUFFER_WAIT_MS = 5000; // Esperar 5 segundos por más mensajes (antes 3s)
 const recentlyProcessed = new Set<string>(); // Deduplicación de mensajes
 const recentlySentFromPlatform = new Set<string>(); // Mensajes enviados desde la plataforma (para no duplicar en webhook)
+
+// 🔑 Tracking de errores de API Key de OpenAI por usuario
+const apiKeyErrors = new Map<string, { type: 'invalid_key' | 'no_credits' | 'rate_limit', timestamp: number, message: string }>();
 const processingLock = new Set<string>(); // 🔒 Lock: evita que la IA procese 2 veces al mismo contacto
 
 const messageBuffer: Map<string, {
@@ -1296,8 +1299,39 @@ INSTRUCCIONES:
           const st = res.status;
           const errBody = await res.text().catch(() => '');
           console.error(`❌ OpenAI ${model}: ${st} - ${errBody.substring(0, 200)}`);
-          if (st === 429 || st === 402) { console.log('⚠️ Rate limit, reintentando en 2s...'); await new Promise(r => setTimeout(r, 2000)); continue; }
-          if (st === 401) return null;
+          
+          // 🔑 TRACKEAR ERROR DE API KEY
+          if (st === 401) {
+            apiKeyErrors.set(ownerId, { 
+              type: 'invalid_key', 
+              timestamp: Date.now(), 
+              message: 'API Key de OpenAI inválida o expirada' 
+            });
+            // Marcar como desconectada
+            await prisma.user.update({ where: { id: ownerId }, data: { apiKeyConnected: false } }).catch(() => {});
+            console.error(`🔑❌ API Key INVÁLIDA para usuario ${ownerId}`);
+            return null;
+          }
+          if (st === 429 || st === 402) {
+            const isQuota = errBody.toLowerCase().includes('insufficient_quota') || errBody.toLowerCase().includes('billing') || st === 402;
+            if (isQuota) {
+              apiKeyErrors.set(ownerId, { 
+                type: 'no_credits', 
+                timestamp: Date.now(), 
+                message: 'Sin créditos en OpenAI. Recarga tu cuenta.' 
+              });
+              console.error(`💰❌ SIN CRÉDITOS OpenAI para usuario ${ownerId}`);
+            } else {
+              apiKeyErrors.set(ownerId, { 
+                type: 'rate_limit', 
+                timestamp: Date.now(), 
+                message: 'Límite de velocidad alcanzado. Reintentando...' 
+              });
+            }
+            console.log('⚠️ Rate limit/quota, reintentando en 2s...'); 
+            await new Promise(r => setTimeout(r, 2000)); 
+            continue;
+          }
         }
       } catch (e: any) {
         console.error(`❌ ${model}:`, e.message);
@@ -1714,6 +1748,35 @@ router.get('/lines/:id/qr', async (req: Request, res: Response) => {
   } catch (e: any) {
     res.json({ qr: null, available: false });
   }
+});
+
+// ===== GET /api/whatsapp/api-key-error — Verificar errores de API Key =====
+router.get('/api-key-error', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    
+    const error = apiKeyErrors.get(ownerId);
+    if (error && (Date.now() - error.timestamp < 24 * 60 * 60 * 1000)) { // Solo últimas 24h
+      res.json({ hasError: true, ...error });
+    } else {
+      // Limpiar si es viejo
+      if (error) apiKeyErrors.delete(ownerId);
+      res.json({ hasError: false });
+    }
+  } catch { res.json({ hasError: false }); }
+});
+
+// ===== PUT /api/whatsapp/api-key-error/clear — Limpiar error de API Key =====
+router.put('/api-key-error/clear', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    apiKeyErrors.delete(ownerId);
+    res.json({ success: true });
+  } catch { res.json({ success: true }); }
 });
 
 // ===== RUTAS LEGACY (compatibilidad) =====

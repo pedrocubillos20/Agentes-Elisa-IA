@@ -98,6 +98,12 @@ model Conversation {
   assignedName    String?                      // Nombre visible del asignado
   contextData     Json?                        // 🧠 Memoria persistente: nombre, talla, color, etc.
   whatsappLineId  String?                      // 🏗️ Workspace: línea de WhatsApp
+  
+  // 👥 GRUPOS
+  isGroup         Boolean   @default(false)
+  groupName       String?
+  groupSettings   Json?     @default("{\"aiEnabled\":true,\"respondTo\":\"all\",\"triggerWords\":[]}")
+  
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -109,6 +115,7 @@ model Conversation {
   @@index([userId, stage])
   @@index([assignedTo])
   @@index([whatsappLineId])
+  @@index([isGroup])
 }
 
 model Message {
@@ -306,6 +313,42 @@ model DiscountUsage {
 }
 
 // ===== MULTI-LÍNEA WHATSAPP =====
+
+// ===== MENSAJES PROGRAMADOS =====
+model ScheduledMessage {
+  id              String    @id @default(cuid())
+  userId          String
+  whatsappLineId  String?
+  
+  targetType      String    @default("contact")  // contact, group, stage
+  targetId        String                          // phone, group JID, stage name
+  targetName      String?
+  
+  message         String?   @db.Text
+  mediaUrl        String?   @db.Text
+  mediaType       String?
+  
+  scheduledAt     DateTime
+  recurrence      String    @default("once")      // once, daily, weekly, monthly
+  recurrenceDays  Json?                            // [1,3,5] for Mon/Wed/Fri
+  recurrenceTime  String?                          // "09:00"
+  recurrenceEnd   DateTime?
+  timezone        String    @default("America/Bogota")
+  
+  status          String    @default("pending")    // pending, sent, failed, cancelled
+  sentAt          DateTime?
+  lastSentAt      DateTime?
+  sendCount       Int       @default(0)
+  error           String?
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status, scheduledAt])
+  @@index([whatsappLineId])
+}
+
 model WhatsappLine {
   id              String    @id @default(cuid())
   userId          String

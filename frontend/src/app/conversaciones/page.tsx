@@ -49,6 +49,7 @@ export default function ConversacionesPage() {
   const [massTotal, setMassTotal] = useState(0);
   const [massMediaFile, setMassMediaFile] = useState<File | null>(null);
   const [massMediaPreview, setMassMediaPreview] = useState<string | null>(null);
+  const [groupSettingsLocal, setGroupSettingsLocal] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +68,13 @@ export default function ConversacionesPage() {
 
   useEffect(() => {
     if (selectedConv) fetchMessages(selectedConv.id);
+    // Load group settings if it's a group
+    if (selectedConv?.isGroup) {
+      const gs = (selectedConv.groupSettings as any) || { aiEnabled: true, respondTo: 'all', triggerWords: [] };
+      setGroupSettingsLocal(gs);
+    } else {
+      setGroupSettingsLocal(null);
+    }
   }, [selectedConv?.id]);
 
   useEffect(() => {
@@ -164,6 +172,22 @@ export default function ConversacionesPage() {
       });
       setSelectedConv({ ...selectedConv, aiPaused: !selectedConv.aiPaused });
       fetchData();
+    } catch {}
+  };
+
+  // 👥 Actualizar configuración de grupo
+  const updateGroupSettings = async (updates: any) => {
+    if (!selectedConv?.isGroup) return;
+    const token = localStorage.getItem('token');
+    const newSettings = { ...groupSettingsLocal, ...updates };
+    setGroupSettingsLocal(newSettings);
+    try {
+      await fetch(`${API_URL}/api/conversations/${selectedConv.id}/group-settings`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings)
+      });
+      setSelectedConv({ ...selectedConv, groupSettings: newSettings });
     } catch {}
   };
 
@@ -329,7 +353,8 @@ export default function ConversacionesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1">
-                      <p className="font-medium text-white text-sm truncate">{conv.recipientName || 'Sin nombre'}</p>
+                      <p className="font-medium text-white text-sm truncate">{conv.recipientName || conv.groupName || 'Sin nombre'}</p>
+                      {conv.isGroup && <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">👥</span>}
                       {conv.aiPaused && <PauseCircle className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
                     </div>
                     <p className="text-[10px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
@@ -408,21 +433,94 @@ export default function ConversacionesPage() {
 
         {/* Panel info */}
         {selectedConv && (
-          <div className="w-52 flex-shrink-0 hidden xl:flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] p-3 gap-3 overflow-y-auto">
+          <div className="w-56 flex-shrink-0 hidden xl:flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] p-3 gap-3 overflow-y-auto">
             <div className="text-center">
               <div className="w-12 h-12 mx-auto rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center mb-2">
-                <span className="text-lg font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || '?'}</span>
+                <span className="text-lg font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || selectedConv.groupName?.[0] || '?'}</span>
               </div>
-              <h4 className="font-semibold text-white text-sm">{selectedConv.recipientName}</h4>
-              <p className="text-[10px] text-[var(--text-muted)]">+{selectedConv.recipientId?.replace('@c.us', '')}</p>
+              <h4 className="font-semibold text-white text-sm">{selectedConv.groupName || selectedConv.recipientName}</h4>
+              <p className="text-[10px] text-[var(--text-muted)]">
+                {selectedConv.isGroup ? '👥 Grupo' : `+${selectedConv.recipientId?.replace('@c.us', '')}`}
+              </p>
             </div>
-            <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
-              <p className="text-[10px] text-[var(--text-muted)] mb-1">Etapa actual</p>
-              <div className={`px-2 py-1 rounded text-xs text-center border ${getStageColor(selectedConv.stage || 'Saludo')}`}>
-                {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Saludo'}
+
+            {/* 👥 GRUPO: Configuración de IA */}
+            {selectedConv.isGroup && groupSettingsLocal && (
+              <div className="space-y-2">
+                <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                  <p className="text-[10px] text-[var(--text-muted)] mb-2">🤖 IA en grupo</p>
+                  
+                  {/* Toggle IA */}
+                  <button
+                    onClick={() => updateGroupSettings({ aiEnabled: !groupSettingsLocal.aiEnabled })}
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-between ${
+                      groupSettingsLocal.aiEnabled 
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    }`}
+                  >
+                    <span>{groupSettingsLocal.aiEnabled ? '✅ IA Activa' : '❌ IA Desactivada'}</span>
+                  </button>
+                </div>
+
+                {/* Modo de respuesta */}
+                {groupSettingsLocal.aiEnabled && (
+                  <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                    <p className="text-[10px] text-[var(--text-muted)] mb-2">Responder a</p>
+                    <div className="space-y-1">
+                      {[
+                        { id: 'all', label: 'Todos los mensajes', desc: 'Responde a todo' },
+                        { id: 'mentions', label: 'Solo menciones', desc: 'Cuando mencionan al bot' },
+                        { id: 'keywords', label: 'Palabras clave', desc: 'Solo si usan una keyword' },
+                      ].map(mode => (
+                        <button
+                          key={mode.id}
+                          onClick={() => updateGroupSettings({ respondTo: mode.id })}
+                          className={`w-full text-left px-2 py-1.5 rounded text-[10px] transition-all ${
+                            groupSettingsLocal.respondTo === mode.id
+                              ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
+                              : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          <p className="font-medium">{mode.label}</p>
+                          <p className="text-[9px] opacity-70">{mode.desc}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Palabras clave */}
+                {groupSettingsLocal.aiEnabled && groupSettingsLocal.respondTo === 'keywords' && (
+                  <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                    <p className="text-[10px] text-[var(--text-muted)] mb-1.5">Palabras clave</p>
+                    <input
+                      type="text"
+                      value={(groupSettingsLocal.triggerWords || []).join(', ')}
+                      onChange={(e) => {
+                        const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean);
+                        updateGroupSettings({ triggerWords: words });
+                      }}
+                      placeholder="elisa, ayuda, info"
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
+                    />
+                    <p className="text-[9px] text-[var(--text-muted)] mt-1">Separar con comas</p>
+                  </div>
+                )}
               </div>
-              <p className="text-[9px] text-emerald-400 text-center mt-1">✨ Auto-detectada</p>
-            </div>
+            )}
+
+            {/* Etapa (no-grupo) */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <p className="text-[10px] text-[var(--text-muted)] mb-1">Etapa actual</p>
+                <div className={`px-2 py-1 rounded text-xs text-center border ${getStageColor(selectedConv.stage || 'Saludo')}`}>
+                  {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Saludo'}
+                </div>
+                <p className="text-[9px] text-emerald-400 text-center mt-1">✨ Auto-detectada</p>
+              </div>
+            )}
+
             {selectedConv.contextData && Object.keys(selectedConv.contextData).length > 0 && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                 <p className="text-[10px] text-[var(--text-muted)] mb-1">📋 Datos</p>

@@ -180,6 +180,44 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   }
 });
 
+// ====================================================
+// 👥 GET /api/conversations/groups — Listar grupos
+// ====================================================
+router.get('/groups', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const lineId = req.query.lineId as string;
+
+    const where: any = { userId: ownerId, isGroup: true };
+    if (lineId) where.whatsappLineId = lineId;
+
+    const groups = await prisma.conversation.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        recipientId: true,
+        recipientName: true,
+        groupName: true,
+        groupSettings: true,
+        isGroup: true,
+        aiPaused: true,
+        lastMessage: true,
+        whatsappLineId: true,
+        updatedAt: true,
+        _count: { select: { messages: true } }
+      }
+    });
+
+    res.json({ groups });
+  } catch (e: any) {
+    console.error('Error listando grupos:', e.message);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // GET /api/conversations/:id/messages
 router.get('/:id/messages', async (req: Request, res: Response) => {
   try {
@@ -226,6 +264,41 @@ router.put('/:id/ai-pause', async (req: Request, res: Response) => {
     res.json({ conversation, message: paused ? 'IA pausada' : 'IA reactivada' });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
+  }
+});
+
+// ====================================================
+// ⚙️ PUT /api/conversations/:id/group-settings — Configurar IA del grupo
+// ====================================================
+router.put('/:id/group-settings', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const { id } = req.params;
+
+    const conv = await prisma.conversation.findFirst({ where: { id, userId: ownerId, isGroup: true } });
+    if (!conv) { res.status(404).json({ error: 'Grupo no encontrado' }); return; }
+
+    const { aiEnabled, respondTo, triggerWords } = req.body;
+    const currentSettings = (conv.groupSettings as any) || { aiEnabled: true, respondTo: 'all', triggerWords: [] };
+
+    const newSettings = {
+      aiEnabled: aiEnabled !== undefined ? aiEnabled : currentSettings.aiEnabled,
+      respondTo: respondTo || currentSettings.respondTo,
+      triggerWords: triggerWords !== undefined ? triggerWords : currentSettings.triggerWords
+    };
+
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: { groupSettings: newSettings }
+    });
+
+    console.log(`👥 Grupo "${conv.groupName}" config actualizada:`, newSettings);
+    res.json({ success: true, conversation: updated, groupSettings: newSettings });
+  } catch (e: any) {
+    console.error('Error actualizando grupo:', e.message);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 

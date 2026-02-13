@@ -1805,12 +1805,21 @@ router.post('/webhook', async (req: Request, res: Response) => {
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
-    // 🚫 Filtrar: grupos, historias/estados de WhatsApp, broadcast
-    if (!from || from.includes('@g.us') || from.includes('@broadcast') || from.includes('status@') || from === 'status@broadcast') {
-      if (from.includes('@broadcast') || from.includes('status@')) {
+    // 🚫 Filtrar: historias/estados de WhatsApp, broadcast (pero NO grupos)
+    if (!from || from.includes('@broadcast') || from.includes('status@') || from === 'status@broadcast') {
+      if (from?.includes('@broadcast') || from?.includes('status@')) {
         console.log(`🚫 Ignorado: historia/estado de WhatsApp de ${from}`);
       }
       res.json({ success: true }); return;
+    }
+
+    // 👥 DETECTAR SI ES GRUPO
+    const isGroup = from.includes('@g.us');
+    const participant = payload?.participant || payload?.author || payload?._data?.author || '';
+    const participantName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
+    
+    if (isGroup) {
+      console.log(`👥 Mensaje de GRUPO: ${from} | Participante: ${participantName} (${participant})`);
     }
 
     // 🔍 Detectar media (audio, imagen, video, sticker)
@@ -1916,22 +1925,37 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    const recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
-    const senderName = notifyName || recipientId;
+    // 👥 Para grupos: recipientId es el JID del grupo, para chats: es el número limpio
+    const recipientId = isGroup 
+      ? from  // Mantener JID completo del grupo (123456@g.us)
+      : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+    const senderName = isGroup
+      ? (participantName || participant.replace('@c.us', '').replace(/\D/g, ''))  // Nombre de quien envió en el grupo
+      : (notifyName || recipientId);
 
-    const userId = await resolveUserFromWebhook(sessionName, recipientId);
+    // 👥 Para grupos necesitamos resolver el usuario por la sesión, no por el participante
+    const participantClean = isGroup 
+      ? participant.replace('@c.us', '').replace('@s.whatsapp.net', '').replace(/\D/g, '')
+      : recipientId;
+    
+    const userId = await resolveUserFromWebhook(sessionName, participantClean);
     if (!userId) { res.status(400).json({ error: 'No user' }); return; }
 
     // 🔗 Buscar whatsappLineId por sessionName
     const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
 
-    console.log(`💬 ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
+    console.log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
-    // 🔍 Búsqueda de conversación POR LÍNEA (cada línea tiene su propia conversación)
+    // 🔍 Búsqueda de conversación POR LÍNEA
     let conv = null;
     
-    if (whatsappLineId) {
+    if (isGroup) {
+      // 👥 GRUPO: Buscar por JID del grupo
+      conv = await prisma.conversation.findFirst({ 
+        where: { userId, recipientId: from, isGroup: true, ...(whatsappLineId ? { whatsappLineId } : {}) } 
+      });
+    } else if (whatsappLineId) {
       // Buscar conversación específica de esta línea
       conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
       if (!conv && recipientId.length >= 10) {
@@ -1949,16 +1973,80 @@ router.post('/webhook', async (req: Request, res: Response) => {
     
     // Crear nueva conversación si no existe
     if (!conv) {
+      // 👥 Para grupos: obtener nombre del grupo de la metadata del payload
+      const groupSubject = isGroup 
+        ? (payload?.subject || payload?._data?.subject || payload?.chat?.name || payload?.groupMetadata?.subject || senderName)
+        : null;
+
       conv = await prisma.conversation.create({ 
-        data: { userId, recipientId, recipientName: senderName, lastMessage: body, stage: 'new', ...(whatsappLineId ? { whatsappLineId } : {}) } 
+        data: { 
+          userId, 
+          recipientId: isGroup ? from : recipientId, 
+          recipientName: isGroup ? groupSubject : senderName, 
+          lastMessage: body, 
+          stage: 'new', 
+          isGroup,
+          ...(isGroup && { groupName: groupSubject, groupSettings: { aiEnabled: true, respondTo: 'all', triggerWords: [] } }),
+          ...(whatsappLineId ? { whatsappLineId } : {}) 
+        } 
       });
-      console.log(`🆕 Nueva conversación creada para línea ${whatsappLineId || 'global'}`);
+      console.log(`🆕 ${isGroup ? 'Grupo' : 'Conversación'} creada: ${isGroup ? groupSubject : senderName} (línea: ${whatsappLineId || 'global'})`);
+    }
+
+    // 👥 VERIFICAR CONFIGURACIÓN DE GRUPO antes de procesar
+    if (isGroup) {
+      const groupSettings = (conv.groupSettings as any) || { aiEnabled: true, respondTo: 'all', triggerWords: [] };
+      
+      if (!groupSettings.aiEnabled) {
+        // IA deshabilitada para este grupo — solo guardar mensaje
+        const displayContent = savedMediaType === 'audio' ? `🎤 ${body}` : body;
+        await prisma.message.create({ 
+          data: { conversationId: conv.id, content: `[${senderName}]: ${displayContent}`, fromMe: false, userId, role: 'user' } 
+        });
+        await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: `[${senderName}]: ${displayContent}` } });
+        console.log(`👥 Grupo ${conv.groupName}: IA deshabilitada, mensaje guardado`);
+        res.json({ success: true }); return;
+      }
+
+      // Verificar si debe responder según configuración
+      const respondTo = groupSettings.respondTo || 'all';
+      const triggerWords = groupSettings.triggerWords || [];
+      const messageLower = body.toLowerCase();
+
+      let shouldRespond = false;
+
+      if (respondTo === 'all') {
+        shouldRespond = true;
+      } else if (respondTo === 'mentions') {
+        // Solo responder si mencionan al bot o usan palabras clave
+        const botMentioned = payload?.mentionedIds?.length > 0 || 
+                            messageLower.includes('@elisa') || 
+                            messageLower.includes('elisa') ||
+                            messageLower.includes('bot');
+        shouldRespond = botMentioned;
+      } else if (respondTo === 'keywords') {
+        // Solo responder si usan palabras clave
+        shouldRespond = triggerWords.some((w: string) => messageLower.includes(w.toLowerCase()));
+      }
+
+      if (!shouldRespond) {
+        // No debe responder — solo guardar
+        const displayContent = savedMediaType === 'audio' ? `🎤 ${body}` : body;
+        await prisma.message.create({ 
+          data: { conversationId: conv.id, content: `[${senderName}]: ${displayContent}`, fromMe: false, userId, role: 'user' } 
+        });
+        await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: `[${senderName}]: ${displayContent}` } });
+        console.log(`👥 Grupo ${conv.groupName}: No responde (modo: ${respondTo})`);
+        res.json({ success: true }); return;
+      }
+
+      console.log(`👥 Grupo ${conv.groupName}: IA RESPONDE (modo: ${respondTo})`);
     }
 
     // ⏸️ COMANDO ".." = PAUSAR IA — inmediato
     if (body.trim() === '..') {
       await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: true } });
-      await prisma.message.create({ data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user' } });
+      await prisma.message.create({ data: { conversationId: conv.id, content: isGroup ? `[${senderName}]: ${body}` : body, fromMe: false, userId, role: 'user' } });
       await setPresence(sessionName, from, 'typing');
       await new Promise(r => setTimeout(r, 1000));
       await stopPresence(sessionName, from);
@@ -1989,8 +2077,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // Guardar mensaje en DB (con media si aplica)
     const displayContent = savedMediaType === 'audio' 
-      ? `🎤 ${body}` 
-      : body;
+      ? (isGroup ? `[${senderName}]: 🎤 ${body}` : `🎤 ${body}`)
+      : (isGroup ? `[${senderName}]: ${body}` : body);
     
     await prisma.message.create({ 
       data: { 
@@ -2003,7 +2091,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
         ...(savedMediaUrl && { mediaUrl: savedMediaUrl })
       } 
     });
-    await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: displayContent, recipientName: senderName } });
+    // Para grupos: NO sobrescribir recipientName (es el nombre del grupo, no del participante)
+    await prisma.conversation.update({ 
+      where: { id: conv.id }, 
+      data: { 
+        lastMessage: displayContent, 
+        ...(!isGroup && { recipientName: senderName })
+      } 
+    });
 
     // Si IA pausada, solo guardar
     if (conv.aiPaused) {
@@ -2011,15 +2106,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
       res.json({ success: true }); return;
     }
 
-    // Para la IA, usar la transcripción limpia (sin emojis/prefijos)
-    const messageForAI = body;
+    // Para la IA, usar la transcripción limpia
+    // En grupos: incluir quién envió para que la IA sepa a quién responder
+    const messageForAI = isGroup ? `[${senderName}]: ${body}` : body;
 
     // ====================================================
     // 📦 MESSAGE BUFFER — Agrupar mensajes en ráfaga
     // Usuario manda varias líneas rápido → espera 5s → responde UNA vez
     // Si la IA ya está procesando → encolar para después
+    // Para grupos: bufferKey usa el grupo, no el participante individual
     // ====================================================
-    const bufferKey = `${userId}_${recipientId}`;
+    const bufferKey = isGroup ? `${userId}_group_${from}` : `${userId}_${recipientId}`;
     const existingBuffer = messageBuffer.get(bufferKey);
     const isLocked = processingLock.has(bufferKey);
 

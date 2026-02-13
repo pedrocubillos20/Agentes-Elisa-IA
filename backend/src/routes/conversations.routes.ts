@@ -224,13 +224,23 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
+    
+    // Usar ownerId para soportar team members
+    const ownerId = await getOwnerId(userId!);
 
-    const conversation = await prisma.conversation.findFirst({ where: { id, userId } });
+    const conversation = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
     if (!conversation) { res.status(404).json({ error: 'No encontrada' }); return; }
 
+    // Obtener los ÚLTIMOS N mensajes (no los primeros)
+    // Primero obtenemos en orden descendente, luego revertimos para mostrar asc
     const messages = await prisma.message.findMany({
-      where: { conversationId: id }, orderBy: { timestamp: 'asc' }, take: limit
+      where: { conversationId: id }, 
+      orderBy: { timestamp: 'desc' }, 
+      take: limit
     });
+    // Revertir para que estén en orden cronológico (asc)
+    messages.reverse();
+    
     res.json({ messages });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
@@ -243,7 +253,8 @@ router.put('/:id/stage', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
     const { stage } = req.body;
-    const existing = await prisma.conversation.findFirst({ where: { id, userId } });
+    const ownerId = await getOwnerId(userId!);
+    const existing = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
     if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
     const conversation = await prisma.conversation.update({ where: { id }, data: { stage } });
     res.json({ conversation, message: 'Etapa actualizada' });
@@ -258,7 +269,8 @@ router.put('/:id/ai-pause', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
     const { paused } = req.body;
-    const existing = await prisma.conversation.findFirst({ where: { id, userId } });
+    const ownerId = await getOwnerId(userId!);
+    const existing = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
     if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
     const conversation = await prisma.conversation.update({ where: { id }, data: { aiPaused: paused } });
     res.json({ conversation, message: paused ? 'IA pausada' : 'IA reactivada' });

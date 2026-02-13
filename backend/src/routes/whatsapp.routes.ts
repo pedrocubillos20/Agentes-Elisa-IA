@@ -21,6 +21,7 @@ const getWahaHeaders = () => {
 // ====================================================
 const BUFFER_WAIT_MS = 5000; // Esperar 5 segundos por más mensajes (antes 3s)
 const recentlyProcessed = new Set<string>(); // Deduplicación de mensajes
+const recentlySentFromPlatform = new Set<string>(); // Mensajes enviados desde la plataforma (para no duplicar en webhook)
 const processingLock = new Set<string>(); // 🔒 Lock: evita que la IA procese 2 veces al mismo contacto
 
 const messageBuffer: Map<string, {
@@ -163,6 +164,13 @@ const sendWahaMessage = async (session: string, chatId: string, text: string): P
       method: 'POST', headers: getWahaHeaders(),
       body: JSON.stringify({ session, chatId, text })
     });
+    if (r.ok) {
+      // Marcar para que el webhook no duplique este mensaje
+      const cleanId = chatId.replace(/[@\s]/g, '').replace('c.us', '').replace('g.us', '');
+      const dedupKey = `${cleanId}:${text.substring(0, 60)}`;
+      recentlySentFromPlatform.add(dedupKey);
+      setTimeout(() => recentlySentFromPlatform.delete(dedupKey), 60000);
+    }
     return r.ok;
   } catch { return false; }
 };
@@ -2141,7 +2149,62 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const sessionName = session || 'default';
 
     if (!event || (event !== 'message' && event !== 'message.any')) { res.json({ success: true }); return; }
-    if (payload?.fromMe) { res.json({ success: true }); return; }
+    
+    // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):
+    // - Guardar en DB si fue enviado manualmente desde el celular
+    // - Deduplicar si ya fue guardado por /send o AI
+    const isFromMe = payload?.fromMe === true;
+    
+    if (isFromMe) {
+      // Verificar si este mensaje ya fue enviado desde la plataforma
+      const msgBody = (payload?.body || payload?.text || payload?.content || '').trim();
+      const from = payload?.from || payload?.chatId || '';
+      const cleanFrom = from.replace(/[@\s]/g, '').replace('c.us', '').replace('g.us', '');
+      const dedupKey = `${cleanFrom}:${msgBody.substring(0, 60)}`;
+      
+      if (recentlySentFromPlatform.has(dedupKey)) {
+        // Ya fue guardado por /send o AI — ignorar
+        recentlySentFromPlatform.delete(dedupKey); // Limpiar
+        res.json({ success: true }); return;
+      }
+      
+      // Mensaje enviado manualmente desde el celular → GUARDAR
+      try {
+        const line = await prisma.whatsappLine.findFirst({ where: { sessionName } });
+        if (line) {
+          const ownerId = line.userId;
+          const recipientNumber = cleanFrom.replace(/\D/g, '');
+          
+          // Buscar conversación
+          let conv = await prisma.conversation.findFirst({ 
+            where: { userId: ownerId, whatsappLineId: line.id, recipientId: { endsWith: recipientNumber.slice(-10) } } 
+          });
+          
+          if (conv && msgBody) {
+            // Verificar que no sea duplicado reciente (últimos 30s)
+            const recentDup = await prisma.message.findFirst({
+              where: { 
+                conversationId: conv.id, 
+                content: msgBody, 
+                fromMe: true,
+                timestamp: { gte: new Date(Date.now() - 30000) }
+              }
+            });
+            
+            if (!recentDup) {
+              await prisma.message.create({
+                data: { conversationId: conv.id, content: msgBody, fromMe: true, userId: ownerId, role: 'assistant' }
+              });
+              await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: msgBody } });
+              console.log(`📱 Mensaje manual (celular) guardado: "${msgBody.substring(0, 40)}..." → ${conv.recipientName || recipientNumber}`);
+            }
+          }
+        }
+      } catch (e: any) {
+        console.log(`⚠️ Error guardando mensaje fromMe: ${e.message}`);
+      }
+      res.json({ success: true }); return;
+    }
 
     // 🔒 DEDUPLICACIÓN: Ignorar si ya procesamos este mensaje (WAHA envía message + message.any)
     const msgId = payload?.id?._serialized || payload?.id?.id || payload?.key?.id || '';

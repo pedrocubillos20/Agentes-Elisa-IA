@@ -1389,7 +1389,7 @@ router.post('/lines', async (req: Request, res: Response) => {
     
     // 🔒 Verificar límite de líneas según plan
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
-    const planLimits: Record<string, number> = { trial: 1, starter: 2, business: 5, implementation: 5 };
+    const planLimits: Record<string, number> = { trial: 1, starter: 2, business: 5 };
     const maxLines = planLimits[owner?.plan || 'trial'] || 1;
     
     const currentLineCount = await prisma.whatsappLine.count({ where: { userId: ownerId } });

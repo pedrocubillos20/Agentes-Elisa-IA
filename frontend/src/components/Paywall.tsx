@@ -42,15 +42,6 @@ export default function Paywall({ plan, daysExpired }: PaywallProps) {
       features: ['5 líneas WhatsApp', 'Productos ilimitados', 'Equipo completo', 'Integraciones API'],
       popular: true,
     },
-    {
-      id: 'implementation',
-      name: 'Implementación',
-      price: '$100',
-      period: 'pago único',
-      color: 'orange',
-      features: ['5 líneas WhatsApp', 'Configuramos todo', 'Soporte prioritario', 'Sin mensualidades'],
-      popular: false,
-    },
   ];
 
   return (
@@ -94,29 +85,22 @@ export default function Paywall({ plan, daysExpired }: PaywallProps) {
         </div>
 
         {/* Plans */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           {plans.map((p) => (
             <div
               key={p.id}
               onMouseEnter={() => setHoveredPlan(p.id)}
               onMouseLeave={() => setHoveredPlan(null)}
-              className={`relative rounded-2xl border-2 p-4 transition-all duration-300 cursor-pointer ${
+              className={`relative rounded-2xl border-2 p-5 transition-all duration-300 cursor-pointer ${
                 p.popular
                   ? 'bg-purple-500/5 border-purple-500/40 hover:border-purple-400 hover:bg-purple-500/10'
-                  : p.id === 'implementation'
-                    ? 'bg-orange-500/5 border-orange-500/40 hover:border-orange-400 hover:bg-orange-500/10'
-                    : 'bg-[#1a1a2e]/60 border-gray-700/50 hover:border-blue-400 hover:bg-blue-500/5'
+                  : 'bg-[#1a1a2e]/60 border-gray-700/50 hover:border-blue-400 hover:bg-blue-500/5'
               }`}
               onClick={() => router.push('/subscription')}
             >
               {p.popular && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-purple-500 rounded-full text-white text-[10px] font-bold uppercase tracking-wider">
                   Recomendado
-                </div>
-              )}
-              {p.id === 'implementation' && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-gradient-to-r from-orange-500 to-amber-500 rounded-full text-white text-[10px] font-bold uppercase tracking-wider">
-                  Servicio completo
                 </div>
               )}
               
@@ -144,13 +128,11 @@ export default function Paywall({ plan, daysExpired }: PaywallProps) {
                 className={`w-full py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
                   p.popular
                     ? 'bg-purple-500 hover:bg-purple-400 text-white'
-                    : p.id === 'implementation'
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white'
-                      : 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
+                    : 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30'
                 }`}
               >
                 <CreditCard className="w-4 h-4" />
-                {p.id === 'implementation' ? 'Contratar' : 'Activar'} {p.name}
+                Activar {p.name}
                 <ArrowRight className={`w-4 h-4 transition-transform ${hoveredPlan === p.id ? 'translate-x-1' : ''}`} />
               </button>
             </div>

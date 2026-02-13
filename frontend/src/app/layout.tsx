@@ -102,10 +102,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const perms = user?.permissions || {};
   const isAdmin = !user?.parentUserId;
   const hasPerm = (p: string) => isAdmin || perms[p] === true;
-  const isImplementation = user?.plan === 'implementation';
+  const hasImplementation = user?.hasImplementation || false;
   const planFeatures = user?.planFeatures || {};
 
-  // 🔒 Páginas bloqueadas para plan implementación (solo implementadores configuran)
+  // 🔒 Páginas bloqueadas para addon de implementación (solo implementadores configuran)
   const implementationLocked = ['assistants', 'config', 'integrations'];
 
   const allNavigation = [
@@ -128,11 +128,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return hasPerm(item.perm);
   }).map(item => ({
     ...item,
-    locked: isImplementation && item.featureKey && implementationLocked.includes(item.featureKey)
+    locked: hasImplementation && item.featureKey && implementationLocked.includes(item.featureKey)
   }));
 
   const roleLabel = user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Gerente' : user?.role === 'agent' ? 'Vendedor' : user?.role === 'support' ? 'Soporte' : 'Observador';
-  const planLabel = user?.plan === 'business' ? 'PLAN BUSINESS' : user?.plan === 'starter' ? 'PLAN STARTER' : user?.plan === 'implementation' ? 'IMPLEMENTACIÓN' : user?.plan === 'trial' ? 'TRIAL' : 'PLAN';
+  const planLabel = user?.plan === 'business' ? 'PLAN BUSINESS' : user?.plan === 'starter' ? 'PLAN STARTER' : user?.plan === 'trial' ? 'TRIAL' : 'PLAN';
 
   if (loading) {
     return (
@@ -279,11 +279,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   ) : (
                     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold tracking-wide ${
                       user.plan === 'business' ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
-                      : user.plan === 'implementation' ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
                       : user.plan === 'starter' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
                       : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
                     }`}>
-                      <span>{user.plan === 'implementation' ? '🛠️' : '👑'}</span><span>{planLabel}</span>
+                      <span>👑</span><span>{planLabel}</span>
+                      {hasImplementation && <span className="text-orange-400 text-[9px]">+🛠️</span>}
                       {user.daysRemaining !== undefined && user.daysRemaining > 0 && user.daysRemaining <= 7 && (
                         <span className="text-[9px] opacity-60">({user.daysRemaining}d)</span>
                       )}
@@ -332,8 +332,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </button>
               </div>
 
-              {/* Soporte WhatsApp para plan implementación */}
-              {isImplementation && (
+              {/* Soporte WhatsApp para addon de implementación */}
+              {hasImplementation && (
                 <div className="px-4 pb-2">
                   <a href="https://wa.me/573118083993?text=Hola%2C%20necesito%20soporte%20con%20mi%20implementación" target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-500/15 border border-green-500/25 hover:bg-green-500/25 transition-all cursor-pointer">

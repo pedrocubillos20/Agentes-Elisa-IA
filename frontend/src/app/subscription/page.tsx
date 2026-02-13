@@ -34,22 +34,6 @@ const PLAN_FEATURES: Record<string, { included: string[]; excluded: string[] }> 
     ],
     excluded: []
   },
-  implementation: {
-    included: [
-      'Implementación completa por expertos',
-      '5 líneas de WhatsApp incluidas',
-      'Configuración profesional de IA',
-      'Base de conocimiento personalizada',
-      'CRM + Pipeline configurado',
-      'Agenda automática',
-      'Equipo + asignación de chats',
-      'Soporte prioritario por WhatsApp',
-      '10 productos de catálogo incluidos',
-      'Dashboard de métricas y resultados',
-      'Pago único — Sin mensualidades',
-    ],
-    excluded: []
-  }
 };
 
 export default function SubscriptionPage() {
@@ -70,6 +54,10 @@ export default function SubscriptionPage() {
   const [discountResult, setDiscountResult] = useState<any>(null);
   const [discountError, setDiscountError] = useState('');
   const [appliedDiscount, setAppliedDiscount] = useState<any>(null);
+
+  // Implementation addon (order bump / upsell)
+  const [addon, setAddon] = useState<any>(null);
+  const [includeImplementation, setIncludeImplementation] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -134,6 +122,7 @@ export default function SubscriptionPage() {
       if (plansRes.ok) {
         const d = await plansRes.json();
         setPlans(d.plans);
+        if (d.addon) setAddon(d.addon);
         setExchangeRate(d.exchangeRate);
         setExchangeSource(d.exchangeSource || '');
         setExchangeDate(d.exchangeDate || '');
@@ -196,15 +185,14 @@ export default function SubscriptionPage() {
     setPaymentLoading(planId);
 
     try {
-      const isImpl = planId === 'implementation';
       const res = await fetch(`${API_URL}/api/subscription/create-payment`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           plan: planId, 
-          period: isImpl ? 'one_time' : selectedPeriod,
+          period: selectedPeriod,
           discountCode: appliedDiscount?.code || null,
-          ...(isImpl && { addons: { extraLines: 0, extraProducts: 0 } })
+          includeImplementation
         })
       });
 
@@ -519,19 +507,26 @@ export default function SubscriptionPage() {
           </div>
         </div>
 
-        {/* Plan Cards */}
-        <div className="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto">
-          {plans.filter(p => p.id !== 'implementation').map(plan => {
+        {/* Plan Cards — 2 columnas */}
+        <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+          {plans.map(plan => {
             const price = plan.prices[selectedPeriod];
             if (!price) return null;
             const features = PLAN_FEATURES[plan.id as keyof typeof PLAN_FEATURES];
+            if (!features) return null;
             const isBusiness = plan.id === 'business';
             const isCurrentPlan = subStatus?.subscription?.plan === plan.id;
             const discount = getDiscountedPrice(plan.id, price.cop, price.copWithCard);
 
+            // Precio base + implementación si está seleccionada
+            const implAddonUsd = includeImplementation && addon ? addon.priceUsd : 0;
+            const implAddonCop = includeImplementation && addon ? addon.priceCop : 0;
+            const totalUsd = price.usd + implAddonUsd;
+            const totalCop = (discount ? discount.finalCop : price.cop) + implAddonCop;
+
             return (
               <div key={plan.id}
-                className={`relative rounded-3xl p-6 border transition-all ${
+                className={`relative rounded-3xl p-8 border transition-all ${
                   isBusiness
                     ? 'bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 border-emerald-500/40 shadow-xl shadow-emerald-500/10'
                     : 'bg-white/5 border-white/10 hover:border-white/20'
@@ -545,59 +540,71 @@ export default function SubscriptionPage() {
                   </div>
                 )}
 
-                <div className="mb-5">
+                <div className="mb-6">
                   <div className="flex items-center gap-3 mb-2">
-                    {isBusiness ? <Building2 className="w-5 h-5 text-emerald-400" /> : <Rocket className="w-5 h-5 text-indigo-400" />}
-                    <h3 className="text-xl font-black">{plan.name}</h3>
+                    {isBusiness ? <Building2 className="w-6 h-6 text-emerald-400" /> : <Rocket className="w-6 h-6 text-indigo-400" />}
+                    <h3 className="text-2xl font-black">{plan.name}</h3>
                   </div>
-                  <p className="text-gray-500 text-xs">
+                  <p className="text-gray-500 text-sm">
                     {isBusiness ? 'Para negocios que necesitan CRM, equipo y todas las herramientas' : 'Ideal para emprendedores que arrancan con WhatsApp'}
                   </p>
                 </div>
 
                 {/* Pricing */}
-                <div className="mb-6">
+                <div className="mb-8">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-gray-500 text-sm">USD$</span>
-                    <span className="text-4xl font-black">{price.usd}</span>
+                    <span className="text-gray-500 text-lg">USD$</span>
+                    <span className="text-5xl font-black">{price.usd}</span>
                   </div>
-                  <div className="text-gray-500 text-xs mt-1">
+                  <div className="text-gray-500 text-sm mt-1">
                     {selectedPeriod === 'monthly' ? 'por mes' : selectedPeriod === 'semiannual' ? 'por 6 meses' : 'por año'}
                   </div>
 
                   {discount ? (
-                    <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                    <div className="mt-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
                       <div className="flex items-center gap-2">
-                        <span className="text-gray-500 text-xs line-through">{formatCOP(price.cop)}</span>
-                        <span className="text-purple-400 text-sm font-black">{formatCOP(discount.finalCop)} COP</span>
+                        <span className="text-gray-500 text-sm line-through">{formatCOP(price.cop)}</span>
+                        <span className="text-purple-400 text-lg font-black">{formatCOP(discount.finalCop)} COP</span>
                       </div>
-                      <div className="text-purple-300 text-[10px] mt-1">
+                      <div className="text-purple-300 text-xs font-bold mt-1">
                         💰 Ahorras {formatCOP(discount.discountAmount)} ({discount.savedPercent}% OFF)
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="mt-1 text-emerald-400 text-xs font-semibold">≈ {formatCOP(price.cop)} COP</div>
+                      <div className="mt-2 text-emerald-400 text-sm font-semibold">≈ {formatCOP(price.cop)} COP</div>
                       {price.savedPercent && (
-                        <div className="mt-1 text-amber-400 text-[10px] font-bold">💰 Ahorras {price.savedPercent}%</div>
+                        <div className="mt-1 text-amber-400 text-xs font-bold">💰 Ahorras {price.savedPercent}%</div>
                       )}
-                      <div className="mt-1 text-gray-600 text-[10px]">💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5%)</div>
+                      <div className="mt-2 text-gray-600 text-xs">💳 Con tarjeta: {formatCOP(price.copWithCard)} COP (+5%)</div>
                     </>
+                  )}
+
+                  {/* Mostrar total con implementación */}
+                  {includeImplementation && addon && (
+                    <div className="mt-3 p-2 bg-orange-500/10 border border-orange-500/20 rounded-xl">
+                      <div className="text-orange-400 text-xs font-bold">
+                        + Implementación: ${addon.priceUsd} USD (≈ {formatCOP(addon.priceCop)} COP)
+                      </div>
+                      <div className="text-white text-sm font-black mt-1">
+                        Total hoy: USD$ {totalUsd} (≈ {formatCOP(totalCop)} COP)
+                      </div>
+                    </div>
                   )}
                 </div>
 
                 {/* Features */}
-                <div className="space-y-2 mb-6">
-                  {features?.included.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <Check className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-300 text-xs">{f}</span>
+                <div className="space-y-3 mb-8">
+                  {features.included.map((f, i) => (
+                    <div key={i} className="flex items-start gap-3">
+                      <Check className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-300 text-sm">{f}</span>
                     </div>
                   ))}
-                  {features?.excluded.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2 opacity-40">
-                      <X className="w-4 h-4 text-gray-600 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-600 text-xs">{f}</span>
+                  {features.excluded.map((f, i) => (
+                    <div key={i} className="flex items-start gap-3 opacity-40">
+                      <X className="w-5 h-5 text-gray-600 mt-0.5 flex-shrink-0" />
+                      <span className="text-gray-600 text-sm">{f}</span>
                     </div>
                   ))}
                 </div>
@@ -606,7 +613,7 @@ export default function SubscriptionPage() {
                 <button
                   onClick={() => handlePayment(plan.id)}
                   disabled={!!paymentLoading || isCurrentPlan}
-                  className={`w-full py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                  className={`w-full py-4 rounded-2xl font-bold text-lg transition-all flex items-center justify-center gap-2 ${
                     isCurrentPlan
                       ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
                       : isBusiness
@@ -618,113 +625,88 @@ export default function SubscriptionPage() {
                   ) : isCurrentPlan ? (
                     <>Plan Actual</>
                   ) : (
-                    <><CreditCard className="w-4 h-4" /> {isBusiness ? 'Activar Business' : 'Activar Starter'}</>
+                    <><CreditCard className="w-5 h-5" /> {isBusiness ? 'Activar Business' : 'Activar Starter'}{includeImplementation ? ' + Implementación' : ''}</>
                   )}
                 </button>
               </div>
             );
           })}
-
-          {/* ===== PLAN IMPLEMENTACIÓN ===== */}
-          {(() => {
-            const implPlan = plans.find(p => p.id === 'implementation');
-            if (!implPlan) return null;
-            const implFeatures = PLAN_FEATURES.implementation;
-            const isCurrentImpl = subStatus?.subscription?.plan === 'implementation';
-            const implPrice = implPlan.prices?.oneTime;
-            if (!implPrice) return null;
-            
-            return (
-              <div className="relative rounded-3xl p-6 border bg-gradient-to-br from-orange-500/10 to-amber-500/5 border-orange-500/40 shadow-xl shadow-orange-500/10">
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-                  <span className="bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-black px-4 py-1.5 rounded-full flex items-center gap-1">
-                    🛠️ SERVICIO COMPLETO
-                  </span>
-                </div>
-
-                <div className="mb-5">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Shield className="w-5 h-5 text-orange-400" />
-                    <h3 className="text-xl font-black">{implPlan.name}</h3>
-                  </div>
-                  <p className="text-gray-500 text-xs">
-                    Nosotros configuramos todo tu negocio. Tú solo vendes.
-                  </p>
-                </div>
-
-                {/* Pricing */}
-                <div className="mb-5">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-gray-500 text-sm">USD$</span>
-                    <span className="text-4xl font-black">{implPrice.usd}</span>
-                  </div>
-                  <div className="text-orange-400 text-xs font-bold mt-1">💎 Pago único — Sin mensualidades</div>
-                  <div className="mt-1 text-gray-400 text-xs">≈ {formatCOP(implPrice.cop)} COP</div>
-                  <div className="text-gray-600 text-[10px]">💳 Con tarjeta: {formatCOP(implPrice.copWithCard)} COP (+5%)</div>
-                </div>
-
-                {/* Add-ons */}
-                {implPlan.addons && (
-                  <div className="mb-5 p-3 bg-white/5 rounded-xl border border-white/10">
-                    <div className="text-xs font-bold text-white mb-2 flex items-center gap-1">
-                      <Zap className="w-3 h-3 text-orange-400" /> Servicios adicionales
-                    </div>
-                    <div className="space-y-1 text-[10px] text-gray-400">
-                      <div className="flex justify-between">
-                        <span>📱 Línea WhatsApp adicional</span>
-                        <span className="text-orange-300 font-bold">${implPlan.addons.extraLine.usd} USD c/u</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>📦 +10 productos de catálogo</span>
-                        <span className="text-orange-300 font-bold">${implPlan.addons.extraProducts.usd} USD</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Features */}
-                <div className="space-y-2 mb-6">
-                  {implFeatures.included.map((f, i) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <Check className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-300 text-xs">{f}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* What we do for you */}
-                <div className="mb-5 p-3 bg-orange-500/5 rounded-xl border border-orange-500/15">
-                  <div className="text-xs font-bold text-orange-300 mb-2">🎯 Lo que hacemos por ti:</div>
-                  <div className="space-y-1 text-[10px] text-gray-400">
-                    <div>✓ Configuración completa del asistente IA</div>
-                    <div>✓ Entrenamiento con tu base de conocimiento</div>
-                    <div>✓ Integración y conexión de WhatsApp</div>
-                    <div>✓ Diseño del pipeline de ventas (CRM)</div>
-                    <div>✓ Carga de productos y catálogo</div>
-                    <div>✓ Capacitación de uso de la plataforma</div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handlePayment('implementation')}
-                  disabled={!!paymentLoading || isCurrentImpl}
-                  className={`w-full py-3 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 ${
-                    isCurrentImpl
-                      ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg hover:shadow-orange-500/30 hover:scale-[1.02]'
-                  }`}>
-                  {paymentLoading === 'implementation' ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : isCurrentImpl ? (
-                    <>Plan Actual</>
-                  ) : (
-                    <><Shield className="w-4 h-4" /> Contratar Implementación</>
-                  )}
-                </button>
-              </div>
-            );
-          })()}
         </div>
+
+        {/* ===== ORDER BUMP: IMPLEMENTACIÓN ===== */}
+        {addon && !subStatus?.hasImplementation && (
+          <div className="max-w-5xl mx-auto mt-10">
+            <div 
+              onClick={() => setIncludeImplementation(!includeImplementation)}
+              className={`relative cursor-pointer rounded-2xl border-2 p-6 transition-all ${
+                includeImplementation 
+                  ? 'bg-gradient-to-r from-orange-500/10 to-amber-500/5 border-orange-500/50 shadow-lg shadow-orange-500/10' 
+                  : 'bg-white/5 border-dashed border-gray-600 hover:border-orange-500/40'
+              }`}>
+              
+              {/* Badge */}
+              <div className="absolute -top-3 left-6">
+                <span className={`text-xs font-black px-3 py-1 rounded-full ${
+                  includeImplementation 
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white' 
+                    : 'bg-gray-700 text-gray-400'
+                }`}>
+                  🛠️ SERVICIO DE IMPLEMENTACIÓN — Pago único
+                </span>
+              </div>
+
+              <div className="flex items-start gap-4 mt-2">
+                {/* Checkbox */}
+                <div className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center mt-1 transition-all ${
+                  includeImplementation 
+                    ? 'bg-orange-500 border-orange-500' 
+                    : 'border-gray-500'
+                }`}>
+                  {includeImplementation && <Check className="w-4 h-4 text-white" />}
+                </div>
+
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-lg font-black text-white">{addon.name}</h4>
+                      <p className="text-gray-400 text-sm">Nosotros configuramos todo tu negocio. Tú solo vendes.</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-black text-orange-400">${addon.priceUsd} USD</div>
+                      <div className="text-gray-500 text-xs">≈ {formatCOP(addon.priceCop)} COP</div>
+                      <div className="text-orange-300 text-xs font-bold">💎 Pago único</div>
+                    </div>
+                  </div>
+
+                  {/* Features grid */}
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    {addon.features.map((f: string, i: number) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Check className={`w-3.5 h-3.5 flex-shrink-0 ${includeImplementation ? 'text-orange-400' : 'text-gray-600'}`} />
+                        <span className={`text-xs ${includeImplementation ? 'text-gray-300' : 'text-gray-500'}`}>{f}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Extras */}
+                  {addon.extras && (
+                    <div className="mt-3 flex gap-4 text-[10px] text-gray-500">
+                      <span>📱 Línea adicional: ${addon.extras.extraLine.usd} USD c/u</span>
+                      <span>📦 +10 productos: ${addon.extras.extraProducts.usd} USD</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Urgency / Social proof */}
+            {!includeImplementation && (
+              <p className="text-center text-gray-500 text-xs mt-3 animate-pulse">
+                💡 El 78% de nuestros clientes eligen implementación para empezar a vender más rápido
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Payment Methods Info */}
         <div className="mt-12 text-center">

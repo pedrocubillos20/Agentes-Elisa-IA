@@ -51,13 +51,13 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
       return;
     }
 
-    // 🔒 Plan implementación: bloquear acceso a rutas de configuración
-    const effectivePlan = user.parentUserId 
-      ? (await prisma.user.findUnique({ where: { id: user.parentUserId }, select: { plan: true } }))?.plan 
-      : user.plan;
-      
-    if (effectivePlan === 'implementation') {
-      const blockedPaths = ['/api/assistants', '/api/integrations'];
+    // 🔒 Si el usuario compró addon de implementación: bloquear modificaciones a configuración
+    // Solo el equipo implementador puede modificar (el usuario puede ver/GET)
+    const hasImplementation = await prisma.payment.findFirst({
+      where: { userId: user.parentUserId || user.id, plan: 'implementation', status: 'approved' }
+    });
+    
+    if (hasImplementation) {
       const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants')
         || req.path.startsWith('/api/integrations') || req.originalUrl?.includes('/api/integrations');
       

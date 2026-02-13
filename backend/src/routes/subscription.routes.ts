@@ -8,36 +8,41 @@ const router = Router();
 // ===== CONFIGURACIÓN DE PLANES =====
 const PLANS: Record<string, any> = {
   starter: {
-    name: 'Elisa Starter',
+    name: 'Bizonne Starter',
     monthly: 30,
-    semiannual: 150,   // 30×6 = 180 → 150 (17% desc)
-    annual: 250,        // 30×12 = 360 → 250 (31% desc)
+    semiannual: 150,
+    annual: 250,
     maxLines: 2,
     maxProducts: 10,
-    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos)', 'Productos y catálogo (10)'],
+    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline de ventas', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos)', 'Dashboard y métricas', 'Hasta 10 productos de catálogo'],
     notIncluded: ['Equipo multi-usuario', 'Asignación de chats', 'Integraciones API']
   },
   business: {
-    name: 'Elisa Business',
+    name: 'Bizonne Business',
     monthly: 50,
-    semiannual: 250,    // 50×6 = 300 → 250 (17% desc)
-    annual: 420,        // 50×12 = 600 → 420 (30% desc)
+    semiannual: 250,
+    annual: 420,
     maxLines: 5,
     maxProducts: 999,
-    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Productos ilimitados', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Permisos personalizados', 'Auto-aprendizaje con sugerencias', 'Integraciones API', 'Soporte prioritario'],
-    notIncluded: []
-  },
-  implementation: {
-    name: 'Elisa Implementación',
-    oneTime: 100,       // Pago único $100 USD
-    maxLines: 5,
-    maxProducts: 10,
-    extraLinesCost: 10,   // $10 USD por línea adicional
-    extraProductsCost: 10, // $10 USD por 10 productos adicionales
-    features: ['Implementación completa por expertos', '5 líneas de WhatsApp', 'Configuración de asistentes IA', 'Base de conocimiento personalizada', 'CRM + Pipeline configurado', 'Agenda automática', 'Equipo + asignación de chats', 'Soporte prioritario por WhatsApp', 'Hasta 10 productos incluidos', 'Dashboard de métricas y resultados'],
-    extras: ['Línea adicional: $10 USD c/u', '10 productos adicionales: $10 USD'],
+    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Productos ilimitados', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Permisos personalizados', 'Integraciones API', 'Soporte prioritario'],
     notIncluded: []
   }
+};
+
+// ===== ADD-ON: IMPLEMENTACIÓN (Order Bump / Upsell) =====
+const IMPLEMENTATION_ADDON = {
+  name: 'Bizonne Implementación',
+  price: 100,
+  features: [
+    'Configuración completa del asistente IA',
+    'Entrenamiento con tu base de conocimiento',
+    'Integración y conexión de WhatsApp',
+    'Diseño del pipeline de ventas (CRM)',
+    'Carga de productos y catálogo',
+    'Capacitación de uso de la plataforma',
+    'Soporte prioritario por WhatsApp'
+  ],
+  extras: { extraLinesCost: 10, extraProductsCost: 10 }
 };
 
 const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
@@ -222,33 +227,24 @@ router.get('/plans', async (req: Request, res: Response) => {
       };
     });
 
-    // Plan de implementación (pago único)
-    const implPlan = PLANS.implementation;
-    const implementationPlan = {
+    // Add-on de implementación (order bump / upsell)
+    const addon = {
       id: 'implementation',
-      name: implPlan.name,
-      type: 'one_time',
-      maxLines: implPlan.maxLines,
-      maxProducts: implPlan.maxProducts,
-      features: implPlan.features || [],
-      extras: implPlan.extras || [],
-      prices: {
-        oneTime: {
-          usd: implPlan.oneTime,
-          cop: Math.round(implPlan.oneTime * rate),
-          copWithCard: Math.round(implPlan.oneTime * rate * (1 + CARD_SURCHARGE)),
-          period: 'one_time',
-          label: 'Pago único'
-        }
-      },
-      addons: {
-        extraLine: { usd: implPlan.extraLinesCost, cop: Math.round(implPlan.extraLinesCost * rate) },
-        extraProducts: { usd: implPlan.extraProductsCost, cop: Math.round(implPlan.extraProductsCost * rate), quantity: 10 }
+      name: IMPLEMENTATION_ADDON.name,
+      type: 'addon',
+      priceUsd: IMPLEMENTATION_ADDON.price,
+      priceCop: Math.round(IMPLEMENTATION_ADDON.price * rate),
+      priceCopWithCard: Math.round(IMPLEMENTATION_ADDON.price * rate * (1 + CARD_SURCHARGE)),
+      features: IMPLEMENTATION_ADDON.features,
+      extras: {
+        extraLine: { usd: IMPLEMENTATION_ADDON.extras.extraLinesCost, cop: Math.round(IMPLEMENTATION_ADDON.extras.extraLinesCost * rate) },
+        extraProducts: { usd: IMPLEMENTATION_ADDON.extras.extraProductsCost, cop: Math.round(IMPLEMENTATION_ADDON.extras.extraProductsCost * rate), quantity: 10 }
       }
     };
 
     res.json({ 
-      plans: [...recurringPlans, implementationPlan], 
+      plans: recurringPlans,
+      addon,
       exchangeRate: rate, 
       exchangeSource: trm.source,
       exchangeDate: trm.date,
@@ -279,6 +275,11 @@ router.get('/status', async (req: Request, res: Response) => {
       orderBy: { createdAt: 'desc' },
       take: 10
     });
+    
+    // Verificar si compró addon de implementación
+    const hasImplementation = await prisma.payment.findFirst({
+      where: { userId, plan: 'implementation', status: 'approved' }
+    });
 
     let status = 'active';
     let daysRemaining = 0;
@@ -302,6 +303,7 @@ router.get('/status', async (req: Request, res: Response) => {
       status,
       daysRemaining,
       periodEnd,
+      hasImplementation: !!hasImplementation,
       subscription: subscription ? {
         plan: subscription.plan,
         period: subscription.period,
@@ -449,29 +451,68 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const { plan, period, discountCode: rawDiscountCode, addons } = req.body;
-    if (!plan) { res.status(400).json({ error: 'Plan requerido' }); return; }
-    if (!PLANS[plan]) { res.status(400).json({ error: 'Plan inválido' }); return; }
+    const { plan, period, discountCode: rawDiscountCode, includeImplementation, addons } = req.body;
     
-    // Validar periodo según tipo de plan
-    const isImplementation = plan === 'implementation';
-    if (!isImplementation && !period) { res.status(400).json({ error: 'Periodo requerido' }); return; }
-    if (!isImplementation && !['monthly', 'semiannual', 'annual'].includes(period)) { res.status(400).json({ error: 'Periodo inválido' }); return; }
+    // Determinar si es compra de addon solamente o plan + addon
+    const isAddonOnly = plan === 'implementation';
+    
+    if (isAddonOnly) {
+      // Compra solo del addon de implementación
+      let priceAddon = IMPLEMENTATION_ADDON.price;
+      if (addons?.extraLines > 0) priceAddon += addons.extraLines * IMPLEMENTATION_ADDON.extras.extraLinesCost;
+      if (addons?.extraProducts > 0) priceAddon += addons.extraProducts * IMPLEMENTATION_ADDON.extras.extraProductsCost;
+      
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+      if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+      
+      const trm = await getTRM();
+      const rate = trm.rate;
+      const copAmount = Math.round(priceAddon * rate);
+      const amountInCents = copAmount * 100;
+      const reference = `BIZONNE-IMPL-${userId.slice(-8)}-${Date.now()}`;
+      
+      const integritySecret = WOMPI_INTEGRITY_KEY;
+      const signatureString = `${reference}${amountInCents}COP${integritySecret}`;
+      const signature = crypto.createHash('sha256').update(signatureString).digest('hex');
+      
+      await prisma.payment.create({
+        data: {
+          userId, type: 'addon', plan: 'implementation', period: 'one_time',
+          amountUsd: priceAddon, amountCop: copAmount, exchangeRate: rate,
+          totalCop: copAmount, status: 'pending', wompiReference: reference
+        }
+      });
+      
+      const frontendUrl = process.env.FRONTEND_URL || 'https://agentes-elisa-ia.vercel.app';
+      res.json({
+        publicKey: WOMPI_PUBLIC_KEY, amountInCents, currency: 'COP',
+        reference, signature,
+        redirectUrl: `${frontendUrl}/subscription?status=completed`,
+        customerEmail: user.email, customerName: user.name || '',
+        plan: 'implementation', period: 'one_time',
+        priceUsd: priceAddon, priceCop: copAmount,
+        exchangeRate: rate, exchangeSource: trm.source
+      });
+      return;
+    }
+    
+    // Compra de plan normal (starter / business)
+    if (!plan || !PLANS[plan]) { res.status(400).json({ error: 'Plan inválido' }); return; }
+    if (!period || !['monthly', 'semiannual', 'annual'].includes(period)) { res.status(400).json({ error: 'Periodo inválido' }); return; }
 
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
     if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
     const planConfig = PLANS[plan];
-    let priceUsd: number;
-    const effectivePeriod = isImplementation ? 'one_time' : period;
+    let priceUsd: number = planConfig[period as string] as number;
+    const effectivePeriod = period;
     
-    if (isImplementation) {
-      priceUsd = planConfig.oneTime;
-      // Sumar addons si hay
-      if (addons?.extraLines > 0) priceUsd += addons.extraLines * planConfig.extraLinesCost;
-      if (addons?.extraProducts > 0) priceUsd += addons.extraProducts * planConfig.extraProductsCost;
-    } else {
-      priceUsd = planConfig[period as string] as number;
+    // Si incluye implementación, sumar al total
+    if (includeImplementation) {
+      let implPrice = IMPLEMENTATION_ADDON.price;
+      if (addons?.extraLines > 0) implPrice += addons.extraLines * IMPLEMENTATION_ADDON.extras.extraLinesCost;
+      if (addons?.extraProducts > 0) implPrice += addons.extraProducts * IMPLEMENTATION_ADDON.extras.extraProductsCost;
+      priceUsd += implPrice;
     }
     
     const trm = await getTRM();
@@ -527,7 +568,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     // Wompi recibe montos en centavos
     const amountInCents = finalCop * 100;
 
-    const reference = `ELISA-${userId.slice(-8)}-${plan}-${effectivePeriod}-${Date.now()}`;
+    const reference = `BIZONNE-${userId.slice(-8)}-${plan}-${effectivePeriod}-${Date.now()}`;
 
     // Generar firma de integridad para Wompi
     // IMPORTANTE: Usar la llave de integridad, NO el secreto de eventos
@@ -541,7 +582,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const payment = await prisma.payment.create({
       data: {
         userId,
-        type: isImplementation ? 'implementation' : 'subscription',
+        type: includeImplementation ? 'subscription_with_addon' : 'subscription',
         plan,
         period: effectivePeriod,
         amountUsd: priceUsd,
@@ -729,14 +770,26 @@ async function activateSubscription(payment: any, transactionId: string, payment
     });
 
     const now = new Date();
-    const isImplementation = payment.plan === 'implementation';
+    const isAddon = payment.type === 'addon' || payment.plan === 'implementation';
+    
+    if (isAddon) {
+      // Addon de implementación — NO cambia el plan del usuario
+      // Solo registra el pago como aprobado
+      console.log(`✅ 🛠️ ADD-ON IMPLEMENTACIÓN PAGADO | Usuario: ${payment.userId}`);
+      return { 
+        activated: true, 
+        plan: 'implementation_addon',
+        period: 'one_time',
+        periodEnd: null
+      };
+    }
+
+    // Plan normal (starter / business)
+    const effectivePlan = payment.plan === 'implementation' ? 'business' : payment.plan;
     
     // Calcular periodo
     const periodEnd = new Date(now);
-    if (isImplementation) {
-      // Implementación: acceso permanente (99 años)
-      periodEnd.setFullYear(periodEnd.getFullYear() + 99);
-    } else if (payment.period === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
+    if (payment.period === 'monthly') periodEnd.setMonth(periodEnd.getMonth() + 1);
     else if (payment.period === 'semiannual') periodEnd.setMonth(periodEnd.getMonth() + 6);
     else if (payment.period === 'annual') periodEnd.setFullYear(periodEnd.getFullYear() + 1);
 
@@ -745,8 +798,8 @@ async function activateSubscription(payment: any, transactionId: string, payment
       where: { userId: payment.userId },
       create: {
         userId: payment.userId,
-        plan: payment.plan,
-        period: isImplementation ? 'permanent' : payment.period,
+        plan: effectivePlan,
+        period: payment.period,
         status: 'active',
         priceUsd: payment.amountUsd,
         priceCop: payment.amountCop,
@@ -755,8 +808,8 @@ async function activateSubscription(payment: any, transactionId: string, payment
         wompiTransactionId: String(transactionId)
       },
       update: {
-        plan: payment.plan,
-        period: isImplementation ? 'permanent' : payment.period,
+        plan: effectivePlan,
+        period: payment.period,
         status: 'active',
         priceUsd: payment.amountUsd,
         priceCop: payment.amountCop,
@@ -769,10 +822,10 @@ async function activateSubscription(payment: any, transactionId: string, payment
     // Actualizar plan del usuario
     await prisma.user.update({
       where: { id: payment.userId },
-      data: { plan: payment.plan }
+      data: { plan: effectivePlan }
     });
 
-    console.log(`✅ 🎉 SUSCRIPCIÓN ACTIVADA: ${payment.plan} ${isImplementation ? 'PERMANENTE' : payment.period} | Usuario: ${payment.userId} | Hasta: ${periodEnd.toISOString().split('T')[0]}${payment.discountCode ? ` | Código: ${payment.discountCode}` : ''}`);
+    console.log(`✅ 🎉 SUSCRIPCIÓN ACTIVADA: ${effectivePlan} ${payment.period} | Usuario: ${payment.userId} | Hasta: ${periodEnd.toISOString().split('T')[0]}${payment.discountCode ? ` | Código: ${payment.discountCode}` : ''}`);
     
     return { 
       activated: true, 

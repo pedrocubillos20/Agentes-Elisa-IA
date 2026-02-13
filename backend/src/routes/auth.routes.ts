@@ -351,15 +351,13 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         maxWhatsappLines: 5, maxProducts: 999,
         crm: true, agenda: true, team: true, chatAssignment: true, products: true,
         assistants: true, config: true, integrations: true
-      },
-      implementation: { 
-        maxWhatsappLines: 5, maxProducts: 10, extraProductsCost: 10, extraLinesCost: 10,
-        crm: true, agenda: true, team: true, chatAssignment: true, products: true,
-        // 🔒 Bloqueados — solo el implementador configura
-        assistants: false, config: false, integrations: false,
-        prioritySupport: true, isImplementation: true
       }
     };
+    
+    // Verificar si el usuario compró el addon de implementación
+    const hasImplementation = await prisma.payment.findFirst({
+      where: { userId: user.parentUserId || userId, plan: 'implementation', status: 'approved' }
+    });
 
     // For sub-users, get plan from parent
     let effectivePlan = user.plan;
@@ -381,6 +379,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         subscriptionStatus,
         daysRemaining,
         isBlocked: subscriptionStatus === 'expired',
+        hasImplementation: !!hasImplementation,
         planFeatures: features
       }
     });

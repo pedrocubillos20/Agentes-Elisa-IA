@@ -54,15 +54,15 @@ export default function CRMPage() {
     const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
     
-    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 2 segundos
+    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 10 segundos
     const autoRefreshInterval = setInterval(() => {
       fetchConversationsOnly();
-    }, 2000);
+    }, 10000);
     
-    // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 5 segundos
+    // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 30 segundos
     const stageSyncInterval = setInterval(() => {
       syncStages();
-    }, 5000);
+    }, 30000);
     
     return () => {
       window.removeEventListener('lineChanged', onLineChanged);

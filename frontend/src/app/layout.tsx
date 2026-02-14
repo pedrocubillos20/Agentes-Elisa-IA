@@ -8,10 +8,11 @@ import {
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
   ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
-  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key
+  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key, Paintbrush
 } from 'lucide-react';
 import Paywall from '../components/Paywall';
 import LiveChat from '../components/LiveChat';
+import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573213815105';
@@ -38,6 +39,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [showWelcome, setShowWelcome] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<any>(null);
   const [showApiKeyGuide, setShowApiKeyGuide] = useState(false);
+  const [showWallpaper, setShowWallpaper] = useState(false);
+
+  // 🎨 Aplicar fondo guardado al montar
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setTimeout(() => applyWallpaper(loadSavedWallpaper()), 100);
+    }
+  }, [loading]);
 
   const isAuthPage = pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
   const globalPages = ['/whatsapp', '/configuracion', '/subscription', '/equipo', '/guia', '/integraciones'];
@@ -380,7 +389,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </aside>
 
             {/* Main */}
-            <main className="flex-1 flex flex-col min-h-screen">
+            <main id="bizonne-main" className="flex-1 flex flex-col min-h-screen">
               <header className="sticky top-0 z-30 h-16 px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
@@ -402,6 +411,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
                 <div className="flex items-center gap-3">
                   {user?.isSubUser && <span className="text-xs bg-blue-500/20 text-blue-400 px-2.5 py-1 rounded-full hidden md:inline">{roleLabel}</span>}
+                  <button 
+                    onClick={() => setShowWallpaper(true)} 
+                    className="p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5 hidden md:block"
+                    title="Cambiar fondo"
+                  >
+                    <Paintbrush className="w-4 h-4" />
+                  </button>
                   <button className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
                     <Bell className="w-5 h-5" />
                     <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--accent-primary)] rounded-full animate-pulse" />
@@ -630,6 +646,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </>
         )}
+
+        {/* ===== WALLPAPER PICKER ===== */}
+        <WallpaperPicker isOpen={showWallpaper} onClose={() => setShowWallpaper(false)} />
 
         {/* ===== LIVE CHAT SUPPORT ===== */}
         {user && !isAuthPage && (

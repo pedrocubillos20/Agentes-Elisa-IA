@@ -57,11 +57,49 @@ export default function ConversacionesPage() {
     selectedConvRef.current = selectedConv;
   }, [selectedConv]);
 
-  // Polling de lista de conversaciones (cada 2s)
+  // 🔥 CARGA INICIAL: stages + quick-stage-sync (solo una vez)
+  const initialLoadDone = useRef(false);
+  const isFetchingRef = useRef(false);
+  
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 2000);
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true;
+      // Stage sync y stages solo al montar (NO en polling)
+      const token = localStorage.getItem('token');
+      const lineId = getLineId();
+      fetch(`${API_URL}/api/whatsapp/quick-stage-sync`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId })
+      }).catch(() => {});
+      fetch(`${API_URL}/api/stages?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.stages?.length) setFunnelStages(d.stages); })
+        .catch(() => {});
+    }
+    // Polling de conversaciones (solo lista, sin stages ni sync)
+    fetchConversations();
+    const interval = setInterval(fetchConversations, 5000); // 5s en vez de 2s
     return () => clearInterval(interval);
+  }, []);
+
+  // Re-cargar stages cuando cambia la línea
+  useEffect(() => {
+    const onLineChanged = () => {
+      setLoading(true);
+      setConversations([]);
+      setSelectedConv(null);
+      setMessages([]);
+      const token = localStorage.getItem('token');
+      const lineId = getLineId();
+      fetch(`${API_URL}/api/stages?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.stages?.length) setFunnelStages(d.stages); })
+        .catch(() => {});
+      fetchConversations();
+    };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
 
   // Cargar mensajes cuando se selecciona una conversación
@@ -93,24 +131,17 @@ export default function ConversacionesPage() {
         if (res.ok) {
           const data = await res.json();
           const newMsgs = data.messages || [];
-          // Solo actualizar si hay mensajes nuevos (evita scroll jumps)
-          if (newMsgs.length !== lastMessageCountRef.current || 
-              (newMsgs.length > 0 && lastMessageCountRef.current > 0 && 
-               newMsgs[newMsgs.length - 1]?.id !== undefined)) {
-            // Comparar último mensaje para evitar updates innecesarios
-            setMessages(prev => {
-              const prevLast = prev[prev.length - 1];
-              const newLast = newMsgs[newMsgs.length - 1];
-              // Si el último mensaje es diferente O hay diferente cantidad → actualizar
-              if (prev.length !== newMsgs.length || 
-                  prevLast?.id !== newLast?.id || 
-                  prevLast?.content !== newLast?.content) {
-                lastMessageCountRef.current = newMsgs.length;
-                return newMsgs;
-              }
-              return prev; // Sin cambios, no re-render
-            });
-          }
+          setMessages(prev => {
+            const prevLast = prev[prev.length - 1];
+            const newLast = newMsgs[newMsgs.length - 1];
+            if (prev.length !== newMsgs.length || 
+                prevLast?.id !== newLast?.id || 
+                prevLast?.content !== newLast?.content) {
+              lastMessageCountRef.current = newMsgs.length;
+              return newMsgs;
+            }
+            return prev;
+          });
         }
       } catch {}
     };
@@ -123,32 +154,26 @@ export default function ConversacionesPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const fetchData = async () => {
+  // 📋 Fetch SOLO conversaciones (sin stages ni sync)
+  const fetchConversations = async () => {
+    if (isFetchingRef.current) return; // Guard: no concurrent fetches
+    isFetchingRef.current = true;
     const token = localStorage.getItem('token');
     try {
-      await fetch(`${API_URL}/api/whatsapp/quick-stage-sync`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineId: getLineId() })
-      }).catch(() => {});
-
       const lineId = getLineId();
-      const [convRes, stagesRes] = await Promise.all([
-        fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/stages?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } })
-      ]);
-
-      if (convRes.ok) {
-        const data = await convRes.json();
+      const res = await fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { 
+        headers: { 'Authorization': `Bearer ${token}` } 
+      });
+      if (res.ok) {
+        const data = await res.json();
         const convs = data.conversations || [];
         setConversations(convs);
         
-        // Mantener selectedConv sincronizado con datos frescos
+        // Mantener selectedConv sincronizado
         const currentSelected = selectedConvRef.current;
         if (currentSelected) {
           const updated = convs.find((c: any) => c.id === currentSelected.id);
           if (updated) {
-            // Solo actualizar si algo cambió (evita re-renders innecesarios)
             if (updated.lastMessage !== currentSelected.lastMessage || 
                 updated.aiPaused !== currentSelected.aiPaused ||
                 updated.stageId !== currentSelected.stageId ||
@@ -158,12 +183,11 @@ export default function ConversacionesPage() {
           }
         }
       }
-      if (stagesRes.ok) {
-        const data = await stagesRes.json();
-        if (data.stages?.length) setFunnelStages(data.stages);
-      }
     } catch {}
-    finally { setLoading(false); }
+    finally { 
+      setLoading(false); 
+      isFetchingRef.current = false;
+    }
   };
 
   const fetchMessages = async (convId: string) => {
@@ -229,7 +253,7 @@ export default function ConversacionesPage() {
         body: JSON.stringify({ paused: !selectedConv.aiPaused })
       });
       setSelectedConv({ ...selectedConv, aiPaused: !selectedConv.aiPaused });
-      fetchData();
+      fetchConversations();
     } catch {}
   };
 
@@ -318,7 +342,7 @@ export default function ConversacionesPage() {
           setMassMediaPreview(null);
           setMassSentCount(0);
           setMassTotal(0);
-          fetchData();
+          fetchConversations();
         }, targets.length * 3500 + 2000);
       } else {
         throw new Error('Error al enviar');

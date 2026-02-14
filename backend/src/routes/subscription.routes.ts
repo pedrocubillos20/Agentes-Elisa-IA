@@ -577,7 +577,8 @@ router.post('/create-payment', async (req: Request, res: Response) => {
         data: {
           userId, type: 'addon', plan: 'priority_support', period: 'monthly',
           amountUsd: priceAddon, amountCop: copAmount,
-          reference, status: 'pending'
+          exchangeRate: rate, cardSurcharge: 0, totalCop: copAmount,
+          status: 'pending', wompiReference: reference
         }
       });
 

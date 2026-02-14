@@ -45,6 +45,19 @@ const IMPLEMENTATION_ADDON = {
   extras: { extraLinesCost: 10, extraProductsCost: 10 }
 };
 
+// ===== ADD-ON: SOPORTE PRIORITARIO (Recurring Upsell) =====
+const PRIORITY_SUPPORT_ADDON = {
+  name: 'Soporte Prioritario',
+  monthlyPrice: 15,
+  features: [
+    'Soporte directo por WhatsApp',
+    'Respuesta en menos de 2 horas',
+    'Configuración y ajustes incluidos',
+    'Resolución de problemas técnicos',
+    'Asesoría personalizada'
+  ]
+};
+
 const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
 
 // Wompi config
@@ -242,9 +255,21 @@ router.get('/plans', async (req: Request, res: Response) => {
       }
     };
 
+    // Add-on de soporte prioritario (recurring upsell)
+    const prioritySupportAddon = {
+      id: 'priority_support',
+      name: PRIORITY_SUPPORT_ADDON.name,
+      type: 'recurring_addon',
+      priceUsd: PRIORITY_SUPPORT_ADDON.monthlyPrice,
+      priceCop: Math.round(PRIORITY_SUPPORT_ADDON.monthlyPrice * rate),
+      priceCopWithCard: Math.round(PRIORITY_SUPPORT_ADDON.monthlyPrice * rate * (1 + CARD_SURCHARGE)),
+      features: PRIORITY_SUPPORT_ADDON.features
+    };
+
     res.json({ 
       plans: recurringPlans,
       addon,
+      prioritySupportAddon,
       exchangeRate: rate, 
       exchangeSource: trm.source,
       exchangeDate: trm.date,
@@ -281,6 +306,12 @@ router.get('/status', async (req: Request, res: Response) => {
       where: { userId, plan: 'implementation', status: 'approved' }
     });
 
+    // Verificar si tiene soporte prioritario
+    const hasPrioritySupportAddon = await prisma.payment.findFirst({
+      where: { userId, plan: 'priority_support', status: 'approved' }
+    });
+    const hasPrioritySupport = (subscription?.plan === 'business') || !!hasImplementation || !!hasPrioritySupportAddon;
+
     let status = 'active';
     let daysRemaining = 0;
     let periodEnd: Date | null = null;
@@ -304,6 +335,7 @@ router.get('/status', async (req: Request, res: Response) => {
       daysRemaining,
       periodEnd,
       hasImplementation: !!hasImplementation,
+      hasPrioritySupport,
       subscription: subscription ? {
         plan: subscription.plan,
         period: subscription.period,
@@ -516,8 +548,49 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const { plan, period, discountCode: rawDiscountCode, includeImplementation, addons, type: paymentType } = req.body;
     
     // Determinar si es compra de addon solamente o plan + addon
-    const isAddonOnly = plan === 'implementation';
+    const isAddonOnly = plan === 'implementation' || plan === 'priority_support';
     const isUpgrade = paymentType === 'upgrade';
+    
+    if (plan === 'priority_support') {
+      // Compra del addon de soporte prioritario
+      const existingSub = await prisma.subscription.findUnique({ where: { userId } });
+      if (!existingSub || existingSub.status !== 'active') {
+        res.status(400).json({ error: 'Necesitas un plan activo para comprar soporte prioritario.' });
+        return;
+      }
+      
+      const priceAddon = PRIORITY_SUPPORT_ADDON.monthlyPrice;
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+      if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+      
+      const trm = await getTRM();
+      const rate = trm.rate;
+      const copAmount = Math.round(priceAddon * rate);
+      const amountInCents = copAmount * 100;
+      const reference = `BIZONNE-PRIORITY-${userId.slice(-8)}-${Date.now()}`;
+      
+      const integritySecret = WOMPI_INTEGRITY_KEY;
+      const signatureString = `${reference}${amountInCents}COP${integritySecret}`;
+      const signature = crypto.createHash('sha256').update(signatureString).digest('hex');
+
+      await prisma.payment.create({
+        data: {
+          userId, type: 'addon', plan: 'priority_support', period: 'monthly',
+          amountUsd: priceAddon, amountCop: copAmount,
+          reference, status: 'pending'
+        }
+      });
+
+      res.json({
+        plan: 'priority_support', period: 'monthly',
+        amountUsd: priceAddon, amountCop: copAmount,
+        amountInCents, reference, signature,
+        publicKey: WOMPI_PUBLIC_KEY, currency: 'COP',
+        customerEmail: user.email, customerName: user.name || 'Cliente',
+        redirectUrl: `${process.env.FRONTEND_URL || 'https://app.bizonne.com'}/subscription?payment=pending`
+      });
+      return;
+    }
     
     if (isAddonOnly) {
       // Compra solo del addon de implementación
@@ -880,12 +953,13 @@ async function activateSubscription(payment: any, transactionId: string, payment
     const isUpgrade = payment.type === 'upgrade';
     
     if (isAddon) {
-      // Addon de implementación — NO cambia el plan del usuario
-      console.log(`✅ 🛠️ ADD-ON IMPLEMENTACIÓN PAGADO | Usuario: ${payment.userId}`);
+      // Addon — NO cambia el plan del usuario
+      const addonName = payment.plan === 'priority_support' ? 'SOPORTE PRIORITARIO' : 'IMPLEMENTACIÓN';
+      console.log(`✅ 🛠️ ADD-ON ${addonName} PAGADO | Usuario: ${payment.userId}`);
       return { 
         activated: true, 
-        plan: 'implementation_addon',
-        period: 'one_time',
+        plan: `${payment.plan}_addon`,
+        period: payment.plan === 'priority_support' ? 'monthly' : 'one_time',
         periodEnd: null
       };
     }

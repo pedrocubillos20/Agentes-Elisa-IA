@@ -809,6 +809,76 @@ export default function SubscriptionPage() {
           </div>
         )}
 
+        {/* ===== SOPORTE PRIORITARIO — Upsell $15/mes ===== */}
+        {subStatus?.subscription?.status === 'active' && subStatus?.subscription?.plan === 'starter' && !subStatus?.hasPrioritySupport && (
+          <div className="max-w-5xl mx-auto mt-10">
+            <div className="relative rounded-2xl border-2 border-dashed border-amber-500/30 hover:border-amber-500/50 bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-6 transition-all">
+              <div className="absolute -top-3 left-6">
+                <span className="text-xs font-black px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+                  📞 SOPORTE PRIORITARIO — $15 USD/mes
+                </span>
+              </div>
+              <div className="flex items-start gap-4 mt-2">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-lg font-black text-white">Soporte por WhatsApp</h4>
+                      <p className="text-gray-400 text-sm">Respuestas rápidas de un experto humano. Resolución garantizada.</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-black text-amber-400">$15 USD</div>
+                      <div className="text-gray-500 text-xs">≈ {formatCOP(Math.round(15 * exchangeRate))} COP / mes</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Soporte directo por WhatsApp', 'Respuesta en menos de 2 horas', 'Configuración y ajustes incluidos', 'Resolución de problemas técnicos', 'Asesoría personalizada'].map((f, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Check className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                        <span className="text-xs text-gray-300">{f}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => handlePayment('priority_support')}
+                    disabled={!!paymentLoading}
+                    className="mt-4 w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.01]"
+                  >
+                    {paymentLoading === 'priority_support' ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>📞 Activar Soporte Prioritario — $15 USD/mes</>
+                    )}
+                  </button>
+                  <p className="text-[10px] text-gray-500 mt-2 text-center">✅ Incluido gratis en plan Business ($50/mes) y Servicio de Implementación</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Soporte prioritario activo */}
+        {subStatus?.hasPrioritySupport && subStatus?.subscription?.plan === 'starter' && (
+          <div className="max-w-5xl mx-auto mt-10">
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
+                <Check className="w-5 h-5 text-amber-400" />
+              </div>
+              <div className="flex-1">
+                <h4 className="text-amber-400 font-bold">Soporte Prioritario activo ✅</h4>
+                <p className="text-gray-500 text-xs">Escríbenos por WhatsApp para asistencia inmediata.</p>
+              </div>
+              <a
+                href="https://wa.me/573213815105?text=Hola!%20Necesito%20soporte%20prioritario%20🚀"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-bold hover:bg-emerald-500/30 transition-all"
+              >
+                📞 WhatsApp Soporte
+              </a>
+            </div>
+          </div>
+        )}
+
         {/* Payment Methods Info */}
         <div className="mt-12 text-center">
           <p className="text-gray-500 text-sm mb-4">Métodos de pago aceptados vía Wompi</p>

@@ -359,6 +359,11 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       where: { userId: user.parentUserId || userId, plan: 'implementation', status: 'approved' }
     });
 
+    // Verificar si tiene soporte prioritario (business, implementación, o addon)
+    const hasPrioritySupportAddon = await prisma.payment.findFirst({
+      where: { userId: user.parentUserId || userId, plan: 'priority_support', status: 'approved' }
+    });
+
     // For sub-users, get plan from parent
     let effectivePlan = user.plan;
     if (user.parentUserId) {
@@ -370,6 +375,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     const trialActive = effectivePlan === 'trial' && subscriptionStatus !== 'expired';
     const features = trialActive ? PLAN_FEATURES.trial : planFeatures;
 
+    // Priority support: Business plan, Implementation addon, or Priority Support addon
+    const hasPrioritySupport = effectivePlan === 'business' || !!hasImplementation || !!hasPrioritySupportAddon;
+
     res.json({
       user: {
         ...user,
@@ -380,6 +388,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         daysRemaining,
         isBlocked: subscriptionStatus === 'expired',
         hasImplementation: !!hasImplementation,
+        hasPrioritySupport,
         planFeatures: features
       }
     });

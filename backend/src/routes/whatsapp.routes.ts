@@ -2101,12 +2101,46 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
     // Responder inmediatamente y procesar en background
     res.json({ success: true, message: `Enviando a ${contacts.length} contactos...`, total: contacts.length });
 
-    // Procesar en background con delays
+    // ===== 🛡️ MECANISMO ANTI-BLOQUEO =====
     let sent = 0;
     let failed = 0;
-    const DELAY_BETWEEN_MESSAGES = 3000; // 3 segundos entre cada mensaje (evitar ban)
+    const total = contacts.length;
+    
+    // Intervalos progresivos: más contactos = más lento
+    const getDelay = (index: number): number => {
+      const base = 5000; // 5 segundos mínimo
+      const max = 18000; // 18 segundos máximo
+      
+      // Aleatoriedad: ±30% del delay base
+      const randomFactor = 0.7 + Math.random() * 0.6; // 0.7 a 1.3
+      
+      // Progresivo: aumenta delay conforme avanza (fatiga del rate limit)
+      const progressFactor = 1 + (index / total) * 0.5; // 1.0 a 1.5
+      
+      // Más contactos = más lento
+      let delay: number;
+      if (total <= 20) {
+        delay = base * randomFactor; // 3.5-6.5s para lotes pequeños
+      } else if (total <= 50) {
+        delay = (base + 3000) * randomFactor * progressFactor; // 5.6-15.6s
+      } else if (total <= 100) {
+        delay = (base + 5000) * randomFactor * progressFactor; // 7-19.5s
+      } else {
+        delay = (base + 8000) * randomFactor * progressFactor; // 9.1-25.3s
+      }
+      
+      return Math.min(delay, max + 5000); // Cap en 23s
+    };
+    
+    // Pausa larga cada N mensajes (batch break)
+    const BATCH_SIZE = 15; // Cada 15 mensajes
+    const BATCH_PAUSE_MIN = 30000; // 30 segundos
+    const BATCH_PAUSE_MAX = 60000; // 60 segundos
+    
+    console.log(`🛡️ Anti-bloqueo: ${total} contactos, batch=${BATCH_SIZE}, delays=5-18s`);
 
-    for (const contact of contacts) {
+    for (let i = 0; i < contacts.length; i++) {
+      const contact = contacts[i];
       try {
         const phone = (contact.phone || contact.recipientId || contact).replace(/\D/g, '');
         if (!phone) { failed++; continue; }
@@ -2143,11 +2177,21 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         }
 
         sent++;
-        console.log(`📢 Masivo ${sent}/${contacts.length}: ✅ ${phone}`);
+        console.log(`📢 Masivo ${sent}/${total}: ✅ ${phone}`);
 
-        // Delay entre mensajes para evitar ban de WhatsApp
-        if (sent < contacts.length) {
-          await new Promise(r => setTimeout(r, DELAY_BETWEEN_MESSAGES));
+        // 🛡️ DELAY ANTI-BLOQUEO
+        if (i < contacts.length - 1) {
+          // Batch break: pausa larga cada BATCH_SIZE mensajes
+          if (sent > 0 && sent % BATCH_SIZE === 0) {
+            const batchPause = BATCH_PAUSE_MIN + Math.random() * (BATCH_PAUSE_MAX - BATCH_PAUSE_MIN);
+            console.log(`🛡️ Pausa de batch: ${Math.round(batchPause / 1000)}s después de ${sent} mensajes`);
+            await new Promise(r => setTimeout(r, batchPause));
+          } else {
+            // Delay normal entre mensajes
+            const delay = getDelay(i);
+            console.log(`🛡️ Delay: ${Math.round(delay / 1000)}s antes del siguiente`);
+            await new Promise(r => setTimeout(r, delay));
+          }
         }
       } catch (e: any) {
         console.error(`📢 Masivo: ❌ Error enviando a contacto:`, e.message);
@@ -2155,7 +2199,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       }
     }
 
-    console.log(`📢 Envío masivo completado: ${sent} enviados, ${failed} fallidos de ${contacts.length}`);
+    console.log(`📢 Envío masivo completado: ${sent} enviados, ${failed} fallidos de ${total}`);
   } catch (e: any) { 
     console.error('❌ Error envío masivo:', e.message);
     res.status(500).json({ success: false, message: e.message }); 

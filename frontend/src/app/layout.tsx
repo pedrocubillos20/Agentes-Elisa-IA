@@ -11,9 +11,10 @@ import {
   ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key
 } from 'lucide-react';
 import Paywall from '../components/Paywall';
+import LiveChat from '../components/LiveChat';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-const SUPPORT_WHATSAPP = '573123538300';
+const SUPPORT_WHATSAPP = '573213815105';
 
 // ===== GLOBAL LINE CONTEXT =====
 const LineContext = createContext<{
@@ -630,19 +631,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </>
         )}
 
-        {/* ===== FLOATING SUPPORT BUTTON ===== */}
+        {/* ===== LIVE CHAT SUPPORT ===== */}
         {user && !isAuthPage && (
-          <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-            <a
-              href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Necesito ayuda con mi cuenta de Bizonne 🤖')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center gap-3 px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 transition-all hover:scale-105"
-              title="Soporte WhatsApp">
-              <HelpCircle className="w-5 h-5" />
-              <span className="text-sm font-semibold hidden group-hover:inline transition-all">Soporte</span>
-            </a>
-          </div>
+          <LiveChat user={user} />
         )}
       </body>
     </html>

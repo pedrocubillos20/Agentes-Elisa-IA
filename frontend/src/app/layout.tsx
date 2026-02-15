@@ -645,6 +645,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     </div>
                   </div>
 
+                  {/* 🚀 BANNER IMPLEMENTACIÓN */}
+                  <div className="relative overflow-hidden rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center flex-shrink-0 border border-amber-500/20">
+                        <Sparkles className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-white mb-0.5">¿No tienes tiempo para configurar?</p>
+                        <p className="text-[11px] text-gray-400 leading-relaxed mb-2.5">
+                          Nuestro equipo lo hace por ti. Configuramos todo tu asistente IA, 
+                          embudo de ventas y multimedia. Agenda una <strong className="text-amber-300">videollamada gratis</strong> para conocer el servicio.
+                        </p>
+                        <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('¡Hola! Acabo de registrarme en Bizonne y me interesa el servicio de implementación. Quiero agendar una videollamada 🚀')}`}
+                          target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-lg text-xs hover:brightness-110 transition-all hover:scale-[1.02]">
+                          <Phone className="w-3.5 h-3.5" /> Agendar Videollamada
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex gap-3 pt-2">
                     <Link href="/guia" onClick={() => setShowWelcome(false)}
                       className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-emerald-500/30 transition-all hover:scale-[1.02] text-sm">

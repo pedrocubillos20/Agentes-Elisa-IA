@@ -25,7 +25,7 @@ interface StepProps {
 
 function Step({ number, title, description, icon: Icon, color, children, isOpen, onToggle, isCompleted }: StepProps) {
   return (
-    <div className={`rounded-2xl border transition-all ${isOpen ? `bg-${color}-500/5 border-${color}-500/30 shadow-lg` : 'bg-white/[0.02] border-white/10 hover:border-white/20'}`}>
+    <div className={`rounded-2xl border transition-all ${isOpen ? `bg-${color}-500/5 border-${color}-500/30 shadow-lg` : 'bg-white/[0.04] border-white/10 hover:border-white/20 backdrop-blur-sm'}`}>
       <button onClick={onToggle} className="w-full flex items-center gap-4 p-5 text-left">
         <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
           isCompleted ? 'bg-emerald-500/20' : `bg-${color}-500/20`
@@ -60,7 +60,7 @@ function Step({ number, title, description, icon: Icon, color, children, isOpen,
 
 function SubStep({ icon: Icon, title, description }: { icon: any; title: string; description: string }) {
   return (
-    <div className="flex items-start gap-3 p-3 rounded-xl bg-white/5 border border-white/5">
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.06] border border-white/[0.08]">
       <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
         <Icon className="w-4 h-4 text-gray-400" />
       </div>
@@ -190,50 +190,47 @@ export default function GuiaPage() {
           </InfoBox>
 
           <InfoBox type="example">
-            <p className="mb-2"><strong>Ejemplo de Base de Conocimiento:</strong></p>
+            <p className="mb-2"><strong>Ejemplo de Base de Conocimiento (adaptable a cualquier negocio):</strong></p>
             <CodeBlock text={`# MI NEGOCIO - ASISTENTE VIRTUAL
 
 ## 🎭 IDENTIDAD
-Eres el asistente virtual de **[Tu Negocio]**, tienda online colombiana.
+Eres el asistente virtual de **[Tu Negocio]**.
 
 **Tu personalidad:**
 - Vendedor estratégico y directo
 - Hablas natural, humano y cercano
 - Siempre usas emojis
 - Respuestas cortas en líneas separadas
-- Orientado a cerrar ventas
+- Orientado a cerrar ventas / agendar citas
 
-## 🛍️ PRODUCTOS Y PRECIOS
-- Producto A → $50.000 COP
-- Producto B → $80.000 COP
-- Producto C → $120.000 COP
+## 🛍️ PRODUCTOS / SERVICIOS Y PRECIOS
+- [Producto/Servicio A] → $XX.XXX
+- [Producto/Servicio B] → $XX.XXX
+- [Producto/Servicio C] → $XX.XXX
 
-## 📦 ENVÍOS
+## 📦 ENVÍOS / ENTREGAS
 - Envío nacional: $12.000 (3-5 días)
 - Envío gratis en compras +$200.000
-- Ciudades principales: 2-3 días
+- (O si es servicio: agenda de citas disponibles)
 
 ## 💳 MÉTODOS DE PAGO
-- Nequi / Daviplata
-- Transferencia Bancolombia
-- Contra-entrega (solo Bogotá)
+- Efectivo / Nequi / Daviplata
+- Transferencia bancaria
+- Tarjeta (+5% recargo)
+- Contra-entrega
 
-## 🎯 ETAPAS DEL PIPELINE (CRM AUTOMÁTICO)
-El sistema detecta automáticamente en qué etapa está cada cliente:
-- **Saludo** → Cliente acaba de escribir
-- **Interesado** → Ya dio su nombre, preguntando
-- **En Cotización** → Preguntando precios
-- **Pendiente Color** → Falta que elija color
-- **Pendiente Talla** → Falta confirmar talla
-- **Realizó Pedido** → Confirmó compra
-- **Pendiente Pago** → Esperando pago
-- **Confirmado** → Pedido completo
-- **Perdido** → No le interesó
+## 🎯 ETAPAS DEL PIPELINE
+- Nuevo Contacto → Cliente escribió
+- Interesado → Preguntando por producto/servicio
+- En Cotización → Revisando precios
+- Realizó Pedido → Confirmó compra/cita
+- Confirmado → Todo listo
+- Perdido → No le interesó
 
 ## ⚠️ REGLAS
 - NUNCA inventar precios
 - SIEMPRE pedir nombre del cliente
-- Guiar hacia la compra paso a paso`} />
+- Guiar hacia la compra/cita paso a paso`} />
           </InfoBox>
 
           <SubStep icon={Target} title="3. Configura las Etapas del CRM" 
@@ -277,19 +274,18 @@ El sistema detecta automáticamente en qué etapa está cada cliente:
             description="El CRM muestra todos tus chats organizados por etapas. Cada contacto se mueve automáticamente según la conversación con el bot." />
 
           <InfoBox type="example">
-            <p className="mb-2"><strong>Flujo automático del Pipeline:</strong></p>
+            <p className="mb-2"><strong>Flujo automático del Pipeline (ejemplo genérico):</strong></p>
             <div className="space-y-1.5 text-xs">
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gray-400" /> <strong>Saludo</strong> → Cliente acaba de escribir, pidiendo nombre</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-400" /> <strong>Interesado</strong> → Ya dio su nombre, preguntando tipo/talla</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> <strong>En Cotización</strong> → Preguntando precios, colores, calidades</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-400" /> <strong>Pendiente Color</strong> → Falta que elija el color</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-orange-400" /> <strong>Pendiente Talla</strong> → Falta que confirme la talla</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-pink-400" /> <strong>Pendiente Calidad</strong> → Falta que elija tipo</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-indigo-400" /> <strong>Realizó Pedido</strong> → Confirmó que quiere comprar</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /> <strong>Pendiente Pago</strong> → Esperando método de pago</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> <strong>Confirmado</strong> → Pedido completo con datos de envío</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-400" /> <strong>Perdido</strong> → Dijo que no le interesa o no respondió</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gray-400" /> <strong>Nuevo Contacto</strong> → Cliente acaba de escribir</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-400" /> <strong>Interesado</strong> → Ya dio su nombre, preguntando por el producto/servicio</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> <strong>En Cotización</strong> → Preguntando precios, opciones, detalles</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-400" /> <strong>Pendiente Datos</strong> → Falta información para completar</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-orange-400" /> <strong>Realizó Pedido</strong> → Confirmó que quiere comprar/agendar</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-pink-400" /> <strong>Pendiente Pago</strong> → Eligiendo método de pago</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> <strong>Confirmado</strong> → Pedido o cita completa</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-400" /> <strong>Perdido</strong> → No le interesó o no respondió</div>
             </div>
+            <p className="text-[10px] text-gray-500 mt-2 italic">💡 Estas etapas se adaptan a tu negocio. Puedes personalizarlas desde el CRM.</p>
           </InfoBox>
 
           <SubStep icon={Target} title="2. Detectar Etapas automáticamente" 
@@ -379,7 +375,7 @@ El sistema detecta automáticamente en qué etapa está cada cliente:
         </Step>
 
         {/* ===== FUNCIONES ADICIONALES ===== */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm p-6">
           <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
             <Star className="w-5 h-5 text-amber-400" /> Funciones Adicionales
           </h3>
@@ -419,6 +415,70 @@ El sistema detecta automáticamente en qué etapa está cada cliente:
         </div>
       </div>
 
+      {/* ===== 🚀 BANNER IMPLEMENTACIÓN PROFESIONAL ===== */}
+      <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-rose-500/10">
+        {/* Efecto decorativo */}
+        <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-amber-500/20 to-transparent rounded-full blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr from-orange-500/15 to-transparent rounded-full blur-3xl" />
+        
+        <div className="relative p-6 md:p-8">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center border border-amber-500/30">
+                  <Zap className="w-5 h-5 text-amber-400" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">Servicio Premium</span>
+              </div>
+              
+              <h3 className="text-xl md:text-2xl font-black text-white mb-2">
+                ¿No tienes tiempo o no sabes cómo configurar tu asistente?
+              </h3>
+              <p className="text-gray-400 text-sm leading-relaxed mb-4">
+                Nuestro equipo de expertos configura <strong className="text-white">toda la plataforma por ti</strong>. 
+                Te creamos el asistente de IA perfecto para tu negocio, con tu embudo de ventas, 
+                multimedia y toda la automatización funcionando.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Asistente IA configurado a tu medida</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Pipeline y CRM personalizado</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Multimedia y catálogos incluidos</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Capacitación por videollamada</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Soporte prioritario 30 días</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-300">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span>Garantía de funcionamiento</span>
+                </div>
+              </div>
+
+              <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('¡Hola! Me interesa el servicio de implementación de Bizonne para mi negocio. Quiero agendar una videollamada para conocer los detalles y garantías 🚀')}`}
+                target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.02]">
+                <Phone className="w-5 h-5" /> Agendar Videollamada Gratis
+                <ArrowRight className="w-4 h-4" />
+              </a>
+              <p className="text-[10px] text-gray-600 mt-2">Te contactamos por WhatsApp para programar la reunión. Sin compromiso.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Soporte */}
       <div className="bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 rounded-2xl border border-emerald-500/20 p-6">
         <div className="flex flex-col md:flex-row items-center gap-6">
@@ -431,11 +491,18 @@ El sistema detecta automáticamente en qué etapa está cada cliente:
               Nuestro equipo de soporte está disponible para ayudarte con la configuración. Escríbenos por WhatsApp y te guiamos paso a paso.
             </p>
           </div>
-          <button
-            onClick={() => window.dispatchEvent(new Event('openLiveChat'))}
-            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-bold text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-cyan-500/30 flex-shrink-0">
-            <MessageSquare className="w-5 h-5" /> Chat en Vivo
-          </button>
+          <div className="flex gap-3 flex-shrink-0">
+            <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Necesito ayuda con mi cuenta de Bizonne 🤖')}`}
+              target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-2 px-5 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl font-bold text-sm hover:bg-emerald-500/30 transition">
+              <Phone className="w-4 h-4" /> WhatsApp
+            </a>
+            <button
+              onClick={() => window.dispatchEvent(new Event('openLiveChat'))}
+              className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-bold text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-cyan-500/30">
+              <MessageSquare className="w-4 h-4" /> Chat en Vivo
+            </button>
+          </div>
         </div>
       </div>
     </div>

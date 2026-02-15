@@ -242,7 +242,8 @@ export default function WhatsAppPage() {
                 <a href="/subscription" className="btn-secondary text-sm">
                   <Crown className="w-4 h-4" /> Upgrade
                 </a>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

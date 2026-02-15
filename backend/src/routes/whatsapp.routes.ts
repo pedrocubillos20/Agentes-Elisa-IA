@@ -771,48 +771,62 @@ INSTRUCCIONES:
             console.log(`⚠️ SIN BLOQUE DE MEMORIA en respuesta (${reply.length} chars)`);
             
             // 🔄 FALLBACK INTELIGENTE: Extraer datos del historial y respuesta
-            const fullConversation = history.map(m => m.content).join(' ').toLowerCase() + ' ' + reply.toLowerCase();
+            // ⚠️ Separar mensajes del cliente y del bot para evitar falsos positivos
+            const clientMessages = history.filter(m => !m.fromMe).map(m => m.content).join(' ').toLowerCase();
+            const botMessages = history.filter(m => m.fromMe).map(m => m.content).join(' ').toLowerCase();
+            const fullConversation = clientMessages + ' ' + botMessages + ' ' + reply.toLowerCase();
             const replyLower = reply.toLowerCase();
             
             // Extraer datos del historial
             const extractedData: any = { ...savedContext };
             
             // Extraer nombre si lo mencionó
-            const nombreMatch = fullConversation.match(/(?:me llamo|soy|mi nombre es)\s+([a-záéíóúñ]+)/i) ||
+            const nombreMatch = clientMessages.match(/(?:me llamo|soy|mi nombre es)\s+([a-záéíóúñ]+)/i) ||
                                reply.match(/(?:gracias|hola|perfecto|genial),?\s+\*?\*?([a-záéíóúñ]+)\*?\*?[!,]/i);
             if (nombreMatch && !extractedData.nombre) {
               extractedData.nombre = nombreMatch[1];
             }
             
-            // Extraer talla
-            const tallaMatch = fullConversation.match(/talla\s*(xs|s|m|l|xl|2xl|3xl|4xl)/i) ||
-                              reply.match(/talla\s+\*?\*?(xs|s|m|l|xl|2xl|3xl|4xl)\*?\*?\s+anotad/i);
+            // Extraer talla — PRIORIDAD: mensaje del cliente, luego respuesta del bot
+            // ⚠️ Orden: más largo primero (4xl antes xl antes l) para evitar matcheos parciales
+            // ⚠️ Buscar PRIMERO en mensajes del CLIENTE (el bot dice "tallas estándar" que causa falsos positivos)
+            const tallaRegex = /\b(4xl|3xl|2xl|xl|xs|s|m|l)\b/i;
+            const tallaFromClient = clientMessages.match(tallaRegex);
+            const tallaFromBot = reply.match(/talla\s+\*?\*?(4xl|3xl|2xl|xl|xs|s|m|l)\*?\*?\s+anotad/i);
+            const tallaMatch = tallaFromClient || tallaFromBot;
             if (tallaMatch) {
               extractedData.talla = tallaMatch[1].toUpperCase();
             }
             
-            // Extraer color
-            const colorMatch = fullConversation.match(/color[:\s]+\*?\*?(marfil|blanco|negro|azul\s*oscuro)\*?\*?/i) ||
-                              reply.match(/\*?\*?(marfil|blanco|negro|azul\s*oscuro)\*?\*?\s+anotad/i);
+            // Extraer color — PRIORIDAD: mensaje del cliente
+            const colorFromClient = clientMessages.match(/\b(marfil|blanco|negro|azul\s*oscuro)\b/i);
+            const colorFromBot = reply.match(/\*?\*?(marfil|blanco|negro|azul\s*oscuro)\*?\*?\s+anotad/i);
+            const colorMatch = colorFromClient || colorFromBot;
             if (colorMatch) {
               extractedData.color = colorMatch[1];
             }
             
-            // Extraer calidad
-            const calidadMatch = fullConversation.match(/(premium|mónaco|monaco)/i);
+            // Extraer calidad — PRIORIDAD: mensaje del cliente
+            const calidadFromClient = clientMessages.match(/\b(premium|mónaco|monaco|perchado)\b/i);
+            const calidadFromBot = reply.match(/\*?\*?(premium|mónaco|monaco)\*?\*?\s+anotad/i);
+            const calidadMatch = calidadFromClient || calidadFromBot;
             if (calidadMatch) {
               extractedData.calidad = calidadMatch[1];
             }
             
-            // Extraer cantidad
-            const cantidadMatch = fullConversation.match(/(\d+)\s*(?:buzo|buzos|unidad|unidades)/i);
+            // Extraer cantidad — PRIORIDAD: mensaje del cliente
+            const cantidadFromClient = clientMessages.match(/\b(\d+)\s*(?:buzo|buzos|unidad|unidades)/i) ||
+                                       clientMessages.match(/\bquiero\s+(\d+)\b/i);
+            const cantidadFromBot = reply.match(/(\d+)\s*(?:buzo|buzos)\s+anotad/i);
+            const cantidadMatch = cantidadFromClient || cantidadFromBot;
             if (cantidadMatch) {
               extractedData.cantidad = cantidadMatch[1];
             }
             
-            // Extraer ciudad
-            const ciudadMatch = fullConversation.match(/ciudad[:\s]+\*?\*?([a-záéíóúñ\s]+)\*?\*?/i) ||
-                               reply.match(/(?:envío a|enviamos a|para)\s+\*?\*?([a-záéíóúñ]+)\*?\*?/i);
+            // Extraer ciudad — PRIORIDAD: mensaje del cliente
+            const ciudadFromClient = clientMessages.match(/\b(bogot[aá]|soacha|medell[ií]n|cali|barranquilla|cartagena|bucaramanga|pereira|manizales|c[úu]cuta|ibagu[eé]|santa\s*marta|villavicencio|tunja|pasto|neiva|popay[aá]n|monter[ií]a|sincelejo|armenia)\b/i);
+            const ciudadFromBot = reply.match(/(?:envío a|enviamos a|para)\s+\*?\*?([a-záéíóúñ]+)\*?\*?/i);
+            const ciudadMatch = ciudadFromClient || ciudadFromBot;
             if (ciudadMatch && !extractedData.ciudad) {
               extractedData.ciudad = ciudadMatch[1].trim();
             }

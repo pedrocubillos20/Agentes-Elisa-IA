@@ -14,7 +14,7 @@ const PLANS: Record<string, any> = {
     annual: 250,
     maxLines: 2,
     maxProducts: 10,
-    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline de ventas', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos)', 'Dashboard y métricas', 'Hasta 10 productos de catálogo'],
+    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline de ventas', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos, audios, PDF)', 'Dashboard y métricas', 'Hasta 10 productos de catálogo'],
     notIncluded: ['Equipo multi-usuario', 'Asignación de chats', 'Integraciones API']
   },
   business: {
@@ -23,8 +23,8 @@ const PLANS: Record<string, any> = {
     semiannual: 250,
     annual: 420,
     maxLines: 5,
-    maxProducts: 999,
-    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Productos ilimitados', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Permisos personalizados', 'Integraciones API', 'Soporte prioritario'],
+    maxProducts: 20,
+    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Hasta 20 productos de catálogo', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Estadísticas por sub-usuario', 'Permisos personalizados', 'Integraciones API', 'Soporte prioritario'],
     notIncluded: []
   }
 };
@@ -345,7 +345,7 @@ router.get('/status', async (req: Request, res: Response) => {
     const baseLimits: Record<string, { lines: number, products: number }> = {
       trial: { lines: 1, products: 10 },
       starter: { lines: 2, products: 10 },
-      business: { lines: 5, products: 999 }
+      business: { lines: 5, products: 20 } }
     };
     const base = baseLimits[user.plan] || baseLimits.trial;
     const effectiveLimits = {

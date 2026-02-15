@@ -195,11 +195,26 @@ function extractStagesFromContext(context: string): any[] {
   
   if (foundItems.length < 3) {
     const keywords = [
+      // Ventas general
       'saludo', 'interesado', 'cotización', 'cotizacion', 'pendiente', 'pedido', 
-      'confirmado', 'perdido', 'nuevo', 'calidad', 'color', 'talla', 'pago',
-      'entrega', 'enviado', 'completado', 'cerrado', 'seguimiento', 'demo',
-      'contacto', 'negociación', 'negociacion', 'propuesta', 'cierre', 'postventa',
-      'agendado', 'activación', 'activacion', 'onboarding', 'prueba', 'trial'
+      'confirmado', 'perdido', 'nuevo', 'pago', 'entrega', 'enviado', 'completado', 
+      'cerrado', 'seguimiento', 'contacto', 'negociación', 'negociacion', 'propuesta', 
+      'cierre', 'postventa', 'agendado', 'facturado', 'cobrado',
+      // SaaS / Servicios
+      'demo', 'activación', 'activacion', 'onboarding', 'prueba', 'trial',
+      'suscripción', 'suscripcion', 'renovación', 'renovacion', 'cancelado',
+      // Citas / Agenda
+      'cita', 'reunión', 'reunion', 'consulta', 'asesoría', 'asesoria',
+      // E-commerce / Retail
+      'carrito', 'compra', 'despacho', 'devuelto', 'cambio', 'reembolso',
+      // Inmobiliaria / Servicios pro
+      'visita', 'evaluación', 'evaluacion', 'contrato', 'firma', 'aprobado',
+      // Genéricos por sector
+      'calificado', 'descartado', 'recibido', 'procesando', 'listo', 'finalizado',
+      'en proceso', 'en espera', 'activo', 'inactivo', 'vip', 'premium',
+      // Producto específico (auto-detecta del contexto del usuario)
+      'calidad', 'color', 'talla', 'modelo', 'variante', 'plan', 'paquete',
+      'servicio', 'producto', 'cotizado', 'presupuesto'
     ];
     
     const lines = context.split('\n');

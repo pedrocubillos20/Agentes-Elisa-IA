@@ -642,7 +642,7 @@ export default function ConversacionesPage() {
                 <div className="space-y-1">
                   {Object.entries(selectedConv.contextData as Record<string, any>)
                     .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita'].includes(k))
-                    .slice(0, 5)
+                    .slice(0, 8)
                     .map(([key, value]) => (
                       <div key={key} className="flex justify-between text-[10px]">
                         <span className="text-[var(--text-muted)] capitalize">{key.replace(/_/g, ' ')}</span>

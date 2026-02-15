@@ -707,11 +707,26 @@ El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
 
 FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 
-<<MEMORY_JSON>>{"nombre":"","tipo":"","talla":"","color":"","calidad":"","cantidad":"","ciudad":"","direccion":"","barrio":"","celular":"","precio_unitario":"","descuento":"","envio":"","total":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","etapa_actual":"","accion":""}<<END_MEMORY>>
+<<MEMORY_JSON>>{"nombre":"","telefono":"","email":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","notas":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
 INSTRUCCIONES:
 - Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
 - "nombre" = Nombre del cliente
+- "telefono" = Teléfono o celular del cliente
+- "email" = Email del cliente (si lo da)
+- "producto_servicio" = Qué producto o servicio quiere (ej: "Buzo Negro XL Premium", "Consulta legal", "Paquete turístico Cancún")
+- "detalles_producto" = Especificaciones adicionales como talla, color, modelo, variante, plan, etc.
+- "cantidad" = Cuántas unidades quiere
+- "precio" = Precio unitario o del servicio
+- "descuento" = Descuento aplicado (si hay)
+- "total" = Total a pagar
+- "ciudad" = Ciudad de envío o del cliente
+- "direccion" = Dirección completa de entrega
+- "barrio" = Barrio del cliente
+- "metodo_pago" = Método de pago elegido
+- "fecha_entrega" = Fecha de entrega acordada
+- "pedido" = NO lo llenes tú, el sistema lo actualiza
+- "notas" = Cualquier dato extra relevante del cliente
 - "etapa_actual" = ${pipelineStages.length > 0 ? `OBLIGATORIO. SOLO puede ser una de estas exactas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(', ')}. NO inventes otras.` : 'Déjalo vacío si no hay etapas configuradas.'}
 - "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. Vacío en otros casos.
 - "fecha_cita" = Fecha de la cita confirmada (YYYY-MM-DD o texto como "mañana").
@@ -770,8 +785,9 @@ INSTRUCCIONES:
           if (!memoryMatch) {
             console.log(`⚠️ SIN BLOQUE DE MEMORIA en respuesta (${reply.length} chars)`);
             
-            // 🔄 FALLBACK INTELIGENTE: Extraer datos del historial y respuesta
-            // ⚠️ Separar mensajes del cliente y del bot para evitar falsos positivos
+            // 🔄 FALLBACK GENÉRICO: Extraer datos universales del historial
+            // ⚠️ Solo extrae campos UNIVERSALES que aplican a CUALQUIER negocio
+            // Los campos específicos del producto los maneja GPT via MEMORY_JSON
             const clientMessages = history.filter(m => !m.fromMe).map(m => m.content).join(' ').toLowerCase();
             const botMessages = history.filter(m => m.fromMe).map(m => m.content).join(' ').toLowerCase();
             const fullConversation = clientMessages + ' ' + botMessages + ' ' + reply.toLowerCase();
@@ -780,88 +796,73 @@ INSTRUCCIONES:
             // Extraer datos del historial
             const extractedData: any = { ...savedContext };
             
-            // Extraer nombre si lo mencionó
+            // 👤 Nombre — Universal para cualquier negocio
             const nombreMatch = clientMessages.match(/(?:me llamo|soy|mi nombre es)\s+([a-záéíóúñ]+)/i) ||
                                reply.match(/(?:gracias|hola|perfecto|genial),?\s+\*?\*?([a-záéíóúñ]+)\*?\*?[!,]/i);
             if (nombreMatch && !extractedData.nombre) {
               extractedData.nombre = nombreMatch[1];
             }
             
-            // Extraer talla — PRIORIDAD: mensaje del cliente, luego respuesta del bot
-            // ⚠️ Orden: más largo primero (4xl antes xl antes l) para evitar matcheos parciales
-            // ⚠️ Buscar PRIMERO en mensajes del CLIENTE (el bot dice "tallas estándar" que causa falsos positivos)
-            const tallaRegex = /\b(4xl|3xl|2xl|xl|xs|s|m|l)\b/i;
-            const tallaFromClient = clientMessages.match(tallaRegex);
-            const tallaFromBot = reply.match(/talla\s+\*?\*?(4xl|3xl|2xl|xl|xs|s|m|l)\*?\*?\s+anotad/i);
-            const tallaMatch = tallaFromClient || tallaFromBot;
-            if (tallaMatch) {
-              extractedData.talla = tallaMatch[1].toUpperCase();
+            // 📞 Teléfono — Universal
+            const telefonoMatch = clientMessages.match(/(\d{7,15})/);
+            if (telefonoMatch && !extractedData.telefono) {
+              const num = telefonoMatch[1];
+              if (num.length >= 7 && num.length <= 15) {
+                extractedData.telefono = num;
+              }
             }
             
-            // Extraer color — PRIORIDAD: mensaje del cliente
-            const colorFromClient = clientMessages.match(/\b(marfil|blanco|negro|azul\s*oscuro)\b/i);
-            const colorFromBot = reply.match(/\*?\*?(marfil|blanco|negro|azul\s*oscuro)\*?\*?\s+anotad/i);
-            const colorMatch = colorFromClient || colorFromBot;
-            if (colorMatch) {
-              extractedData.color = colorMatch[1];
+            // 📧 Email — Universal
+            const emailMatch = clientMessages.match(/([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i);
+            if (emailMatch && !extractedData.email) {
+              extractedData.email = emailMatch[1];
             }
-            
-            // Extraer calidad — PRIORIDAD: mensaje del cliente
-            const calidadFromClient = clientMessages.match(/\b(premium|mónaco|monaco|perchado)\b/i);
-            const calidadFromBot = reply.match(/\*?\*?(premium|mónaco|monaco)\*?\*?\s+anotad/i);
-            const calidadMatch = calidadFromClient || calidadFromBot;
-            if (calidadMatch) {
-              extractedData.calidad = calidadMatch[1];
-            }
-            
-            // Extraer cantidad — PRIORIDAD: mensaje del cliente
-            const cantidadFromClient = clientMessages.match(/\b(\d+)\s*(?:buzo|buzos|unidad|unidades)/i) ||
-                                       clientMessages.match(/\bquiero\s+(\d+)\b/i);
-            const cantidadFromBot = reply.match(/(\d+)\s*(?:buzo|buzos)\s+anotad/i);
-            const cantidadMatch = cantidadFromClient || cantidadFromBot;
-            if (cantidadMatch) {
+
+            // 🔢 Cantidad — Genérico (busca patrones como "quiero 3", "2 unidades", etc.)
+            const cantidadMatch = clientMessages.match(/\b(\d{1,3})\s*(?:unidad|unidades|piezas?|pares?|cajas?|bolsas?|paquetes?|servicios?)\b/i) ||
+                                  clientMessages.match(/\bquiero\s+(\d{1,3})\b/i) ||
+                                  clientMessages.match(/\b(\d{1,3})\s+(?:por favor|porfavor|porfa)\b/i);
+            if (cantidadMatch && !extractedData.cantidad) {
               extractedData.cantidad = cantidadMatch[1];
             }
-            
-            // Extraer ciudad — PRIORIDAD: mensaje del cliente
-            const ciudadFromClient = clientMessages.match(/\b(bogot[aá]|soacha|medell[ií]n|cali|barranquilla|cartagena|bucaramanga|pereira|manizales|c[úu]cuta|ibagu[eé]|santa\s*marta|villavicencio|tunja|pasto|neiva|popay[aá]n|monter[ií]a|sincelejo|armenia)\b/i);
-            const ciudadFromBot = reply.match(/(?:envío a|enviamos a|para)\s+\*?\*?([a-záéíóúñ]+)\*?\*?/i);
-            const ciudadMatch = ciudadFromClient || ciudadFromBot;
-            if (ciudadMatch && !extractedData.ciudad) {
-              extractedData.ciudad = ciudadMatch[1].trim();
+
+            // 💳 Método de pago — Universal
+            const pagoPatterns = /(efectivo|nequi|daviplata|transferencia|pse|tarjeta|paypal|contra\s*entrega|qr|bitcoin|crypto|zelle|bancolombia|davivienda)/i;
+            const pagoMatch = clientMessages.match(pagoPatterns);
+            if (pagoMatch && !extractedData.metodo_pago) {
+              extractedData.metodo_pago = pagoMatch[1];
             }
             
-            // 🎯 DETECTAR ETAPA — DINÁMICO basado en las etapas configuradas del pipeline
+            // 🎯 DETECTAR ETAPA — GENÉRICO basado en completitud de datos
             let fallbackStage = '';
             const lastMsgLower = (message || '').toLowerCase();
             if (pipelineStages.length > 0) {
               
-              // Crear mapa de etapas con keywords inteligentes para matching
+              // Crear mapa de etapas con keywords GENÉRICAS (sin productos específicos)
               const stageKeywords: Record<string, string[]> = {};
               for (const s of pipelineStages) {
                 const name = (s.label || s.id || '').toLowerCase();
                 const keywords: string[] = [name];
                 
-                // Auto-generar keywords basadas en el nombre de la etapa
-                if (name.includes('saludo') || name.includes('bienvenida')) keywords.push('hola', 'bienvenido', 'cómo te llamas');
-                if (name.includes('interesado') || name.includes('interés')) keywords.push('interesado', 'quiero', 'me interesa');
-                if (name.includes('cotización') || name.includes('cotizacion')) keywords.push('precio', 'cuánto', 'cuanto', '$');
-                if (name.includes('color')) keywords.push('color', 'colores', 'qué color');
-                if (name.includes('talla')) keywords.push('talla', 'tallas', 'tamaño', 'qué talla');
-                if (name.includes('calidad')) keywords.push('calidad', 'premium', 'mónaco', 'tipo de');
-                if (name.includes('pago')) keywords.push('pago', 'pagar', 'nequi', 'daviplata', 'transferencia', 'tarjeta', 'contra entrega');
-                if (name.includes('pedido') || name.includes('orden')) keywords.push('pedido', 'confirmó', 'confirmo', 'dale', 'listo');
-                if (name.includes('datos') || name.includes('envío') || name.includes('envio') || name.includes('dirección')) keywords.push('dirección', 'barrio', 'celular', 'datos');
-                if (name.includes('agenda') || name.includes('entrega') || name.includes('cita')) keywords.push('fecha', 'hora', 'cuándo', 'agendar', 'mañana');
-                if (name.includes('confirm')) keywords.push('confirmado', 'agendado', 'número de pedido', '#');
-                if (name.includes('perdido') || name.includes('cancelado')) keywords.push('no me interesa', 'no gracias', 'cancelar', 'no quiero');
-                if (name.includes('seguimiento')) keywords.push('seguimiento', 'cómo va', 'mi pedido');
-                if (name.includes('nuevo') || name.includes('nuevo contacto')) keywords.push('nuevo');
+                // Keywords genéricas basadas en el NOMBRE de la etapa (funciona para cualquier negocio)
+                if (name.includes('saludo') || name.includes('bienvenida') || name.includes('nuevo')) keywords.push('hola', 'bienvenido', 'cómo te llamas');
+                if (name.includes('interesado') || name.includes('interés') || name.includes('interes')) keywords.push('interesado', 'quiero', 'me interesa', 'información');
+                if (name.includes('cotización') || name.includes('cotizacion') || name.includes('precio')) keywords.push('precio', 'cuánto', 'cuanto', 'cuesta', 'vale', '$');
+                if (name.includes('pendiente') && (name.includes('dato') || name.includes('info'))) keywords.push('datos', 'información', 'necesito');
+                if (name.includes('pago') || name.includes('factura')) keywords.push('pago', 'pagar', 'transferencia', 'tarjeta', 'efectivo');
+                if (name.includes('pedido') || name.includes('orden') || name.includes('compra')) keywords.push('pedido', 'confirmó', 'confirmo', 'dale', 'listo', 'compra');
+                if (name.includes('envío') || name.includes('envio') || name.includes('dirección') || name.includes('direccion')) keywords.push('dirección', 'barrio', 'envío', 'entregar');
+                if (name.includes('agenda') || name.includes('entrega') || name.includes('cita') || name.includes('reunión')) keywords.push('fecha', 'hora', 'cuándo', 'agendar', 'mañana');
+                if (name.includes('confirm') || name.includes('cerrado') || name.includes('completo')) keywords.push('confirmado', 'agendado', 'listo', 'perfecto');
+                if (name.includes('perdido') || name.includes('cancelado') || name.includes('no interesado')) keywords.push('no me interesa', 'no gracias', 'cancelar', 'no quiero');
+                if (name.includes('seguimiento') || name.includes('post')) keywords.push('seguimiento', 'cómo va', 'mi pedido', 'estado');
+                if (name.includes('propuesta') || name.includes('demo')) keywords.push('propuesta', 'demostración', 'demo', 'prueba');
+                if (name.includes('negoci') || name.includes('cierre')) keywords.push('cerrar', 'negociar', 'acuerdo');
                 
                 stageKeywords[s.label || s.id] = keywords;
               }
               
-              // 1. Prioridad: Si el cliente dice algo de "no interesa" / "cancelar"
+              // 1. Prioridad: Si el cliente dice "no interesa" / "cancelar"
               const perdidoStage = pipelineStages.find((s: any) => {
                 const n = (s.label || s.id || '').toLowerCase();
                 return n.includes('perdido') || n.includes('cancelado') || n.includes('no interesado');
@@ -870,43 +871,46 @@ INSTRUCCIONES:
                 fallbackStage = perdidoStage.label || perdidoStage.id;
               }
               
-              // 2. Detección por datos extraídos (de más completo a menos completo)
+              // 2. Detección GENÉRICA por completitud de datos (funciona para CUALQUIER negocio)
               if (!fallbackStage) {
                 const d = extractedData;
                 const hasName = !!d.nombre;
-                const hasTalla = !!d.talla;
-                const hasColor = !!d.color;
-                const hasCalidad = !!d.calidad;
-                const hasCantidad = !!d.cantidad;
-                const hasCiudad = !!d.ciudad;
-                const hasDireccion = !!d.direccion;
-                const hasPago = !!d.metodo_pago;
-                const hasFecha = !!d.fecha_entrega || !!d.fecha_cita;
-                const hasPedido = !!d.pedido;
+                const hasProduct = !!d.producto_servicio || !!d.detalles_producto;
+                const hasQuantity = !!d.cantidad;
+                const hasPrice = !!d.precio || !!d.total;
+                const hasCity = !!d.ciudad;
+                const hasAddress = !!d.direccion;
+                const hasPayment = !!d.metodo_pago;
+                const hasDelivery = !!d.fecha_entrega || !!d.fecha_cita;
+                const hasOrder = !!d.pedido;
                 
-                // Buscar la etapa que mejor corresponde según los datos que tenemos
-                // Prioridad: de más avanzado a menos avanzado
-                if (hasPedido || hasFecha) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['confirm', 'completo', 'finalizado', 'cerrado']);
-                } else if (hasDireccion && hasPago) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['agenda', 'entrega', 'cita', 'program']);
-                } else if (hasCiudad && hasCantidad && hasCalidad && hasColor && hasTalla) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['pago', 'realiz', 'pedido', 'orden']);
-                } else if (hasName && hasTalla && hasColor && hasCalidad && !hasCantidad) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['cotizaci', 'precio']);
-                } else if (hasName && hasTalla && hasColor && !hasCalidad) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['calidad']);
-                } else if (hasName && hasTalla && !hasColor) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['color']);
-                } else if (hasName && !hasTalla) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['talla', 'interes']);
-                } else if (!hasName) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['saludo', 'bienven', 'nuevo']);
+                // Contar campos llenos para determinar progreso
+                const filledFields = [hasName, hasProduct, hasQuantity, hasPrice, hasCity, hasAddress, hasPayment, hasDelivery].filter(Boolean).length;
+                
+                // Buscar etapa según progreso (de más avanzado a menos avanzado)
+                if (hasOrder || (hasDelivery && hasPayment && hasAddress)) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['confirm', 'completo', 'finalizado', 'cerrado', 'entregado']);
+                } else if (hasAddress && hasPayment) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['agenda', 'entrega', 'cita', 'program', 'despacho']);
+                } else if (hasPayment) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['pago', 'factur', 'cobr']);
+                } else if (filledFields >= 4) {
+                  // Tiene suficientes datos → buscar etapa de pedido/cotización/cierre
+                  fallbackStage = findStageByKeyword(pipelineStages, ['pedido', 'orden', 'cotizaci', 'cierre', 'realiz']);
+                } else if (hasProduct || filledFields >= 2) {
+                  // Tiene producto o algunos datos → en cotización/interesado
+                  fallbackStage = findStageByKeyword(pipelineStages, ['cotizaci', 'precio', 'interes', 'calific']);
+                } else if (hasName) {
+                  // Solo tiene nombre → interesado/nuevo
+                  fallbackStage = findStageByKeyword(pipelineStages, ['interes', 'nuevo', 'contacto', 'saludo']);
+                } else {
+                  // No tiene nada → nuevo/saludo
+                  fallbackStage = findStageByKeyword(pipelineStages, ['saludo', 'bienven', 'nuevo', 'contacto']);
                 }
                 
-                // Si no encontró match exacto pero tiene datos, usar "En Cotización" o similar
-                if (!fallbackStage && hasName) {
-                  fallbackStage = findStageByKeyword(pipelineStages, ['cotizaci', 'interes', 'proceso']);
+                // Fallback: si tiene datos pero no encontró etapa
+                if (!fallbackStage && filledFields > 0) {
+                  fallbackStage = findStageByKeyword(pipelineStages, ['cotizaci', 'interes', 'proceso', 'pendiente']);
                 }
               }
               
@@ -1105,30 +1109,43 @@ INSTRUCCIONES:
                     }
                   }
                   
+                  // 🧩 Construir descripción del producto (compatible con campos nuevos Y viejos)
+                  let productoDesc = merged.producto_servicio || '';
+                  if (!productoDesc) {
+                    // Backward compatibility: construir desde campos legacy si existen
+                    const legacyParts = [merged.tipo, merged.color, merged.talla, merged.calidad].filter(Boolean);
+                    if (legacyParts.length > 0) productoDesc = legacyParts.join(' - ');
+                  }
+                  const detallesDesc = merged.detalles_producto || '';
+
                   const orderData = {
                     userId: ownerId,
                     type: 'order',
                     clientName: merged.nombre || clientName || 'Cliente WhatsApp',
                     clientPhone: clientPhone.replace('@c.us', ''),
                     date: deliveryDate,
-                    time: '14:00', // Entregas de 2 PM a 7 PM
-                    duration: 300, // 5 horas (2 PM - 7 PM)
+                    time: '14:00',
+                    duration: 300,
                     status: 'pending',
                     notes: `📦 PEDIDO WHATSAPP\n` +
                            `━━━━━━━━━━━━━━━\n` +
-                           `👕 Producto: Buzo ${merged.color || ''} - Talla ${merged.talla || ''}\n` +
-                           `✨ Calidad: ${merged.calidad || 'N/A'}\n` +
+                           `🛍️ Producto/Servicio: ${productoDesc || 'N/A'}\n` +
+                           (detallesDesc ? `📋 Detalles: ${detallesDesc}\n` : '') +
                            `📦 Cantidad: ${merged.cantidad || '1'}\n` +
+                           (merged.precio ? `💰 Precio: $${merged.precio}\n` : '') +
+                           ((merged.precio_unitario && !merged.precio) ? `💰 Precio: $${merged.precio_unitario}\n` : '') +
+                           (merged.descuento ? `🏷️ Descuento: ${merged.descuento}\n` : '') +
                            `💵 Total: $${merged.total || '0'}\n` +
-                           `💳 Pago: ${merged.metodo_pago || 'Contra entrega'}\n` +
+                           `💳 Pago: ${merged.metodo_pago || 'Por definir'}\n` +
                            `━━━━━━━━━━━━━━━\n` +
-                           `📍 Dirección: ${merged.direccion || ''}\n` +
-                           `🏘️ Barrio: ${merged.barrio || ''}\n` +
-                           `🏙️ Ciudad: ${merged.ciudad || ''}\n` +
-                           `━━━━━━━━━━━━━━━\n` +
-                           `🕑 Horario: 2:00 PM - 7:00 PM`,
-                    total: parseFloat(merged.total?.replace(/[^0-9]/g, '')) || 0,
-                    address: `${merged.direccion || ''}, ${merged.barrio || ''}, ${merged.ciudad || ''}`.trim(),
+                           (merged.direccion ? `📍 Dirección: ${merged.direccion}\n` : '') +
+                           (merged.barrio ? `🏘️ Barrio: ${merged.barrio}\n` : '') +
+                           (merged.ciudad ? `🏙️ Ciudad: ${merged.ciudad}\n` : '') +
+                           ((merged.telefono || merged.celular) ? `📞 Teléfono: ${merged.telefono || merged.celular}\n` : '') +
+                           (merged.notas ? `📝 Notas: ${merged.notas}\n` : '') +
+                           `━━━━━━━━━━━━━━━`,
+                    total: parseFloat((merged.total || merged.envio || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+                    address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',
                     whatsappLineId: whatsappLineId || null
                   };
                   await prisma.appointment.create({ data: orderData });
@@ -1153,10 +1170,11 @@ INSTRUCCIONES:
                           name: merged.nombre || clientName || 'Cliente WhatsApp',
                           phone: phoneClean2,
                           email: merged.email || null,
-                          notes: `Cliente registrado automáticamente desde pedido WhatsApp`,
+                          address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ') || null,
+                          notes: merged.notas ? `${merged.notas}\nCliente desde WhatsApp` : `Cliente registrado automáticamente desde pedido WhatsApp`,
                           status: 'active',
                           tags: ['pedido', 'whatsapp'],
-                          totalPurchases: parseFloat(merged.total?.replace(/[^0-9]/g, '')) || 0,
+                          totalPurchases: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
                           lastContact: new Date(),
                           whatsappLineId: whatsappLineId || null
                         }

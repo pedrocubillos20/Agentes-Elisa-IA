@@ -52,40 +52,44 @@ const STORAGE_KEY = 'bizonne_wallpaper';
 
 // ===== APLICAR FONDO =====
 export function applyWallpaper(config: WallpaperConfig) {
-  const main = document.getElementById('bizonne-main');
-  if (!main) return;
+  const wrapper = document.getElementById('bizonne-wrapper');
+  if (!wrapper) return;
   
   // Reset
-  main.style.backgroundColor = '';
-  main.style.backgroundImage = '';
-  main.style.backgroundSize = '';
-  main.style.backgroundPosition = '';
-  main.style.backgroundRepeat = '';
-  main.style.backgroundAttachment = '';
+  wrapper.style.backgroundColor = '';
+  wrapper.style.backgroundImage = '';
+  wrapper.style.backgroundSize = '';
+  wrapper.style.backgroundPosition = '';
+  wrapper.style.backgroundRepeat = '';
+  wrapper.style.backgroundAttachment = '';
+  
+  // Also update CSS variable for components that need it
+  const isCustom = config.type !== 'solid' || config.id !== 'default';
+  document.documentElement.setAttribute('data-wallpaper', isCustom ? 'active' : 'none');
   
   switch (config.type) {
     case 'solid':
-      main.style.backgroundColor = config.value;
+      wrapper.style.backgroundColor = config.value;
       break;
     case 'gradient':
-      main.style.backgroundImage = config.value;
+      wrapper.style.backgroundImage = config.value;
       break;
     case 'pattern': {
       const pat = PATTERNS.find(p => p.id === config.id);
       if (pat) {
-        main.style.backgroundColor = pat.bg;
-        main.style.backgroundImage = pat.css;
-        main.style.backgroundSize = pat.size;
+        wrapper.style.backgroundColor = pat.bg;
+        wrapper.style.backgroundImage = pat.css;
+        wrapper.style.backgroundSize = pat.size;
       }
       break;
     }
     case 'image':
     case 'custom': {
       const overlay = config.overlay ?? 70;
-      main.style.backgroundImage = `linear-gradient(rgba(10,14,23,${overlay / 100}), rgba(10,14,23,${overlay / 100})), url(${config.value})`;
-      main.style.backgroundSize = 'cover';
-      main.style.backgroundPosition = 'center';
-      main.style.backgroundAttachment = 'fixed';
+      wrapper.style.backgroundImage = `linear-gradient(rgba(10,14,23,${overlay / 100}), rgba(10,14,23,${overlay / 100})), url(${config.value})`;
+      wrapper.style.backgroundSize = 'cover';
+      wrapper.style.backgroundPosition = 'center';
+      wrapper.style.backgroundAttachment = 'fixed';
       break;
     }
   }

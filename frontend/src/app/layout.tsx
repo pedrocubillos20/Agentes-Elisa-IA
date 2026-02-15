@@ -209,7 +209,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="grid-pattern" />
 
         <LineContext.Provider value={{ selectedLine, lines, switchLine, refreshLines: fetchLines }}>
-          <div className="min-h-screen flex">
+          <div id="bizonne-wrapper" className="min-h-screen flex">
             {sidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
             {/* Sidebar */}
@@ -389,7 +389,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </aside>
 
             {/* Main */}
-            <main id="bizonne-main" className="flex-1 flex flex-col min-h-screen">
+            <main className="flex-1 flex flex-col min-h-screen">
               <header className="sticky top-0 z-30 h-16 px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">

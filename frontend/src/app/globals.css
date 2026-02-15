@@ -489,3 +489,122 @@ body {
 .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
 .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
 .sidebar-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
+
+/* ============================================================
+   WALLPAPER MODE — when [data-wallpaper="active"] on <html>
+   ============================================================ */
+
+/* Hide default animated background when wallpaper is active */
+[data-wallpaper="active"] .app-background,
+[data-wallpaper="active"] .app-background::before,
+[data-wallpaper="active"] .grid-pattern {
+  display: none !important;
+}
+
+/* Sidebar: transparent glass effect */
+[data-wallpaper="active"] .sidebar {
+  background: rgba(10, 10, 15, 0.65) !important;
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Nav items: more visible hover/active */
+[data-wallpaper="active"] .nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+[data-wallpaper="active"] .nav-item.active {
+  background: rgba(16, 185, 129, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.2);
+}
+
+/* Header: transparent glass */
+[data-wallpaper="active"] header {
+  background: rgba(10, 10, 15, 0.5) !important;
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* Cards: stronger background for readability */
+[data-wallpaper="active"] .card {
+  background: rgba(13, 13, 20, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+[data-wallpaper="active"] .card:hover {
+  background: rgba(13, 13, 20, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Stat cards */
+[data-wallpaper="active"] .stat-card {
+  background: rgba(13, 13, 20, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Glass components */
+[data-wallpaper="active"] .glass {
+  background: rgba(13, 13, 20, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+/* Content area: subtle overlay for extra readability */
+[data-wallpaper="active"] main > div {
+  position: relative;
+}
+
+/* Dropdowns and modals */
+[data-wallpaper="active"] [class*="bg-[var(--bg-secondary)]"] {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* User section in sidebar */
+[data-wallpaper="active"] .sidebar .avatar {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+/* Plan badge: stronger contrast */
+[data-wallpaper="active"] .sidebar [class*="rounded-lg"][class*="border"] {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Buttons need more contrast */
+[data-wallpaper="active"] .btn-primary {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Tables and lists */
+[data-wallpaper="active"] table {
+  background: rgba(13, 13, 20, 0.5);
+  border-radius: 12px;
+}
+[data-wallpaper="active"] tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Inputs: darker background */
+[data-wallpaper="active"] input,
+[data-wallpaper="active"] textarea,
+[data-wallpaper="active"] select {
+  background: rgba(10, 10, 15, 0.7) !important;
+}
+
+/* Generic bg-white/5 sections get more opacity */
+[data-wallpaper="active"] [class*="bg-white/5"] {
+  background: rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Wrapper needs to hold the wallpaper */
+#bizonne-wrapper {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}

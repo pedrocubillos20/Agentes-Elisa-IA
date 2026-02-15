@@ -345,7 +345,7 @@ router.get('/status', async (req: Request, res: Response) => {
     const baseLimits: Record<string, { lines: number, products: number }> = {
       trial: { lines: 1, products: 10 },
       starter: { lines: 2, products: 10 },
-      business: { lines: 5, products: 20 } }
+      business: { lines: 5, products: 20 }
     };
     const base = baseLimits[user.plan] || baseLimits.trial;
     const effectiveLimits = {

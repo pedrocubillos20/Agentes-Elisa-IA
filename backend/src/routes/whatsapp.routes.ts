@@ -612,11 +612,28 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       if (kt) promptParts.push(`Base de conocimiento:\n${kt}`);
     }
 
-    // Media triggers
+    // Media triggers - Instrucción para que la IA active triggers naturalmente
     const mediaItems = assistant.mediaItems as any[];
     if (mediaItems?.length) {
-      const ml = mediaItems.filter(m => m.trigger).map(m => `- ${m.type}: "${m.name}" (activadores: ${m.trigger})`).join('\n');
-      if (ml) promptParts.push(`\nArchivos multimedia disponibles:\n${ml}\nSi el cliente pregunta por algo relacionado, menciona que se lo envías.`);
+      const triggerList = mediaItems.filter(m => m.trigger).map(m => {
+        const triggers = m.trigger.split(',').map((t: string) => t.trim()).filter(Boolean);
+        if (m.type === 'catalog') {
+          return `- CATÁLOGO "${m.name}" (${(m.images || []).length} fotos) → Se activa si tu respuesta contiene: ${triggers.join(', ')}`;
+        }
+        return `- ${m.type === 'image' ? 'IMAGEN' : m.type === 'video' ? 'VIDEO' : 'AUDIO'} → Se activa si tu respuesta contiene: ${triggers.join(', ')}`;
+      }).join('\n');
+      if (triggerList) promptParts.push(`\n📸 SISTEMA DE MULTIMEDIA AUTOMÁTICO:
+El sistema envía archivos automáticamente cuando detecta palabras clave en TU respuesta.
+
+${triggerList}
+
+⚠️ REGLAS ESTRICTAS:
+- NUNCA escribas nombres de archivo, URLs o referencias como [image:xxx]
+- NUNCA inventes links de imágenes
+- Para activar el envío automático, simplemente INCLUYE la palabra trigger de forma natural en tu respuesta
+- Ejemplo: Si el trigger es "catalogo", escribe algo como "Te muestro nuestro catálogo 👇" y el sistema enviará las fotos
+- Ejemplo: Si el trigger es "colores", escribe "Te muestro los colores disponibles 👇" y las fotos se envían solas
+- Tu respuesta debe ser SOLO TEXTO. Las imágenes las envía el sistema después automáticamente.`);
     }
 
     // 🎯 CARGAR ETAPAS DEL PIPELINE DE LA LÍNEA
@@ -1453,6 +1470,32 @@ const processBufferedMessages = async (bufferKey: string) => {
           await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
           await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse } });
           console.log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
+
+          // 📸 TRIGGER POR RESPUESTA: Solo para CATÁLOGOS (no imágenes individuales)
+          // Esto evita falsos positivos con triggers simples como "Negro", "precio", etc.
+          const catalogItems = mediaItems.filter((m: any) => m.type === 'catalog' && m.trigger);
+          if (catalogItems.length > 0) {
+            const responseMedia = findMediaTrigger(aiResponse, catalogItems);
+            if (responseMedia && responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
+              console.log(`📸 Trigger catálogo por RESPUESTA del bot: "${responseMedia.name}"`);
+              
+              // Pequeña pausa antes de enviar multimedia
+              await new Promise(r => setTimeout(r, 1000));
+
+              console.log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes (por respuesta)`);
+              let sentCount = 0;
+              for (let i = 0; i < responseMedia.images.length; i++) {
+                const img = responseMedia.images[i];
+                const caption = i === 0 ? (responseMedia.caption || responseMedia.name) : '';
+                const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
+                const imgSent = await sendWahaMedia(sessionName, from, imgMedia, caption);
+                if (imgSent) sentCount++;
+                if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
+              }
+              await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
+              console.log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
+            }
+          }
         }
       }
     }

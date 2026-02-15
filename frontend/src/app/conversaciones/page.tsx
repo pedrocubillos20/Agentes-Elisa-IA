@@ -27,6 +27,7 @@ export default function ConversacionesPage() {
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStage, setFilterStage] = useState('all');
   const [newMessage, setNewMessage] = useState('');
@@ -105,6 +106,8 @@ export default function ConversacionesPage() {
   // Cargar mensajes cuando se selecciona una conversación
   useEffect(() => {
     if (selectedConv) {
+      setMessages([]); // ✅ Limpiar mensajes inmediatamente al cambiar de conversación
+      setLoadingMessages(true); // ✅ Mostrar loading
       lastMessageCountRef.current = 0;
       fetchMessages(selectedConv.id);
     }
@@ -123,11 +126,14 @@ export default function ConversacionesPage() {
       const conv = selectedConvRef.current;
       if (!conv) return;
       
+      const convIdBefore = conv.id; // ✅ Guardar ID antes del fetch
       const token = localStorage.getItem('token');
       try {
         const res = await fetch(`${API_URL}/api/conversations/${conv.id}/messages?limit=100`, { 
           headers: { 'Authorization': `Bearer ${token}` } 
         });
+        // ✅ Verificar que no cambió de conversación durante el fetch
+        if (selectedConvRef.current?.id !== convIdBefore) return;
         if (res.ok) {
           const data = await res.json();
           const newMsgs = data.messages || [];
@@ -194,8 +200,11 @@ export default function ConversacionesPage() {
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_URL}/api/conversations/${convId}/messages?limit=100`, { headers: { 'Authorization': `Bearer ${token}` } });
+      // ✅ Verificar que seguimos en la misma conversación
+      if (selectedConvRef.current?.id !== convId) return;
       if (res.ok) setMessages((await res.json()).messages || []);
     } catch {}
+    finally { setLoadingMessages(false); }
   };
 
   // ====================================================
@@ -481,6 +490,11 @@ export default function ConversacionesPage() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {loadingMessages && messages.length === 0 && (
+                  <div className="flex-1 flex items-center justify-center h-full">
+                    <div className="loading-spinner w-6 h-6" />
+                  </div>
+                )}
                 {messages.map((msg, idx) => (
                   <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>

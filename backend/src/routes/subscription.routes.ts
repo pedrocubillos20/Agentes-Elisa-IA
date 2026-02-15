@@ -14,7 +14,7 @@ const PLANS: Record<string, any> = {
     annual: 250,
     maxLines: 2,
     maxProducts: 10,
-    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline de ventas', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos, audios, PDF)', 'Dashboard y métricas', 'Hasta 10 productos de catálogo'],
+    features: ['Asistente IA con WhatsApp', '2 líneas de WhatsApp', 'Conversaciones ilimitadas', 'CRM + Pipeline de ventas', 'Agenda automática', 'Base de conocimiento', 'Multimedia (imágenes, videos, audios, PDF)', 'Transcripción de audios con IA', 'Dashboard y métricas', 'Hasta 10 productos de catálogo'],
     notIncluded: ['Equipo multi-usuario', 'Asignación de chats', 'Integraciones API']
   },
   business: {

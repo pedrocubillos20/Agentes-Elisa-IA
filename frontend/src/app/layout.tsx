@@ -8,11 +8,12 @@ import {
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
   ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
-  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key, Paintbrush
+  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key, Paintbrush, Download
 } from 'lucide-react';
 import Paywall from '../components/Paywall';
 import LiveChat from '../components/LiveChat';
 import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
+import InstallApp from '../components/InstallApp';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573213815105';
@@ -40,11 +41,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [apiKeyError, setApiKeyError] = useState<any>(null);
   const [showApiKeyGuide, setShowApiKeyGuide] = useState(false);
   const [showWallpaper, setShowWallpaper] = useState(false);
+  const [showInstall, setShowInstall] = useState(false);
 
   // 🎨 Aplicar fondo guardado al montar
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setTimeout(() => applyWallpaper(loadSavedWallpaper()), 100);
+      // 📱 Registrar Service Worker para PWA
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
     }
   }, [loading]);
 
@@ -203,7 +209,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <html lang="es">
-      <head><title>{selectedLine ? `${selectedLine.label} — Bizonne` : 'Bizonne CRM'}</title><link rel="icon" href="/bizonne.png" /></head>
+      <head>
+        <title>{selectedLine ? `${selectedLine.label} — Bizonne` : 'Bizonne CRM'}</title>
+        <link rel="icon" href="/bizonne.png" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#10b981" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="BizonneCRM" />
+        <link rel="apple-touch-icon" href="/bizonne.png" />
+      </head>
       <body>
         <div className="app-background" />
         <div className="grid-pattern" />
@@ -417,6 +432,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     title="Cambiar fondo"
                   >
                     <Paintbrush className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => setShowInstall(true)} 
+                    className="p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5"
+                    title="Instalar App"
+                  >
+                    <Download className="w-4 h-4" />
                   </button>
                   <button className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
                     <Bell className="w-5 h-5" />
@@ -649,6 +671,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         {/* ===== WALLPAPER PICKER ===== */}
         <WallpaperPicker isOpen={showWallpaper} onClose={() => setShowWallpaper(false)} />
+        <InstallApp isOpen={showInstall} onClose={() => setShowInstall(false)} />
 
         {/* ===== LIVE CHAT SUPPORT ===== */}
         {user && !isAuthPage && (

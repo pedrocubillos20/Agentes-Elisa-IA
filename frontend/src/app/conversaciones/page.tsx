@@ -485,7 +485,26 @@ export default function ConversacionesPage() {
                   <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
                       {msg.mediaType === 'image' && msg.mediaUrl && <img src={msg.mediaUrl} alt="" className="max-w-[200px] rounded-lg mb-1" />}
-                      {msg.mediaType === 'audio' && <div className="text-xs opacity-80">🎵 Audio</div>}
+                      {msg.mediaType === 'audio' && (
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
+                          <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs">🎤</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex gap-[2px] items-end h-3">
+                                {[3,5,7,4,6,8,5,7,3,5,6,4,7,5,3].map((h,i) => (
+                                  <div key={i} className="w-[2px] rounded-full bg-emerald-400/60" style={{height: `${h * 1.5}px`}} />
+                                ))}
+                              </div>
+                              <span className="text-[9px] opacity-60 ml-1">Audio</span>
+                            </div>
+                            {msg.content && !msg.content.includes('[Audio') && (
+                              <p className="text-[9px] text-emerald-400/80 mt-0.5">✨ Transcrito por IA</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                       <p className={`text-[9px] mt-1 ${msg.fromMe ? 'text-white/60' : 'text-[var(--text-muted)]'}`}>
                         {new Date(msg.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}

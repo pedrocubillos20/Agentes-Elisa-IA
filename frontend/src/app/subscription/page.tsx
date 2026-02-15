@@ -14,7 +14,8 @@ const PLAN_FEATURES: Record<string, { included: string[]; excluded: string[] }> 
       'CRM + Pipeline de ventas',
       'Agenda automática',
       'Base de conocimiento',
-      'Multimedia (imágenes, videos)',
+      'Multimedia (imágenes, videos, audios, PDF)',
+      'Transcripción de audios con IA',
       'Dashboard y métricas',
       'Hasta 10 productos de catálogo',
     ],
@@ -24,10 +25,11 @@ const PLAN_FEATURES: Record<string, { included: string[]; excluded: string[] }> 
     included: [
       'Todo de Starter +',
       '5 líneas de WhatsApp',
-      'Productos ilimitados',
+      'Hasta 20 productos de catálogo',
       'Equipo completo (roles)',
       'Asignación de chats a vendedores',
       'Dashboard para directivos',
+      'Estadísticas por sub-usuario',
       'Permisos personalizados',
       'Integraciones API',
       'Soporte prioritario'
@@ -952,7 +954,7 @@ export default function SubscriptionPage() {
               <div className="mt-4 flex flex-wrap gap-3 justify-center text-[10px] text-gray-500">
                 <span>📱 Líneas: {subStatus.effectiveLimits.maxLines} máx</span>
                 <span>•</span>
-                <span>📦 Productos: {subStatus.effectiveLimits.maxProducts === 999 ? '∞' : subStatus.effectiveLimits.maxProducts} máx</span>
+                <span>📦 Productos: {subStatus.effectiveLimits.maxProducts} máx</span>
                 {subStatus.effectiveLimits.extraLinesPurchased > 0 && (
                   <span className="text-cyan-400">(+{subStatus.effectiveLimits.extraLinesPurchased} extra)</span>
                 )}

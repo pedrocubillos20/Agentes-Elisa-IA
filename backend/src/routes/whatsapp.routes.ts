@@ -1396,7 +1396,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     }
 
     if (matchedMedia) {
-      console.log(`📎 Trigger multimedia: "${matchedMedia.name}"`);
+      console.log(`📎 Trigger multimedia: "${matchedMedia.name}" (tipo: ${matchedMedia.type})`);
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       await stopPresence(sessionName, from);
 
@@ -1406,15 +1406,38 @@ const processBufferedMessages = async (bufferKey: string) => {
         await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
       }
 
-      const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
-      if (sent) {
-        await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
+      // 📂 CATÁLOGO: Enviar múltiples imágenes secuencialmente
+      if (matchedMedia.type === 'catalog' && Array.isArray(matchedMedia.images) && matchedMedia.images.length > 0) {
+        console.log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
+        let sentCount = 0;
+        for (let i = 0; i < matchedMedia.images.length; i++) {
+          const img = matchedMedia.images[i];
+          const caption = i === 0 ? (matchedMedia.caption || matchedMedia.name) : (img.name || '');
+          const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
+          const sent = await sendWahaMedia(sessionName, from, imgMedia, caption);
+          if (sent) {
+            sentCount++;
+            console.log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`);
+          }
+          // Pequeña pausa entre imágenes para evitar throttling
+          if (i < matchedMedia.images.length - 1) {
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        }
+        await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
+        console.log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
       } else {
-        const fallbackText = matchedMedia.caption
-          ? `📎 ${matchedMedia.caption}`
-          : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles 😊`;
-        await sendWahaMessage(sessionName, from, fallbackText);
-        await prisma.message.create({ data: { conversationId: convId, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
+        // Archivo individual (imagen, video, audio)
+        const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
+        if (sent) {
+          await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
+        } else {
+          const fallbackText = matchedMedia.caption
+            ? `📎 ${matchedMedia.caption}`
+            : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles 😊`;
+          await sendWahaMessage(sessionName, from, fallbackText);
+          await prisma.message.create({ data: { conversationId: convId, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
+        }
       }
       await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse || `📎 ${matchedMedia.name}` } });
 
@@ -2261,7 +2284,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
-    if (!event || (event !== 'message' && event !== 'message.any')) { res.json({ success: true }); return; }
+    if (!event || event !== 'message') { res.json({ success: true }); return; }
     
     // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):
     // - Guardar en DB si fue enviado manualmente desde el celular
@@ -2327,7 +2350,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
     if (msgId) {
       recentlyProcessed.add(msgId);
-      setTimeout(() => recentlyProcessed.delete(msgId), 30000); // Limpiar después de 30s
+      setTimeout(() => recentlyProcessed.delete(msgId), 60000); // 60s en vez de 30s
+    }
+
+    // 🔒 DEDUP NIVEL 2: Por contenido + remitente (protege contra webhooks duplicados con IDs diferentes)
+    const rawBody = payload?.body || payload?.text || payload?.content || '';
+    const rawFrom = payload?.from || payload?.chatId || '';
+    const contentDedupKey = `${rawFrom}:${rawBody.substring(0, 80)}:${Math.floor(Date.now() / 10000)}`; // ventana de 10s
+    if (rawBody && recentlyProcessed.has(contentDedupKey)) {
+      console.log(`🔄 Duplicado por contenido ignorado: "${rawBody.substring(0, 40)}"`);
+      res.json({ success: true }); return;
+    }
+    if (rawBody) {
+      recentlyProcessed.add(contentDedupKey);
+      setTimeout(() => recentlyProcessed.delete(contentDedupKey), 15000);
     }
 
     const from = payload?.from || payload?.chatId || '';

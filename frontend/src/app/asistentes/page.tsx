@@ -164,6 +164,75 @@ export default function AsistentesPage() {
     e.target.value = '';
   };
 
+  // 📂 CATÁLOGO: Crear nuevo catálogo vacío
+  const createCatalog = () => {
+    const newCatalog = {
+      id: Date.now().toString(),
+      name: 'Nuevo Catálogo',
+      type: 'catalog',
+      trigger: '',
+      caption: '',
+      images: [] as { id: string; name: string; url: string; size: number }[]
+    };
+    setMediaItems(prev => [...prev, newCatalog]);
+    setMessage({ type: 'success', text: 'Catálogo creado. Agrega imágenes, define trigger y guarda.' });
+  };
+
+  // 📂 CATÁLOGO: Agregar imagen al catálogo
+  const addImageToCatalog = (catalogIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const catalog = mediaItems[catalogIndex];
+    if (!catalog || catalog.type !== 'catalog') return;
+
+    const currentImages = catalog.images || [];
+    const remaining = 10 - currentImages.length;
+    
+    if (remaining <= 0) {
+      setMessage({ type: 'error', text: 'Máximo 10 imágenes por catálogo' });
+      return;
+    }
+
+    const filesToProcess = Array.from(files).slice(0, remaining);
+    let processed = 0;
+
+    filesToProcess.forEach(file => {
+      if (file.size > 5 * 1024 * 1024) {
+        setMessage({ type: 'error', text: `"${file.name}" es muy grande (máx 5MB)` });
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        processed++;
+        setMediaItems(prev => prev.map((item, i) => {
+          if (i !== catalogIndex) return item;
+          const imgs = [...(item.images || []), {
+            id: `${Date.now()}-${processed}`,
+            name: file.name,
+            url: reader.result as string,
+            size: file.size
+          }];
+          return { ...item, images: imgs };
+        }));
+        if (processed === filesToProcess.length) {
+          setMessage({ type: 'success', text: `${processed} imagen(es) agregada(s) al catálogo` });
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  // 📂 CATÁLOGO: Eliminar imagen del catálogo
+  const removeImageFromCatalog = (catalogIndex: number, imageId: string) => {
+    setMediaItems(prev => prev.map((item, i) => {
+      if (i !== catalogIndex) return item;
+      return { ...item, images: (item.images || []).filter((img: any) => img.id !== imageId) };
+    }));
+  };
+
   const updateMediaItem = (index: number, field: string, value: string) => {
     setMediaItems(prev => prev.map((item, i) => i === index ? { ...item, [field]: value } : item));
   };
@@ -425,7 +494,7 @@ export default function AsistentesPage() {
             </div>
 
             {/* Upload Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <label className="card glass-hover cursor-pointer text-center py-8 border-2 border-dashed border-[var(--border-primary)] hover:border-blue-500/50">
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => handleMediaUpload(e, 'image')} />
                 <div className="w-16 h-16 rounded-2xl bg-blue-500/20 flex items-center justify-center mx-auto mb-4">
@@ -435,6 +504,16 @@ export default function AsistentesPage() {
                 <p className="text-xs text-[var(--text-muted)]">Catálogo, productos, local</p>
                 <p className="text-xs text-blue-400 mt-2">Máx 5MB</p>
               </label>
+
+              {/* 📂 CATÁLOGO: Múltiples imágenes por trigger */}
+              <div onClick={createCatalog} className="card glass-hover cursor-pointer text-center py-8 border-2 border-dashed border-[var(--border-primary)] hover:border-emerald-500/50">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-8 h-8 text-emerald-400" />
+                </div>
+                <h4 className="font-semibold text-white mb-1">Catálogo</h4>
+                <p className="text-xs text-[var(--text-muted)]">Hasta 10 imágenes</p>
+                <p className="text-xs text-emerald-400 mt-2">Envío múltiple</p>
+              </div>
 
               <label className="card glass-hover cursor-pointer text-center py-8 border-2 border-dashed border-[var(--border-primary)] hover:border-purple-500/50">
                 <input type="file" accept="video/*" className="hidden" onChange={(e) => handleMediaUpload(e, 'video')} />
@@ -461,45 +540,110 @@ export default function AsistentesPage() {
             {mediaItems.length > 0 ? (
               <div className="space-y-4">
                 {mediaItems.map((item, index) => (
-                  <div key={item.id} className="p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)] flex items-start gap-4">
-                    {/* Preview */}
-                    <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-[var(--bg-primary)] flex items-center justify-center">
-                      {item.type === 'image' && item.url ? (
-                        <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
-                      ) : item.type === 'video' ? (
-                        <Video className="w-8 h-8 text-purple-400" />
-                      ) : (
-                        <Music className="w-8 h-8 text-orange-400" />
-                      )}
-                    </div>
+                  <div key={item.id} className="p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+                    {item.type === 'catalog' ? (
+                      /* ===== 📂 CATÁLOGO: Múltiples imágenes ===== */
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                              <FileText className="w-4 h-4 text-emerald-400" />
+                            </div>
+                            <input type="text" value={item.name || ''} 
+                              onChange={(e) => updateMediaItem(index, 'name', e.target.value)}
+                              className="bg-transparent border-none text-white font-medium text-sm focus:outline-none" 
+                              placeholder="Nombre del catálogo" />
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded">
+                              catálogo · {(item.images || []).length}/10 imgs
+                            </span>
+                          </div>
+                          <button onClick={() => removeMedia(index)} className="btn-icon text-red-400 hover:bg-red-500/20">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
 
-                    {/* Info + Trigger */}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-white">{item.name}</span>
-                        <span className="text-[10px] text-[var(--text-muted)] bg-white/5 px-2 py-0.5 rounded">{formatSize(item.size || 0)}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded ${
-                          item.type === 'image' ? 'bg-blue-500/20 text-blue-400' :
-                          item.type === 'video' ? 'bg-purple-500/20 text-purple-400' : 'bg-orange-500/20 text-orange-400'
-                        }`}>{item.type}</span>
+                        {/* Imágenes del catálogo */}
+                        <div className="flex flex-wrap gap-2">
+                          {(item.images || []).map((img: any) => (
+                            <div key={img.id} className="relative group w-20 h-20 rounded-lg overflow-hidden border border-[var(--border-primary)]">
+                              <img src={img.url} alt={img.name} className="w-full h-full object-cover" />
+                              <button onClick={() => removeImageFromCatalog(index, img.id)}
+                                className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <X className="w-3 h-3 text-white" />
+                              </button>
+                              <p className="absolute bottom-0 left-0 right-0 bg-black/60 text-[8px] text-white text-center py-0.5 truncate px-1">{img.name}</p>
+                            </div>
+                          ))}
+                          {(item.images || []).length < 10 && (
+                            <label className="w-20 h-20 rounded-lg border-2 border-dashed border-[var(--border-primary)] hover:border-emerald-500/50 flex flex-col items-center justify-center cursor-pointer transition-all">
+                              <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => addImageToCatalog(index, e)} />
+                              <Plus className="w-5 h-5 text-[var(--text-muted)]" />
+                              <span className="text-[8px] text-[var(--text-muted)] mt-0.5">Agregar</span>
+                            </label>
+                          )}
+                        </div>
+
+                        {/* Trigger + Caption */}
+                        <input type="text" placeholder="🔑 Triggers: catalogo, colores, productos (separados por coma)"
+                          value={item.trigger || ''} onChange={(e) => updateMediaItem(index, 'trigger', e.target.value)}
+                          className="input text-sm w-full" />
+                        <input type="text" placeholder="💬 Caption opcional (texto que acompaña las imágenes)"
+                          value={item.caption || ''} onChange={(e) => updateMediaItem(index, 'caption', e.target.value)}
+                          className="input text-sm w-full" />
+                        {!item.trigger && (
+                          <p className="text-xs text-yellow-400 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />Define un trigger para activar el envío automático
+                          </p>
+                        )}
+                        {(item.images || []).length === 0 && (
+                          <p className="text-xs text-yellow-400 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />Agrega al menos una imagen al catálogo
+                          </p>
+                        )}
                       </div>
-                      <input type="text" placeholder="🔑 Triggers: catalogo, menu, productos (separados por coma)"
-                        value={item.trigger || ''} onChange={(e) => updateMediaItem(index, 'trigger', e.target.value)}
-                        className="input text-sm w-full" />
-                      <input type="text" placeholder="💬 Caption opcional (texto que acompaña al archivo)"
-                        value={item.caption || ''} onChange={(e) => updateMediaItem(index, 'caption', e.target.value)}
-                        className="input text-sm w-full" />
-                      {!item.trigger && (
-                        <p className="text-xs text-yellow-400 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" />Define un trigger para activar el envío automático
-                        </p>
-                      )}
-                    </div>
+                    ) : (
+                      /* ===== ARCHIVO INDIVIDUAL (imagen, video, audio) ===== */
+                      <div className="flex items-start gap-4">
+                        {/* Preview */}
+                        <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-[var(--bg-primary)] flex items-center justify-center">
+                          {item.type === 'image' && item.url ? (
+                            <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
+                          ) : item.type === 'video' ? (
+                            <Video className="w-8 h-8 text-purple-400" />
+                          ) : (
+                            <Music className="w-8 h-8 text-orange-400" />
+                          )}
+                        </div>
 
-                    {/* Delete */}
-                    <button onClick={() => removeMedia(index)} className="btn-icon text-red-400 hover:bg-red-500/20 flex-shrink-0">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                        {/* Info + Trigger */}
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-white">{item.name}</span>
+                            <span className="text-[10px] text-[var(--text-muted)] bg-white/5 px-2 py-0.5 rounded">{formatSize(item.size || 0)}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded ${
+                              item.type === 'image' ? 'bg-blue-500/20 text-blue-400' :
+                              item.type === 'video' ? 'bg-purple-500/20 text-purple-400' : 'bg-orange-500/20 text-orange-400'
+                            }`}>{item.type}</span>
+                          </div>
+                          <input type="text" placeholder="🔑 Triggers: catalogo, menu, productos (separados por coma)"
+                            value={item.trigger || ''} onChange={(e) => updateMediaItem(index, 'trigger', e.target.value)}
+                            className="input text-sm w-full" />
+                          <input type="text" placeholder="💬 Caption opcional (texto que acompaña al archivo)"
+                            value={item.caption || ''} onChange={(e) => updateMediaItem(index, 'caption', e.target.value)}
+                            className="input text-sm w-full" />
+                          {!item.trigger && (
+                            <p className="text-xs text-yellow-400 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />Define un trigger para activar el envío automático
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Delete */}
+                        <button onClick={() => removeMedia(index)} className="btn-icon text-red-400 hover:bg-red-500/20 flex-shrink-0">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -520,7 +664,8 @@ export default function AsistentesPage() {
               <li>• Si el cliente dice "envíame el catálogo" y tienes una imagen con trigger "catalogo", se enviará automáticamente</li>
               <li>• Múltiples triggers separados por coma: "menu, carta, precios"</li>
               <li>• <strong className="text-white">Caption:</strong> Texto opcional que acompaña al archivo</li>
-              <li>• La IA responderá primero con texto, y luego enviará el archivo</li>
+              <li>• <strong className="text-emerald-400">Catálogo:</strong> Agrupa hasta 10 imágenes con un solo trigger. Se envían todas en secuencia cuando el cliente activa la palabra clave</li>
+              <li>• La IA responderá primero con texto, y luego enviará el archivo o catálogo</li>
               <li>• <strong className="text-yellow-400">Importante:</strong> Haz clic en "Guardar Todo" después de agregar/editar archivos</li>
             </ul>
           </div>

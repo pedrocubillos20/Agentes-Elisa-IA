@@ -364,6 +364,14 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       where: { userId: user.parentUserId || userId, plan: 'priority_support', status: 'approved' }
     });
 
+    // Contar addons de líneas y productos comprados
+    const extraLinesPurchased = await prisma.payment.count({
+      where: { userId: user.parentUserId || userId, plan: 'extra_line', status: 'approved' }
+    });
+    const extraProductsPurchased = await prisma.payment.count({
+      where: { userId: user.parentUserId || userId, plan: 'extra_products', status: 'approved' }
+    });
+
     // For sub-users, get plan from parent
     let effectivePlan = user.plan;
     if (user.parentUserId) {
@@ -378,6 +386,20 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     // Priority support: Business plan, Implementation addon, or Priority Support addon
     const hasPrioritySupport = effectivePlan === 'business' || !!hasImplementation || !!hasPrioritySupportAddon;
 
+    // Calculate effective limits (base + purchased addons)
+    const baseLimits: Record<string, { lines: number, products: number }> = {
+      trial: { lines: 1, products: 10 },
+      starter: { lines: 2, products: 10 },
+      business: { lines: 5, products: 999 }
+    };
+    const bl = baseLimits[effectivePlan] || baseLimits.trial;
+    const effectiveLimits = {
+      maxLines: bl.lines + extraLinesPurchased,
+      maxProducts: bl.products + (extraProductsPurchased * 10),
+      extraLinesPurchased,
+      extraProductsPurchased
+    };
+
     res.json({
       user: {
         ...user,
@@ -389,6 +411,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         isBlocked: subscriptionStatus === 'expired',
         hasImplementation: !!hasImplementation,
         hasPrioritySupport,
+        effectiveLimits,
         planFeatures: features
       }
     });

@@ -25,13 +25,13 @@ export default function WhatsAppPage() {
   const [editingLine, setEditingLine] = useState<any>(null);
   const [lineForm, setLineForm] = useState({ label: '', assignedTo: '', assistantId: '' });
 
-  // Plan limits
+  // Plan limits (including purchased addons)
   const plan = user?.plan || 'trial';
   const features = user?.planFeatures || {};
-  const planLimits: Record<string, number> = { trial: 1, starter: 2, business: 5 };
-  const maxLines = planLimits[plan] || features.maxWhatsappLines || 1;
+  const maxLines = user?.effectiveLimits?.maxLines || { trial: 1, starter: 2, business: 5 }[plan] || 1;
   const isBusiness = plan === 'business';
   const canAddMore = lines.length < maxLines;
+  const extraLinesPurchased = user?.effectiveLimits?.extraLinesPurchased || 0;
 
   useEffect(() => {
     loadAll();
@@ -231,13 +231,17 @@ export default function WhatsAppPage() {
             <div className="flex-1">
               <h3 className="text-white font-semibold">Límite de líneas alcanzado</h3>
               <p className="text-sm text-gray-400">
-                Tu plan permite hasta {maxLines} línea{maxLines !== 1 ? 's' : ''}. {!isBusiness && <><a href="/subscription" className="text-emerald-400 font-bold hover:underline">Upgrade a Business</a> para 5 líneas.</>}
+                Tu plan permite hasta {maxLines} línea{maxLines !== 1 ? 's' : ''}{extraLinesPurchased > 0 ? ` (${extraLinesPurchased} extra)` : ''}.
               </p>
             </div>
-            {!isBusiness && (
-              <a href="/subscription" className="btn-primary flex-shrink-0">
-                <Crown className="w-4 h-4" /> Upgrade
+            <div className="flex gap-2 flex-shrink-0">
+              <a href="/subscription" className="btn-primary text-sm">
+                📱 Comprar línea extra — $10 USD
               </a>
+              {!isBusiness && (
+                <a href="/subscription" className="btn-secondary text-sm">
+                  <Crown className="w-4 h-4" /> Upgrade
+                </a>
             )}
           </div>
         </div>

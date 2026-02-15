@@ -254,6 +254,13 @@ export default function LiveChat({ user }: LiveChatProps) {
   const plan = user?.plan || 'trial';
   const hasPrioritySupport = user?.hasPrioritySupport || false;
 
+  // Listen for external open events (from guia page etc.)
+  useEffect(() => {
+    const handler = () => setIsOpen(true);
+    window.addEventListener('openLiveChat', handler);
+    return () => window.removeEventListener('openLiveChat', handler);
+  }, []);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -448,7 +455,7 @@ export default function LiveChat({ user }: LiveChatProps) {
                   Obtén respuestas inmediatas de un experto humano por WhatsApp. Resolución garantizada en menos de 2 horas.
                 </p>
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-black text-amber-400">$15 USD<span className="text-[10px] text-gray-500 font-normal">/mes</span></span>
+                  <span className="text-lg font-black text-amber-400">$15 USD<span className="text-[10px] text-gray-500 font-normal">/año</span></span>
                   <a
                     href="/subscription"
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold rounded-lg hover:brightness-110 transition-all"
@@ -469,24 +476,53 @@ export default function LiveChat({ user }: LiveChatProps) {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick Topics — show when few messages */}
-          {messages.length <= 2 && (
-            <div className="px-3 pb-2 flex-shrink-0">
-              <p className="text-[10px] text-gray-500 mb-1.5 px-1">Temas frecuentes:</p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {QUICK_TOPICS.map((topic) => (
-                  <button
-                    key={topic.query}
-                    onClick={() => handleSend(topic.query)}
-                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-left transition-all group"
-                  >
-                    <span className="text-sm">{topic.icon}</span>
-                    <span className="text-[11px] text-gray-300 group-hover:text-white truncate">{topic.label}</span>
-                  </button>
-                ))}
-              </div>
+          {/* Quick Topics — ALWAYS visible */}
+          <div className="px-3 pb-2 flex-shrink-0">
+            <p className="text-[10px] text-gray-500 mb-1.5 px-1">Temas frecuentes:</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {QUICK_TOPICS.map((topic) => (
+                <button
+                  key={topic.query}
+                  onClick={() => handleSend(topic.query)}
+                  className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 text-left transition-all group"
+                >
+                  <span className="text-sm">{topic.icon}</span>
+                  <span className="text-[11px] text-gray-300 group-hover:text-white truncate">{topic.label}</span>
+                </button>
+              ))}
             </div>
-          )}
+
+            {/* 🔥 Promo banner — solo para Starter sin priority */}
+            {!hasPrioritySupport && messages.length >= 1 && (
+              <div className="mt-2 p-2.5 rounded-lg bg-gradient-to-r from-amber-500/10 to-orange-500/5 border border-amber-500/20">
+                <div className="flex items-center gap-2 mb-1">
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-[10px] font-bold text-amber-300">OFERTAS ESPECIALES</span>
+                </div>
+                <div className="space-y-1">
+                  <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
+                    <span>📞 Soporte Prioritario WhatsApp</span>
+                    <span className="text-amber-400 font-bold">$15 USD/año</span>
+                  </a>
+                  <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
+                    <span>📱 Línea WhatsApp adicional</span>
+                    <span className="text-cyan-400 font-bold">$10 USD</span>
+                  </a>
+                  <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
+                    <span>📦 +10 productos catálogo</span>
+                    <span className="text-cyan-400 font-bold">$10 USD</span>
+                  </a>
+                  <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
+                    <span>🛠️ Implementación completa</span>
+                    <span className="text-orange-400 font-bold">$100 USD</span>
+                  </a>
+                </div>
+                <a href="/subscription" className="block text-center text-[9px] text-amber-400 mt-1.5 hover:underline">
+                  Ver todos los addons →
+                </a>
+              </div>
+            )}
+          </div>
 
           {/* Input */}
           <div className="px-3 pb-3 pt-2 border-t border-white/5 flex-shrink-0">

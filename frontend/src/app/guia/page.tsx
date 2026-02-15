@@ -9,7 +9,7 @@ import {
   Target, Layers, Bell, Send, ExternalLink, Copy, Check
 } from 'lucide-react';
 
-const SUPPORT_WHATSAPP = '573123538300'; // Número de soporte
+const SUPPORT_WHATSAPP = '573213815105'; // Número de soporte
 
 interface StepProps {
   number: number;
@@ -431,14 +431,11 @@ El sistema detecta automáticamente en qué etapa está cada cliente:
               Nuestro equipo de soporte está disponible para ayudarte con la configuración. Escríbenos por WhatsApp y te guiamos paso a paso.
             </p>
           </div>
-          <a
-            href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Necesito ayuda para configurar mi cuenta de Bizonne 🤖')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-6 py-3 bg-emerald-500 text-white rounded-xl font-bold text-sm hover:bg-emerald-600 transition-all hover:shadow-lg hover:shadow-emerald-500/30 flex-shrink-0">
-            <Phone className="w-5 h-5" /> Soporte WhatsApp
-            <ExternalLink className="w-4 h-4" />
-          </a>
+          <button
+            onClick={() => window.dispatchEvent(new Event('openLiveChat'))}
+            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-bold text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-cyan-500/30 flex-shrink-0">
+            <MessageSquare className="w-5 h-5" /> Chat en Vivo
+          </button>
         </div>
       </div>
     </div>

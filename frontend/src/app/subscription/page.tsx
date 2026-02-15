@@ -809,73 +809,158 @@ export default function SubscriptionPage() {
           </div>
         )}
 
-        {/* ===== SOPORTE PRIORITARIO — Upsell $15/mes ===== */}
-        {subStatus?.subscription?.status === 'active' && subStatus?.subscription?.plan === 'starter' && !subStatus?.hasPrioritySupport && (
+        {/* ===== 🛒 ADDONS MARKETPLACE ===== */}
+        {subStatus?.subscription?.status === 'active' && (
           <div className="max-w-5xl mx-auto mt-10">
-            <div className="relative rounded-2xl border-2 border-dashed border-amber-500/30 hover:border-amber-500/50 bg-gradient-to-r from-amber-500/5 to-orange-500/5 p-6 transition-all">
-              <div className="absolute -top-3 left-6">
-                <span className="text-xs font-black px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white">
-                  📞 SOPORTE PRIORITARIO — $15 USD/mes
-                </span>
-              </div>
-              <div className="flex items-start gap-4 mt-2">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h4 className="text-lg font-black text-white">Soporte por WhatsApp</h4>
-                      <p className="text-gray-400 text-sm">Respuestas rápidas de un experto humano. Resolución garantizada.</p>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-black text-amber-400">$15 USD</div>
-                      <div className="text-gray-500 text-xs">≈ {formatCOP(Math.round(15 * exchangeRate))} COP / mes</div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {['Soporte directo por WhatsApp', 'Respuesta en menos de 2 horas', 'Configuración y ajustes incluidos', 'Resolución de problemas técnicos', 'Asesoría personalizada'].map((f, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <Check className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                        <span className="text-xs text-gray-300">{f}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => handlePayment('priority_support')}
-                    disabled={!!paymentLoading}
-                    className="mt-4 w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.01]"
-                  >
-                    {paymentLoading === 'priority_support' ? (
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <>📞 Activar Soporte Prioritario — $15 USD/mes</>
-                    )}
-                  </button>
-                  <p className="text-[10px] text-gray-500 mt-2 text-center">✅ Incluido gratis en plan Business ($50/mes) y Servicio de Implementación</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+            <h3 className="text-xl font-bold text-white mb-1">🛒 Potencia tu Plan</h3>
+            <p className="text-gray-400 text-sm mb-6">Complementos de pago único para expandir tu negocio</p>
 
-        {/* Soporte prioritario activo */}
-        {subStatus?.hasPrioritySupport && subStatus?.subscription?.plan === 'starter' && (
-          <div className="max-w-5xl mx-auto mt-10">
-            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <Check className="w-5 h-5 text-amber-400" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              
+              {/* 📱 Línea Adicional */}
+              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 flex flex-col">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">📱</span>
+                  <h4 className="text-sm font-bold text-white">Línea Adicional</h4>
+                </div>
+                <p className="text-[11px] text-gray-400 mb-3 flex-1">+1 número de WhatsApp con su propio asistente IA</p>
+                <div className="text-lg font-black text-cyan-400 mb-1">$10 USD</div>
+                <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(10 * exchangeRate))} COP · Pago único</div>
+                {subStatus?.effectiveLimits?.extraLinesPurchased > 0 && (
+                  <div className="text-[10px] text-emerald-400 mb-2">✅ {subStatus.effectiveLimits.extraLinesPurchased} línea(s) extra comprada(s)</div>
+                )}
+                <button
+                  onClick={() => handlePayment('extra_line')}
+                  disabled={!!paymentLoading}
+                  className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30"
+                >
+                  {paymentLoading === 'extra_line' ? (
+                    <div className="w-4 h-4 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                  ) : (
+                    <>📱 Agregar Línea</>
+                  )}
+                </button>
               </div>
-              <div className="flex-1">
-                <h4 className="text-amber-400 font-bold">Soporte Prioritario activo ✅</h4>
-                <p className="text-gray-500 text-xs">Escríbenos por WhatsApp para asistencia inmediata.</p>
+
+              {/* 📦 +10 Productos */}
+              <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 flex flex-col">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">📦</span>
+                  <h4 className="text-sm font-bold text-white">+10 Productos</h4>
+                </div>
+                <p className="text-[11px] text-gray-400 mb-3 flex-1">Amplía tu catálogo con 10 productos adicionales</p>
+                <div className="text-lg font-black text-emerald-400 mb-1">$10 USD</div>
+                <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(10 * exchangeRate))} COP · Pago único</div>
+                {subStatus?.effectiveLimits?.extraProductsPurchased > 0 && (
+                  <div className="text-[10px] text-emerald-400 mb-2">✅ +{subStatus.effectiveLimits.extraProductsPurchased * 10} productos extra</div>
+                )}
+                <button
+                  onClick={() => handlePayment('extra_products')}
+                  disabled={!!paymentLoading}
+                  className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                >
+                  {paymentLoading === 'extra_products' ? (
+                    <div className="w-4 h-4 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                  ) : (
+                    <>📦 Agregar Productos</>
+                  )}
+                </button>
               </div>
-              <a
-                href="https://wa.me/573213815105?text=Hola!%20Necesito%20soporte%20prioritario%20🚀"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-bold hover:bg-emerald-500/30 transition-all"
-              >
-                📞 WhatsApp Soporte
-              </a>
+
+              {/* 📞 Soporte Prioritario */}
+              <div className={`rounded-xl border p-4 flex flex-col ${
+                subStatus?.hasPrioritySupport 
+                  ? 'border-amber-500/30 bg-amber-500/5' 
+                  : 'border-amber-500/20 bg-amber-500/5'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">📞</span>
+                  <h4 className="text-sm font-bold text-white">Soporte Prioritario</h4>
+                </div>
+                <p className="text-[11px] text-gray-400 mb-3 flex-1">Soporte directo por WhatsApp con respuesta en menos de 2h</p>
+                {subStatus?.hasPrioritySupport ? (
+                  <>
+                    <div className="text-[10px] text-emerald-400 mb-3 font-bold">✅ Activo</div>
+                    <a
+                      href="https://wa.me/573213815105?text=Hola!%20Necesito%20soporte%20prioritario%20🚀"
+                      target="_blank" rel="noopener noreferrer"
+                      className="w-full py-2.5 rounded-lg font-bold text-xs text-center bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                    >
+                      📞 WhatsApp Soporte
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-lg font-black text-amber-400 mb-1">$15 USD</div>
+                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(15 * exchangeRate))} COP · Por 1 año</div>
+                    <button
+                      onClick={() => handlePayment('priority_support')}
+                      disabled={!!paymentLoading}
+                      className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30"
+                    >
+                      {paymentLoading === 'priority_support' ? (
+                        <div className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                      ) : (
+                        <>📞 Activar Soporte</>
+                      )}
+                    </button>
+                    <p className="text-[9px] text-gray-500 mt-1.5 text-center">Gratis en Business e Implementación</p>
+                  </>
+                )}
+              </div>
+
+              {/* 🛠️ Implementación */}
+              <div className={`rounded-xl border p-4 flex flex-col ${
+                subStatus?.hasImplementation 
+                  ? 'border-orange-500/30 bg-orange-500/5' 
+                  : 'border-orange-500/20 bg-orange-500/5'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">🛠️</span>
+                  <h4 className="text-sm font-bold text-white">Implementación</h4>
+                </div>
+                <p className="text-[11px] text-gray-400 mb-3 flex-1">Nosotros configuramos todo tu negocio. Tú solo vendes.</p>
+                {subStatus?.hasImplementation ? (
+                  <>
+                    <div className="text-[10px] text-emerald-400 mb-3 font-bold">✅ Contratada</div>
+                    <div className="w-full py-2.5 rounded-lg text-xs text-center bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      Incluye soporte prioritario
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-lg font-black text-orange-400 mb-1">$100 USD</div>
+                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(100 * exchangeRate))} COP · Pago único</div>
+                    <button
+                      onClick={() => handlePayment('implementation')}
+                      disabled={!!paymentLoading}
+                      className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30"
+                    >
+                      {paymentLoading === 'implementation' ? (
+                        <div className="w-4 h-4 border-2 border-orange-400/30 border-t-orange-400 rounded-full animate-spin" />
+                      ) : (
+                        <>🛠️ Contratar</>
+                      )}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
+
+            {/* Current limits summary */}
+            {subStatus?.effectiveLimits && (
+              <div className="mt-4 flex flex-wrap gap-3 justify-center text-[10px] text-gray-500">
+                <span>📱 Líneas: {subStatus.effectiveLimits.maxLines} máx</span>
+                <span>•</span>
+                <span>📦 Productos: {subStatus.effectiveLimits.maxProducts === 999 ? '∞' : subStatus.effectiveLimits.maxProducts} máx</span>
+                {subStatus.effectiveLimits.extraLinesPurchased > 0 && (
+                  <span className="text-cyan-400">(+{subStatus.effectiveLimits.extraLinesPurchased} extra)</span>
+                )}
+                {subStatus.effectiveLimits.extraProductsPurchased > 0 && (
+                  <span className="text-emerald-400">(+{subStatus.effectiveLimits.extraProductsPurchased * 10} extra)</span>
+                )}
+              </div>
+            )}
           </div>
         )}
 

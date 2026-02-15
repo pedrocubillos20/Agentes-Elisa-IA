@@ -1507,10 +1507,16 @@ router.post('/lines', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
     
-    // 🔒 Verificar límite de líneas según plan
+    // 🔒 Verificar límite de líneas según plan + addons comprados
     const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
     const planLimits: Record<string, number> = { trial: 1, starter: 2, business: 5 };
-    const maxLines = planLimits[owner?.plan || 'trial'] || 1;
+    const basePlanLines = planLimits[owner?.plan || 'trial'] || 1;
+    
+    // Contar líneas extra compradas
+    const extraLinesPurchased = await prisma.payment.count({
+      where: { userId: ownerId, plan: 'extra_line', status: 'approved' }
+    });
+    const maxLines = basePlanLines + extraLinesPurchased;
     
     const currentLineCount = await prisma.whatsappLine.count({ where: { userId: ownerId } });
     if (currentLineCount >= maxLines) {

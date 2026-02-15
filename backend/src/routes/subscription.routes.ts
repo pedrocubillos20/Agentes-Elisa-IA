@@ -48,7 +48,7 @@ const IMPLEMENTATION_ADDON = {
 // ===== ADD-ON: SOPORTE PRIORITARIO (Recurring Upsell) =====
 const PRIORITY_SUPPORT_ADDON = {
   name: 'Soporte Prioritario',
-  monthlyPrice: 15,
+  annualPrice: 15, // $15 USD por año (mientras licencia activa)
   features: [
     'Soporte directo por WhatsApp',
     'Respuesta en menos de 2 horas',
@@ -57,6 +57,10 @@ const PRIORITY_SUPPORT_ADDON = {
     'Asesoría personalizada'
   ]
 };
+
+// ===== ADD-ONS INDIVIDUALES (Pago único) =====
+const ADDON_EXTRA_LINE = { price: 10, name: 'Línea Adicional WhatsApp' };     // +1 línea
+const ADDON_EXTRA_PRODUCTS = { price: 10, name: '+10 Productos Catálogo' };   // +10 productos
 
 const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
 
@@ -255,21 +259,38 @@ router.get('/plans', async (req: Request, res: Response) => {
       }
     };
 
-    // Add-on de soporte prioritario (recurring upsell)
+    // Add-on de soporte prioritario (annual upsell)
     const prioritySupportAddon = {
       id: 'priority_support',
       name: PRIORITY_SUPPORT_ADDON.name,
-      type: 'recurring_addon',
-      priceUsd: PRIORITY_SUPPORT_ADDON.monthlyPrice,
-      priceCop: Math.round(PRIORITY_SUPPORT_ADDON.monthlyPrice * rate),
-      priceCopWithCard: Math.round(PRIORITY_SUPPORT_ADDON.monthlyPrice * rate * (1 + CARD_SURCHARGE)),
+      type: 'annual_addon',
+      priceUsd: PRIORITY_SUPPORT_ADDON.annualPrice,
+      priceCop: Math.round(PRIORITY_SUPPORT_ADDON.annualPrice * rate),
+      priceCopWithCard: Math.round(PRIORITY_SUPPORT_ADDON.annualPrice * rate * (1 + CARD_SURCHARGE)),
       features: PRIORITY_SUPPORT_ADDON.features
+    };
+
+    // Add-ons individuales (pago único)
+    const individualAddons = {
+      extraLine: {
+        id: 'extra_line',
+        name: ADDON_EXTRA_LINE.name,
+        priceUsd: ADDON_EXTRA_LINE.price,
+        priceCop: Math.round(ADDON_EXTRA_LINE.price * rate),
+      },
+      extraProducts: {
+        id: 'extra_products',
+        name: ADDON_EXTRA_PRODUCTS.name,
+        priceUsd: ADDON_EXTRA_PRODUCTS.price,
+        priceCop: Math.round(ADDON_EXTRA_PRODUCTS.price * rate),
+      }
     };
 
     res.json({ 
       plans: recurringPlans,
       addon,
       prioritySupportAddon,
+      individualAddons,
       exchangeRate: rate, 
       exchangeSource: trm.source,
       exchangeDate: trm.date,
@@ -312,6 +333,28 @@ router.get('/status', async (req: Request, res: Response) => {
     });
     const hasPrioritySupport = (subscription?.plan === 'business') || !!hasImplementation || !!hasPrioritySupportAddon;
 
+    // Contar addons comprados
+    const extraLinesPurchased = await prisma.payment.count({
+      where: { userId, plan: 'extra_line', status: 'approved' }
+    });
+    const extraProductsPurchased = await prisma.payment.count({
+      where: { userId, plan: 'extra_products', status: 'approved' }
+    });
+
+    // Calcular límites efectivos
+    const baseLimits: Record<string, { lines: number, products: number }> = {
+      trial: { lines: 1, products: 10 },
+      starter: { lines: 2, products: 10 },
+      business: { lines: 5, products: 999 }
+    };
+    const base = baseLimits[user.plan] || baseLimits.trial;
+    const effectiveLimits = {
+      maxLines: base.lines + extraLinesPurchased,
+      maxProducts: base.products + (extraProductsPurchased * 10),
+      extraLinesPurchased,
+      extraProductsPurchased
+    };
+
     let status = 'active';
     let daysRemaining = 0;
     let periodEnd: Date | null = null;
@@ -336,6 +379,7 @@ router.get('/status', async (req: Request, res: Response) => {
       periodEnd,
       hasImplementation: !!hasImplementation,
       hasPrioritySupport,
+      effectiveLimits,
       subscription: subscription ? {
         plan: subscription.plan,
         period: subscription.period,
@@ -548,18 +592,18 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const { plan, period, discountCode: rawDiscountCode, includeImplementation, addons, type: paymentType } = req.body;
     
     // Determinar si es compra de addon solamente o plan + addon
-    const isAddonOnly = plan === 'implementation' || plan === 'priority_support';
+    const isAddonOnly = plan === 'implementation';
     const isUpgrade = paymentType === 'upgrade';
     
     if (plan === 'priority_support') {
-      // Compra del addon de soporte prioritario
+      // Compra del addon de soporte prioritario (anual)
       const existingSub = await prisma.subscription.findUnique({ where: { userId } });
       if (!existingSub || existingSub.status !== 'active') {
         res.status(400).json({ error: 'Necesitas un plan activo para comprar soporte prioritario.' });
         return;
       }
       
-      const priceAddon = PRIORITY_SUPPORT_ADDON.monthlyPrice;
+      const priceAddon = PRIORITY_SUPPORT_ADDON.annualPrice;
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
       if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
       
@@ -575,7 +619,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 
       await prisma.payment.create({
         data: {
-          userId, type: 'addon', plan: 'priority_support', period: 'monthly',
+          userId, type: 'addon', plan: 'priority_support', period: 'annual',
           amountUsd: priceAddon, amountCop: copAmount,
           exchangeRate: rate, cardSurcharge: 0, totalCop: copAmount,
           status: 'pending', wompiReference: reference
@@ -583,7 +627,58 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       });
 
       res.json({
-        plan: 'priority_support', period: 'monthly',
+        plan: 'priority_support', period: 'annual',
+        amountUsd: priceAddon, amountCop: copAmount,
+        amountInCents, reference, signature,
+        publicKey: WOMPI_PUBLIC_KEY, currency: 'COP',
+        customerEmail: user.email, customerName: user.name || 'Cliente',
+        redirectUrl: `${process.env.FRONTEND_URL || 'https://app.bizonne.com'}/subscription?payment=pending`
+      });
+      return;
+    }
+
+    if (plan === 'extra_line' || plan === 'extra_products') {
+      // Compra de addon individual (pago único)
+      const existingSub = await prisma.subscription.findUnique({ where: { userId } });
+      if (!existingSub || existingSub.status !== 'active') {
+        res.status(400).json({ error: 'Necesitas un plan activo para comprar addons.' });
+        return;
+      }
+      
+      const addonConfig = plan === 'extra_line' ? ADDON_EXTRA_LINE : ADDON_EXTRA_PRODUCTS;
+      const quantity = Math.max(1, parseInt(req.body.quantity) || 1);
+      const priceAddon = addonConfig.price * quantity;
+      
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
+      if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+      
+      const trm = await getTRM();
+      const rate = trm.rate;
+      const copAmount = Math.round(priceAddon * rate);
+      const amountInCents = copAmount * 100;
+      const suffix = plan === 'extra_line' ? 'LINE' : 'PRODS';
+      const reference = `BIZONNE-${suffix}-${userId.slice(-8)}-${Date.now()}`;
+      
+      const integritySecret = WOMPI_INTEGRITY_KEY;
+      const signatureString = `${reference}${amountInCents}COP${integritySecret}`;
+      const signature = crypto.createHash('sha256').update(signatureString).digest('hex');
+
+      // Crear N pagos individuales (uno por unidad) para tracking correcto
+      for (let i = 0; i < quantity; i++) {
+        await prisma.payment.create({
+          data: {
+            userId, type: 'addon', plan, period: 'one_time',
+            amountUsd: addonConfig.price, amountCop: Math.round(addonConfig.price * rate),
+            exchangeRate: rate, cardSurcharge: 0, totalCop: Math.round(addonConfig.price * rate),
+            status: 'pending', wompiReference: quantity === 1 ? reference : `${reference}-${i + 1}`
+          }
+        });
+      }
+
+      console.log(`🛒 Addon ${plan} x${quantity}: $${priceAddon} USD → ${reference}`);
+
+      res.json({
+        plan, period: 'one_time', quantity,
         amountUsd: priceAddon, amountCop: copAmount,
         amountInCents, reference, signature,
         publicKey: WOMPI_PUBLIC_KEY, currency: 'COP',
@@ -955,12 +1050,41 @@ async function activateSubscription(payment: any, transactionId: string, payment
     
     if (isAddon) {
       // Addon — NO cambia el plan del usuario
-      const addonName = payment.plan === 'priority_support' ? 'SOPORTE PRIORITARIO' : 'IMPLEMENTACIÓN';
+      const addonNames: Record<string, string> = {
+        'priority_support': 'SOPORTE PRIORITARIO',
+        'implementation': 'IMPLEMENTACIÓN',
+        'extra_line': 'LÍNEA ADICIONAL',
+        'extra_products': '+10 PRODUCTOS'
+      };
+      const addonName = addonNames[payment.plan] || payment.plan.toUpperCase();
+      
+      // Para extra_line/extra_products: aprobar TODOS los pagos pendientes del mismo lote
+      if (payment.plan === 'extra_line' || payment.plan === 'extra_products') {
+        const baseRef = (payment.wompiReference || '').replace(/-\d+$/, '');
+        if (baseRef) {
+          const batchPayments = await prisma.payment.updateMany({
+            where: { 
+              userId: payment.userId, 
+              plan: payment.plan, 
+              status: 'pending',
+              wompiReference: { startsWith: baseRef }
+            },
+            data: { 
+              status: 'approved', 
+              wompiTransactionId: String(transactionId),
+              wompiPaymentMethod: paymentMethodType || null,
+              method: paymentMethodType || null
+            }
+          });
+          console.log(`✅ 🛒 ADD-ON ${addonName} x${batchPayments.count} ACTIVADO | Usuario: ${payment.userId}`);
+        }
+      }
+      
       console.log(`✅ 🛠️ ADD-ON ${addonName} PAGADO | Usuario: ${payment.userId}`);
       return { 
         activated: true, 
         plan: `${payment.plan}_addon`,
-        period: payment.plan === 'priority_support' ? 'monthly' : 'one_time',
+        period: payment.period || 'one_time',
         periodEnd: null
       };
     }

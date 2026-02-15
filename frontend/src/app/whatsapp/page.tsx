@@ -28,7 +28,8 @@ export default function WhatsAppPage() {
   // Plan limits (including purchased addons)
   const plan = user?.plan || 'trial';
   const features = user?.planFeatures || {};
-  const maxLines = user?.effectiveLimits?.maxLines || { trial: 1, starter: 2, business: 5 }[plan] || 1;
+  const planBaseLimits: Record<string, number> = { trial: 1, starter: 2, business: 5 };
+  const maxLines = user?.effectiveLimits?.maxLines || planBaseLimits[plan] || 1;
   const isBusiness = plan === 'business';
   const canAddMore = lines.length < maxLines;
   const extraLinesPurchased = user?.effectiveLimits?.extraLinesPurchased || 0;

@@ -99,6 +99,101 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
   return null;
 };
 
+// =====================================================
+// 📱 LID → PHONE RESOLVER (WAHA Plus @lid format)
+// =====================================================
+// WAHA Plus uses Linked IDs (@lid) instead of phone numbers in some cases
+// This resolves LIDs to real phone numbers via WAHA API
+const lidPhoneCache = new Map<string, { phone: string; ts: number }>();
+
+const resolveLidToPhone = async (session: string, lidChatId: string, payload?: any): Promise<string> => {
+  // 1. Cache check (24hr TTL - LID→phone mapping doesn't change)
+  const cached = lidPhoneCache.get(lidChatId);
+  if (cached && Date.now() - cached.ts < 86400000) {
+    return cached.phone;
+  }
+
+  const lidClean = lidChatId.replace('@lid', '').replace('@c.us', '').replace('@s.whatsapp.net', '');
+  log(`🔍 Resolviendo LID: ${lidChatId} → buscando número real...`);
+
+  // 2. Check payload for real phone in _data fields
+  const possiblePhones = [
+    payload?._data?.from?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+    payload?._data?.id?.remote?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+    payload?._data?.chat?.id?._serialized?.replace?.('@c.us', ''),
+    payload?.chat?.id?.replace?.('@c.us', ''),
+    payload?._data?.notifyName, // sometimes contains phone
+  ].filter(Boolean);
+
+  for (const p of possiblePhones) {
+    const clean = (p || '').replace(/\D/g, '');
+    if (clean.length >= 7 && clean.length <= 13 && clean !== lidClean) {
+      log(`✅ Número real encontrado en payload._data: ${clean}`);
+      lidPhoneCache.set(lidChatId, { phone: clean, ts: Date.now() });
+      return clean;
+    }
+  }
+
+  // 3. WAHA API: Try multiple endpoints to resolve LID → phone
+  const endpoints = [
+    // WAHA Plus: Get contact phone number from chatId
+    { method: 'GET', url: `${WAHA_API_URL}/api/${session}/contacts?contactId=${encodeURIComponent(lidChatId)}` },
+    { method: 'GET', url: `${WAHA_API_URL}/api/contacts?session=${session}&contactId=${encodeURIComponent(lidChatId)}` },
+    // WAHA Plus: Get chat details
+    { method: 'GET', url: `${WAHA_API_URL}/api/${session}/chats/${encodeURIComponent(lidChatId)}` },
+    // WAHA Plus: Phone number resolution
+    { method: 'POST', url: `${WAHA_API_URL}/api/${session}/contacts/get-about`, body: { contactId: lidChatId } },
+    { method: 'POST', url: `${WAHA_API_URL}/api/contacts/get-about`, body: { session, contactId: lidChatId } },
+    // WAHA Plus: Check exists (sometimes returns real number)
+    { method: 'POST', url: `${WAHA_API_URL}/api/contacts/check-exists`, body: { session, phone: lidChatId } },
+    // WAHA PLUS v2: Direct phone resolution
+    { method: 'GET', url: `${WAHA_API_URL}/api/${session}/contacts/${encodeURIComponent(lidChatId)}` },
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const opts: any = { method: ep.method, headers: getWahaHeaders() };
+      if (ep.body) opts.body = JSON.stringify(ep.body);
+      
+      const r = await fetch(ep.url, opts);
+      if (r.ok) {
+        const data = await r.json() as any;
+        
+        // Extract phone from various response formats
+        const phoneFields = [
+          data?.phone, data?.number, data?.phoneNumber,
+          data?.id?.user, data?.id?._serialized?.replace?.('@c.us', ''),
+          data?.result?.phone, data?.result?.number,
+          data?.jid?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+          data?.chatId?.replace?.('@c.us', ''),
+          // Array responses
+          ...(Array.isArray(data) ? data.map((d: any) => d?.id?.user || d?.phone || d?.number) : []),
+        ].filter(Boolean);
+
+        for (const ph of phoneFields) {
+          const clean = (ph + '').replace(/\D/g, '');
+          if (clean.length >= 7 && clean.length <= 13 && clean !== lidClean) {
+            log(`✅ LID ${lidClean} → Número real: ${clean} (vía ${ep.url.split('/').slice(-2).join('/')})`);
+            lidPhoneCache.set(lidChatId, { phone: clean, ts: Date.now() });
+            return clean;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Last resort: If LID digits look like they could be a phone (≤13 digits), use as-is
+  if (lidClean.length >= 7 && lidClean.length <= 13) {
+    log(`⚠️ No se pudo resolver LID ${lidClean}, usando como número (${lidClean.length} dígitos)`);
+    return lidClean;
+  }
+
+  // 5. LID is too long (>13 digits) - store with LID prefix for identification
+  log(`⚠️ LID no resuelto: ${lidClean} (${lidClean.length} dígitos) — guardando con prefijo LID_`);
+  lidPhoneCache.set(lidChatId, { phone: `LID_${lidClean}`, ts: Date.now() });
+  return `LID_${lidClean}`;
+};
+
 // ===== PRESENCE: TYPING & RECORDING =====
 const setPresence = async (session: string, chatId: string, mode: 'typing' | 'recording'): Promise<void> => {
   const endpoints = [
@@ -2256,9 +2351,35 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       const contact = contacts[i];
       try {
         const phone = (contact.phone || contact.recipientId || contact).replace(/\D/g, '');
-        if (!phone || phone.length < 7 || phone.length > 15) { failed++; continue; }
+        // STRICT: Real phone numbers are 7-13 digits max
+        if (!phone || phone.length < 7 || phone.length > 13) { 
+          log(`⏭️ Número inválido: ${phone} (${phone.length} dígitos) — saltando`);
+          failed++; continue; 
+        }
 
         const chatId = `${phone}@c.us`;
+
+        // 🔍 Verificar si existe en WhatsApp (con cache)
+        try {
+          const checkEndpoints = [
+            { url: `${WAHA_API_URL}/api/contacts/check-exists`, body: { session: sessionName, phone: chatId } },
+            { url: `${WAHA_API_URL}/api/${sessionName}/contacts/check-exists`, body: { phone: chatId } }
+          ];
+          for (const ep of checkEndpoints) {
+            try {
+              const cr = await fetch(ep.url, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(ep.body) });
+              if (cr.ok) {
+                const cd = await cr.json() as any;
+                if (cd?.numberExists === false || cd?.result?.exists === false || cd?.exists === false) {
+                  log(`⏭️ No existe en WhatsApp: ${phone} — saltando`);
+                  failed++; break;
+                }
+                break; // Check passed
+              }
+            } catch {}
+          }
+          if (failed > i) continue; // Was skipped in the check loop
+        } catch {}
 
         // ⌨️ Simular typing (más natural)
         await setPresence(sessionName!, chatId, 'typing').catch(() => {});
@@ -2372,6 +2493,260 @@ router.get('/debug', async (req: Request, res: Response) => {
 });
 
 // =====================================================
+// 🔑 FIX LID NUMBERS - Migrar LIDs a números reales
+// =====================================================
+router.post('/fix-lid-numbers', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    log('🔑 === INICIO MIGRACIÓN LID → NÚMERO REAL ===');
+
+    // 1. Obtener todas las líneas del usuario
+    const lines = await prisma.whatsappLine.findMany({ where: { userId: ownerId } });
+    if (!lines.length) { res.json({ success: false, error: 'No hay líneas de WhatsApp' }); return; }
+
+    // 2. Obtener TODAS las conversaciones con números inválidos (>13 dígitos o con LID_)
+    const allConvs = await prisma.conversation.findMany({
+      where: { userId: ownerId, isGroup: false },
+      select: { id: true, recipientId: true, recipientName: true, whatsappLineId: true }
+    });
+
+    const invalidConvs = allConvs.filter(c => {
+      const clean = c.recipientId.replace(/\D/g, '');
+      return clean.length > 13 || c.recipientId.startsWith('LID_');
+    });
+
+    log(`🔑 Total conversaciones: ${allConvs.length}, Con número inválido: ${invalidConvs.length}`);
+
+    if (invalidConvs.length === 0) {
+      res.json({ success: true, message: 'No hay conversaciones con números inválidos', total: allConvs.length, invalid: 0, fixed: 0 });
+      return;
+    }
+
+    // 3. Para cada línea conectada, obtener contactos de WAHA
+    const wahaContacts = new Map<string, string>(); // lidNumber → realPhone
+
+    for (const line of lines) {
+      if (line.status !== 'connected') continue;
+      
+      log(`🔑 Consultando contactos de WAHA para sesión: ${line.sessionName}`);
+
+      // Intentar múltiples endpoints de WAHA Plus para obtener contactos
+      const contactEndpoints = [
+        `${WAHA_API_URL}/api/${line.sessionName}/contacts`,
+        `${WAHA_API_URL}/api/contacts?session=${line.sessionName}`,
+        `${WAHA_API_URL}/api/${line.sessionName}/chats`,
+        `${WAHA_API_URL}/api/chats?session=${line.sessionName}`,
+      ];
+
+      for (const url of contactEndpoints) {
+        try {
+          const r = await fetch(url, { headers: getWahaHeaders() });
+          if (!r.ok) continue;
+          
+          const data = await r.json() as any;
+          const contacts = Array.isArray(data) ? data : (data?.contacts || data?.chats || data?.data || []);
+          
+          if (!Array.isArray(contacts) || contacts.length === 0) continue;
+          
+          log(`🔑 Obtenidos ${contacts.length} contactos de ${url}`);
+          
+          for (const contact of contacts) {
+            // Extract all possible phone/ID pairs
+            const lid = contact?.id?.user || contact?.id?._serialized?.replace?.('@c.us', '').replace?.('@lid', '').replace?.('@s.whatsapp.net', '') || '';
+            const phone = contact?.phone || contact?.number || contact?.pushname_phone || contact?.phoneNumber || '';
+            const idUser = contact?.id?.user || '';
+            const idSerialized = contact?.id?._serialized || '';
+            const name = contact?.name || contact?.pushname || contact?.notifyName || '';
+            
+            // Map: if we have a lid-style number (>13 digits) and a real phone
+            const lidClean = lid.replace(/\D/g, '');
+            const phoneClean = (phone + '').replace(/\D/g, '');
+            
+            if (phoneClean.length >= 7 && phoneClean.length <= 13) {
+              // This contact has a real phone number
+              if (lidClean.length > 13) {
+                wahaContacts.set(lidClean, phoneClean);
+                log(`🔑 Mapeado: LID ${lidClean} → ${phoneClean} (${name})`);
+              }
+            }
+            
+            // Also try the serialized ID
+            if (idSerialized.includes('@lid')) {
+              const lidFromSerialized = idSerialized.replace('@lid', '').replace(/\D/g, '');
+              if (phoneClean.length >= 7 && phoneClean.length <= 13 && lidFromSerialized.length > 13) {
+                wahaContacts.set(lidFromSerialized, phoneClean);
+              }
+            }
+          }
+          
+          if (wahaContacts.size > 0) break; // Got contacts, no need to try more endpoints
+        } catch (e: any) {
+          log(`⚠️ Error en ${url}: ${e.message}`);
+        }
+      }
+
+      // 4. Si no obtuvimos contactos por lista, resolver uno por uno vía check-exists
+      if (wahaContacts.size === 0) {
+        log(`🔑 No se obtuvieron contactos por lista, intentando uno por uno...`);
+        
+        for (const conv of invalidConvs) {
+          if (conv.whatsappLineId !== line.id && conv.whatsappLineId !== null) continue;
+          
+          const lidClean = conv.recipientId.replace('LID_', '').replace(/\D/g, '');
+          const lidChatId = `${lidClean}@lid`;
+          
+          // Try WAHA contact profile
+          const profileEndpoints = [
+            { method: 'GET' as const, url: `${WAHA_API_URL}/api/${line.sessionName}/contacts/${encodeURIComponent(lidChatId)}` },
+            { method: 'POST' as const, url: `${WAHA_API_URL}/api/${line.sessionName}/contacts/get-about`, body: { contactId: lidChatId } },
+            { method: 'GET' as const, url: `${WAHA_API_URL}/api/${line.sessionName}/chats/${encodeURIComponent(lidChatId)}` },
+            // Try with @c.us too
+            { method: 'GET' as const, url: `${WAHA_API_URL}/api/${line.sessionName}/contacts/${encodeURIComponent(`${lidClean}@c.us`)}` },
+          ];
+
+          for (const ep of profileEndpoints) {
+            try {
+              const opts: RequestInit = { method: ep.method, headers: getWahaHeaders() };
+              if ('body' in ep && ep.body) opts.body = JSON.stringify(ep.body);
+              
+              const r = await fetch(ep.url, opts);
+              if (!r.ok) continue;
+              
+              const data = await r.json() as any;
+              const possiblePhones = [
+                data?.phone, data?.number, data?.phoneNumber,
+                data?.id?.user, data?.jid?.replace?.('@c.us', ''),
+                data?.result?.phone, data?.result?.number,
+                data?.id?._serialized?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+              ].filter(Boolean);
+
+              for (const ph of possiblePhones) {
+                const clean = (ph + '').replace(/\D/g, '');
+                if (clean.length >= 7 && clean.length <= 13 && clean !== lidClean) {
+                  wahaContacts.set(lidClean, clean);
+                  log(`🔑 Resuelto individualmente: ${lidClean} → ${clean} (${conv.recipientName})`);
+                  break;
+                }
+              }
+              if (wahaContacts.has(lidClean)) break;
+            } catch {}
+          }
+          
+          // Small delay to not overwhelm WAHA
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
+    }
+
+    log(`🔑 Total mapeos LID→Teléfono encontrados: ${wahaContacts.size}`);
+
+    // 5. Aplicar migraciones
+    let fixed = 0;
+    const results: any[] = [];
+
+    for (const conv of invalidConvs) {
+      const lidClean = conv.recipientId.replace('LID_', '').replace(/\D/g, '');
+      const realPhone = wahaContacts.get(lidClean);
+
+      if (realPhone) {
+        // Verificar que no exista otra conversación con ese número real
+        const existing = await prisma.conversation.findFirst({
+          where: { userId: ownerId, recipientId: realPhone, id: { not: conv.id }, ...(conv.whatsappLineId ? { whatsappLineId: conv.whatsappLineId } : {}) }
+        });
+
+        if (existing) {
+          // Merge: mover mensajes a la conversación existente
+          await prisma.message.updateMany({ where: { conversationId: conv.id }, data: { conversationId: existing.id } });
+          await prisma.conversation.delete({ where: { id: conv.id } });
+          results.push({ name: conv.recipientName, old: conv.recipientId, new: realPhone, action: 'merged' });
+          log(`🔑 MERGED: ${conv.recipientName} (${conv.recipientId} → ${realPhone}) con conversación existente`);
+        } else {
+          // Update: cambiar recipientId
+          await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId: realPhone } });
+          results.push({ name: conv.recipientName, old: conv.recipientId, new: realPhone, action: 'fixed' });
+          log(`🔑 FIXED: ${conv.recipientName} → ${realPhone}`);
+        }
+        fixed++;
+      } else {
+        results.push({ name: conv.recipientName, old: conv.recipientId, new: null, action: 'not_found' });
+        log(`⚠️ NO RESUELTO: ${conv.recipientName} (${conv.recipientId})`);
+      }
+    }
+
+    log(`🔑 === MIGRACIÓN COMPLETADA: ${fixed}/${invalidConvs.length} corregidos ===`);
+
+    res.json({
+      success: true,
+      total: allConvs.length,
+      invalid: invalidConvs.length,
+      fixed,
+      wahaContactsFound: wahaContacts.size,
+      results
+    });
+  } catch (e: any) {
+    console.error('🔑 Error en migración LID:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// =====================================================
+// 🔑 GET WAHA CONTACTS - Debug: ver qué contactos tiene WAHA
+// =====================================================
+router.get('/waha-contacts', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    const lines = await prisma.whatsappLine.findMany({ where: { userId: ownerId, status: 'connected' } });
+    const allContacts: any[] = [];
+
+    for (const line of lines) {
+      const endpoints = [
+        `${WAHA_API_URL}/api/${line.sessionName}/contacts`,
+        `${WAHA_API_URL}/api/contacts?session=${line.sessionName}`,
+        `${WAHA_API_URL}/api/${line.sessionName}/chats`,
+      ];
+
+      for (const url of endpoints) {
+        try {
+          const r = await fetch(url, { headers: getWahaHeaders() });
+          if (!r.ok) continue;
+          const data = await r.json() as any;
+          const contacts = Array.isArray(data) ? data : (data?.contacts || data?.chats || data?.data || []);
+          if (Array.isArray(contacts) && contacts.length > 0) {
+            allContacts.push({ session: line.sessionName, endpoint: url, count: contacts.length, sample: contacts.slice(0, 5) });
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    // Also get conversations with invalid numbers
+    const invalidConvs = await prisma.conversation.findMany({
+      where: { userId: ownerId, isGroup: false },
+      select: { id: true, recipientId: true, recipientName: true }
+    });
+
+    const invalid = invalidConvs.filter(c => {
+      const clean = c.recipientId.replace(/\D/g, '');
+      return clean.length > 13 || c.recipientId.startsWith('LID_');
+    });
+
+    res.json({
+      lines: lines.map(l => ({ id: l.id, session: l.sessionName, phone: (l as any).phone })),
+      wahaContacts: allContacts,
+      invalidConversations: invalid.map(c => ({ name: c.recipientName, recipientId: c.recipientId, digits: c.recipientId.replace(/\D/g, '').length })),
+      totalConversations: invalidConvs.length,
+      totalInvalid: invalid.length
+    });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// =====================================================
 // ===== WEBHOOK PÚBLICO (recibe mensajes WhatsApp) =====
 // =====================================================
 router.post('/webhook', async (req: Request, res: Response) => {
@@ -2390,7 +2765,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
       // Verificar si este mensaje ya fue enviado desde la plataforma
       const msgBody = (payload?.body || payload?.text || payload?.content || '').trim();
       const from = payload?.from || payload?.chatId || '';
-      const cleanFrom = from.replace(/[@\s]/g, '').replace('c.us', '').replace('g.us', '');
+      const isLidFromMe = from.includes('@lid');
+      let cleanFrom = from.replace(/[@\s]/g, '').replace('c.us', '').replace('g.us', '').replace('lid', '');
+      
+      // Resolve LID for fromMe messages too
+      if (isLidFromMe) {
+        const resolved = await resolveLidToPhone(sessionName, from, payload);
+        if (resolved && !resolved.startsWith('LID_')) cleanFrom = resolved;
+      }
+      
       const dedupKey = `${cleanFrom}:${msgBody.substring(0, 60)}`;
       
       if (recentlySentFromPlatform.has(dedupKey)) {
@@ -2406,10 +2789,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const ownerId = line.userId;
           const recipientNumber = cleanFrom.replace(/\D/g, '');
           
-          // Buscar conversación
+          // Buscar conversación (try exact, then last 10 digits)
           let conv = await prisma.conversation.findFirst({ 
             where: { userId: ownerId, whatsappLineId: line.id, recipientId: { endsWith: recipientNumber.slice(-10) } } 
           });
+          // If not found and number is long (LID), also try shorter match
+          if (!conv && recipientNumber.length > 13) {
+            conv = await prisma.conversation.findFirst({
+              where: { userId: ownerId, whatsappLineId: line.id, recipientId: { contains: recipientNumber.slice(-7) } }
+            });
+          }
           
           if (conv && msgBody) {
             // Verificar que no sea duplicado reciente (últimos 30s)
@@ -2465,6 +2854,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
+    // 🔍 DETECT @lid FORMAT (WAHA Plus Linked IDs)
+    const isLid = from.includes('@lid');
+    if (isLid) {
+      log(`🔑 Detectado formato LID: ${from} — resolviendo número real...`);
+      log(`🔑 Payload keys: ${Object.keys(payload || {}).join(', ')}`);
+      log(`🔑 _data.from: ${payload?._data?.from || 'N/A'}`);
+      log(`🔑 _data.id: ${JSON.stringify(payload?._data?.id || {}).substring(0, 200)}`);
+      log(`🔑 chat: ${JSON.stringify(payload?.chat || {}).substring(0, 200)}`);
+    }
+
     // 🚫 Filtrar: historias/estados de WhatsApp, broadcast (pero NO grupos)
     if (!from || from.includes('@broadcast') || from.includes('status@') || from === 'status@broadcast') {
       if (from?.includes('@broadcast') || from?.includes('status@')) {
@@ -2508,7 +2907,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
       
       // 🎤 AUDIO → Transcribir con Whisper
       if (media.mediaType === 'audio') {
-        const recipientIdTemp = from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+        const recipientIdTemp = isLid 
+          ? await resolveLidToPhone(sessionName, from, payload).then(r => r.replace('LID_', ''))
+          : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
         const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
         if (userIdTemp) {
           const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
@@ -2586,17 +2987,25 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
 
     // 👥 Para grupos: recipientId es el JID del grupo, para chats: es el número limpio
-    const recipientId = isGroup 
-      ? from  // Mantener JID completo del grupo (123456@g.us)
-      : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+    // 🔑 Para @lid: resolver a número real via WAHA API
+    let recipientId: string;
+    if (isGroup) {
+      recipientId = from; // Mantener JID completo del grupo (123456@g.us)
+    } else if (isLid) {
+      // Resolver LID a número real
+      recipientId = await resolveLidToPhone(sessionName, from, payload);
+    } else {
+      recipientId = from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace(/\D/g, '');
+    }
+    
     const senderName = isGroup
-      ? (participantName || participant.replace('@c.us', '').replace(/\D/g, ''))  // Nombre de quien envió en el grupo
+      ? (participantName || participant.replace('@c.us', '').replace(/\D/g, ''))
       : (notifyName || recipientId);
 
     // 👥 Para grupos necesitamos resolver el usuario por la sesión, no por el participante
     const participantClean = isGroup 
-      ? participant.replace('@c.us', '').replace('@s.whatsapp.net', '').replace(/\D/g, '')
-      : recipientId;
+      ? participant.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '')
+      : recipientId.replace('LID_', '');
     
     const userId = await resolveUserFromWebhook(sessionName, participantClean);
     if (!userId) { res.status(400).json({ error: 'No user' }); return; }
@@ -2622,12 +3031,40 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const last10 = recipientId.slice(-10);
         conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 }, whatsappLineId } });
       }
+      // 🔑 LID MIGRATION: Also search by LID number if we resolved a phone
+      if (!conv && isLid) {
+        const lidClean = from.replace('@lid', '').replace(/\D/g, '');
+        conv = await prisma.conversation.findFirst({ where: { userId, recipientId: lidClean, whatsappLineId } });
+        if (!conv) {
+          conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { contains: lidClean.slice(-10) }, whatsappLineId } });
+        }
+        if (!conv) {
+          // Try with LID_ prefix
+          conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { startsWith: 'LID_' }, whatsappLineId } });
+        }
+      }
     } else {
       // Sin línea: buscar conversación global (legacy)
       conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId: null } });
       if (!conv && recipientId.length >= 10) {
         const last10 = recipientId.slice(-10);
         conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 }, whatsappLineId: null } });
+      }
+      // 🔑 LID MIGRATION for legacy
+      if (!conv && isLid) {
+        const lidClean = from.replace('@lid', '').replace(/\D/g, '');
+        conv = await prisma.conversation.findFirst({ where: { userId, recipientId: lidClean } });
+        if (!conv) conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { contains: lidClean.slice(-10) } } });
+      }
+    }
+
+    // 🔑 AUTO-MIGRATE: If conv has old LID number and we resolved a real phone, update it
+    if (conv && !isGroup && isLid && recipientId.length >= 7 && recipientId.length <= 13 && !recipientId.startsWith('LID_')) {
+      const oldId = conv.recipientId;
+      const oldClean = oldId.replace(/\D/g, '');
+      if (oldClean.length > 13 || oldId.startsWith('LID_')) {
+        await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId } }).catch(() => {});
+        log(`🔑 AUTO-MIGRADO: ${oldId} → ${recipientId} (${conv.recipientName || 'sin nombre'})`);
       }
     }
     

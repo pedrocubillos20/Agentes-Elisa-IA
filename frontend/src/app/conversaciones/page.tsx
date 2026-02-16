@@ -8,6 +8,13 @@ import {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
+// Helper: Validar si un recipientId es un número real de WhatsApp (7-13 dígitos)
+const isValidWhatsAppPhone = (recipientId: string): boolean => {
+  if (!recipientId) return false;
+  const clean = recipientId.replace(/@c\.us|@g\.us/g, '').replace(/\D/g, '');
+  return clean.length >= 7 && clean.length <= 13;
+};
+
 const STAGE_COLORS: Record<string, string> = {
   blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
@@ -41,6 +48,8 @@ export default function ConversacionesPage() {
   const [massMediaFile, setMassMediaFile] = useState<File | null>(null);
   const [massMediaPreview, setMassMediaPreview] = useState<string | null>(null);
   const [groupSettingsLocal, setGroupSettingsLocal] = useState<any>(null);
+  const [fixingLids, setFixingLids] = useState(false);
+  const [lidFixResult, setLidFixResult] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
   const selectedConvRef = useRef<any>(null); // Ref para polling de mensajes
@@ -393,6 +402,30 @@ export default function ConversacionesPage() {
     if (massFileInputRef.current) massFileInputRef.current.value = '';
   };
 
+  // 🔑 Fix LID numbers - migrate to real phone numbers via WAHA
+  const invalidCount = conversations.filter(c => !c.isGroup && !isValidWhatsAppPhone(c.recipientId)).length;
+
+  const fixLidNumbers = async () => {
+    setFixingLids(true);
+    setLidFixResult(null);
+    try {
+      const token = localStorage.getItem('token');
+      const r = await fetch(`${API_URL}/api/whatsapp/fix-lid-numbers`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      const data = await r.json();
+      setLidFixResult(data);
+      if (data.fixed > 0) {
+        // Reload conversations after fix
+        setTimeout(() => window.location.reload(), 2000);
+      }
+    } catch (e: any) {
+      setLidFixResult({ error: e.message });
+    }
+    setFixingLids(false);
+  };
+
   const filteredConversations = conversations.filter(c => {
     const matchSearch = !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm);
     const matchStage = filterStage === 'all' || c.stage === filterStage;
@@ -420,10 +453,26 @@ export default function ConversacionesPage() {
           <MessageSquare className="w-6 h-6 text-[var(--accent-primary)]" />
           <div>
             <h1 className="text-xl font-bold text-white">Conversaciones</h1>
-            <p className="text-xs text-[var(--text-muted)]">{conversations.length} chats</p>
+            <p className="text-xs text-[var(--text-muted)]">{conversations.length} chats{invalidCount > 0 ? ` · ${invalidCount} con número inválido` : ''}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {invalidCount > 0 && (
+            <button 
+              onClick={fixLidNumbers} 
+              disabled={fixingLids}
+              className="flex items-center gap-1.5 py-1.5 px-3 text-xs rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30 transition-all disabled:opacity-50"
+              title="Corregir números inválidos consultando WAHA Plus"
+            >
+              {fixingLids ? <span className="w-3.5 h-3.5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" /> : <span>⚠️</span>}
+              {fixingLids ? 'Consultando WAHA...' : `Reparar ${invalidCount} números`}
+            </button>
+          )}
+          {lidFixResult && (
+            <div className={`text-xs px-2 py-1 rounded ${lidFixResult.fixed > 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+              {lidFixResult.error ? `Error: ${lidFixResult.error}` : `${lidFixResult.fixed}/${lidFixResult.invalid} corregidos`}
+            </div>
+          )}
           <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="input py-1.5 px-3 text-sm bg-[var(--bg-secondary)]">
             <option value="all">📊 Todas ({conversations.length})</option>
             {stageStats.map(stage => (
@@ -457,6 +506,7 @@ export default function ConversacionesPage() {
                     <div className="flex items-center gap-1">
                       <p className="font-medium text-white text-sm truncate">{conv.recipientName || conv.groupName || 'Sin nombre'}</p>
                       {conv.isGroup && <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">👥</span>}
+                      {!conv.isGroup && !isValidWhatsAppPhone(conv.recipientId) && <span title="Número inválido - no puede recibir mensajes masivos" className="text-[9px] bg-yellow-500/20 text-yellow-400 px-1 rounded">⚠️</span>}
                       {conv.aiPaused && <PauseCircle className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
                     </div>
                     <p className="text-[10px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>

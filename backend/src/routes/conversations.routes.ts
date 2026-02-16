@@ -69,20 +69,28 @@ router.get('/stats', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/conversations/dashboard - OPTIMIZADO con queries paralelas
+// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
-    const { lineId } = req.query;
+    const { lineId, period } = req.query;
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekStart = new Date(todayStart);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const yesterdayStart = new Date(todayStart); yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+    const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
-    // Filtros base con soporte lineId
+    // Period start for charts
+    let periodStart = weekStart;
+    if (period === 'month') periodStart = monthStart;
+    else if (period === 'quarter') { periodStart = new Date(now.getFullYear(), now.getMonth() - 2, 1); }
+    else if (period === 'year') { periodStart = new Date(now.getFullYear(), 0, 1); }
+
     const convWhere: any = { userId: ownerId };
     const apptWhere: any = { userId: ownerId };
     const clientWhere: any = { userId: ownerId };
@@ -92,97 +100,171 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       clientWhere.whatsappLineId = lineId as string;
     }
 
-    // ===== TODAS LAS QUERIES EN PARALELO =====
     const [
-      totalConversations,
-      totalMessages,
-      todayMessages,
-      weekMessages,
-      totalAppointments,
-      pendingAppointments,
-      totalClients,
+      totalConversations, totalMessages, todayMessages, yesterdayMessages,
+      weekMessages, monthMessages, lastMonthMessages,
+      totalAppointments, pendingAppointments,
+      totalClients, activeClients,
       stageStats,
-      recentMessages,
-      recentAppointments,
-      weeklyRaw
+      recentMessages, recentAppointments,
+      weeklyRaw, monthlyRaw,
+      todayConversations, weekConversations, monthConversations,
+      aiPausedCount, convertedThisMonth, convertedLastMonth,
+      lines
     ] = await Promise.all([
       prisma.conversation.count({ where: convWhere }),
       prisma.message.count({ where: { conversation: convWhere } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: todayStart } } }),
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: yesterdayStart, lt: todayStart } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: weekStart } } }),
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: monthStart } } }),
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: lastMonthStart, lt: monthStart } } }),
       prisma.appointment.count({ where: apptWhere }),
       prisma.appointment.count({ where: { ...apptWhere, status: 'pending' } }),
       prisma.client.count({ where: clientWhere }),
+      prisma.client.count({ where: { ...clientWhere, status: 'active' } }),
       prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
       prisma.message.findMany({
         where: { conversation: convWhere, fromMe: false },
-        orderBy: { timestamp: 'desc' }, take: 5,
-        include: { conversation: { select: { recipientName: true, recipientId: true } } }
+        orderBy: { timestamp: 'desc' }, take: 8,
+        include: { conversation: { select: { recipientName: true, recipientId: true, stage: true, whatsappLineId: true } } }
       }),
-      prisma.appointment.findMany({
-        where: apptWhere, orderBy: { createdAt: 'desc' }, take: 3
-      }),
-      // Actividad semanal - con filtro lineId
+      prisma.appointment.findMany({ where: apptWhere, orderBy: { createdAt: 'desc' }, take: 5 }),
+      // Weekly activity
       lineId
         ? prisma.$queryRaw`
             SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
-            FROM "Message" m
-            JOIN "Conversation" c ON m."conversationId" = c.id
+            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
             WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${weekStart}
-            GROUP BY EXTRACT(DOW FROM m."timestamp")
-            ORDER BY dow
+            GROUP BY EXTRACT(DOW FROM m."timestamp") ORDER BY dow
           ` as Promise<Array<{ dow: number; count: number }>>
         : prisma.$queryRaw`
             SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
-            FROM "Message" m
-            JOIN "Conversation" c ON m."conversationId" = c.id
+            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
             WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${weekStart}
-            GROUP BY EXTRACT(DOW FROM m."timestamp")
-            ORDER BY dow
-          ` as Promise<Array<{ dow: number; count: number }>>
+            GROUP BY EXTRACT(DOW FROM m."timestamp") ORDER BY dow
+          ` as Promise<Array<{ dow: number; count: number }>>,
+      // Monthly activity (last 30 days by day)
+      lineId
+        ? prisma.$queryRaw`
+            SELECT m."timestamp"::date as day, COUNT(*)::int as count
+            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
+            WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${monthStart}
+            GROUP BY m."timestamp"::date ORDER BY day
+          ` as Promise<Array<{ day: Date; count: number }>>
+        : prisma.$queryRaw`
+            SELECT m."timestamp"::date as day, COUNT(*)::int as count
+            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
+            WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${monthStart}
+            GROUP BY m."timestamp"::date ORDER BY day
+          ` as Promise<Array<{ day: Date; count: number }>>,
+      // Today's new conversations
+      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: todayStart } } }),
+      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: weekStart } } }),
+      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: monthStart } } }),
+      // AI paused (human takeover)
+      prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
+      // Converted this month vs last
+      prisma.conversation.count({ where: { ...convWhere, stage: 'converted', updatedAt: { gte: monthStart } } }),
+      prisma.conversation.count({ where: { ...convWhere, stage: 'converted', updatedAt: { gte: lastMonthStart, lt: monthStart } } }),
+      // Lines info
+      prisma.whatsappLine.findMany({
+        where: { userId: ownerId },
+        select: { id: true, label: true, phone: true, status: true, sessionName: true }
+      })
     ]);
 
-    // Procesar actividad semanal (0=Dom, 1=Lun... 6=Sáb)
+    // Process weekly activity
     const weeklyActivity = [0, 0, 0, 0, 0, 0, 0];
     if (Array.isArray(weeklyRaw)) {
-      weeklyRaw.forEach((r: any) => {
-        const idx = Number(r.dow);
-        if (idx >= 0 && idx <= 6) weeklyActivity[idx] = Number(r.count) || 0;
+      weeklyRaw.forEach((r: any) => { const i = Number(r.dow); if (i >= 0 && i <= 6) weeklyActivity[i] = Number(r.count) || 0; });
+    }
+
+    // Process monthly activity (fill all days)
+    const monthlyActivity: Array<{ day: string; count: number }> = [];
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const monthMap: Record<string, number> = {};
+    if (Array.isArray(monthlyRaw)) {
+      monthlyRaw.forEach((r: any) => {
+        const d = new Date(r.day);
+        const key = `${d.getDate()}`;
+        monthMap[key] = Number(r.count) || 0;
       });
+    }
+    for (let i = 1; i <= Math.min(now.getDate(), daysInMonth); i++) {
+      monthlyActivity.push({ day: `${i}`, count: monthMap[`${i}`] || 0 });
     }
 
     const convertedCount = stageStats.find(s => s.stage === 'converted')?._count?.id || 0;
     const conversionRate = totalConversations > 0 ? ((convertedCount / totalConversations) * 100).toFixed(1) : '0';
 
-    // Combinar actividad reciente
+    // Message growth comparison
+    const msgGrowth = yesterdayMessages > 0 ? (((todayMessages - yesterdayMessages) / yesterdayMessages) * 100).toFixed(0) : todayMessages > 0 ? '+100' : '0';
+    const monthGrowth = lastMonthMessages > 0 ? (((monthMessages - lastMonthMessages) / lastMonthMessages) * 100).toFixed(0) : '0';
+
+    // Top leads (most messages, with stage info)
+    const topLeads = await prisma.conversation.findMany({
+      where: { ...convWhere, stage: { not: 'converted' } },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      select: {
+        id: true, recipientName: true, recipientId: true, stage: true, 
+        updatedAt: true, contextData: true, whatsappLineId: true,
+        _count: { select: { messages: true } }
+      }
+    });
+
+    // Recent activity
     const recentActivity = [
       ...recentMessages.map(m => ({
         type: 'message' as const,
         user: m.conversation.recipientName || m.conversation.recipientId || 'Desconocido',
-        action: m.content.substring(0, 60) + (m.content.length > 60 ? '...' : ''),
+        action: m.content.substring(0, 80) + (m.content.length > 80 ? '...' : ''),
         time: m.timestamp.toISOString(),
+        stage: m.conversation.stage,
+        lineId: m.conversation.whatsappLineId,
         timestamp: m.timestamp.getTime()
       })),
       ...recentAppointments.map(a => ({
         type: (a.type === 'order' ? 'sale' : 'appointment') as 'sale' | 'appointment',
-        user: a.clientName,
-        action: a.type === 'order'
-          ? `Pedido${a.total ? ` - $${Number(a.total).toLocaleString()}` : ''}`
-          : `Cita ${a.status === 'pending' ? 'pendiente' : a.status}`,
+        user: a.clientName, stage: null, lineId: null,
+        action: a.type === 'order' ? `Pedido${a.total ? ` - $${Number(a.total).toLocaleString()}` : ''}` : `Cita ${a.status}`,
         time: a.createdAt.toISOString(),
         timestamp: a.createdAt.getTime()
       }))
-    ].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
+    ].sort((a, b) => b.timestamp - a.timestamp).slice(0, 8);
 
-    // Clientes potenciales por etapa
     const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
 
+    // Average messages per conversation
+    const avgMsgsPerConv = totalConversations > 0 ? (totalMessages / totalConversations).toFixed(1) : '0';
+
     res.json({
-      totalConversations, totalMessages, todayMessages, weekMessages,
-      totalAppointments, pendingAppointments, totalClients,
+      // Core metrics
+      totalConversations, totalMessages, todayMessages, yesterdayMessages,
+      weekMessages, monthMessages, lastMonthMessages,
+      totalAppointments, pendingAppointments,
+      totalClients, activeClients,
       convertedCount, conversionRate,
-      weeklyActivity, recentActivity, funnelData,
-      stageStats: funnelData
+      // Growth
+      msgGrowth, monthGrowth,
+      // Time-based
+      todayConversations, weekConversations, monthConversations,
+      convertedThisMonth, convertedLastMonth,
+      // Engagement
+      aiPausedCount, avgMsgsPerConv,
+      // Charts
+      weeklyActivity, monthlyActivity,
+      // Lists
+      recentActivity, funnelData, stageStats: funnelData,
+      topLeads: topLeads.map(l => ({
+        id: l.id, name: l.recipientName || l.recipientId, stage: l.stage,
+        messages: l._count.messages, lastActive: l.updatedAt,
+        lineId: l.whatsappLineId,
+        context: l.contextData
+      })),
+      // Lines
+      lines
     });
   } catch (error) {
     console.error('Error dashboard:', error);

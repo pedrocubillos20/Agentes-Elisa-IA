@@ -53,7 +53,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Líneas disponibles del admin
     const lines = await prisma.whatsappLine.findMany({
       where: { userId: ownerId },
-      select: { id: true, label: true, phoneNumber: true, status: true }
+      select: { id: true, label: true, phone: true, status: true }
     });
 
     // Chats asignados por miembro

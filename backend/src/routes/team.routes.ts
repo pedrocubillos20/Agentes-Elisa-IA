@@ -31,7 +31,7 @@ const hasPermission = async (userId: string, perm: string): Promise<boolean> => 
   return (u.permissions as any)?.[perm] === true;
 };
 
-// GET /api/team — Listar equipo
+// GET /api/team — Listar equipo + líneas disponibles
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -50,6 +50,12 @@ router.get('/', async (req: Request, res: Response) => {
       select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
 
+    // Líneas disponibles del admin
+    const lines = await prisma.whatsappLine.findMany({
+      where: { userId: ownerId },
+      select: { id: true, label: true, phoneNumber: true, status: true }
+    });
+
     // Chats asignados por miembro
     const assignments = await prisma.conversation.groupBy({
       by: ['assignedTo'],
@@ -62,6 +68,7 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({
       owner,
       members: members.map(m => ({ ...m, assignedConversations: assignMap[m.id] || 0 })),
+      lines,
       total: members.length
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }

@@ -5,22 +5,23 @@ RUN apt-get update -y && apt-get install -y openssl libssl-dev ca-certificates &
 
 WORKDIR /app
 
-# Copiar TODO el código
-COPY . .
+# Copiar archivos de dependencias
+COPY package*.json ./
+COPY prisma ./prisma/
 
 # Instalar dependencias
 RUN npm install
 
-# Fix permissions for ALL binaries
+# Fix permissions for prisma binary
 RUN chmod -R 755 node_modules/.bin/ 2>/dev/null || true
 RUN chmod -R 755 node_modules/prisma/ 2>/dev/null || true
-RUN chmod -R 755 node_modules/typescript/ 2>/dev/null || true
 
-# Generar cliente Prisma
+# Copiar código fuente
+COPY . .
+
+# Generar cliente Prisma y compilar TypeScript
 RUN node node_modules/prisma/build/index.js generate
-
-# Compilar TypeScript
-RUN node node_modules/typescript/bin/tsc
+RUN npm run build
 
 # Exponer puerto
 EXPOSE 3000

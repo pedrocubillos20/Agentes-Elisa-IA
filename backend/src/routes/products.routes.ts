@@ -4,21 +4,30 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// ⚡ getOwnerId con cache — sub-usuarios heredan productos del admin
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
+const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+  const ownerId = user?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
+};
+
 // GET /api/products
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
     const { category, lineId } = req.query;
 
-    const where: any = { userId };
+    const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId as string;
     if (category) where.category = category as string;
 
-    const products = await prisma.product.findMany({
-      where,
-      orderBy: { createdAt: 'desc' }
-    });
-
+    const products = await prisma.product.findMany({ where, orderBy: { createdAt: 'desc' } });
     res.json({ products });
   } catch (error) {
     console.error('Error:', error);
@@ -30,18 +39,18 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
     const { lineId } = req.query;
-    const where: any = { userId };
+    const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId as string;
 
     const total = await prisma.product.count({ where });
     const active = await prisma.product.count({ where: { ...where, isActive: true } });
     const lowStock = await prisma.product.count({ where: { ...where, stock: { lt: 10 } } });
-
     res.json({ total, active, lowStock });
   } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Error al obtener estadísticas' });
+    res.status(500).json({ error: 'Error' });
   }
 });
 
@@ -49,24 +58,19 @@ router.get('/stats', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
     const { name, description, price, category, image, stock, lineId } = req.body;
 
     const product = await prisma.product.create({
       data: {
-        userId: userId!,
-        name,
-        description,
-        price: parseFloat(price) || 0,
-        category,
-        image,
-        stock: parseInt(stock) || 0,
-        whatsappLineId: lineId || null
+        userId: ownerId, name, description,
+        price: parseFloat(price) || 0, category, image,
+        stock: parseInt(stock) || 0, whatsappLineId: lineId || null
       }
     });
-
     res.status(201).json({ product });
   } catch (error) {
-    console.error('Error:', error);
     res.status(500).json({ error: 'Error al crear producto' });
   }
 });
@@ -75,14 +79,13 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
     const { id } = req.params;
     const { name, description, price, category, image, stock, isActive } = req.body;
 
-    const existing = await prisma.product.findFirst({ where: { id, userId } });
-    if (!existing) {
-      res.status(404).json({ error: 'Producto no encontrado' });
-      return;
-    }
+    const existing = await prisma.product.findFirst({ where: { id, userId: ownerId } });
+    if (!existing) { res.status(404).json({ error: 'Producto no encontrado' }); return; }
 
     const product = await prisma.product.update({
       where: { id },
@@ -94,10 +97,8 @@ router.put('/:id', async (req: Request, res: Response) => {
         isActive
       }
     });
-
     res.json({ product });
   } catch (error) {
-    console.error('Error:', error);
     res.status(500).json({ error: 'Error al actualizar producto' });
   }
 });
@@ -106,12 +107,13 @@ router.put('/:id', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
     const { id } = req.params;
 
-    await prisma.product.deleteMany({ where: { id, userId } });
+    await prisma.product.deleteMany({ where: { id, userId: ownerId } });
     res.json({ message: 'Producto eliminado' });
   } catch (error) {
-    console.error('Error:', error);
     res.status(500).json({ error: 'Error al eliminar producto' });
   }
 });

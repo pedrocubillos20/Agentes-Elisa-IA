@@ -4,6 +4,17 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// ⚡ getOwnerId con cache — sub-usuarios heredan datos del admin
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
+const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+  const ownerId = user?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
+};
+
 // ❌ NO hay DEFAULT_STAGES — las etapas vienen SOLO de la base de conocimiento de cada línea/asistente
 
 // GET /api/stages - Get stages (supports lineId query param for line-specific stages)
@@ -12,6 +23,8 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
+    // ⚡ Sub-usuarios ven las etapas del admin
+    const ownerId = await getOwnerId(userId);
     const lineId = req.query.lineId as string | undefined;
     
     let stages: any[] = [];
@@ -20,7 +33,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Si hay lineId, buscar etapas de la línea
     if (lineId) {
       const line = await prisma.whatsappLine.findFirst({ 
-        where: { id: lineId, userId },
+        where: { id: lineId, userId: ownerId },
         select: { customStages: true, stagesConfigured: true }
       });
       
@@ -32,7 +45,7 @@ router.get('/', async (req: Request, res: Response) => {
       // Si no tiene etapas configuradas, intentar extraerlas del asistente
       if (stages.length === 0) {
         const assistant = await prisma.assistant.findFirst({
-          where: { userId, whatsappLineId: lineId },
+          where: { userId: ownerId, whatsappLineId: lineId },
           select: { context: true }
         });
         
@@ -56,7 +69,7 @@ router.get('/', async (req: Request, res: Response) => {
     
     // Sin lineId: buscar la primera línea del usuario que tenga etapas
     const lines = await prisma.whatsappLine.findMany({
-      where: { userId },
+      where: { userId: ownerId },
       select: { id: true, customStages: true, stagesConfigured: true }
     });
     
@@ -80,6 +93,7 @@ router.put('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
 
     const { stages, lineId } = req.body;
     
@@ -100,12 +114,11 @@ router.put('/', async (req: Request, res: Response) => {
         where: { id: lineId },
         data: { customStages: stages, stagesConfigured: true }
       });
-      console.log(`✅ Stages saved for line ${lineId}: ${stages.length} stages`);
       res.json({ stages, message: 'Etapas guardadas para la línea' });
       return;
     }
 
-    const firstLine = await prisma.whatsappLine.findFirst({ where: { userId } });
+    const firstLine = await prisma.whatsappLine.findFirst({ where: { userId: ownerId } });
     if (firstLine) {
       await prisma.whatsappLine.update({
         where: { id: firstLine.id },
@@ -113,7 +126,6 @@ router.put('/', async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`✅ Stages saved for ${userId}: ${stages.length} stages`);
     res.json({ stages, message: 'Etapas guardadas' });
   } catch (error) {
     console.error('Error saving stages:', error);
@@ -126,12 +138,13 @@ router.post('/sync', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
 
     const { lineId } = req.body;
     if (!lineId) { res.status(400).json({ error: 'lineId requerido' }); return; }
 
     const assistant = await prisma.assistant.findFirst({
-      where: { userId, whatsappLineId: lineId },
+      where: { userId: ownerId, whatsappLineId: lineId },
       select: { context: true }
     });
 

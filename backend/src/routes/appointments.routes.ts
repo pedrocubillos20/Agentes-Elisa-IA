@@ -1,12 +1,22 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../lib/prisma';
 
 interface AuthRequest extends Request {
   user?: { id: string; email: string; role: string; parentUserId?: string };
 }
 
 const router = Router();
-const prisma = new PrismaClient();
+
+// ⚡ getOwnerId con cache
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
+const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+  const ownerId = user?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
+};
 
 // Helper: convierte string de fecha a DateTime ISO válido para Prisma
 function toDateTime(dateStr: string): Date {
@@ -19,7 +29,7 @@ function toDateTime(dateStr: string): Date {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const { type, status, date, startDate, endDate, limit = '100', lineId } = req.query;
 
     const where: any = { userId };
@@ -62,7 +72,7 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/today', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const { lineId } = req.query;
 
     const today = new Date();
@@ -90,7 +100,7 @@ router.get('/today', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const { lineId } = req.query;
     const where: any = { userId };
     if (lineId) where.whatsappLineId = lineId as string;
@@ -111,7 +121,7 @@ router.get('/stats', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const {
       type, clientId, clientName, clientPhone,
       date, time, duration, notes, address,
@@ -171,7 +181,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const { id } = req.params;
     const {
       type, clientName, clientPhone, date, time,
@@ -212,7 +222,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 router.put('/:id/status', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const { id } = req.params;
     const { status } = req.body;
 
@@ -245,7 +255,7 @@ router.put('/:id/status', async (req: Request, res: Response) => {
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
-    const userId = user?.parentUserId || user?.id;
+    const userId = await getOwnerId(user?.id || '');
     const { id } = req.params;
 
     const existing = await prisma.appointment.findFirst({ where: { id, userId } });

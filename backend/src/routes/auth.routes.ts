@@ -403,6 +403,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     res.json({
       user: {
         ...user,
+        plan: effectivePlan,  // ⚡ Sub-users inherit parent's plan
         isSubUser: !!user.parentUserId,
         parent: parentInfo,
         apiKeyConnected: user.parentUserId ? (parentInfo?.apiKeyConnected || false) : user.apiKeyConnected,

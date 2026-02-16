@@ -1,13 +1,12 @@
 {
   "name": "elisa-ia-backend",
-  "version": "5.1.0",
-  "description": "Backend para Elisa IA - Agentes de WhatsApp con WAHA",
+  "version": "6.0.0",
+  "description": "Bizonne Backend - Multi-Tenant WhatsApp Platform",
   "main": "dist/server.js",
   "scripts": {
-    "build": "npx prisma generate && tsc",
+    "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node-dev --respawn src/server.ts",
-    "postinstall": "npx prisma generate"
+    "dev": "ts-node-dev --respawn src/server.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.7.0",

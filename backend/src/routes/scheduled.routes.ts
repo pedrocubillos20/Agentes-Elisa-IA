@@ -8,6 +8,8 @@ const WAHA_API_URL = process.env.WAHA_API_URL || 'http://31.97.142.127:8080';
 const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
 
 // ===== HELPERS =====
+const log = (msg: string) => { if (process.env.NODE_ENV !== 'production') console.log(msg); else console.log(msg); };
+
 const getWahaHeaders = () => {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
   if (WAHA_API_KEY) h['X-Api-Key'] = WAHA_API_KEY;
@@ -24,40 +26,137 @@ const getOwnerId = async (userId: string): Promise<string> => {
   return ownerId;
 };
 
-const sendWahaMessage = async (session: string, chatId: string, text: string): Promise<boolean> => {
-  try {
-    const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
-      method: 'POST', headers: getWahaHeaders(),
-      body: JSON.stringify({ session, chatId, text })
-    });
-    return r.ok;
-  } catch { return false; }
+// ===== ANTI-BLOQUEO: Random delay =====
+const randomDelay = (minMs: number, maxMs: number): Promise<void> => {
+  const ms = minMs + Math.random() * (maxMs - minMs);
+  return new Promise(r => setTimeout(r, ms));
 };
 
-const sendWahaMedia = async (session: string, chatId: string, media: any, caption?: string): Promise<boolean> => {
-  try {
-    const url = media.url || '';
-    const isBase64 = url.startsWith('data:');
-    let fileData: any = null;
-    if (isBase64) {
-      const match = url.match(/^data:(.+?);base64,(.+)$/s);
-      if (match) fileData = { mimetype: match[1], filename: media.name || 'file', data: match[2] };
-      else return false;
-    }
-    let endpoint = media.type === 'image' ? '/api/sendImage' : media.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
-    const body: any = { session, chatId };
-    if (fileData) body.file = fileData;
-    else if (media.url) body.file = { url: media.url };
-    if (caption) body.caption = caption;
+// ===== TYPING SIMULATION =====
+const simulateTyping = async (session: string, chatId: string): Promise<void> => {
+  const endpoints = [
+    `${WAHA_API_URL}/api/startTyping`,
+    `${WAHA_API_URL}/api/sendPresence`
+  ];
+  for (const url of endpoints) {
+    try {
+      const body = url.includes('Presence') 
+        ? { session, chatId, presence: 'typing' }
+        : { session, chatId };
+      const r = await fetch(url, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
+      if (r.ok) return;
+    } catch {}
+  }
+};
 
-    const r = await fetch(`${WAHA_API_URL}${endpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
-    if (r.ok) return true;
-    if (endpoint !== '/api/sendFile') {
-      const r2 = await fetch(`${WAHA_API_URL}/api/sendFile`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
-      if (r2.ok) return true;
+const stopTyping = async (session: string, chatId: string): Promise<void> => {
+  try { await fetch(`${WAHA_API_URL}/api/stopTyping`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify({ session, chatId }) }); } catch {}
+};
+
+// ===== VALIDATE & FORMAT chatId =====
+const formatChatId = (raw: string, isGroup = false): string | null => {
+  if (!raw) return null;
+  
+  // Already formatted
+  if (raw.includes('@g.us')) return raw;
+  if (raw.includes('@c.us')) {
+    const num = raw.replace('@c.us', '');
+    if (num.length < 7 || num.length > 15) return null;
+    return raw;
+  }
+  
+  // Clean non-digits
+  const clean = raw.replace(/\D/g, '');
+  if (!clean || clean.length < 7 || clean.length > 15) return null;
+  
+  if (isGroup) return `${clean}@g.us`;
+  return `${clean}@c.us`;
+};
+
+// ===== SEND TEXT with retry =====
+const sendText = async (session: string, chatId: string, text: string, retries = 3): Promise<boolean> => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
+        method: 'POST', headers: getWahaHeaders(),
+        body: JSON.stringify({ session, chatId, text })
+      });
+      if (r.ok) return true;
+      
+      const errText = await r.text().catch(() => '');
+      log(`⚠️ sendText intento ${attempt}/${retries} (${r.status}): ${errText.substring(0, 100)}`);
+      
+      if (attempt < retries) await randomDelay(2000, 5000);
+    } catch (e: any) {
+      log(`⚠️ sendText error intento ${attempt}/${retries}: ${e.message}`);
+      if (attempt < retries) await randomDelay(2000, 5000);
     }
-    return false;
-  } catch { return false; }
+  }
+  return false;
+};
+
+// ===== SEND MEDIA with retry =====
+const sendMedia = async (session: string, chatId: string, mediaUrl: string, mediaType: string, caption?: string, retries = 3): Promise<boolean> => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const isBase64 = mediaUrl.startsWith('data:');
+      let fileData: any = null;
+      
+      if (isBase64) {
+        const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
+        if (match) fileData = { mimetype: match[1], filename: 'media', data: match[2] };
+        else return false;
+      }
+      
+      // Determine endpoint
+      let endpoint = '/api/sendFile';
+      if (mediaType === 'image') endpoint = '/api/sendImage';
+      else if (mediaType === 'video') endpoint = '/api/sendVideo';
+      else if (mediaType === 'audio') endpoint = '/api/sendFile'; // audio as file
+      
+      const body: any = { session, chatId };
+      if (fileData) body.file = fileData;
+      else body.file = { url: mediaUrl };
+      if (caption) body.caption = caption;
+      
+      const r = await fetch(`${WAHA_API_URL}${endpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
+      if (r.ok) return true;
+      
+      // Fallback to /api/sendFile
+      if (endpoint !== '/api/sendFile') {
+        const r2 = await fetch(`${WAHA_API_URL}/api/sendFile`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
+        if (r2.ok) return true;
+      }
+      
+      const errText = await r.text().catch(() => '');
+      log(`⚠️ sendMedia intento ${attempt}/${retries} (${r.status}): ${errText.substring(0, 100)}`);
+      
+      if (attempt < retries) await randomDelay(3000, 6000);
+    } catch (e: any) {
+      log(`⚠️ sendMedia error intento ${attempt}/${retries}: ${e.message}`);
+      if (attempt < retries) await randomDelay(3000, 6000);
+    }
+  }
+  return false;
+};
+
+// ===== MESSAGE VARIATION (anti-spam) =====
+const varyMessage = (text: string, index: number): string => {
+  if (!text) return text;
+  
+  // Add invisible variation to avoid spam detection
+  const variations = [
+    '', ' ', '​', '‎', '‏' // empty, space, zero-width space, LRM, RLM
+  ];
+  const suffix = variations[index % variations.length];
+  
+  // Randomly add/remove trailing punctuation
+  const trimmed = text.trimEnd();
+  if (index % 3 === 1 && !trimmed.endsWith('!') && !trimmed.endsWith('?')) {
+    return trimmed + suffix;
+  }
+  
+  return text + suffix;
 };
 
 // ====================================================
@@ -68,13 +167,9 @@ router.get('/', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
-    const lineId = req.query.lineId as string;
-
-    const where: any = { userId: ownerId };
-    if (lineId) where.whatsappLineId = lineId;
 
     const messages = await prisma.scheduledMessage.findMany({
-      where,
+      where: { userId: ownerId },
       orderBy: { scheduledAt: 'asc' }
     });
 
@@ -102,36 +197,26 @@ router.post('/', async (req: Request, res: Response) => {
     } = req.body;
 
     if (!targetId || !scheduledAt) {
-      res.status(400).json({ error: 'Se requiere destinatario y fecha/hora' });
-      return;
+      res.status(400).json({ error: 'Se requiere destinatario y fecha/hora' }); return;
     }
-
     if (!message && !mediaUrl) {
-      res.status(400).json({ error: 'Se requiere mensaje o media' });
-      return;
+      res.status(400).json({ error: 'Se requiere mensaje o media' }); return;
     }
 
     const scheduled = await prisma.scheduledMessage.create({
       data: {
-        userId: ownerId,
-        whatsappLineId: whatsappLineId || null,
-        targetType: targetType || 'contact',
-        targetId,
-        targetName: targetName || null,
-        message: message || null,
-        mediaUrl: mediaUrl || null,
-        mediaType: mediaType || null,
-        scheduledAt: new Date(scheduledAt),
-        recurrence: recurrence || 'once',
-        recurrenceDays: recurrenceDays || null,
-        recurrenceTime: recurrenceTime || null,
+        userId: ownerId, whatsappLineId: whatsappLineId || null,
+        targetType: targetType || 'contact', targetId,
+        targetName: targetName || null, message: message || null,
+        mediaUrl: mediaUrl || null, mediaType: mediaType || null,
+        scheduledAt: new Date(scheduledAt), recurrence: recurrence || 'once',
+        recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
-        timezone: timezone || 'America/Bogota',
-        status: 'pending'
+        timezone: timezone || 'America/Bogota', status: 'pending'
       }
     });
 
-    console.log(`📅 Mensaje programado creado: ${scheduled.id} → ${targetId} @ ${scheduledAt}`);
+    log(`📅 Mensaje programado creado: ${scheduled.id} → ${targetId} @ ${scheduledAt}`);
     res.json({ success: true, scheduled });
   } catch (e: any) {
     console.error('Error creando programado:', e.message);
@@ -152,8 +237,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (!existing) { res.status(404).json({ error: 'No encontrado' }); return; }
 
     const {
-      targetType, targetId, targetName,
-      message, mediaUrl, mediaType,
+      targetType, targetId, targetName, message, mediaUrl, mediaType,
       scheduledAt, recurrence, recurrenceDays, recurrenceTime, recurrenceEnd,
       timezone, status
     } = req.body;
@@ -161,19 +245,14 @@ router.put('/:id', async (req: Request, res: Response) => {
     const updated = await prisma.scheduledMessage.update({
       where: { id: req.params.id },
       data: {
-        ...(targetType !== undefined && { targetType }),
-        ...(targetId !== undefined && { targetId }),
-        ...(targetName !== undefined && { targetName }),
-        ...(message !== undefined && { message }),
-        ...(mediaUrl !== undefined && { mediaUrl }),
-        ...(mediaType !== undefined && { mediaType }),
+        ...(targetType !== undefined && { targetType }), ...(targetId !== undefined && { targetId }),
+        ...(targetName !== undefined && { targetName }), ...(message !== undefined && { message }),
+        ...(mediaUrl !== undefined && { mediaUrl }), ...(mediaType !== undefined && { mediaType }),
         ...(scheduledAt !== undefined && { scheduledAt: new Date(scheduledAt) }),
-        ...(recurrence !== undefined && { recurrence }),
-        ...(recurrenceDays !== undefined && { recurrenceDays }),
+        ...(recurrence !== undefined && { recurrence }), ...(recurrenceDays !== undefined && { recurrenceDays }),
         ...(recurrenceTime !== undefined && { recurrenceTime }),
         ...(recurrenceEnd !== undefined && { recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null }),
-        ...(timezone !== undefined && { timezone }),
-        ...(status !== undefined && { status }),
+        ...(timezone !== undefined && { timezone }), ...(status !== undefined && { status }),
       }
     });
 
@@ -208,187 +287,235 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // ⏰ CRON: Verificar mensajes pendientes cada 60 segundos
 // ====================================================
 export const startScheduledMessagesCron = () => {
-  console.log('⏰ Cron de mensajes programados INICIADO (cada 60s)');
+  log('⏰ Cron de mensajes programados INICIADO (cada 60s)');
 
   setInterval(async () => {
     try {
       const now = new Date();
-
-      // Buscar mensajes pendientes cuya hora ya pasó
       const pending = await prisma.scheduledMessage.findMany({
-        where: {
-          status: 'pending',
-          scheduledAt: { lte: now }
-        },
-        take: 50 // Procesar máx 50 a la vez
+        where: { status: 'pending', scheduledAt: { lte: now } },
+        take: 20 // Máx 20 a la vez (más seguro para anti-bloqueo)
       });
 
       if (pending.length === 0) return;
-
-      console.log(`⏰ Procesando ${pending.length} mensajes programados...`);
+      log(`⏰ Procesando ${pending.length} mensajes programados...`);
 
       for (const msg of pending) {
         try {
+          // Marcar como processing para evitar doble ejecución
+          await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'processing' as any } });
           await processScheduledMessage(msg);
         } catch (e: any) {
           console.error(`⏰ Error procesando ${msg.id}:`, e.message);
-          await prisma.scheduledMessage.update({
-            where: { id: msg.id },
-            data: { status: 'failed', error: e.message }
-          });
+          await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'failed', error: e.message } }).catch(() => {});
         }
       }
     } catch (e: any) {
       console.error('⏰ Error en cron de programados:', e.message);
     }
-  }, 60000); // Cada 60 segundos
+  }, 60000);
 };
 
 // ====================================================
-// 🚀 Procesar un mensaje programado
+// 🚀 Procesar un mensaje programado — MEJORADO COMPLETO
 // ====================================================
 const processScheduledMessage = async (msg: any) => {
   const { userId, whatsappLineId, targetType, targetId, message, mediaUrl, mediaType } = msg;
 
-  // Determinar sesión de WhatsApp
+  // 1. Determinar sesión de WhatsApp
   let sessionName: string | null = null;
+  let effectiveLineId = whatsappLineId;
 
   if (whatsappLineId) {
     const line = await prisma.whatsappLine.findFirst({ where: { id: whatsappLineId, userId } });
     if (line) sessionName = line.sessionName;
   }
   if (!sessionName) {
-    const firstLine = await prisma.whatsappLine.findFirst({ where: { userId, status: 'connected' } });
+    const firstLine = await prisma.whatsappLine.findFirst({ where: { userId, status: 'connected' }, orderBy: { isDefault: 'desc' } });
     if (firstLine) {
       sessionName = firstLine.sessionName;
-    } else {
-      sessionName = `user_${userId}`;
+      effectiveLineId = firstLine.id;
     }
   }
+  if (!sessionName) {
+    await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'failed', error: 'Sin sesión de WhatsApp activa' } });
+    return;
+  }
 
-  // Determinar destinatarios según targetType
+  // 2. Verificar que la sesión esté activa en WAHA
+  try {
+    const checkRes = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, { headers: getWahaHeaders() });
+    if (checkRes.ok) {
+      const sessionData = await checkRes.json() as any;
+      if (!['WORKING', 'CONNECTED'].includes(sessionData?.status)) {
+        log(`⚠️ Sesión ${sessionName} no está activa (${sessionData?.status}), reintentando...`);
+        await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'pending', error: `Sesión ${sessionData?.status}` } });
+        return;
+      }
+    }
+  } catch {}
+
+  // 3. Resolver destinatarios
   let targets: { chatId: string; name?: string }[] = [];
 
   if (targetType === 'contact') {
-    // Un solo contacto
-    const phone = targetId.replace(/\D/g, '');
-    targets = [{ chatId: phone.includes('@') ? phone : `${phone}@c.us`, name: msg.targetName }];
+    const chatId = formatChatId(targetId, false);
+    if (chatId) targets = [{ chatId, name: msg.targetName }];
 
   } else if (targetType === 'group') {
-    // Un grupo de WhatsApp
-    targets = [{ chatId: targetId.includes('@g.us') ? targetId : `${targetId}@g.us`, name: msg.targetName }];
+    const chatId = formatChatId(targetId, true);
+    if (chatId) targets = [{ chatId, name: msg.targetName }];
 
   } else if (targetType === 'stage') {
-    // Todos los contactos en una etapa del embudo
     const where: any = { userId, stage: targetId };
     if (whatsappLineId) where.whatsappLineId = whatsappLineId;
 
     const convs = await prisma.conversation.findMany({
       where,
-      select: { recipientId: true, recipientName: true }
+      select: { recipientId: true, recipientName: true, isGroup: true }
     });
 
-    targets = convs.map(c => ({
-      chatId: c.recipientId.includes('@') ? c.recipientId : `${c.recipientId}@c.us`,
-      name: c.recipientName || undefined
-    }));
+    targets = convs
+      .map(c => {
+        const chatId = formatChatId(c.recipientId, c.isGroup);
+        return chatId ? { chatId, name: c.recipientName || undefined } : null;
+      })
+      .filter(Boolean) as { chatId: string; name?: string }[];
   }
 
   if (targets.length === 0) {
-    await prisma.scheduledMessage.update({
-      where: { id: msg.id },
-      data: { status: 'failed', error: 'Sin destinatarios' }
-    });
+    await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'failed', error: 'Sin destinatarios válidos' } });
     return;
   }
 
-  console.log(`📅 Enviando programado ${msg.id} a ${targets.length} destinatarios...`);
+  // Deduplicate targets
+  const seen = new Set<string>();
+  targets = targets.filter(t => { if (seen.has(t.chatId)) return false; seen.add(t.chatId); return true; });
+
+  log(`📅 Enviando programado ${msg.id} a ${targets.length} destinatarios vía sesión ${sessionName}`);
+
+  // 4. 🛡️ ANTI-BLOQUEO CONFIG
+  const BATCH_SIZE = 10;                    // Pausa larga cada 10 mensajes
+  const DELAY_MIN = 8000;                   // Mínimo 8 segundos entre envíos
+  const DELAY_MAX = 18000;                  // Máximo 18 segundos
+  const BATCH_PAUSE_MIN = 30000;            // Pausa de batch: 30s mínimo
+  const BATCH_PAUSE_MAX = 60000;            // Pausa de batch: 60s máximo
+  const TYPING_DURATION_MIN = 2000;         // Simular typing: 2-5s
+  const TYPING_DURATION_MAX = 5000;
 
   let sentCount = 0;
-  const DELAY = 3000; // 3s entre envíos
+  let failedCount = 0;
 
   for (let i = 0; i < targets.length; i++) {
     const target = targets[i];
+    
     try {
-      // Enviar texto
-      if (message) {
-        const sent = await sendWahaMessage(sessionName!, target.chatId, message);
-        if (!sent) { console.error(`⏰ Falló envío a ${target.chatId}`); continue; }
+      // 🛡️ BATCH BREAK: pausa larga cada N mensajes
+      if (sentCount > 0 && sentCount % BATCH_SIZE === 0) {
+        const batchPause = BATCH_PAUSE_MIN + Math.random() * (BATCH_PAUSE_MAX - BATCH_PAUSE_MIN);
+        log(`🛡️ Pausa anti-bloqueo: ${Math.round(batchPause / 1000)}s después de ${sentCount} envíos`);
+        await randomDelay(batchPause, batchPause + 1000);
       }
 
-      // Enviar media
+      // ⌨️ Simular typing antes de enviar
+      await simulateTyping(sessionName!, target.chatId);
+      await randomDelay(TYPING_DURATION_MIN, TYPING_DURATION_MAX);
+      await stopTyping(sessionName!, target.chatId);
+
+      let mediaSent = false;
+      let textSent = false;
+
+      // 📎 PASO 1: Enviar MEDIA PRIMERO (imagen/video/audio/archivo)
       if (mediaUrl) {
-        const mediaObj = { url: mediaUrl, type: mediaType || 'image', name: 'media' };
-        await sendWahaMedia(sessionName!, target.chatId, mediaObj, message ? undefined : undefined);
+        mediaSent = await sendMedia(sessionName!, target.chatId, mediaUrl, mediaType || 'image', undefined, 3);
+        if (!mediaSent) {
+          log(`❌ Media falló para ${target.name || target.chatId}`);
+          // Continuar con texto si media falla
+        }
+        // Delay entre media y texto
+        if (message && mediaSent) await randomDelay(1500, 3000);
       }
 
-      // Guardar mensaje en conversación si existe
-      const conv = await prisma.conversation.findFirst({
-        where: {
-          userId,
-          recipientId: { endsWith: target.chatId.replace('@c.us', '').replace('@g.us', '').slice(-10) },
-          ...(whatsappLineId ? { whatsappLineId } : {})
+      // 💬 PASO 2: Enviar TEXTO después (con variación anti-spam)
+      if (message) {
+        const variedMsg = varyMessage(message, i);
+        textSent = await sendText(sessionName!, target.chatId, variedMsg, 3);
+        if (!textSent) {
+          log(`❌ Texto falló para ${target.name || target.chatId}`);
         }
-      });
+      }
 
-      if (conv) {
-        const content = message || '📎 [Media programada]';
-        await prisma.message.create({
-          data: {
-            conversationId: conv.id, content: `📅 ${content}`, fromMe: true, userId, role: 'assistant',
-            ...(mediaUrl && { mediaUrl, mediaType: mediaType || 'image' })
+      // Si nada se envió, es fallo total
+      if (!mediaSent && !textSent) {
+        failedCount++;
+        log(`❌ Falló completamente para ${target.name || target.chatId}`);
+        continue;
+      }
+
+      // 💾 Guardar en conversación si existe
+      try {
+        const cleanNumber = target.chatId.replace('@c.us', '').replace('@g.us', '');
+        const conv = await prisma.conversation.findFirst({
+          where: {
+            userId,
+            recipientId: { endsWith: cleanNumber.slice(-10) },
+            ...(effectiveLineId ? { whatsappLineId: effectiveLineId } : {})
           }
         });
-        await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: `📅 ${content}` } });
+
+        if (conv) {
+          const content = message || '📎 [Media programada]';
+          await prisma.message.create({
+            data: {
+              conversationId: conv.id, content: `📅 ${content}`, fromMe: true, userId, role: 'assistant',
+              ...(mediaUrl && { mediaUrl, mediaType: mediaType || 'image' })
+            }
+          });
+          await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: `📅 ${content}` } });
+        }
+      } catch (dbErr: any) {
+        log(`⚠️ Error guardando en DB: ${dbErr.message}`);
       }
 
       sentCount++;
+      log(`✅ Programado ${sentCount}/${targets.length}: ${target.name || target.chatId}`);
 
-      // Delay entre envíos
+      // 🛡️ DELAY ANTI-BLOQUEO entre envíos (variable con progreso)
       if (i < targets.length - 1) {
-        await new Promise(r => setTimeout(r, DELAY));
+        const progressFactor = 1 + (i / targets.length) * 0.3; // Más lento al avanzar
+        const delay = (DELAY_MIN + Math.random() * (DELAY_MAX - DELAY_MIN)) * progressFactor;
+        await randomDelay(delay, delay + 2000);
       }
+
     } catch (e: any) {
+      failedCount++;
       console.error(`⏰ Error enviando a ${target.chatId}:`, e.message);
     }
   }
 
-  console.log(`📅 Programado ${msg.id}: ${sentCount}/${targets.length} enviados`);
+  log(`📅 Programado ${msg.id}: ${sentCount}/${targets.length} enviados, ${failedCount} fallidos`);
 
-  // Actualizar estado según recurrencia
+  // 5. Actualizar estado según recurrencia
+  const finalStatus = sentCount > 0 ? 'sent' : 'failed';
+  const errorMsg = failedCount > 0 ? `${failedCount}/${targets.length} fallidos` : null;
+
   if (msg.recurrence === 'once') {
     await prisma.scheduledMessage.update({
       where: { id: msg.id },
-      data: {
-        status: 'sent',
-        sentAt: new Date(),
-        lastSentAt: new Date(),
-        sendCount: msg.sendCount + 1
-      }
+      data: { status: finalStatus, sentAt: new Date(), lastSentAt: new Date(), sendCount: msg.sendCount + 1, error: errorMsg }
     });
   } else {
-    // Recurrente: calcular siguiente envío
     const nextDate = calculateNextOccurrence(msg);
-
     if (nextDate && (!msg.recurrenceEnd || nextDate <= new Date(msg.recurrenceEnd))) {
       await prisma.scheduledMessage.update({
         where: { id: msg.id },
-        data: {
-          scheduledAt: nextDate,
-          lastSentAt: new Date(),
-          sendCount: msg.sendCount + 1
-        }
+        data: { status: 'pending', scheduledAt: nextDate, lastSentAt: new Date(), sendCount: msg.sendCount + 1, error: errorMsg }
       });
-      console.log(`📅 Próximo envío: ${nextDate.toISOString()}`);
+      log(`📅 Próximo envío recurrente: ${nextDate.toISOString()}`);
     } else {
-      // Fin de recurrencia
       await prisma.scheduledMessage.update({
         where: { id: msg.id },
-        data: {
-          status: 'sent',
-          lastSentAt: new Date(),
-          sendCount: msg.sendCount + 1
-        }
+        data: { status: finalStatus, lastSentAt: new Date(), sendCount: msg.sendCount + 1, error: errorMsg }
       });
     }
   }
@@ -407,45 +534,30 @@ const calculateNextOccurrence = (msg: any): Date | null => {
     next.setDate(next.getDate() + 1);
     next.setHours(hours, minutes, 0, 0);
     return next;
-
   } else if (msg.recurrence === 'weekly') {
     const days = msg.recurrenceDays as number[] || [];
     if (days.length === 0) {
-      // Si no hay días específicos, repetir cada 7 días
       const next = new Date(current);
       next.setDate(next.getDate() + 7);
       next.setHours(hours, minutes, 0, 0);
       return next;
     }
-
-    // Buscar siguiente día de la semana
-    const today = current.getDay(); // 0=Dom, 1=Lun...
+    const today = current.getDay();
     const sortedDays = [...days].sort((a, b) => a - b);
-
-    // Buscar el siguiente día después de hoy
     let nextDay = sortedDays.find(d => d > today);
     let daysToAdd: number;
-
-    if (nextDay !== undefined) {
-      daysToAdd = nextDay - today;
-    } else {
-      // No hay más días esta semana, ir al primer día de la próxima semana
-      nextDay = sortedDays[0];
-      daysToAdd = 7 - today + nextDay;
-    }
-
+    if (nextDay !== undefined) { daysToAdd = nextDay - today; }
+    else { nextDay = sortedDays[0]; daysToAdd = 7 - today + nextDay; }
     const next = new Date(current);
     next.setDate(next.getDate() + daysToAdd);
     next.setHours(hours, minutes, 0, 0);
     return next;
-
   } else if (msg.recurrence === 'monthly') {
     const next = new Date(current);
     next.setMonth(next.getMonth() + 1);
     next.setHours(hours, minutes, 0, 0);
     return next;
   }
-
   return null;
 };
 

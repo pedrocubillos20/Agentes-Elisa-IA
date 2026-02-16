@@ -2256,20 +2256,31 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       const contact = contacts[i];
       try {
         const phone = (contact.phone || contact.recipientId || contact).replace(/\D/g, '');
-        if (!phone) { failed++; continue; }
+        if (!phone || phone.length < 7 || phone.length > 15) { failed++; continue; }
 
         const chatId = `${phone}@c.us`;
 
-        // Enviar texto
-        if (message) {
-          const textSent = await sendWahaMessage(sessionName!, chatId, message);
-          if (!textSent) { failed++; continue; }
-        }
+        // ⌨️ Simular typing (más natural)
+        await setPresence(sessionName!, chatId, 'typing').catch(() => {});
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
+        await stopPresence(sessionName!, chatId).catch(() => {});
 
-        // Enviar media si hay
+        // 📎 PASO 1: Enviar MEDIA PRIMERO (imagen/video/audio antes del texto)
         if (mediaUrl) {
           const mediaObj = { url: mediaUrl, type: bulkMediaType || 'image', name: 'media' };
-          await sendWahaMedia(sessionName!, chatId, mediaObj);
+          const mediaSent = await sendWahaMedia(sessionName!, chatId, mediaObj);
+          if (!mediaSent) { log(`⚠️ Media falló para ${phone}`); }
+          // Pausa entre media y texto
+          if (message) await new Promise(r => setTimeout(r, 1500 + Math.random() * 2000));
+        }
+
+        // 💬 PASO 2: Enviar TEXTO después (con variación anti-spam)
+        if (message) {
+          // Variación invisible para anti-spam
+          const variations = ['', ' ', '\u200B', '\u200E'];
+          const variedMsg = message + variations[i % variations.length];
+          const textSent = await sendWahaMessage(sessionName!, chatId, variedMsg);
+          if (!textSent) { failed++; continue; }
         }
 
         // Guardar en DB

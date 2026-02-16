@@ -9,18 +9,18 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Instalar dependencias
-RUN npm install
+# Instalar dependencias con permisos correctos
+RUN npm install --unsafe-perm
 
 # Copiar código fuente
 COPY . .
 
 # Generar cliente Prisma y compilar TypeScript
-RUN npx prisma generate
+RUN npx --yes prisma generate
 RUN npm run build
 
 # Exponer puerto
 EXPOSE 3000
 
-# Comando de inicio: migrar DB + arrancar servidor
+# Comando de inicio
 CMD npx prisma db push --skip-generate && npm start

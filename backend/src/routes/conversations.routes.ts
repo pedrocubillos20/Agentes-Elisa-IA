@@ -69,13 +69,13 @@ router.get('/stats', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD
+// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD v2
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
-    const { lineId, period } = req.query;
+    const { lineId, period, dateFrom, dateTo } = req.query;
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -85,184 +85,281 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
-    // Period start for charts
-    let periodStart = weekStart;
-    if (period === 'month') periodStart = monthStart;
-    else if (period === 'quarter') { periodStart = new Date(now.getFullYear(), now.getMonth() - 2, 1); }
-    else if (period === 'year') { periodStart = new Date(now.getFullYear(), 0, 1); }
+    // === CUSTOM DATE RANGE ===
+    let rangeStart = weekStart;
+    let rangeEnd = now;
+    let rangeLabel = '7d';
+    
+    if (dateFrom && dateTo) {
+      rangeStart = new Date(dateFrom as string);
+      rangeEnd = new Date(dateTo as string);
+      rangeEnd.setHours(23, 59, 59, 999);
+      rangeLabel = 'custom';
+    } else if (period === '24h') {
+      rangeStart = new Date(now.getTime() - 86400000);
+      rangeLabel = '24h';
+    } else if (period === '7d' || period === 'week') {
+      rangeStart = weekStart; rangeLabel = '7d';
+    } else if (period === '30d' || period === 'month') {
+      rangeStart = monthStart; rangeLabel = '30d';
+    } else if (period === '90d') {
+      rangeStart = new Date(now.getTime() - 90 * 86400000); rangeLabel = '90d';
+    } else if (period === 'quarter') {
+      const q = Math.floor(now.getMonth() / 3);
+      rangeStart = new Date(now.getFullYear(), q * 3, 1); rangeLabel = 'quarter';
+    } else if (period === 'year') {
+      rangeStart = new Date(now.getFullYear(), 0, 1); rangeLabel = 'year';
+    }
+
+    // Prev range for comparison
+    const rangeDuration = rangeEnd.getTime() - rangeStart.getTime();
+    const prevRangeStart = new Date(rangeStart.getTime() - rangeDuration);
+    const prevRangeEnd = new Date(rangeStart);
 
     const convWhere: any = { userId: ownerId };
     const apptWhere: any = { userId: ownerId };
-    const clientWhere: any = { userId: ownerId };
     if (lineId) {
       convWhere.whatsappLineId = lineId as string;
       apptWhere.whatsappLineId = lineId as string;
-      clientWhere.whatsappLineId = lineId as string;
     }
 
     const [
-      totalConversations, totalMessages, todayMessages, yesterdayMessages,
-      weekMessages, monthMessages, lastMonthMessages,
+      totalConversations, totalMessages,
+      rangeMessages, prevRangeMessages,
+      todayMessages, yesterdayMessages,
+      weekMessages, monthMessages,
+      rangeNewConvs, prevRangeNewConvs,
+      rangeConvertedConvs,
+      stageStats,
       totalAppointments, pendingAppointments,
       totalClients, activeClients,
-      stageStats,
-      recentMessages, recentAppointments,
-      weeklyRaw, monthlyRaw,
-      todayConversations, weekConversations, monthConversations,
-      aiPausedCount, convertedThisMonth, convertedLastMonth,
-      lines
+      aiPausedCount,
+      convertedTotal,
+      // Conversations at risk (no messages in 48h, not converted)
+      atRiskConvs,
+      // Lines
+      lines,
+      // Recent activity
+      recentMessages,
+      // Top leads
+      topLeadsRaw,
+      // Chart: daily msgs in range
+      dailyMsgsRaw,
+      // Chart: daily new convs in range
+      dailyConvsRaw,
+      // Messages fromMe vs incoming in range
+      rangeMsgsFromMe,
+      rangeMsgsIncoming,
+      // Longest wait (oldest unresponded)
+      oldestUnresponded
     ] = await Promise.all([
       prisma.conversation.count({ where: convWhere }),
       prisma.message.count({ where: { conversation: convWhere } }),
+      // Range messages
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
+      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: prevRangeStart, lt: prevRangeEnd } } }),
+      // Today/yesterday
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: todayStart } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: yesterdayStart, lt: todayStart } } }),
+      // Week/month
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: weekStart } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: monthStart } } }),
-      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: lastMonthStart, lt: monthStart } } }),
+      // New conversations in range
+      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: rangeStart, lte: rangeEnd } } }),
+      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
+      // Converted in range
+      prisma.conversation.count({ where: { ...convWhere, stage: 'converted', updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
+      // Stage distribution
+      prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
+      // Appointments
       prisma.appointment.count({ where: apptWhere }),
       prisma.appointment.count({ where: { ...apptWhere, status: 'pending' } }),
-      prisma.client.count({ where: clientWhere }),
-      prisma.client.count({ where: { ...clientWhere, status: 'active' } }),
-      prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
+      // Clients
+      prisma.client.count({ where: { userId: ownerId } }),
+      prisma.client.count({ where: { userId: ownerId, status: 'active' } }),
+      // AI paused
+      prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
+      // Total converted
+      prisma.conversation.count({ where: { ...convWhere, stage: 'converted' } }),
+      // At risk: updated >48h ago, not converted/lost
+      prisma.conversation.count({ 
+        where: { 
+          ...convWhere, 
+          updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) },
+          stage: { notIn: ['converted', 'lost', 'perdido', 'convertido'] }
+        } 
+      }),
+      // Lines
+      prisma.whatsappLine.findMany({
+        where: { userId: ownerId },
+        select: { id: true, label: true, phone: true, status: true, sessionName: true }
+      }),
+      // Recent messages
       prisma.message.findMany({
         where: { conversation: convWhere, fromMe: false },
         orderBy: { timestamp: 'desc' }, take: 8,
         include: { conversation: { select: { recipientName: true, recipientId: true, stage: true, whatsappLineId: true } } }
       }),
-      prisma.appointment.findMany({ where: apptWhere, orderBy: { createdAt: 'desc' }, take: 5 }),
-      // Weekly activity
-      lineId
-        ? prisma.$queryRaw`
-            SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
-            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${weekStart}
-            GROUP BY EXTRACT(DOW FROM m."timestamp") ORDER BY dow
-          ` as Promise<Array<{ dow: number; count: number }>>
-        : prisma.$queryRaw`
-            SELECT EXTRACT(DOW FROM m."timestamp") as dow, COUNT(*)::int as count
-            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${weekStart}
-            GROUP BY EXTRACT(DOW FROM m."timestamp") ORDER BY dow
-          ` as Promise<Array<{ dow: number; count: number }>>,
-      // Monthly activity (last 30 days by day)
+      // Top leads
+      prisma.conversation.findMany({
+        where: { ...convWhere, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido'] } },
+        orderBy: { updatedAt: 'desc' }, take: 5,
+        select: { id: true, recipientName: true, recipientId: true, stage: true, updatedAt: true, whatsappLineId: true, _count: { select: { messages: true } } }
+      }),
+      // Daily messages in range (for chart)
       lineId
         ? prisma.$queryRaw`
             SELECT m."timestamp"::date as day, COUNT(*)::int as count
             FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string} AND m."timestamp" >= ${monthStart}
+            WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string}
+              AND m."timestamp" >= ${rangeStart} AND m."timestamp" <= ${rangeEnd}
             GROUP BY m."timestamp"::date ORDER BY day
           ` as Promise<Array<{ day: Date; count: number }>>
         : prisma.$queryRaw`
             SELECT m."timestamp"::date as day, COUNT(*)::int as count
             FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${ownerId} AND m."timestamp" >= ${monthStart}
+            WHERE c."userId" = ${ownerId}
+              AND m."timestamp" >= ${rangeStart} AND m."timestamp" <= ${rangeEnd}
             GROUP BY m."timestamp"::date ORDER BY day
           ` as Promise<Array<{ day: Date; count: number }>>,
-      // Today's new conversations
-      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: todayStart } } }),
-      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: weekStart } } }),
-      prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: monthStart } } }),
-      // AI paused (human takeover)
-      prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
-      // Converted this month vs last
-      prisma.conversation.count({ where: { ...convWhere, stage: 'converted', updatedAt: { gte: monthStart } } }),
-      prisma.conversation.count({ where: { ...convWhere, stage: 'converted', updatedAt: { gte: lastMonthStart, lt: monthStart } } }),
-      // Lines info
-      prisma.whatsappLine.findMany({
-        where: { userId: ownerId },
-        select: { id: true, label: true, phone: true, status: true, sessionName: true }
+      // Daily new conversations in range (for chart)
+      lineId
+        ? prisma.$queryRaw`
+            SELECT "createdAt"::date as day, COUNT(*)::int as count
+            FROM "Conversation"
+            WHERE "userId" = ${ownerId} AND "whatsappLineId" = ${lineId as string}
+              AND "createdAt" >= ${rangeStart} AND "createdAt" <= ${rangeEnd}
+            GROUP BY "createdAt"::date ORDER BY day
+          ` as Promise<Array<{ day: Date; count: number }>>
+        : prisma.$queryRaw`
+            SELECT "createdAt"::date as day, COUNT(*)::int as count
+            FROM "Conversation"
+            WHERE "userId" = ${ownerId}
+              AND "createdAt" >= ${rangeStart} AND "createdAt" <= ${rangeEnd}
+            GROUP BY "createdAt"::date ORDER BY day
+          ` as Promise<Array<{ day: Date; count: number }>>,
+      // Messages sent vs received in range
+      prisma.message.count({ where: { conversation: convWhere, fromMe: true, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
+      prisma.message.count({ where: { conversation: convWhere, fromMe: false, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
+      // Oldest unresponded conversation
+      prisma.conversation.findFirst({
+        where: { ...convWhere, aiPaused: true, stage: { notIn: ['converted', 'lost', 'perdido'] } },
+        orderBy: { updatedAt: 'asc' },
+        select: { updatedAt: true, recipientName: true }
       })
     ]);
 
-    // Process weekly activity
-    const weeklyActivity = [0, 0, 0, 0, 0, 0, 0];
-    if (Array.isArray(weeklyRaw)) {
-      weeklyRaw.forEach((r: any) => { const i = Number(r.dow); if (i >= 0 && i <= 6) weeklyActivity[i] = Number(r.count) || 0; });
+    // === Process daily chart data ===
+    const dailyMap: Record<string, { msgs: number; convs: number }> = {};
+    const dayDiff = Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / 86400000);
+    for (let i = 0; i <= dayDiff; i++) {
+      const d = new Date(rangeStart); d.setDate(d.getDate() + i);
+      const key = d.toISOString().split('T')[0];
+      dailyMap[key] = { msgs: 0, convs: 0 };
     }
-
-    // Process monthly activity (fill all days)
-    const monthlyActivity: Array<{ day: string; count: number }> = [];
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const monthMap: Record<string, number> = {};
-    if (Array.isArray(monthlyRaw)) {
-      monthlyRaw.forEach((r: any) => {
-        const d = new Date(r.day);
-        const key = `${d.getDate()}`;
-        monthMap[key] = Number(r.count) || 0;
-      });
+    if (Array.isArray(dailyMsgsRaw)) {
+      dailyMsgsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].msgs = Number(r.count) || 0; });
     }
-    for (let i = 1; i <= Math.min(now.getDate(), daysInMonth); i++) {
-      monthlyActivity.push({ day: `${i}`, count: monthMap[`${i}`] || 0 });
+    if (Array.isArray(dailyConvsRaw)) {
+      dailyConvsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].convs = Number(r.count) || 0; });
     }
+    const chartData = Object.entries(dailyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({
+      day, date: day, msgs: v.msgs, convs: v.convs
+    }));
 
-    const convertedCount = stageStats.find(s => s.stage === 'converted')?._count?.id || 0;
-    const conversionRate = totalConversations > 0 ? ((convertedCount / totalConversations) * 100).toFixed(1) : '0';
+    // === Growth calculations ===
+    const msgGrowth = prevRangeMessages > 0 ? (((rangeMessages - prevRangeMessages) / prevRangeMessages) * 100).toFixed(1) : rangeMessages > 0 ? '100' : '0';
+    const convGrowth = prevRangeNewConvs > 0 ? (((rangeNewConvs - prevRangeNewConvs) / prevRangeNewConvs) * 100).toFixed(1) : rangeNewConvs > 0 ? '100' : '0';
+    const todayGrowth = yesterdayMessages > 0 ? (((todayMessages - yesterdayMessages) / yesterdayMessages) * 100).toFixed(0) : '0';
 
-    // Message growth comparison
-    const msgGrowth = yesterdayMessages > 0 ? (((todayMessages - yesterdayMessages) / yesterdayMessages) * 100).toFixed(0) : todayMessages > 0 ? '+100' : '0';
-    const monthGrowth = lastMonthMessages > 0 ? (((monthMessages - lastMonthMessages) / lastMonthMessages) * 100).toFixed(0) : '0';
+    // === Resolution rate ===
+    const resolvedStages = ['converted', 'convertido', 'lost', 'perdido'];
+    const resolvedCount = stageStats.filter(s => resolvedStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    const resolutionRate = totalConversations > 0 ? ((resolvedCount / totalConversations) * 100).toFixed(1) : '0';
 
-    // Top leads (most messages, with stage info)
-    const topLeads = await prisma.conversation.findMany({
-      where: { ...convWhere, stage: { not: 'converted' } },
-      orderBy: { updatedAt: 'desc' },
-      take: 5,
-      select: {
-        id: true, recipientName: true, recipientId: true, stage: true, 
-        updatedAt: true, contextData: true, whatsappLineId: true,
-        _count: { select: { messages: true } }
-      }
-    });
+    // === Stage distribution for donut ===
+    const activeStages = ['interesado', 'interested', 'cotización', 'cotizacion', 'quoting', 'demo', 'descubrimiento', 'trial_activo', 'pendiente_decision', 'negotiating'];
+    const pendingStages = ['new', 'saludo', 'pendiente_talla', 'pendiente_color', 'pendiente_ciudad', 'pendiente_cambio', 'pendiente_pago', 'realizó_pedido'];
+    const activeCount = stageStats.filter(s => activeStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    const pendingCount = stageStats.filter(s => pendingStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    
+    const stageDistribution = {
+      resolved: convertedTotal,
+      active: activeCount,
+      pending: pendingCount,
+      atRisk: atRiskConvs,
+      total: totalConversations
+    };
 
-    // Recent activity
-    const recentActivity = [
-      ...recentMessages.map(m => ({
-        type: 'message' as const,
-        user: m.conversation.recipientName || m.conversation.recipientId || 'Desconocido',
-        action: m.content.substring(0, 80) + (m.content.length > 80 ? '...' : ''),
-        time: m.timestamp.toISOString(),
-        stage: m.conversation.stage,
-        lineId: m.conversation.whatsappLineId,
-        timestamp: m.timestamp.getTime()
-      })),
-      ...recentAppointments.map(a => ({
-        type: (a.type === 'order' ? 'sale' : 'appointment') as 'sale' | 'appointment',
-        user: a.clientName, stage: null, lineId: null,
-        action: a.type === 'order' ? `Pedido${a.total ? ` - $${Number(a.total).toLocaleString()}` : ''}` : `Cita ${a.status}`,
-        time: a.createdAt.toISOString(),
-        timestamp: a.createdAt.getTime()
-      }))
-    ].sort((a, b) => b.timestamp - a.timestamp).slice(0, 8);
-
-    const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
-
-    // Average messages per conversation
+    // === Avg msgs per conversation ===
     const avgMsgsPerConv = totalConversations > 0 ? (totalMessages / totalConversations).toFixed(1) : '0';
 
+    // === Oldest wait time ===
+    const oldestWaitMs = oldestUnresponded ? (now.getTime() - new Date(oldestUnresponded.updatedAt).getTime()) : 0;
+    const oldestWaitFormatted = oldestWaitMs > 0 
+      ? `${Math.floor(oldestWaitMs / 3600000)}h ${Math.floor((oldestWaitMs % 3600000) / 60000)}m`
+      : '0h';
+
+    // === Funnel data ===
+    const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
+
+    // === WhatsApp delivery stats ===
+    const whatsappStats = {
+      sent: rangeMsgsFromMe,
+      received: rangeMsgsIncoming,
+      total: rangeMessages,
+      deliveryRate: rangeMsgsFromMe > 0 ? '100' : '0', // We assume delivered since WAHA confirms
+    };
+
+    // Recent activity
+    const recentActivity = recentMessages.map(m => ({
+      type: 'message' as const,
+      user: m.conversation.recipientName || m.conversation.recipientId || 'Desconocido',
+      action: m.content.substring(0, 80) + (m.content.length > 80 ? '...' : ''),
+      time: m.timestamp.toISOString(),
+      stage: m.conversation.stage,
+      lineId: m.conversation.whatsappLineId,
+    }));
+
+    // Top leads
+    const topLeads = topLeadsRaw.map(l => ({
+      id: l.id, name: l.recipientName || l.recipientId, stage: l.stage,
+      messages: l._count.messages, lastActive: l.updatedAt, lineId: l.whatsappLineId
+    }));
+
     res.json({
+      // Range info
+      rangeLabel, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(),
       // Core metrics
-      totalConversations, totalMessages, todayMessages, yesterdayMessages,
-      weekMessages, monthMessages, lastMonthMessages,
-      totalAppointments, pendingAppointments,
-      totalClients, activeClients,
-      convertedCount, conversionRate,
+      totalConversations, totalMessages,
+      rangeMessages, prevRangeMessages,
+      todayMessages, yesterdayMessages,
+      weekMessages, monthMessages,
       // Growth
-      msgGrowth, monthGrowth,
-      // Time-based
-      todayConversations, weekConversations, monthConversations,
-      convertedThisMonth, convertedLastMonth,
+      msgGrowth, convGrowth, todayGrowth,
+      // Conversations
+      rangeNewConvs, prevRangeNewConvs,
+      rangeConvertedConvs,
+      convertedTotal,
       // Engagement
       aiPausedCount, avgMsgsPerConv,
+      atRiskConvs,
+      // Resolution
+      resolutionRate, resolvedCount,
+      stageDistribution,
+      // WhatsApp
+      whatsappStats,
+      // Time
+      oldestWait: oldestWaitFormatted,
+      oldestWaitName: oldestUnresponded?.recipientName || '',
+      // Appointments & Clients
+      totalAppointments, pendingAppointments,
+      totalClients, activeClients,
       // Charts
-      weeklyActivity, monthlyActivity,
+      chartData,
       // Lists
-      recentActivity, funnelData, stageStats: funnelData,
-      topLeads: topLeads.map(l => ({
-        id: l.id, name: l.recipientName || l.recipientId, stage: l.stage,
-        messages: l._count.messages, lastActive: l.updatedAt,
-        lineId: l.whatsappLineId,
-        context: l.contextData
-      })),
+      funnelData, stageStats: funnelData,
+      recentActivity, topLeads,
       // Lines
       lines
     });

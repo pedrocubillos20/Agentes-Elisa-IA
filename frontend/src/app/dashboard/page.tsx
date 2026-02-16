@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { 
   MessageSquare, Users, Calendar, Clock, Activity, TrendingUp, TrendingDown,
@@ -110,7 +110,7 @@ function FunnelChart({ data }: { data: Array<{ stage: string; count: number }> }
     quoting: { label: 'Cotización', color: '#eab308', p: 5 }, cotización: { label: 'Cotización', color: '#eab308', p: 5 }, cotizacion: { label: 'Cotización', color: '#eab308', p: 5 },
     pendiente_decision: { label: 'Pend. Decisión', color: '#f97316', p: 6 }, trial_activo: { label: 'Trial', color: '#a855f7', p: 7 },
     negotiating: { label: 'Negociando', color: '#f97316', p: 8 },
-    converted: { label: 'Convertido', color: '#10b981', p: 9 }, convertido: { label: 'Convertido', color: '#10b981', p: 9 },
+    converted: { label: 'Convertido', color: '#10b981', p: 9 }, convertido: { label: 'Convertido', color: '#10b981', p: 9 }, confirmado: { label: 'Confirmado', color: '#10b981', p: 9 },
     lost: { label: 'Perdido', color: '#ef4444', p: 10 }, perdido: { label: 'Perdido', color: '#ef4444', p: 10 },
   };
   // Also handle custom stages
@@ -162,7 +162,34 @@ export default function DashboardPage() {
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
+  // Refs to avoid stale closures in setInterval
+  const periodRef = useRef(period);
+  const customFromRef = useRef(customFrom);
+  const customToRef = useRef(customTo);
+  useEffect(() => { periodRef.current = period; }, [period]);
+  useEffect(() => { customFromRef.current = customFrom; }, [customFrom]);
+  useEffect(() => { customToRef.current = customTo; }, [customTo]);
+
   const getLineId = () => typeof window !== 'undefined' ? localStorage.getItem('selectedLineId') || '' : '';
+
+  const fetchData = async () => {
+    const token = localStorage.getItem('token'); if (!token) return;
+    try {
+      const lineId = getLineId();
+      const p = periodRef.current;
+      const cf = customFromRef.current;
+      const ct = customToRef.current;
+      let url = `${API_URL}/api/conversations/dashboard?lineId=${lineId}&period=${p}`;
+      if (p === 'custom' && cf && ct) url += `&dateFrom=${cf}&dateTo=${ct}`;
+      
+      const [userRes, dashRes] = await Promise.all([
+        fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(url, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
+      ]);
+      if (userRes.ok) { const ud = await userRes.json(); setUser(ud.user); try { localStorage.setItem('bizonne_user_cache', JSON.stringify(ud.user)); } catch {} }
+      if (dashRes?.ok) { const dd = await dashRes.json(); setD(dd); try { localStorage.setItem('bizonne_dashboard_cache', JSON.stringify(dd)); } catch {} }
+    } catch {} finally { setLoading(false); }
+  };
 
   useEffect(() => {
     try {
@@ -179,22 +206,6 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [period, customFrom, customTo]);
-
-  const fetchData = async () => {
-    const token = localStorage.getItem('token'); if (!token) return;
-    try {
-      const lineId = getLineId();
-      let url = `${API_URL}/api/conversations/dashboard?lineId=${lineId}&period=${period}`;
-      if (period === 'custom' && customFrom && customTo) url += `&dateFrom=${customFrom}&dateTo=${customTo}`;
-      
-      const [userRes, dashRes] = await Promise.all([
-        fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(url, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
-      ]);
-      if (userRes.ok) { const ud = await userRes.json(); setUser(ud.user); try { localStorage.setItem('bizonne_user_cache', JSON.stringify(ud.user)); } catch {} }
-      if (dashRes?.ok) { const dd = await dashRes.json(); setD(dd); try { localStorage.setItem('bizonne_dashboard_cache', JSON.stringify(dd)); } catch {} }
-    } catch {} finally { setLoading(false); }
-  };
 
   const setPeriodQuick = (p: string) => { setCustomFrom(''); setCustomTo(''); setPeriod(p); setShowFilters(false); };
   const setMonthRange = (monthIdx: number) => {

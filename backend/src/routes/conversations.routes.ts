@@ -168,7 +168,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
       // Converted in range
-      prisma.conversation.count({ where: { ...convWhere, stage: 'converted', updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
+      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
       // Stage distribution
       prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
       // Appointments
@@ -179,14 +179,14 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       prisma.client.count({ where: { userId: ownerId, status: 'active' } }),
       // AI paused
       prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
-      // Total converted
-      prisma.conversation.count({ where: { ...convWhere, stage: 'converted' } }),
+      // Total converted (including confirmado)
+      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] } } }),
       // At risk: updated >48h ago, not converted/lost
       prisma.conversation.count({ 
         where: { 
           ...convWhere, 
           updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) },
-          stage: { notIn: ['converted', 'lost', 'perdido', 'convertido'] }
+          stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] }
         } 
       }),
       // Lines
@@ -202,7 +202,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       }),
       // Top leads
       prisma.conversation.findMany({
-        where: { ...convWhere, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido'] } },
+        where: { ...convWhere, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } },
         orderBy: { updatedAt: 'desc' }, take: 5,
         select: { id: true, recipientName: true, recipientId: true, stage: true, updatedAt: true, whatsappLineId: true, _count: { select: { messages: true } } }
       }),
@@ -243,7 +243,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       prisma.message.count({ where: { conversation: convWhere, fromMe: false, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
       // Oldest unresponded conversation
       prisma.conversation.findFirst({
-        where: { ...convWhere, aiPaused: true, stage: { notIn: ['converted', 'lost', 'perdido'] } },
+        where: { ...convWhere, aiPaused: true, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } },
         orderBy: { updatedAt: 'asc' },
         select: { updatedAt: true, recipientName: true }
       })
@@ -273,20 +273,23 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const todayGrowth = yesterdayMessages > 0 ? (((todayMessages - yesterdayMessages) / yesterdayMessages) * 100).toFixed(0) : '0';
 
     // === Resolution rate ===
-    const resolvedStages = ['converted', 'convertido', 'lost', 'perdido'];
+    const resolvedStages = ['converted', 'convertido', 'confirmado', 'lost', 'perdido'];
     const resolvedCount = stageStats.filter(s => resolvedStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
     const resolutionRate = totalConversations > 0 ? ((resolvedCount / totalConversations) * 100).toFixed(1) : '0';
 
-    // === Stage distribution for donut ===
-    const activeStages = ['interesado', 'interested', 'cotización', 'cotizacion', 'quoting', 'demo', 'descubrimiento', 'trial_activo', 'pendiente_decision', 'negotiating'];
-    const pendingStages = ['new', 'saludo', 'pendiente_talla', 'pendiente_color', 'pendiente_ciudad', 'pendiente_cambio', 'pendiente_pago', 'realizó_pedido'];
-    const activeCount = stageStats.filter(s => activeStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
-    const pendingCount = stageStats.filter(s => pendingStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    // === Stage distribution for donut (dynamic - works with any custom stages) ===
+    const resolvedStagesList = ['converted', 'convertido', 'confirmado', 'lost', 'perdido'];
+    const activeStagesList = ['interesado', 'interested', 'cotización', 'cotizacion', 'quoting', 'en_cotización', 'demo', 'descubrimiento', 'trial_activo', 'pendiente_decision', 'negotiating'];
+    
+    const resolvedCountForDonut = stageStats.filter(s => resolvedStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    const activeCount = stageStats.filter(s => activeStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    // Pending = everything that isn't resolved, active, or at risk
+    const pendingCount = totalConversations - resolvedCountForDonut - activeCount - atRiskConvs;
     
     const stageDistribution = {
       resolved: convertedTotal,
       active: activeCount,
-      pending: pendingCount,
+      pending: Math.max(pendingCount, 0),
       atRisk: atRiskConvs,
       total: totalConversations
     };

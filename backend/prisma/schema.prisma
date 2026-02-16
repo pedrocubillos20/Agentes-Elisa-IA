@@ -35,6 +35,14 @@ model User {
   resetCode       String?                              // Código de 6 dígitos
   resetCodeExpires DateTime?                           // Expira en 15 minutos
   
+  // === LEGACY COLUMNS (exist in DB) ===
+  apiKeyEncrypted       String?
+  evolutionInstanceKey  String?
+  evolutionInstanceName String?
+  referralCode          String?
+  whatsappConnected     Boolean   @default(false)
+  whatsappStatus        String?
+  
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -101,6 +109,7 @@ model Conversation {
   
   // 👥 GRUPOS
   isGroup         Boolean   @default(false)
+  isActive        Boolean   @default(true)
   groupName       String?
   groupSettings   Json?     @default("{\"aiEnabled\":true,\"respondTo\":\"all\",\"triggerWords\":[]}")
   

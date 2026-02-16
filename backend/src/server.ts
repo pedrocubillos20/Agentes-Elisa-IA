@@ -86,13 +86,19 @@ app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
 app.use('/api/v1', apiPublicRoutes);                        // API pública (API Key)
 
 // ===== HEALTH CHECK =====
+// ⚡ Fast health (para monitoring/ping — sin DB query)
+app.get('/health', (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ELISA IA Backend v5.2.0 - Teams + Typing + Media',
-    version: '5.2.0',
+    message: 'Bizonne Backend v6.0.0 - Multi-Tenant Platform',
+    version: '6.0.0',
     modules: ['auth', 'whatsapp', 'assistants', 'conversations', 'clients', 'products', 'appointments', 'team'],
-    features: ['typing-indicators', 'recording-simulation', 'media-triggers', 'pause-resume', 'sub-users', 'permissions', 'gpt-fallback'],
+    features: ['typing-indicators', 'recording-simulation', 'media-triggers', 'catalog-triggers', 'pause-resume', 'sub-users', 'permissions', 'gpt-fallback', 'subscription-cache'],
     timestamp: new Date().toISOString()
   });
 });
@@ -221,8 +227,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('   🤖 ELISA IA Backend v5.3.0');
-  console.log('   📱 WhatsApp: Typing + Recording + Media Triggers');
+  console.log('   🚀 Bizonne Backend v6.0.0 — Multi-Tenant Platform');
+  console.log('   ⚡ Performance: Subscription Cache + DB Indexes');
+  console.log('   📱 WhatsApp: Typing + Recording + Catalog Triggers');
   console.log('   👥 Grupos WhatsApp: ACTIVO');
   console.log('   📅 Mensajes Programados: ACTIVO');
   console.log('   👥 Módulo Equipos: ACTIVO');
@@ -236,6 +243,25 @@ app.listen(PORT, () => {
 
   // ⏰ Iniciar cron de mensajes programados
   startScheduledMessagesCron();
+
+  // ⚡ WARMUP: Pre-calentar conexión a DB al iniciar (evita latencia en primer request)
+  prisma.$queryRaw`SELECT 1`.catch(() => {});
+
+  // ⚡ SELF-PING: Evitar cold starts en Railway (cada 4 minutos)
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {
+    const selfUrl = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN 
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` 
+      : null;
+    
+    if (selfUrl) {
+      setInterval(() => {
+        fetch(`${selfUrl}/health`).catch(() => {});
+      }, 240_000); // Cada 4 minutos
+      console.log(`   🏓 Self-ping activo: ${selfUrl}/health (cada 4min)`);
+    } else {
+      console.log('   ⚠️ Self-ping: Configura BACKEND_URL para evitar cold starts');
+    }
+  }
 });
 
 export default app;

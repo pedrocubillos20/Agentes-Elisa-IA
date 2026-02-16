@@ -27,7 +27,12 @@ router.get('/', async (req: Request, res: Response) => {
 
     const conversations = await prisma.conversation.findMany({
       where, orderBy: { updatedAt: 'desc' },
-      include: { messages: { orderBy: { timestamp: 'desc' }, take: 1 } }
+      select: {
+        id: true, recipientId: true, recipientName: true, stage: true,
+        aiPaused: true, updatedAt: true, lastMessage: true, contextData: true,
+        whatsappLineId: true, isGroup: true, assignedTo: true,
+        messages: { orderBy: { timestamp: 'desc' }, take: 1, select: { content: true, timestamp: true, fromMe: true } }
+      }
     });
 
     res.json({

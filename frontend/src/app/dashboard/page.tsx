@@ -134,15 +134,25 @@ export default function DashboardPage() {
   const [dashboard, setDashboard] = useState<any>(null);
   const [whatsappStatus, setWhatsappStatus] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // === WORKSPACE: leer línea seleccionada ===
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
   useEffect(() => {
+    // ⚡ INSTANT LOAD: Mostrar datos cacheados inmediatamente
+    try {
+      const cachedDash = localStorage.getItem('bizonne_dashboard_cache');
+      const cachedUser = localStorage.getItem('bizonne_user_cache');
+      const cachedWA = localStorage.getItem('bizonne_wa_cache');
+      if (cachedDash) { setDashboard(JSON.parse(cachedDash)); setLoading(false); }
+      if (cachedUser) { setUser(JSON.parse(cachedUser)); }
+      if (cachedWA) { setWhatsappStatus(JSON.parse(cachedWA)); }
+    } catch {}
+
     fetchData();
     const interval = setInterval(fetchData, 30000);
-    // Escuchar cambios de línea desde el sidebar
-    const onLineChanged = () => { setLoading(true); fetchData(); };
+    const onLineChanged = () => { setRefreshing(true); fetchData(); };
     window.addEventListener('lineChanged', onLineChanged);
     return () => { clearInterval(interval); window.removeEventListener('lineChanged', onLineChanged); };
   }, []);
@@ -152,20 +162,33 @@ export default function DashboardPage() {
     if (!token) return;
 
     try {
-      // Cargar user + whatsapp primero (rápidos), dashboard en paralelo
+      // ⚡ Cargar todo en paralelo
       const [userRes, whatsappRes, dashRes] = await Promise.all([
         fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/whatsapp/status`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null),
         fetch(`${API_URL}/api/conversations/dashboard?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => null)
       ]);
 
-      if (userRes.ok) setUser((await userRes.json()).user);
-      if (whatsappRes?.ok) setWhatsappStatus(await whatsappRes.json());
-      if (dashRes?.ok) setDashboard(await dashRes.json());
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        setUser(userData.user);
+        try { localStorage.setItem('bizonne_user_cache', JSON.stringify(userData.user)); } catch {}
+      }
+      if (whatsappRes?.ok) {
+        const waData = await whatsappRes.json();
+        setWhatsappStatus(waData);
+        try { localStorage.setItem('bizonne_wa_cache', JSON.stringify(waData)); } catch {}
+      }
+      if (dashRes?.ok) {
+        const dashData = await dashRes.json();
+        setDashboard(dashData);
+        try { localStorage.setItem('bizonne_dashboard_cache', JSON.stringify(dashData)); } catch {}
+      }
     } catch (error) {
       console.error('Error:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 

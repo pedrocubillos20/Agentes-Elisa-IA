@@ -63,6 +63,15 @@ export default function ConversacionesPage() {
   const isFetchingRef = useRef(false);
   
   useEffect(() => {
+    // ⚡ INSTANT LOAD: Mostrar conversaciones cacheadas mientras carga
+    try {
+      const cachedConvs = localStorage.getItem('bizonne_convs_cache');
+      if (cachedConvs) {
+        const parsed = JSON.parse(cachedConvs);
+        if (parsed?.length) { setConversations(parsed); setLoading(false); }
+      }
+    } catch {}
+
     if (!initialLoadDone.current) {
       initialLoadDone.current = true;
       // Stage sync y stages solo al montar (NO en polling)
@@ -174,6 +183,8 @@ export default function ConversacionesPage() {
         const data = await res.json();
         const convs = data.conversations || [];
         setConversations(convs);
+        // ⚡ Cache para instant load
+        try { localStorage.setItem('bizonne_convs_cache', JSON.stringify(convs.slice(0, 50))); } catch {}
         
         // Mantener selectedConv sincronizado
         const currentSelected = selectedConvRef.current;

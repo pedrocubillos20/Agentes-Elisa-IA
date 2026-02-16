@@ -35,8 +35,16 @@ export default function WhatsAppPage() {
   const extraLinesPurchased = user?.effectiveLimits?.extraLinesPurchased || 0;
 
   useEffect(() => {
+    // ⚡ INSTANT LOAD
+    try {
+      const cu = localStorage.getItem('bizonne_user_cache');
+      if (cu) setUser(JSON.parse(cu));
+      const cl = localStorage.getItem('bizonne_wa_lines');
+      if (cl) { setLines(JSON.parse(cl)); setLoading(false); }
+    } catch {}
+
     loadAll();
-    const interval = setInterval(refreshLines, 8000);
+    const interval = setInterval(refreshLines, 15000); // Era 8s → ahora 15s
     return () => clearInterval(interval);
   }, []);
 
@@ -45,21 +53,22 @@ export default function WhatsAppPage() {
 
   const loadAll = async () => {
     try {
-      const [userRes, linesRes, assistRes, teamRes] = await Promise.all([
-        fetch(`${API_URL}/api/auth/me`, { headers: headers() }),
+      // ⚡ User from cache (layout already fetches it)
+      try { const cu = localStorage.getItem('bizonne_user_cache'); if (cu) setUser(JSON.parse(cu)); } catch {}
+
+      const [linesRes, assistRes, teamRes] = await Promise.all([
         fetch(`${API_URL}/api/whatsapp/lines`, { headers: headers() }),
         fetch(`${API_URL}/api/assistants`, { headers: headers() }),
         fetch(`${API_URL}/api/team`, { headers: headers() }).catch(() => null),
       ]);
 
-      if (userRes.ok) setUser((await userRes.json()).user);
       if (linesRes.ok) {
         const data = await linesRes.json();
         setLines(data.lines || []);
+        try { localStorage.setItem('bizonne_wa_lines', JSON.stringify(data.lines || [])); } catch {}
       }
       if (assistRes.ok) {
         const data = await assistRes.json();
-        // Handle both single and array
         if (data.assistant) setAssistants([data.assistant]);
         else if (data.assistants) setAssistants(data.assistants);
       }
@@ -67,6 +76,9 @@ export default function WhatsAppPage() {
         const data = await teamRes.json();
         setTeamMembers(data.members || []);
       }
+      // Refresh user from API in background
+      const userRes = await fetch(`${API_URL}/api/auth/me`, { headers: headers() }).catch(() => null);
+      if (userRes?.ok) { const u = (await userRes.json()).user; setUser(u); try { localStorage.setItem('bizonne_user_cache', JSON.stringify(u)); } catch {} }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };

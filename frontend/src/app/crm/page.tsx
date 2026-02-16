@@ -50,19 +50,29 @@ export default function CRMPage() {
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
   useEffect(() => {
+    // ⚡ INSTANT LOAD: Mostrar datos cacheados inmediatamente
+    try {
+      const cu = localStorage.getItem('bizonne_user_cache');
+      if (cu) setUser(JSON.parse(cu));
+      const cc = localStorage.getItem('bizonne_crm_convs');
+      if (cc) { setConversations(JSON.parse(cc)); setLoading(false); }
+      const cs = localStorage.getItem('bizonne_crm_stages');
+      if (cs) { const parsed = JSON.parse(cs); if (parsed?.length) setStages(parsed); }
+    } catch {}
+
     fetchAll();
     const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
     
-    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 10 segundos
+    // 🔄 AUTO-REFRESH: Actualizar conversaciones cada 15 segundos (era 10)
     const autoRefreshInterval = setInterval(() => {
       fetchConversationsOnly();
-    }, 10000);
+    }, 15000);
     
-    // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 30 segundos
+    // 🎯 AUTO-SYNC ETAPAS: Sincronizar etapas cada 60 segundos (era 30)
     const stageSyncInterval = setInterval(() => {
       syncStages();
-    }, 30000);
+    }, 60000);
     
     return () => {
       window.removeEventListener('lineChanged', onLineChanged);
@@ -132,16 +142,17 @@ export default function CRMPage() {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const [userRes, stagesRes, convsRes, clientsRes, productsRes] = await Promise.all([
-        fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
+      // ⚡ User from cache (layout already fetches it)
+      try { const cu = localStorage.getItem('bizonne_user_cache'); if (cu) setUser(JSON.parse(cu)); } catch {}
+
+      const [stagesRes, convsRes, clientsRes, productsRes] = await Promise.all([
         fetch(`${API_URL}/api/stages?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/conversations?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/clients?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/products?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
       ]);
-      if (userRes.ok) setUser((await userRes.json()).user);
-      if (stagesRes.ok) { const d = await stagesRes.json(); if (d.stages?.length) setStages(d.stages); }
-      if (convsRes.ok) setConversations((await convsRes.json()).conversations || []);
+      if (stagesRes.ok) { const d = await stagesRes.json(); if (d.stages?.length) { setStages(d.stages); try { localStorage.setItem('bizonne_crm_stages', JSON.stringify(d.stages)); } catch {} } }
+      if (convsRes.ok) { const convs = (await convsRes.json()).conversations || []; setConversations(convs); try { localStorage.setItem('bizonne_crm_convs', JSON.stringify(convs.slice(0, 100))); } catch {} }
       if (clientsRes.ok) setClients((await clientsRes.json()).clients || []);
       if (productsRes.ok) setProducts((await productsRes.json()).products || []);
     } catch (e) { console.error(e); }

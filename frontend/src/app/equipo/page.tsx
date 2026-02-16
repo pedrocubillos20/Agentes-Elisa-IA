@@ -4,16 +4,16 @@ import { useState, useEffect } from 'react';
 import {
   Users, Plus, Shield, Trash2, Edit3, X, Eye, EyeOff,
   CheckCircle, AlertCircle, UserPlus, Crown, Briefcase, Headphones,
-  MessageSquare, BarChart3, Calendar, Bot, Smartphone, Settings, Package, Loader2
+  MessageSquare, BarChart3, Calendar, Bot, Smartphone, Settings, Package, Loader2, Phone
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 const ROLES = [
-  { id: 'manager', label: 'Gerente', icon: Crown, color: '#a855f7', desc: 'Acceso total excepto config avanzada' },
-  { id: 'agent', label: 'Vendedor', icon: Briefcase, color: '#3b82f6', desc: 'Conversaciones, CRM, Agenda' },
-  { id: 'support', label: 'Soporte', icon: Headphones, color: '#10b981', desc: 'Solo conversaciones y CRM' },
-  { id: 'viewer', label: 'Observador', icon: Eye, color: '#6b7280', desc: 'Solo dashboard (lectura)' }
+  { id: 'manager', label: 'Gerente', icon: Crown, color: '#a855f7', desc: 'Acceso completo' },
+  { id: 'agent', label: 'Vendedor', icon: Briefcase, color: '#3b82f6', desc: 'Ventas, CRM, Agenda' },
+  { id: 'support', label: 'Soporte', icon: Headphones, color: '#10b981', desc: 'Conversaciones y CRM' },
+  { id: 'viewer', label: 'Observador', icon: Eye, color: '#6b7280', desc: 'Solo dashboard' }
 ];
 
 const PERMS = [
@@ -39,6 +39,7 @@ export default function EquipoPage() {
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<any[]>([]);
   const [owner, setOwner] = useState<any>(null);
+  const [lines, setLines] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -47,27 +48,27 @@ export default function EquipoPage() {
 
   const [form, setForm] = useState({
     email: '', password: '', name: '', role: 'agent',
-    permissions: { ...ROLE_DEFAULTS.agent }
+    permissions: { ...ROLE_DEFAULTS.agent },
+    allowedLines: [] as string[]
   });
 
-  useEffect(() => { fetchTeam(); fetchUser(); }, []);
+  useEffect(() => { 
+    try { const cu = localStorage.getItem('bizonne_user_cache'); if (cu) setOwner(JSON.parse(cu)); } catch {}
+    fetchTeam(); 
+  }, []);
   useEffect(() => { if (message.text) { const t = setTimeout(() => setMessage({ type: '', text: '' }), 4000); return () => clearTimeout(t); } }, [message]);
-
-  const fetchUser = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.ok) { const data = await res.json(); if (!owner) setOwner(data.user); }
-    } catch {}
-  };
 
   const fetchTeam = async () => {
     const token = localStorage.getItem('token');
     if (!token) { setLoading(false); return; }
     try {
       const res = await fetch(`${API_URL}/api/team`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.ok) { const data = await res.json(); setMembers(data.members || []); setOwner(data.owner); }
+      if (res.ok) {
+        const data = await res.json();
+        setMembers(data.members || []);
+        setOwner(data.owner);
+        setLines(data.lines || []);
+      }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -80,21 +81,43 @@ export default function EquipoPage() {
     setForm(prev => ({ ...prev, permissions: { ...prev.permissions, [perm]: !prev.permissions[perm] } }));
   };
 
+  const toggleLine = (lineId: string) => {
+    setForm(prev => {
+      const current = prev.allowedLines || [];
+      const updated = current.includes(lineId) ? current.filter(l => l !== lineId) : [...current, lineId];
+      return { ...prev, allowedLines: updated };
+    });
+  };
+
+  const toggleAllLines = () => {
+    setForm(prev => {
+      if ((prev.allowedLines || []).length === lines.length) return { ...prev, allowedLines: [] };
+      return { ...prev, allowedLines: lines.map(l => l.id) };
+    });
+  };
+
   const handleCreate = async () => {
     if (!form.email || !form.password) { setMessage({ type: 'error', text: 'Email y contraseña son requeridos' }); return; }
     if (form.password.length < 6) { setMessage({ type: 'error', text: 'La contraseña debe tener al menos 6 caracteres' }); return; }
     setSaving(true);
     const token = localStorage.getItem('token');
     try {
+      const payload = {
+        ...form,
+        permissions: {
+          ...form.permissions,
+          allowedLines: form.allowedLines.length === 0 || form.allowedLines.length === lines.length ? ['all'] : form.allowedLines
+        }
+      };
       const res = await fetch(`${API_URL}/api/team`, {
         method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: 'success', text: `✅ ${form.name || form.email} agregado al equipo` });
         setShowCreate(false);
-        setForm({ email: '', password: '', name: '', role: 'agent', permissions: { ...ROLE_DEFAULTS.agent } });
+        setForm({ email: '', password: '', name: '', role: 'agent', permissions: { ...ROLE_DEFAULTS.agent }, allowedLines: [] });
         fetchTeam();
       } else { setMessage({ type: 'error', text: data.error || 'Error' }); }
     } catch { setMessage({ type: 'error', text: 'Error de conexión' }); }
@@ -114,7 +137,7 @@ export default function EquipoPage() {
   };
 
   const handleDelete = async (member: any) => {
-    if (!confirm(`¿Eliminar a ${member.name || member.email} del equipo? Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Eliminar a ${member.name || member.email} del equipo?`)) return;
     const token = localStorage.getItem('token');
     try {
       await fetch(`${API_URL}/api/team/${member.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
@@ -123,15 +146,49 @@ export default function EquipoPage() {
     } catch {}
   };
 
-  const handleUpdatePerms = async (member: any, newPerms: any) => {
+  const handleUpdateMember = async (member: any, updates: any) => {
     const token = localStorage.getItem('token');
     try {
       await fetch(`${API_URL}/api/team/${member.id}`, {
         method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permissions: newPerms })
+        body: JSON.stringify(updates)
       });
       fetchTeam();
+      setMessage({ type: 'success', text: `${member.name || member.email} actualizado` });
     } catch {}
+  };
+
+  const getMemberLines = (member: any): string[] => {
+    const perms = typeof member.permissions === 'string' ? JSON.parse(member.permissions) : member.permissions;
+    const al = perms?.allowedLines;
+    if (!al || (Array.isArray(al) && al.includes('all'))) return lines.map(l => l.id);
+    return al || [];
+  };
+
+  const toggleMemberLine = (member: any, lineId: string) => {
+    const perms = typeof member.permissions === 'string' ? JSON.parse(member.permissions) : { ...member.permissions };
+    let current = getMemberLines(member);
+    let updated: string[];
+    
+    if (current.includes(lineId)) {
+      updated = current.filter(l => l !== lineId);
+      if (updated.length === 0) updated = ['all']; // Si quita todas, dar todas
+    } else {
+      updated = [...current, lineId];
+    }
+    
+    if (updated.length === lines.length) updated = ['all'];
+    handleUpdateMember(member, { permissions: { ...perms, allowedLines: updated } });
+  };
+
+  const toggleMemberAllLines = (member: any) => {
+    const perms = typeof member.permissions === 'string' ? JSON.parse(member.permissions) : { ...member.permissions };
+    handleUpdateMember(member, { permissions: { ...perms, allowedLines: ['all'] } });
+  };
+
+  const handleUpdateRole = (member: any, newRole: string) => {
+    const newPerms = { ...ROLE_DEFAULTS[newRole], allowedLines: (member.permissions as any)?.allowedLines || ['all'] };
+    handleUpdateMember(member, { role: newRole, permissions: newPerms });
   };
 
   const getRoleInfo = (role: string) => ROLES.find(r => r.id === role) || ROLES[1];
@@ -145,7 +202,6 @@ export default function EquipoPage() {
     );
   }
 
-  // 🔒 BLOQUEO PLAN STARTER - Equipo solo disponible en Business
   if (owner?.plan === 'starter') {
     return (
       <div className="max-w-2xl mx-auto py-16 text-center">
@@ -154,16 +210,10 @@ export default function EquipoPage() {
             <Users className="w-10 h-10 text-purple-400" />
           </div>
           <h2 className="text-2xl font-bold text-white mb-3">Equipo disponible en Plan Business</h2>
-          <p className="text-[var(--text-muted)] mb-6">
-            Agrega vendedores, gerentes y soporte con roles y permisos personalizados.
-            Asigna chats a miembros del equipo y controla el acceso.
-          </p>
-          <div className="flex flex-col items-center gap-4">
-            <a href="/subscription" className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-xl text-lg hover:shadow-lg hover:shadow-purple-500/30 transition-all hover:scale-105">
-              🚀 Upgrade a Business — USD$50/mes
-            </a>
-            <p className="text-xs text-[var(--text-muted)]">Equipo multi-usuario · Roles · Asignación de chats</p>
-          </div>
+          <p className="text-[var(--text-muted)] mb-6">Agrega vendedores, gerentes y soporte con roles y permisos personalizados.</p>
+          <a href="/subscription" className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-bold rounded-xl text-lg hover:shadow-lg hover:shadow-purple-500/30 transition-all hover:scale-105 inline-block">
+            🚀 Upgrade a Business — USD$50/mes
+          </a>
         </div>
       </div>
     );
@@ -265,6 +315,39 @@ export default function EquipoPage() {
               </div>
             </div>
 
+            {/* 📱 Selector de Líneas */}
+            {lines.length > 0 && (
+              <div>
+                <label className="input-label flex items-center gap-2">
+                  <Phone className="w-4 h-4" /> Líneas de WhatsApp
+                </label>
+                <p className="text-xs text-[var(--text-muted)] mb-3">Selecciona a qué líneas tendrá acceso este miembro</p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={toggleAllLines}
+                    className="px-3 py-2 rounded-lg text-xs font-medium border transition-all"
+                    style={{
+                      borderColor: (form.allowedLines.length === 0 || form.allowedLines.length === lines.length) ? 'rgba(16, 185, 129, 0.5)' : 'var(--border-primary)',
+                      background: (form.allowedLines.length === 0 || form.allowedLines.length === lines.length) ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                      color: (form.allowedLines.length === 0 || form.allowedLines.length === lines.length) ? '#10b981' : 'var(--text-muted)'
+                    }}>
+                    ✅ Todas las líneas
+                  </button>
+                  {lines.map(line => (
+                    <button key={line.id} onClick={() => toggleLine(line.id)}
+                      className="px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5"
+                      style={{
+                        borderColor: form.allowedLines.includes(line.id) ? 'rgba(59, 130, 246, 0.5)' : 'var(--border-primary)',
+                        background: form.allowedLines.includes(line.id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                        color: form.allowedLines.includes(line.id) ? '#3b82f6' : 'var(--text-muted)'
+                      }}>
+                      <Phone className="w-3 h-3" />
+                      {line.label || line.phone || 'Línea'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Grid de permisos */}
             <div>
               <label className="input-label">Permisos Personalizados</label>
@@ -303,6 +386,8 @@ export default function EquipoPage() {
             const roleInfo = getRoleInfo(member.role);
             const perms = (typeof member.permissions === 'string' ? JSON.parse(member.permissions) : member.permissions) || {};
             const isExpanded = editingId === member.id;
+            const memberLines = getMemberLines(member);
+            const hasAllLines = memberLines.length === lines.length;
 
             return (
               <div key={member.id} className={`card transition-all ${!member.isActive ? 'opacity-60' : ''}`}>
@@ -321,7 +406,14 @@ export default function EquipoPage() {
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/20 text-red-400">Inactivo</span>
                       )}
                     </div>
-                    <p className="text-sm text-[var(--text-muted)] truncate">{member.email}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-sm text-[var(--text-muted)] truncate">{member.email}</p>
+                      {lines.length > 1 && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
+                          {hasAllLines ? 'Todas las líneas' : `${memberLines.length} línea${memberLines.length !== 1 ? 's' : ''}`}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="text-right hidden md:block">
@@ -342,23 +434,75 @@ export default function EquipoPage() {
                   </div>
                 </div>
 
-                {/* Editor de permisos expandido */}
+                {/* Editor expandido: Rol + Líneas + Permisos */}
                 {isExpanded && (
-                  <div className="mt-4 pt-4 border-t border-[var(--border-primary)] animate-fade-in">
-                    <p className="text-sm font-medium text-white mb-3">Permisos de {member.name || member.email}</p>
-                    <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
-                      {PERMS.map(perm => (
-                        <button key={perm.id} onClick={() => handleUpdatePerms(member, { ...perms, [perm.id]: !perms[perm.id] })}
-                          className="p-2.5 rounded-lg flex flex-col items-center gap-1.5 text-center transition-all border"
-                          style={{
-                            borderColor: perms[perm.id] ? 'rgba(16, 185, 129, 0.5)' : 'var(--border-primary)',
-                            background: perms[perm.id] ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
-                            opacity: perms[perm.id] ? 1 : 0.4
-                          }}>
-                          <perm.icon className="w-4 h-4" style={{ color: perms[perm.id] ? '#10b981' : 'var(--text-muted)' }} />
-                          <span className="text-[9px] font-medium text-white">{perm.label}</span>
-                        </button>
-                      ))}
+                  <div className="mt-4 pt-4 border-t border-[var(--border-primary)] animate-fade-in space-y-4">
+                    
+                    {/* Cambiar Rol */}
+                    <div>
+                      <p className="text-sm font-medium text-white mb-2">Rol de {member.name || member.email}</p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {ROLES.map(role => (
+                          <button key={role.id} onClick={() => handleUpdateRole(member, role.id)}
+                            className="p-3 rounded-xl border-2 text-center transition-all"
+                            style={{
+                              borderColor: member.role === role.id ? `${role.color}80` : 'var(--border-primary)',
+                              background: member.role === role.id ? `${role.color}15` : 'transparent'
+                            }}>
+                            <role.icon className="w-5 h-5 mx-auto mb-1" style={{ color: member.role === role.id ? role.color : 'var(--text-muted)' }} />
+                            <p className="text-xs font-semibold text-white">{role.label}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Líneas asignadas */}
+                    {lines.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-white mb-2">Líneas de WhatsApp</p>
+                        <div className="flex flex-wrap gap-2">
+                          <button onClick={() => toggleMemberAllLines(member)}
+                            className="px-3 py-2 rounded-lg text-xs font-medium border transition-all"
+                            style={{
+                              borderColor: hasAllLines ? 'rgba(16, 185, 129, 0.5)' : 'var(--border-primary)',
+                              background: hasAllLines ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                              color: hasAllLines ? '#10b981' : 'var(--text-muted)'
+                            }}>
+                            ✅ Todas
+                          </button>
+                          {lines.map(line => (
+                            <button key={line.id} onClick={() => toggleMemberLine(member, line.id)}
+                              className="px-3 py-2 rounded-lg text-xs font-medium border transition-all flex items-center gap-1.5"
+                              style={{
+                                borderColor: memberLines.includes(line.id) ? 'rgba(59, 130, 246, 0.5)' : 'var(--border-primary)',
+                                background: memberLines.includes(line.id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                                color: memberLines.includes(line.id) ? '#3b82f6' : 'var(--text-muted)'
+                              }}>
+                              <Phone className="w-3 h-3" />
+                              {line.label || line.phone || 'Línea'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Permisos */}
+                    <div>
+                      <p className="text-sm font-medium text-white mb-2">Permisos</p>
+                      <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                        {PERMS.map(perm => (
+                          <button key={perm.id} onClick={() => handleUpdateMember(member, { permissions: { ...perms, [perm.id]: !perms[perm.id] } })}
+                            className="p-2.5 rounded-lg flex flex-col items-center gap-1.5 text-center transition-all border"
+                            style={{
+                              borderColor: perms[perm.id] ? 'rgba(16, 185, 129, 0.5)' : 'var(--border-primary)',
+                              background: perms[perm.id] ? 'rgba(16, 185, 129, 0.1)' : 'transparent',
+                              opacity: perms[perm.id] ? 1 : 0.4
+                            }}>
+                            <perm.icon className="w-4 h-4" style={{ color: perms[perm.id] ? '#10b981' : 'var(--text-muted)' }} />
+                            <span className="text-[9px] font-medium text-white">{perm.label}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -384,18 +528,10 @@ export default function EquipoPage() {
           <p>• <strong className="text-white">Vendedor:</strong> Ve conversaciones, CRM, agenda y productos. Ideal para equipo de ventas.</p>
           <p>• <strong className="text-white">Soporte:</strong> Solo conversaciones y CRM. Para atención al cliente.</p>
           <p>• <strong className="text-white">Gerente:</strong> Acceso completo. Para jefes de área.</p>
+          <p>• <strong className="text-white">Líneas:</strong> Asigna qué líneas de WhatsApp puede ver cada miembro.</p>
           <p>• <strong className="text-white">Asignar chats:</strong> Desde Conversaciones puedes asignar cada chat a un miembro.</p>
-          <p>• Los sub-usuarios comparten el WhatsApp y la IA del administrador.</p>
           <p>• Cada sub-usuario inicia sesión con su email y contraseña propios.</p>
           <p>• <strong className="text-white">&quot;..&quot;</strong> pausa la IA (hablar con humano) • <strong className="text-white">&quot;.&quot;</strong> reactiva la IA.</p>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-center py-6">
-        <div className="flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/10">
-          <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
-          <span className="text-sm text-[var(--text-muted)]">Powered by <span className="text-white font-semibold">Bizonne</span></span>
         </div>
       </div>
     </div>

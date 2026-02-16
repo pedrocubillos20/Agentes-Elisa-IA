@@ -89,11 +89,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const checkAuth = async () => {
     const token = localStorage.getItem('token');
     if (!token) { setLoading(false); if (!isAuthPage) router.push('/login'); return; }
+    
+    // ⚡ INSTANT: Show cached user immediately (skip loading)
+    try {
+      const cachedUser = localStorage.getItem('bizonne_user_cache');
+      if (cachedUser) {
+        const parsed = JSON.parse(cachedUser);
+        if (parsed?.id) { setUser(parsed); setLoading(false); }
+      }
+    } catch {}
+
+    // Validate token + refresh user data in background
     try {
       const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
+        try { localStorage.setItem('bizonne_user_cache', JSON.stringify(data.user)); } catch {}
         // Show welcome modal for first-time users
         const welcomed = localStorage.getItem('bizonne_welcomed');
         if (!welcomed) {
@@ -102,6 +114,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         }
       } else {
         localStorage.removeItem('token');
+        localStorage.removeItem('bizonne_user_cache');
         if (!isAuthPage) router.push('/login');
       }
     } catch (error) { console.error('Auth error:', error); }

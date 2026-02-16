@@ -24,31 +24,32 @@ export default function AgendaPage() {
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
   useEffect(() => {
-    fetchAppointments();
-    fetchUser();
-    const onLineChanged = () => { setLoading(true); fetchAppointments(); };
+    // ⚡ INSTANT LOAD
+    try {
+      const cu = localStorage.getItem('bizonne_user_cache');
+      if (cu) setUser(JSON.parse(cu));
+      const ca = localStorage.getItem('bizonne_agenda_cache');
+      if (ca) { setAppointments(JSON.parse(ca)); setLoading(false); }
+    } catch {}
+
+    fetchAll();
+    const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
     return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
 
-  const fetchUser = async () => {
+  const fetchAll = async () => {
     const token = localStorage.getItem('token');
     if (!token) return;
-    try {
-      const res = await fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } });
-      if (res.ok) setUser((await res.json()).user);
-    } catch {}
-  };
-
-  const fetchAppointments = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
     try {
       const res = await fetch(`${API_URL}/api/appointments?lineId=${getLineId()}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (res.ok) setAppointments((await res.json()).appointments || []);
+      if (res.ok) {
+        const appts = (await res.json()).appointments || [];
+        setAppointments(appts);
+        try { localStorage.setItem('bizonne_agenda_cache', JSON.stringify(appts.slice(0, 50))); } catch {}
+      }
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -75,7 +76,7 @@ export default function AgendaPage() {
       });
 
       if (res.ok) {
-        fetchAppointments();
+        fetchAll();
         setShowModal(false);
         resetForm();
       }
@@ -92,7 +93,7 @@ export default function AgendaPage() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status })
       });
-      fetchAppointments();
+      fetchAll();
     } catch (error) {
       console.error('Error:', error);
     }
@@ -106,7 +107,7 @@ export default function AgendaPage() {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      fetchAppointments();
+      fetchAll();
     } catch (error) {
       console.error('Error:', error);
     }

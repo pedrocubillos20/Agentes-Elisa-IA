@@ -12,10 +12,15 @@ const ROLE_DEFAULTS: Record<string, any> = {
   viewer:   { dashboard: true, conversations: false, crm: false, agenda: false, assistants: false, whatsapp: false, config: false, team: false, products: false }
 };
 
-// Resolver al dueño (admin principal)
+// Resolver al dueño (admin principal) — con cache
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
 const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  return u?.parentUserId || userId;
+  const ownerId = u?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
 };
 
 // Verificar permiso

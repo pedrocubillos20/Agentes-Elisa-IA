@@ -4,6 +4,10 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
+// ⚡ Production: reduce console.log I/O overhead (118 logs → solo errores)
+const IS_PROD = process.env.NODE_ENV === 'production';
+const log = IS_PROD ? (..._args: any[]) => {} : console.log.bind(console);
+
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://31.97.142.127:8080';
 const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
 const BACKEND_URL = process.env.BACKEND_URL || 'https://elisa-iaagentes-production.up.railway.app';
@@ -41,9 +45,14 @@ const messageBuffer: Map<string, {
 // ===== SESSION MANAGEMENT (multi-tenant) =====
 const getUserSessionName = (userId: string): string => `user_${userId}`;
 
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
 const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  return u?.parentUserId || userId;
+  const ownerId = u?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
 };
 
 const findActiveSession = async (userId: string): Promise<{ name: string; data: any } | null> => {
@@ -69,7 +78,7 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
   }).catch(() => null);
   
   if (waLine?.userId) {
-    console.log(`📱 Usuario resuelto por línea ${sessionName}: ${waLine.userId}`);
+    log(`📱 Usuario resuelto por línea ${sessionName}: ${waLine.userId}`);
     return waLine.userId;
   }
   
@@ -78,7 +87,7 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
     const uid = sessionName.replace('user_', '');
     const u = await prisma.user.findUnique({ where: { id: uid }, select: { id: true, parentUserId: true } });
     if (u) {
-      console.log(`📱 Usuario resuelto por sesión legacy: ${u.parentUserId || u.id}`);
+      log(`📱 Usuario resuelto por sesión legacy: ${u.parentUserId || u.id}`);
       return u.parentUserId || u.id;
     }
   }
@@ -103,7 +112,7 @@ const setPresence = async (session: string, chatId: string, mode: 'typing' | 're
   for (const ep of endpoints) {
     try {
       const r = await fetch(ep.url, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(ep.body) });
-      if (r.ok) { console.log(`${mode === 'recording' ? '🎙️' : '⌨️'} ${mode} ON`); return; }
+      if (r.ok) { log(`${mode === 'recording' ? '🎙️' : '⌨️'} ${mode} ON`); return; }
     } catch {}
   }
 };
@@ -149,7 +158,7 @@ const sendWahaMedia = async (session: string, chatId: string, media: any, captio
     if (caption) body.caption = caption;
 
     const r = await fetch(`${WAHA_API_URL}${endpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
-    if (r.ok) { console.log(`✅ ${media.type} enviado OK`); return true; }
+    if (r.ok) { log(`✅ ${media.type} enviado OK`); return true; }
     const errText = await r.text().catch(() => '');
     console.error(`❌ ${endpoint} (${r.status}): ${errText.substring(0, 200)}`);
     if (endpoint !== '/api/sendFile') {
@@ -197,7 +206,7 @@ const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<str
 
     if (res.ok) {
       const data = await res.json() as any;
-      console.log(`🎤 Whisper transcripción: "${data.text?.substring(0, 100)}"`);
+      log(`🎤 Whisper transcripción: "${data.text?.substring(0, 100)}"`);
       return data.text || null;
     } else {
       const err = await res.text().catch(() => '');
@@ -228,7 +237,7 @@ const rewriteWahaUrl = (url: string): string => {
   for (const [from, to] of replacements) {
     if (url.startsWith(from)) {
       const rewritten = url.replace(from, to);
-      console.log(`🔄 URL reescrita: ${url.substring(0, 80)} → ${rewritten.substring(0, 80)}`);
+      log(`🔄 URL reescrita: ${url.substring(0, 80)} → ${rewritten.substring(0, 80)}`);
       return rewritten;
     }
   }
@@ -248,52 +257,52 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
     try {
       const buf = Buffer.from(payload.media.data, 'base64');
       if (buf.length > 100) {
-        console.log(`✅ S1: Media de payload.media.data: ${buf.length} bytes`);
+        log(`✅ S1: Media de payload.media.data: ${buf.length} bytes`);
         return { buffer: buf, mimetype: payload.media.mimetype || payload?.mimetype || 'audio/ogg' };
       }
-    } catch (e: any) { console.log(`⚠️ S1a media.data falló: ${e.message}`); }
+    } catch (e: any) { log(`⚠️ S1a media.data falló: ${e.message}`); }
   }
   
   if (payload?._data?.body) {
     try {
       const buf = Buffer.from(payload._data.body, 'base64');
       if (buf.length > 100) {
-        console.log(`✅ S1b: Media de payload._data.body: ${buf.length} bytes`);
+        log(`✅ S1b: Media de payload._data.body: ${buf.length} bytes`);
         return { buffer: buf, mimetype: payload?.mimetype || payload?._data?.mimetype || 'audio/ogg' };
       }
-    } catch (e: any) { console.log(`⚠️ S1b _data.body falló: ${e.message}`); }
+    } catch (e: any) { log(`⚠️ S1b _data.body falló: ${e.message}`); }
   }
 
   // STRATEGY 2: mediaUrl from payload (rewrite localhost → public IP)
   if (payload?.mediaUrl) {
     try {
       const url = rewriteWahaUrl(payload.mediaUrl);
-      console.log(`📥 S2: mediaUrl: ${url.substring(0, 120)}`);
+      log(`📥 S2: mediaUrl: ${url.substring(0, 120)}`);
       const r = await fetch(url, { headers: getWahaHeaders() });
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         if (buf.length > 100) {
-          console.log(`✅ S2: Media via mediaUrl: ${buf.length} bytes`);
+          log(`✅ S2: Media via mediaUrl: ${buf.length} bytes`);
           return { buffer: buf, mimetype: r.headers.get('content-type') || payload?.mimetype || 'audio/ogg' };
         }
-      } else { console.log(`⚠️ S2: mediaUrl ${r.status}`); }
-    } catch (e: any) { console.log(`⚠️ S2 mediaUrl falló: ${e.message}`); }
+      } else { log(`⚠️ S2: mediaUrl ${r.status}`); }
+    } catch (e: any) { log(`⚠️ S2 mediaUrl falló: ${e.message}`); }
   }
 
   // STRATEGY 3: media.url field (rewrite localhost → public IP)
   if (payload?.media?.url) {
     try {
       const url = rewriteWahaUrl(payload.media.url);
-      console.log(`📥 S3: media.url: ${url.substring(0, 120)}`);
+      log(`📥 S3: media.url: ${url.substring(0, 120)}`);
       const r = await fetch(url, { headers: getWahaHeaders() });
       if (r.ok) {
         const buf = Buffer.from(await r.arrayBuffer());
         if (buf.length > 100) {
-          console.log(`✅ S3: Media via media.url: ${buf.length} bytes`);
+          log(`✅ S3: Media via media.url: ${buf.length} bytes`);
           return { buffer: buf, mimetype: payload.media.mimetype || r.headers.get('content-type') || 'audio/ogg' };
         }
-      } else { console.log(`⚠️ S3: media.url ${r.status}`); }
-    } catch (e: any) { console.log(`⚠️ S3 media.url falló: ${e.message}`); }
+      } else { log(`⚠️ S3: media.url ${r.status}`); }
+    } catch (e: any) { log(`⚠️ S3 media.url falló: ${e.message}`); }
   }
 
   // STRATEGY 4: WAHA files API — GET /api/files/{filename} (for WHATSAPP_FILES_MIMETYPES)
@@ -301,7 +310,7 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
     try {
       // Try listing files for this session to find matching file
       const filesUrl = `${WAHA_API_URL}/api/files`;
-      console.log(`📥 S4: Buscando en files API...`);
+      log(`📥 S4: Buscando en files API...`);
       const r = await fetch(filesUrl, { headers: getWahaHeaders() });
       if (r.ok) {
         const text = await r.text();
@@ -317,29 +326,29 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
             if (match) {
               const fname = typeof match === 'string' ? match : match?.name || match?.filename || match?.path || '';
               const fileUrl = `${WAHA_API_URL}/api/files/${fname}`;
-              console.log(`📥 S4: Descargando archivo: ${fileUrl.substring(0, 120)}`);
+              log(`📥 S4: Descargando archivo: ${fileUrl.substring(0, 120)}`);
               const fr = await fetch(fileUrl, { headers: getWahaHeaders() });
               if (fr.ok) {
                 const buf = Buffer.from(await fr.arrayBuffer());
                 if (buf.length > 100) {
-                  console.log(`✅ S4: Media via files API: ${buf.length} bytes`);
+                  log(`✅ S4: Media via files API: ${buf.length} bytes`);
                   return { buffer: buf, mimetype: fr.headers.get('content-type') || payload?.mimetype || 'audio/ogg' };
                 }
               }
             } else {
-              console.log(`⚠️ S4: No se encontró archivo para ${shortId} entre ${files.length} archivos`);
+              log(`⚠️ S4: No se encontró archivo para ${shortId} entre ${files.length} archivos`);
             }
           }
-        } catch { console.log(`⚠️ S4: Respuesta no es JSON, probablemente HTML/404`); }
-      } else { console.log(`⚠️ S4: files API ${r.status}`); }
-    } catch (e: any) { console.log(`⚠️ S4 files API falló: ${e.message}`); }
+        } catch { log(`⚠️ S4: Respuesta no es JSON, probablemente HTML/404`); }
+      } else { log(`⚠️ S4: files API ${r.status}`); }
+    } catch (e: any) { log(`⚠️ S4 files API falló: ${e.message}`); }
   }
 
   // STRATEGY 5: WAHA API — POST /api/{session}/messages/download
   if (messageId) {
     try {
       const postUrl = `${WAHA_API_URL}/api/${session}/messages/download`;
-      console.log(`📥 S5: POST ${postUrl.substring(0, 80)} id: ${messageId.substring(0, 60)}`);
+      log(`📥 S5: POST ${postUrl.substring(0, 80)} id: ${messageId.substring(0, 60)}`);
       const r = await fetch(postUrl, { 
         method: 'POST', 
         headers: getWahaHeaders(), 
@@ -350,12 +359,12 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
         if (!contentType.includes('json')) {
           const buf = Buffer.from(await r.arrayBuffer());
           if (buf.length > 100) {
-            console.log(`✅ S5: Media via POST: ${buf.length} bytes (${contentType})`);
+            log(`✅ S5: Media via POST: ${buf.length} bytes (${contentType})`);
             return { buffer: buf, mimetype: contentType };
           }
         }
-      } else { console.log(`⚠️ S5: POST ${r.status}`); }
-    } catch (e: any) { console.log(`⚠️ S5 POST falló: ${e.message}`); }
+      } else { log(`⚠️ S5: POST ${r.status}`); }
+    } catch (e: any) { log(`⚠️ S5 POST falló: ${e.message}`); }
   }
 
   // STRATEGY 6: WAHA API — GET with URL-encoded messageId (multiple endpoint formats)
@@ -369,19 +378,19 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
     
     for (const url of endpoints) {
       try {
-        console.log(`📥 S6: GET ${url.substring(0, 120)}`);
+        log(`📥 S6: GET ${url.substring(0, 120)}`);
         const r = await fetch(url, { headers: getWahaHeaders() });
         if (r.ok) {
           const contentType = r.headers.get('content-type') || 'application/octet-stream';
           if (!contentType.includes('json')) {
             const buf = Buffer.from(await r.arrayBuffer());
             if (buf.length > 100) {
-              console.log(`✅ S6: Media via GET: ${buf.length} bytes (${contentType})`);
+              log(`✅ S6: Media via GET: ${buf.length} bytes (${contentType})`);
               return { buffer: buf, mimetype: contentType };
             }
           }
-        } else { console.log(`⚠️ S6: GET ${r.status}: ${url.substring(0, 80)}`); }
-      } catch (e: any) { console.log(`⚠️ S6 GET falló: ${e.message}`); }
+        } else { log(`⚠️ S6: GET ${r.status}: ${url.substring(0, 80)}`); }
+      } catch (e: any) { log(`⚠️ S6 GET falló: ${e.message}`); }
     }
   }
   
@@ -445,7 +454,7 @@ const extractMediaInfo = (payload: any): { hasMedia: boolean; mediaType: string;
   }
   
   if (hasMedia) {
-    console.log(`🔍 Media detectada: type=${typeField}, mediaType=${mediaType}, mime=${mimetype}, id=${messageId}, hasMediaUrl=${!!mediaUrl}, hasMediaData=${!!(payload?.media?.data || payload?._data?.body)}`);
+    log(`🔍 Media detectada: type=${typeField}, mediaType=${mediaType}, mime=${mimetype}, id=${messageId}, hasMediaUrl=${!!mediaUrl}, hasMediaData=${!!(payload?.media?.data || payload?._data?.body)}`);
   }
   
   return { hasMedia, mediaType, mimetype, messageId, caption, mediaUrl };
@@ -485,7 +494,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     }
 
     if (isExpired) {
-      console.log(`🔒 AI bloqueada — Suscripción expirada para usuario ${ownerId}`);
+      log(`🔒 AI bloqueada — Suscripción expirada para usuario ${ownerId}`);
       return null;
     }
 
@@ -499,7 +508,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
         where: { userId: ownerId, whatsappLineId: whatsappLineId } 
       });
       if (assistant) {
-        console.log(`📋 Asistente de LÍNEA "${assistant.name}" (lineId: ${whatsappLineId})`);
+        log(`📋 Asistente de LÍNEA "${assistant.name}" (lineId: ${whatsappLineId})`);
       }
     }
 
@@ -511,10 +520,10 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
         if (assistant) await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
         else return null;
       }
-      console.log(`📋 Asistente GLOBAL "${assistant.name}" (sin asistente específico de línea)`);
+      log(`📋 Asistente GLOBAL "${assistant.name}" (sin asistente específico de línea)`);
     }
 
-    console.log(`📋 Asistente: "${assistant.name}" (contexto: ${assistant.context?.length || 0} chars)`);
+    log(`📋 Asistente: "${assistant.name}" (contexto: ${assistant.context?.length || 0} chars)`);
 
     // 🧠 CARGAR CONVERSACIÓN + MEMORIA PERSISTENTE
     const conversation = await prisma.conversation.findUnique({
@@ -741,7 +750,7 @@ INSTRUCCIONES:
 
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
-    console.log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
+    log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
 
     // Construir mensajes para OpenAI (30 mensajes = cubre flujo completo de venta)
     const recent = [...history].reverse().slice(-30);
@@ -758,7 +767,7 @@ INSTRUCCIONES:
     const FIXED_MODEL = 'gpt-4o-mini';
     for (const model of [FIXED_MODEL]) {
       try {
-        console.log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
+        log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
         const ctrl = new AbortController();
         const to = setTimeout(() => ctrl.abort(), 20000);
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -783,7 +792,7 @@ INSTRUCCIONES:
           
           // DEBUG: Ver si hay bloque de memoria en la respuesta
           if (!memoryMatch) {
-            console.log(`⚠️ SIN BLOQUE DE MEMORIA en respuesta (${reply.length} chars)`);
+            log(`⚠️ SIN BLOQUE DE MEMORIA en respuesta (${reply.length} chars)`);
             
             // 🔄 FALLBACK GENÉRICO: Extraer datos universales del historial
             // ⚠️ Solo extrae campos UNIVERSALES que aplican a CUALQUIER negocio
@@ -927,11 +936,11 @@ INSTRUCCIONES:
             if (Object.keys(extractedData).length > Object.keys(savedContext).length) {
               updateData.contextData = extractedData;
               if (validFallbackStage) extractedData.etapa_actual = validFallbackStage.label || validFallbackStage.id;
-              console.log(`🔍 Datos extraídos: ${JSON.stringify(extractedData)}`);
+              log(`🔍 Datos extraídos: ${JSON.stringify(extractedData)}`);
             }
             if (validFallbackStage) {
               updateData.stage = validFallbackStage.id || validFallbackStage.label;
-              console.log(`🔄 Etapa por fallback: ${updateData.stage}`);
+              log(`🔄 Etapa por fallback: ${updateData.stage}`);
             }
             
             if (Object.keys(updateData).length > 0) {
@@ -1017,7 +1026,7 @@ INSTRUCCIONES:
                     data: { contextData: extractedData }
                   });
                   
-                  console.log(`📅 FALLBACK: Cita auto-detectada: ${tipoCita} | ${nombre} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
+                  log(`📅 FALLBACK: Cita auto-detectada: ${tipoCita} | ${nombre} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
                   
                   // Auto CRM
                   const existingCrm = await prisma.client.findFirst({ where: { userId: ownerId, phone: { endsWith: phoneClean.slice(-10) } } });
@@ -1025,7 +1034,7 @@ INSTRUCCIONES:
                     await prisma.client.create({
                       data: { userId: ownerId, name: nombre, phone: phoneClean, status: 'active', tags: [tipoCita, 'whatsapp'], lastContact: new Date(), whatsappLineId: whatsappLineId || null }
                     });
-                    console.log(`👥 CRM: "${nombre}" creado desde fallback`);
+                    log(`👥 CRM: "${nombre}" creado desde fallback`);
                   }
                 } catch (fbErr: any) {
                   console.error('📅 Error en fallback cita:', fbErr.message);
@@ -1070,10 +1079,10 @@ INSTRUCCIONES:
                 
                 if (validStage) {
                   updateData.stage = validStage.id || validStage.label;
-                  console.log(`🎯 Etapa automática: ${updateData.stage}`);
+                  log(`🎯 Etapa automática: ${updateData.stage}`);
                 } else {
                   // ⚠️ La IA sugirió una etapa que NO existe — rechazar
-                  console.log(`⚠️ Etapa RECHAZADA (no existe en pipeline): "${detectedStage}" | Etapas válidas: [${pipelineStages.map((s: any) => s.label || s.id).join(', ')}]`);
+                  log(`⚠️ Etapa RECHAZADA (no existe en pipeline): "${detectedStage}" | Etapas válidas: [${pipelineStages.map((s: any) => s.label || s.id).join(', ')}]`);
                 }
               }
               
@@ -1082,7 +1091,7 @@ INSTRUCCIONES:
                 data: updateData
               });
               
-              console.log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
+              log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
               
               // 🛒 CREAR PEDIDO AUTOMÁTICO CON FECHA DE ENTREGA
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
@@ -1155,7 +1164,7 @@ INSTRUCCIONES:
                     where: { id: conversationId },
                     data: { contextData: merged }
                   });
-                  console.log(`🛒 Pedido agendado para ${deliveryDate.toLocaleDateString('es-CO')} - ${merged.nombre || clientName}`);
+                  log(`🛒 Pedido agendado para ${deliveryDate.toLocaleDateString('es-CO')} - ${merged.nombre || clientName}`);
                   
                   // 👥 AUTO-CREAR CLIENTE EN CRM (pedido)
                   try {
@@ -1179,7 +1188,7 @@ INSTRUCCIONES:
                           whatsappLineId: whatsappLineId || null
                         }
                       });
-                      console.log(`👥 CRM: Cliente "${merged.nombre || clientName}" creado desde pedido`);
+                      log(`👥 CRM: Cliente "${merged.nombre || clientName}" creado desde pedido`);
                     } else {
                       await prisma.client.update({
                         where: { id: existingClient2.id },
@@ -1292,7 +1301,7 @@ INSTRUCCIONES:
                     data: { contextData: merged }
                   });
                   
-                  console.log(`📅 CITA CREADA: ${tipoCita} | ${nombreCliente} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
+                  log(`📅 CITA CREADA: ${tipoCita} | ${nombreCliente} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
 
                   // 👥 AUTO-CREAR CLIENTE EN CRM
                   try {
@@ -1313,7 +1322,7 @@ INSTRUCCIONES:
                           whatsappLineId: whatsappLineId || null
                         }
                       });
-                      console.log(`👥 CRM: Cliente "${nombreCliente}" creado automáticamente`);
+                      log(`👥 CRM: Cliente "${nombreCliente}" creado automáticamente`);
                     } else {
                       // Actualizar último contacto
                       await prisma.client.update({
@@ -1341,7 +1350,7 @@ INSTRUCCIONES:
           reply = reply.replace(/<<CONTEXT:[\s\S]*?>>/g, '').trim();
 
           if (reply) {
-            console.log(`✅ IA (${model}): ${reply.length} chars`);
+            log(`✅ IA (${model}): ${reply.length} chars`);
             return reply;
           }
         } else {
@@ -1377,7 +1386,7 @@ INSTRUCCIONES:
                 message: 'Límite de velocidad alcanzado. Reintentando...' 
               });
             }
-            console.log('⚠️ Rate limit/quota, reintentando en 2s...'); 
+            log('⚠️ Rate limit/quota, reintentando en 2s...'); 
             await new Promise(r => setTimeout(r, 2000)); 
             continue;
           }
@@ -1402,7 +1411,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
   // 🔒 Si ya se está procesando para este contacto, re-encolar
   if (processingLock.has(bufferKey)) {
-    console.log(`🔒 Lock activo para ${buf.senderName} — re-encolando ${buf.messages.length} mensaje(s)`);
+    log(`🔒 Lock activo para ${buf.senderName} — re-encolando ${buf.messages.length} mensaje(s)`);
     const existing = messageBuffer.get(bufferKey);
     if (existing) {
       existing.messages.push(...buf.messages);
@@ -1421,7 +1430,7 @@ const processBufferedMessages = async (bufferKey: string) => {
   const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
   const combinedMessage = msgs.join('\n');
 
-  console.log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
+  log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
 
   try {
     // 🔗 Buscar asistente específico de la línea primero
@@ -1445,7 +1454,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     }
 
     if (matchedMedia) {
-      console.log(`📎 Trigger multimedia: "${matchedMedia.name}" (tipo: ${matchedMedia.type})`);
+      log(`📎 Trigger multimedia: "${matchedMedia.name}" (tipo: ${matchedMedia.type})`);
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       await stopPresence(sessionName, from);
 
@@ -1457,7 +1466,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
       // 📂 CATÁLOGO: Enviar múltiples imágenes secuencialmente
       if (matchedMedia.type === 'catalog' && Array.isArray(matchedMedia.images) && matchedMedia.images.length > 0) {
-        console.log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
+        log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
         let sentCount = 0;
         for (let i = 0; i < matchedMedia.images.length; i++) {
           const img = matchedMedia.images[i];
@@ -1466,7 +1475,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           const sent = await sendWahaMedia(sessionName, from, imgMedia, caption);
           if (sent) {
             sentCount++;
-            console.log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`);
+            log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`);
           }
           // Pequeña pausa entre imágenes para evitar throttling
           if (i < matchedMedia.images.length - 1) {
@@ -1474,7 +1483,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           }
         }
         await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
-        console.log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
+        log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
       } else {
         // Archivo individual (imagen, video, audio)
         const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
@@ -1501,7 +1510,7 @@ const processBufferedMessages = async (bufferKey: string) => {
         if (sent) {
           await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
           await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse } });
-          console.log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
+          log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
 
           // 📸 TRIGGER POR RESPUESTA: Solo para CATÁLOGOS (no imágenes individuales)
           // Esto evita falsos positivos con triggers simples como "Negro", "precio", etc.
@@ -1509,12 +1518,12 @@ const processBufferedMessages = async (bufferKey: string) => {
           if (catalogItems.length > 0) {
             const responseMedia = findMediaTrigger(aiResponse, catalogItems);
             if (responseMedia && responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
-              console.log(`📸 Trigger catálogo por RESPUESTA del bot: "${responseMedia.name}"`);
+              log(`📸 Trigger catálogo por RESPUESTA del bot: "${responseMedia.name}"`);
               
               // Pequeña pausa antes de enviar multimedia
               await new Promise(r => setTimeout(r, 1000));
 
-              console.log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes (por respuesta)`);
+              log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes (por respuesta)`);
               let sentCount = 0;
               for (let i = 0; i < responseMedia.images.length; i++) {
                 const img = responseMedia.images[i];
@@ -1525,7 +1534,7 @@ const processBufferedMessages = async (bufferKey: string) => {
                 if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
               }
               await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
-              console.log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
+              log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
             }
           }
         }
@@ -1540,7 +1549,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     // 🔄 Verificar si llegaron mensajes mientras procesábamos
     const pending = messageBuffer.get(bufferKey);
     if (pending) {
-      console.log(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
+      log(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
       clearTimeout(pending.timer);
       // Esperar un poco más por si siguen llegando
       pending.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
@@ -1651,7 +1660,7 @@ router.post('/lines', async (req: Request, res: Response) => {
       }
     });
     
-    console.log(`📱 Línea creada: ${line.id} (${sessionName})`);
+    log(`📱 Línea creada: ${line.id} (${sessionName})`);
     res.json({ line, success: true });
   } catch (e: any) {
     console.error('Error creando línea:', e.message);
@@ -1712,7 +1721,7 @@ router.delete('/lines/:id', async (req: Request, res: Response) => {
     } catch {}
     
     await prisma.whatsappLine.delete({ where: { id } });
-    console.log(`🗑️ Línea eliminada: ${line.id} (${line.sessionName})`);
+    log(`🗑️ Línea eliminada: ${line.id} (${line.sessionName})`);
     res.json({ success: true });
   } catch (e: any) {
     console.error('Error eliminando línea:', e.message);
@@ -1746,7 +1755,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] }
         })
       });
-      console.log(`📱 Sesión WAHA creada: ${line.sessionName}`);
+      log(`📱 Sesión WAHA creada: ${line.sessionName}`);
     } else {
       const data = await check.json() as any;
       if (['STOPPED', 'FAILED'].includes(data.status)) {
@@ -1936,7 +1945,7 @@ router.post('/connect', async (req: Request, res: Response) => {
         })
       });
       const createData = await createRes.json().catch(() => ({}));
-      console.log(`📱 Sesión creada: ${sessionName} (status: ${(createData as any).status || 'unknown'})`);
+      log(`📱 Sesión creada: ${sessionName} (status: ${(createData as any).status || 'unknown'})`);
       res.json({ success: true, message: 'Sesión creada', session: sessionName });
     } else {
       const data = await check.json() as any;
@@ -1944,10 +1953,10 @@ router.post('/connect', async (req: Request, res: Response) => {
       if (['STOPPED', 'FAILED'].includes(data.status)) {
         // ✅ FIX: Si la sesión existe pero está detenida, iniciarla
         await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
-        console.log(`🔄 Sesión reiniciada: ${sessionName}`);
+        log(`🔄 Sesión reiniciada: ${sessionName}`);
       } else if (data.status === 'SCAN_QR_CODE') {
         // Ya está esperando QR, no hacer nada
-        console.log(`📱 Sesión ya esperando QR: ${sessionName}`);
+        log(`📱 Sesión ya esperando QR: ${sessionName}`);
       }
 
       res.json({ success: true, message: 'Sesión activada', session: sessionName });
@@ -1987,7 +1996,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
     });
     
     const result = await updateRes.json().catch(() => ({}));
-    console.log(`🔄 Webhooks reconfigurados para ${sessionName}: ${updateRes.status}`);
+    log(`🔄 Webhooks reconfigurados para ${sessionName}: ${updateRes.status}`);
     
     res.json({ 
       success: updateRes.ok, 
@@ -2200,7 +2209,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       }
     }
 
-    console.log(`📢 Envío masivo: ${contacts.length} contactos, sesión: ${sessionName}`);
+    log(`📢 Envío masivo: ${contacts.length} contactos, sesión: ${sessionName}`);
 
     // Responder inmediatamente y procesar en background
     res.json({ success: true, message: `Enviando a ${contacts.length} contactos...`, total: contacts.length });
@@ -2241,7 +2250,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
     const BATCH_PAUSE_MIN = 30000; // 30 segundos
     const BATCH_PAUSE_MAX = 60000; // 60 segundos
     
-    console.log(`🛡️ Anti-bloqueo: ${total} contactos, batch=${BATCH_SIZE}, delays=5-18s`);
+    log(`🛡️ Anti-bloqueo: ${total} contactos, batch=${BATCH_SIZE}, delays=5-18s`);
 
     for (let i = 0; i < contacts.length; i++) {
       const contact = contacts[i];
@@ -2281,19 +2290,19 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         }
 
         sent++;
-        console.log(`📢 Masivo ${sent}/${total}: ✅ ${phone}`);
+        log(`📢 Masivo ${sent}/${total}: ✅ ${phone}`);
 
         // 🛡️ DELAY ANTI-BLOQUEO
         if (i < contacts.length - 1) {
           // Batch break: pausa larga cada BATCH_SIZE mensajes
           if (sent > 0 && sent % BATCH_SIZE === 0) {
             const batchPause = BATCH_PAUSE_MIN + Math.random() * (BATCH_PAUSE_MAX - BATCH_PAUSE_MIN);
-            console.log(`🛡️ Pausa de batch: ${Math.round(batchPause / 1000)}s después de ${sent} mensajes`);
+            log(`🛡️ Pausa de batch: ${Math.round(batchPause / 1000)}s después de ${sent} mensajes`);
             await new Promise(r => setTimeout(r, batchPause));
           } else {
             // Delay normal entre mensajes
             const delay = getDelay(i);
-            console.log(`🛡️ Delay: ${Math.round(delay / 1000)}s antes del siguiente`);
+            log(`🛡️ Delay: ${Math.round(delay / 1000)}s antes del siguiente`);
             await new Promise(r => setTimeout(r, delay));
           }
         }
@@ -2303,7 +2312,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       }
     }
 
-    console.log(`📢 Envío masivo completado: ${sent} enviados, ${failed} fallidos de ${total}`);
+    log(`📢 Envío masivo completado: ${sent} enviados, ${failed} fallidos de ${total}`);
   } catch (e: any) { 
     console.error('❌ Error envío masivo:', e.message);
     res.status(500).json({ success: false, message: e.message }); 
@@ -2407,12 +2416,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
                 data: { conversationId: conv.id, content: msgBody, fromMe: true, userId: ownerId, role: 'assistant' }
               });
               await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: msgBody } });
-              console.log(`📱 Mensaje manual (celular) guardado: "${msgBody.substring(0, 40)}..." → ${conv.recipientName || recipientNumber}`);
+              log(`📱 Mensaje manual (celular) guardado: "${msgBody.substring(0, 40)}..." → ${conv.recipientName || recipientNumber}`);
             }
           }
         }
       } catch (e: any) {
-        console.log(`⚠️ Error guardando mensaje fromMe: ${e.message}`);
+        log(`⚠️ Error guardando mensaje fromMe: ${e.message}`);
       }
       res.json({ success: true }); return;
     }
@@ -2420,7 +2429,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🔒 DEDUPLICACIÓN: Ignorar si ya procesamos este mensaje (WAHA envía message + message.any)
     const msgId = payload?.id?._serialized || payload?.id?.id || payload?.key?.id || '';
     if (msgId && recentlyProcessed.has(msgId)) {
-      console.log(`🔄 Duplicado ignorado: ${msgId}`);
+      log(`🔄 Duplicado ignorado: ${msgId}`);
       res.json({ success: true }); return;
     }
     if (msgId) {
@@ -2433,7 +2442,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const rawFrom = payload?.from || payload?.chatId || '';
     const contentDedupKey = `${rawFrom}:${rawBody.substring(0, 80)}:${Math.floor(Date.now() / 10000)}`; // ventana de 10s
     if (rawBody && recentlyProcessed.has(contentDedupKey)) {
-      console.log(`🔄 Duplicado por contenido ignorado: "${rawBody.substring(0, 40)}"`);
+      log(`🔄 Duplicado por contenido ignorado: "${rawBody.substring(0, 40)}"`);
       res.json({ success: true }); return;
     }
     if (rawBody) {
@@ -2448,7 +2457,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🚫 Filtrar: historias/estados de WhatsApp, broadcast (pero NO grupos)
     if (!from || from.includes('@broadcast') || from.includes('status@') || from === 'status@broadcast') {
       if (from?.includes('@broadcast') || from?.includes('status@')) {
-        console.log(`🚫 Ignorado: historia/estado de WhatsApp de ${from}`);
+        log(`🚫 Ignorado: historia/estado de WhatsApp de ${from}`);
       }
       res.json({ success: true }); return;
     }
@@ -2459,7 +2468,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const participantName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
     
     if (isGroup) {
-      console.log(`👥 Mensaje de GRUPO: ${from} | Participante: ${participantName} (${participant})`);
+      log(`👥 Mensaje de GRUPO: ${from} | Participante: ${participantName} (${participant})`);
     }
 
     // 🔍 Detectar media (audio, imagen, video, sticker)
@@ -2469,22 +2478,22 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     if (media.hasMedia) {
       // 🔍 LOG COMPLETO del payload para debugging
-      console.log(`📎 === MEDIA PAYLOAD DEBUG ===`);
-      console.log(`📎 type: ${payload?.type}`);
-      console.log(`📎 hasMedia: ${payload?.hasMedia}`);
-      console.log(`📎 mimetype: ${payload?.mimetype}`);
-      console.log(`📎 mediaUrl (RAW): ${payload?.mediaUrl || 'N/A'}`);
-      console.log(`📎 media keys: ${payload?.media ? Object.keys(payload.media).join(', ') : 'NO media obj'}`);
-      console.log(`📎 media.url (RAW): ${payload?.media?.url || 'N/A'}`);
-      console.log(`📎 media.data length: ${payload?.media?.data ? payload.media.data.length : 'N/A'}`);
-      console.log(`📎 media.mimetype: ${payload?.media?.mimetype || 'N/A'}`);
-      console.log(`📎 media.filename: ${payload?.media?.filename || 'N/A'}`);
-      console.log(`📎 id: ${JSON.stringify(payload?.id || '').substring(0, 200)}`);
-      console.log(`📎 _data keys: ${payload?._data ? Object.keys(payload._data).slice(0, 15).join(', ') : 'NO _data'}`);
-      console.log(`📎 _data.body length: ${payload?._data?.body ? payload._data.body.length : 'N/A'}`);
-      console.log(`📎 _data.deprecatedMms3Url: ${payload?._data?.deprecatedMms3Url?.substring(0, 100) || 'N/A'}`);
-      console.log(`📎 ALL TOP KEYS: ${Object.keys(payload || {}).join(', ')}`);
-      console.log(`📎 === END DEBUG ===`);
+      log(`📎 === MEDIA PAYLOAD DEBUG ===`);
+      log(`📎 type: ${payload?.type}`);
+      log(`📎 hasMedia: ${payload?.hasMedia}`);
+      log(`📎 mimetype: ${payload?.mimetype}`);
+      log(`📎 mediaUrl (RAW): ${payload?.mediaUrl || 'N/A'}`);
+      log(`📎 media keys: ${payload?.media ? Object.keys(payload.media).join(', ') : 'NO media obj'}`);
+      log(`📎 media.url (RAW): ${payload?.media?.url || 'N/A'}`);
+      log(`📎 media.data length: ${payload?.media?.data ? payload.media.data.length : 'N/A'}`);
+      log(`📎 media.mimetype: ${payload?.media?.mimetype || 'N/A'}`);
+      log(`📎 media.filename: ${payload?.media?.filename || 'N/A'}`);
+      log(`📎 id: ${JSON.stringify(payload?.id || '').substring(0, 200)}`);
+      log(`📎 _data keys: ${payload?._data ? Object.keys(payload._data).slice(0, 15).join(', ') : 'NO _data'}`);
+      log(`📎 _data.body length: ${payload?._data?.body ? payload._data.body.length : 'N/A'}`);
+      log(`📎 _data.deprecatedMms3Url: ${payload?._data?.deprecatedMms3Url?.substring(0, 100) || 'N/A'}`);
+      log(`📎 ALL TOP KEYS: ${Object.keys(payload || {}).join(', ')}`);
+      log(`📎 === END DEBUG ===`);
       
       // 🎤 AUDIO → Transcribir con Whisper
       if (media.mediaType === 'audio') {
@@ -2499,7 +2508,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
               if (transcript) {
                 body = transcript; // Solo la transcripción para el body/buffer
                 savedMediaType = 'audio';
-                console.log(`🎤 Audio transcrito: "${transcript.substring(0, 100)}"`);
+                log(`🎤 Audio transcrito: "${transcript.substring(0, 100)}"`);
               } else {
                 body = body || '🎤 [Audio - no se pudo transcribir]';
                 savedMediaType = 'audio';
@@ -2522,7 +2531,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
           if (downloaded) {
             savedMediaUrl = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
-            console.log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
+            log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
           } else {
             savedMediaUrl = getMediaUrl(sessionName, media.messageId);
           }
@@ -2585,7 +2594,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
 
-    console.log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
+    log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
     // 🔍 Búsqueda de conversación POR LÍNEA
     let conv = null;
@@ -2630,7 +2639,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           ...(whatsappLineId ? { whatsappLineId } : {}) 
         } 
       });
-      console.log(`🆕 ${isGroup ? 'Grupo' : 'Conversación'} creada: ${isGroup ? groupSubject : senderName} (línea: ${whatsappLineId || 'global'})`);
+      log(`🆕 ${isGroup ? 'Grupo' : 'Conversación'} creada: ${isGroup ? groupSubject : senderName} (línea: ${whatsappLineId || 'global'})`);
     }
 
     // 👥 VERIFICAR CONFIGURACIÓN DE GRUPO antes de procesar
@@ -2644,7 +2653,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           data: { conversationId: conv.id, content: `[${senderName}]: ${displayContent}`, fromMe: false, userId, role: 'user' } 
         });
         await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: `[${senderName}]: ${displayContent}` } });
-        console.log(`👥 Grupo ${conv.groupName}: IA deshabilitada, mensaje guardado`);
+        log(`👥 Grupo ${conv.groupName}: IA deshabilitada, mensaje guardado`);
         res.json({ success: true }); return;
       }
 
@@ -2676,11 +2685,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
           data: { conversationId: conv.id, content: `[${senderName}]: ${displayContent}`, fromMe: false, userId, role: 'user' } 
         });
         await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: `[${senderName}]: ${displayContent}` } });
-        console.log(`👥 Grupo ${conv.groupName}: No responde (modo: ${respondTo})`);
+        log(`👥 Grupo ${conv.groupName}: No responde (modo: ${respondTo})`);
         res.json({ success: true }); return;
       }
 
-      console.log(`👥 Grupo ${conv.groupName}: IA RESPONDE (modo: ${respondTo})`);
+      log(`👥 Grupo ${conv.groupName}: IA RESPONDE (modo: ${respondTo})`);
     }
 
     // ⏸️ COMANDO ".." = PAUSAR IA — inmediato
@@ -2694,7 +2703,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       await sendWahaMessage(sessionName, from, pauseMsg);
       await prisma.message.create({ data: { conversationId: conv.id, content: pauseMsg, fromMe: true, userId, role: 'assistant' } });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: pauseMsg } });
-      console.log(`⏸️ IA PAUSADA → ${senderName}`);
+      log(`⏸️ IA PAUSADA → ${senderName}`);
       res.json({ success: true }); return;
     }
 
@@ -2710,7 +2719,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         await sendWahaMessage(sessionName, from, resumeMsg);
         await prisma.message.create({ data: { conversationId: conv.id, content: resumeMsg, fromMe: true, userId, role: 'assistant' } });
         await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: resumeMsg } });
-        console.log(`▶️ IA REACTIVADA → ${senderName}`);
+        log(`▶️ IA REACTIVADA → ${senderName}`);
       }
       res.json({ success: true }); return;
     }
@@ -2742,7 +2751,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // Si IA pausada, solo guardar
     if (conv.aiPaused) {
-      console.log(`⏸️ IA pausada → ${senderName} (guardado, no responde)`);
+      log(`⏸️ IA pausada → ${senderName} (guardado, no responde)`);
       res.json({ success: true }); return;
     }
 
@@ -2765,7 +2774,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       existingBuffer.messages.push(messageForAI);
       clearTimeout(existingBuffer.timer);
       existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
-      console.log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
+      log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
     } else if (isLocked) {
       // 🔒 IA procesando → crear buffer nuevo que se procesará cuando termine
       const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
@@ -2779,7 +2788,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         convId: conv.id,
         whatsappLineId
       });
-      console.log(`🔒 Buffer (lock activo): nuevo de ${senderName} → se procesará cuando la IA termine`);
+      log(`🔒 Buffer (lock activo): nuevo de ${senderName} → se procesará cuando la IA termine`);
     } else {
       // Primer mensaje → crear buffer, mostrar typing inmediato
       // Buscar asistente de la línea para verificar modo voz
@@ -2810,7 +2819,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         convId: conv.id,
         whatsappLineId
       });
-      console.log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
+      log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
     }
 
     // Responder inmediatamente al webhook (WAHA no espera)
@@ -2833,7 +2842,7 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
-    const jwt = await import('jsonwebtoken');
+    const jwt = require('jsonwebtoken');
     let decoded: any;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET || 'bizonne-secret-2024') as any;
@@ -2844,13 +2853,7 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
     const userId = decoded.userId || decoded.id || decoded.sub;
     if (!userId) return res.status(401).json({ error: 'Token sin userId' });
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, parentUserId: true }
-    });
-    if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
-
-    const ownerId = user.parentUserId || user.id;
+    const ownerId = await getOwnerId(userId);
     const { lineId } = req.body;
 
     // Cargar etapas configuradas de la línea
@@ -2874,16 +2877,16 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
       select: { id: true, stage: true, contextData: true, lastMessage: true }
     });
 
-    let updated = 0;
+    // ⚡ BATCH: Acumular todas las actualizaciones
+    const updates: { id: string; data: any }[] = [];
 
     for (const conv of conversations) {
       const ctx = (conv.contextData as any) || {};
       
-      // 🎯 PRIORIDAD 1: Si la IA ya detectó una etapa en contextData, USAR ESA (pero validar)
+      // PRIORIDAD 1: Si la IA ya detectó una etapa en contextData
       if (ctx.etapa_actual && ctx.etapa_actual !== '') {
         const iaStage = ctx.etapa_actual.trim();
         
-        // ⚠️ VALIDAR que la etapa existe en las configuradas
         const isValid = configuredStages.length === 0 || configuredStages.some(s => 
           s === iaStage || 
           s.toLowerCase().trim() === iaStage.toLowerCase().trim() ||
@@ -2892,7 +2895,6 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
         );
         
         if (isValid && iaStage !== conv.stage) {
-          // Encontrar el nombre exacto de la etapa configurada
           const exactStage = configuredStages.find(s => 
             s.toLowerCase().trim() === iaStage.toLowerCase().trim()
           ) || configuredStages.find(s =>
@@ -2900,64 +2902,55 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
             iaStage.toLowerCase().trim().includes(s.toLowerCase().trim())
           ) || iaStage;
           
-          await prisma.conversation.update({
-            where: { id: conv.id },
-            data: { stage: exactStage }
-          });
-          updated++;
+          updates.push({ id: conv.id, data: { stage: exactStage } });
         } else if (!isValid) {
-          console.log(`⚠️ quick-sync: Etapa RECHAZADA "${iaStage}" — no existe en [${configuredStages.join(', ')}]`);
-          // Limpiar la etapa inválida del contextData
           const cleanCtx = { ...ctx };
           delete cleanCtx.etapa_actual;
-          await prisma.conversation.update({
-            where: { id: conv.id },
-            data: { contextData: cleanCtx, stage: conv.stage || configuredStages[0] || 'new' }
-          });
+          updates.push({ id: conv.id, data: { contextData: cleanCtx, stage: conv.stage || configuredStages[0] || 'new' } });
         }
         continue;
       }
       
-      // 🎯 PRIORIDAD 2: Solo si NO hay etapa_actual, aplicar reglas básicas
-      // Solo asignar etapas si hay etapas configuradas
+      // PRIORIDAD 2: Solo si NO hay etapa_actual, aplicar reglas básicas
       if (configuredStages.length === 0) continue;
       
       let newStage = conv.stage || configuredStages[0];
       
-      // Detectar si perdido (por mensaje)
       const lastMsg = (conv.lastMessage || '').toLowerCase();
       const isPerdido = lastMsg.includes('no me interesa') || 
                         lastMsg.includes('no gracias') || 
                         lastMsg.includes('ya no quiero') ||
                         lastMsg.includes('cancelar');
 
-      // Verificar si tiene datos básicos
       const hasAnyData = ctx.nombre || ctx.direccion || ctx.total || ctx.cantidad;
       
       if (isPerdido) {
-        // Buscar una etapa que contenga "perdido" o usar la última configurada
         newStage = configuredStages.find(s => s.toLowerCase().includes('perdido')) || configuredStages[configuredStages.length - 1];
       } else if (ctx.pedido === 'creado' || ctx.fecha_entrega || ctx.cita === 'creada') {
         newStage = configuredStages.find(s => s.toLowerCase().includes('confirmado') || s.toLowerCase().includes('cerrado') || s.toLowerCase().includes('completado')) || configuredStages[configuredStages.length - 2] || configuredStages[configuredStages.length - 1];
       } else if (hasAnyData && ctx.direccion) {
-        // Etapa avanzada - buscar algo como "pedido" o "orden" o usar mitad+1 del pipeline
         newStage = configuredStages.find(s => s.toLowerCase().includes('pedido') || s.toLowerCase().includes('orden')) || configuredStages[Math.min(Math.floor(configuredStages.length * 0.7), configuredStages.length - 1)];
       } else if (hasAnyData) {
-        // Etapa media - buscar "cotización" o usar el tercio del pipeline
         newStage = configuredStages.find(s => s.toLowerCase().includes('cotiza') || s.toLowerCase().includes('negoci') || s.toLowerCase().includes('propuesta')) || configuredStages[Math.min(Math.floor(configuredStages.length * 0.4), configuredStages.length - 1)];
       } else if (conv.lastMessage && conv.lastMessage.length > 20) {
-        // Etapa inicial con interés - buscar "interesado" o segundo stage
         newStage = configuredStages.find(s => s.toLowerCase().includes('interesado') || s.toLowerCase().includes('contacto')) || configuredStages[Math.min(1, configuredStages.length - 1)];
       }
 
-      // Actualizar solo si cambió
       if (newStage !== conv.stage) {
-        await prisma.conversation.update({
-          where: { id: conv.id },
-          data: { stage: newStage }
-        });
-        updated++;
-        console.log(`🎯 Etapa actualizada (reglas): ${conv.stage} → ${newStage}`);
+        updates.push({ id: conv.id, data: { stage: newStage } });
+      }
+    }
+
+    // ⚡ BATCH UPDATE: Ejecutar todas las actualizaciones en paralelo (máx 20 a la vez)
+    let updated = 0;
+    if (updates.length > 0) {
+      const batchSize = 20;
+      for (let i = 0; i < updates.length; i += batchSize) {
+        const batch = updates.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(u => prisma.conversation.update({ where: { id: u.id }, data: u.data }))
+        );
+        updated += batch.length;
       }
     }
 
@@ -3035,7 +3028,7 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
       }
     });
 
-    console.log(`🔄 Analizando ${conversations.length} conversaciones...`);
+    log(`🔄 Analizando ${conversations.length} conversaciones...`);
 
     let updated = 0;
     let errors = 0;
@@ -3107,7 +3100,7 @@ Responde SOLO con el nombre exacto de una de las etapas listadas arriba. Nada m�
                 data: { stage: validStage.id || validStage.label }
               });
               updated++;
-              console.log(`✅ ${conv.recipientName || conv.recipientId}: ${validStage.id}`);
+              log(`✅ ${conv.recipientName || conv.recipientId}: ${validStage.id}`);
             }
           }
         }
@@ -3121,7 +3114,7 @@ Responde SOLO con el nombre exacto de una de las etapas listadas arriba. Nada m�
       }
     }
 
-    console.log(`🎯 Análisis completado: ${updated} actualizadas, ${errors} errores`);
+    log(`🎯 Análisis completado: ${updated} actualizadas, ${errors} errores`);
 
     res.json({
       success: true,

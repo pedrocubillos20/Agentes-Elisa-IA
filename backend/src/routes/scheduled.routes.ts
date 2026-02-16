@@ -14,9 +14,14 @@ const getWahaHeaders = () => {
   return h;
 };
 
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
 const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  return user?.parentUserId || userId;
+  const ownerId = user?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
 };
 
 const sendWahaMessage = async (session: string, chatId: string, text: string): Promise<boolean> => {

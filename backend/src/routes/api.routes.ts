@@ -23,9 +23,14 @@ const hashApiKey = (key: string): string => crypto.createHash('sha256').update(k
 const generateWebhookSecret = (): string => `whsec_${crypto.randomBytes(24).toString('hex')}`;
 const signPayload = (payload: string, secret: string): string => crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
 const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
   const u = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  return u?.parentUserId || userId;
+  const ownerId = u?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
 };
 
 // ====================================================

@@ -4,13 +4,18 @@ import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Helper para obtener el owner real (considera parentUserId para equipos)
+// Helper para obtener el owner real (con cache para evitar queries repetidas)
+const ownerIdCache = new Map<string, { value: string; ts: number }>();
 const getOwnerId = async (userId: string): Promise<string> => {
+  const cached = ownerIdCache.get(userId);
+  if (cached && Date.now() - cached.ts < 300000) return cached.value;
   const user = await prisma.user.findUnique({ 
     where: { id: userId }, 
     select: { parentUserId: true } 
   });
-  return user?.parentUserId || userId;
+  const ownerId = user?.parentUserId || userId;
+  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
+  return ownerId;
 };
 
 // GET /api/conversations

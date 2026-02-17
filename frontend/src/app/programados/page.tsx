@@ -39,6 +39,14 @@ const TARGET_TYPES = [
   { id: 'stage', label: 'Etapa del embudo', icon: LayoutGrid, desc: 'Enviar a todos en una etapa' },
 ];
 
+// Helper: Validar si un recipientId es un número real de WhatsApp
+const isValidPhone = (recipientId: string): boolean => {
+  if (!recipientId) return false;
+  const clean = recipientId.replace(/[@c.us@g.us\D]/g, '').replace(/\D/g, '');
+  // Real numbers: 7-13 digits. Common: CO=12, US=11, AR=13, MX=12, BR=13
+  return clean.length >= 7 && clean.length <= 13;
+};
+
 export default function ProgramadosPage() {
   const [scheduled, setScheduled] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -412,8 +420,8 @@ export default function ProgramadosPage() {
           📅 MODAL: Crear/Editar Mensaje Programado
           ==================================================== */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => !saving && setShowModal(false)}>
-          <div className="bg-[var(--bg-secondary)] rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" style={{ padding: '1rem' }} onClick={() => !saving && setShowModal(false)}>
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
               <h3 className="font-bold text-white text-lg">
@@ -477,7 +485,7 @@ export default function ProgramadosPage() {
                         <option value="">O selecciona un contacto existente...</option>
                         {conversations.filter(c => !c.isGroup).map(c => (
                           <option key={c.id} value={c.recipientId}>
-                            {c.recipientName || c.recipientId}
+                            {isValidPhone(c.recipientId) ? '✅' : '⚠️'} {c.recipientName || c.recipientId}
                           </option>
                         ))}
                       </select>
@@ -505,6 +513,7 @@ export default function ProgramadosPage() {
                 )}
 
                 {targetType === 'stage' && (
+                  <>
                   <select
                     value={targetId}
                     onChange={(e) => {
@@ -516,14 +525,45 @@ export default function ProgramadosPage() {
                   >
                     <option value="">Selecciona una etapa...</option>
                     {stages.map(s => {
-                      const count = conversations.filter(c => c.stage === s.id).length;
+                      const stageConvs = conversations.filter(c => c.stage === s.id);
+                      const validCount = stageConvs.filter(c => isValidPhone(c.recipientId)).length;
+                      const invalidCount = stageConvs.length - validCount;
                       return (
                         <option key={s.id} value={s.id}>
-                          {s.label} ({count} contactos)
+                          {s.label} ({validCount} válidos{invalidCount > 0 ? `, ${invalidCount} inválidos` : ''})
                         </option>
                       );
                     })}
                   </select>
+                  {targetId && (() => {
+                    const stageConvs = conversations.filter(c => c.stage === targetId);
+                    const validConvs = stageConvs.filter(c => isValidPhone(c.recipientId));
+                    const invalidConvs = stageConvs.filter(c => !isValidPhone(c.recipientId));
+                    return (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="flex items-center gap-2 text-xs">
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400 font-medium">{validConvs.length} contactos con número válido</span>
+                          <span className="text-[var(--text-muted)]">— recibirán el mensaje</span>
+                        </div>
+                        {invalidConvs.length > 0 && (
+                          <div className="p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                            <div className="flex items-center gap-2 text-xs text-yellow-400 mb-1">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              <span className="font-medium">{invalidConvs.length} contactos con número inválido — no recibirán</span>
+                            </div>
+                            <div className="text-[10px] text-[var(--text-muted)] space-y-0.5">
+                              {invalidConvs.slice(0, 5).map((c, i) => (
+                                <div key={i}>{c.recipientName || 'Sin nombre'}: {c.recipientId?.replace('@c.us','')} ({c.recipientId?.replace(/[@c.us\D]/g,'').replace(/\D/g,'').length || 0} dígitos)</div>
+                              ))}
+                              {invalidConvs.length > 5 && <div>... y {invalidConvs.length - 5} más</div>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  </>
                 )}
               </div>
 

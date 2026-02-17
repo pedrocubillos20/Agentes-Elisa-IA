@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import prisma from './lib/prisma';
+import { getCacheStats } from './lib/cache';
 
 import authRoutes from './routes/auth.routes';
 import assistantsRoutes from './routes/assistants.routes';
@@ -21,6 +22,7 @@ import { subscriptionMiddleware } from './middleware/subscription.middleware';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ===== CORS =====
 app.use(cors({
   origin: [
     'http://localhost:3000',
@@ -35,246 +37,184 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// ⏱️ Increase timeout for large uploads (2 min instead of default 30s)
+// ===== RATE LIMITING (in-memory, zero dependencies) =====
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const rateLimit = (maxRequests: number, windowMs: number) => {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = req.ip || req.headers['x-forwarded-for'] as string || 'unknown';
+    const now = Date.now();
+    const entry = rateLimitMap.get(key);
+    if (!entry || now > entry.resetAt) {
+      rateLimitMap.set(key, { count: 1, resetAt: now + windowMs });
+      next(); return;
+    }
+    if (entry.count >= maxRequests) {
+      res.status(429).json({ error: 'Too many requests' }); return;
+    }
+    entry.count++;
+    next();
+  };
+};
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitMap) {
+    if (now > entry.resetAt) rateLimitMap.delete(key);
+  }
+}, 300_000);
+
+// ===== TIMEOUTS for heavy routes =====
 app.use((req, res, next) => {
   if (req.path.includes('/assistants') || req.path.includes('/upload')) {
-    req.setTimeout(120000); // 2 min
-    res.setTimeout(120000);
+    req.setTimeout(120000); res.setTimeout(120000);
   }
   next();
 });
 
-// ===== RUTAS PÚBLICAS =====
+// ===== PUBLIC ROUTES =====
 app.use('/api/auth', authRoutes);
 
-// ===== WEBHOOKS PÚBLICOS (sin auth) =====
-app.post('/api/webhook/whatsapp', (req, res, next) => {
-  // Solo loggear mensajes reales, no acks/typing/presence que WAHA envía en masa
-  if (req.body?.event === 'message') {
-    const from = req.body?.payload?.from || '';
-    if (!from.includes('@broadcast') && !from.includes('status@')) {
-      // Log silencioso - solo mensajes reales
-    }
-  }
+// ===== WEBHOOKS (public, rate limited) =====
+app.post('/api/webhook/whatsapp', rateLimit(200, 1000), (req, res, next) => {
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
-app.post('/api/whatsapp/webhook', (req, res, next) => {
+app.post('/api/whatsapp/webhook', rateLimit(200, 1000), (req, res, next) => {
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
-// Webhook Wompi (público)
 app.post('/api/subscription/webhook/wompi', (req, res, next) => {
-  console.log('💳 Webhook Wompi recibido');
   req.url = '/webhook/wompi';
   subscriptionRoutes(req, res, next);
 });
-// Planes públicos (sin auth)
 app.get('/api/subscription/plans', (req, res, next) => {
-  req.url = '/plans';
-  subscriptionRoutes(req, res, next);
+  req.url = '/plans'; subscriptionRoutes(req, res, next);
 });
-// TRM / Tasa de cambio pública
 app.get('/api/subscription/exchange-rate', (req, res, next) => {
-  req.url = '/exchange-rate';
-  subscriptionRoutes(req, res, next);
+  req.url = '/exchange-rate'; subscriptionRoutes(req, res, next);
 });
 
-// ===== RUTAS PROTEGIDAS =====
-// 🔒 Rutas con verificación de suscripción (bloqueadas si expiró)
-app.use('/api/assistants', authMiddleware, subscriptionMiddleware, assistantsRoutes);
-app.use('/api/conversations', authMiddleware, subscriptionMiddleware, conversationsRoutes);
-app.use('/api/whatsapp', authMiddleware, subscriptionMiddleware, whatsappRoutes);
-app.use('/api/products', authMiddleware, subscriptionMiddleware, productsRoutes);
-app.use('/api/clients', authMiddleware, subscriptionMiddleware, clientsRoutes);
-app.use('/api/appointments', authMiddleware, subscriptionMiddleware, appointmentsRoutes);
-app.use('/api/team', authMiddleware, subscriptionMiddleware, teamRoutes);
-app.use('/api/stages', authMiddleware, subscriptionMiddleware, stagesRoutes);
-app.use('/api/scheduled', authMiddleware, subscriptionMiddleware, scheduledRoutes);
-
-// 🔓 Suscripción SIN bloqueo (para que pueda pagar)
+// ===== PROTECTED ROUTES (60 req/min per IP) =====
+const apiRL = rateLimit(60, 60_000);
+app.use('/api/assistants', authMiddleware, subscriptionMiddleware, apiRL, assistantsRoutes);
+app.use('/api/conversations', authMiddleware, subscriptionMiddleware, apiRL, conversationsRoutes);
+app.use('/api/whatsapp', authMiddleware, subscriptionMiddleware, apiRL, whatsappRoutes);
+app.use('/api/products', authMiddleware, subscriptionMiddleware, apiRL, productsRoutes);
+app.use('/api/clients', authMiddleware, subscriptionMiddleware, apiRL, clientsRoutes);
+app.use('/api/appointments', authMiddleware, subscriptionMiddleware, apiRL, appointmentsRoutes);
+app.use('/api/team', authMiddleware, subscriptionMiddleware, apiRL, teamRoutes);
+app.use('/api/stages', authMiddleware, subscriptionMiddleware, apiRL, stagesRoutes);
+app.use('/api/scheduled', authMiddleware, subscriptionMiddleware, apiRL, scheduledRoutes);
 app.use('/api/subscription', authMiddleware, subscriptionRoutes);
+app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
+app.use('/api/v1', apiPublicRoutes);
 
-// ===== API & INTEGRACIONES =====
-app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);   // Gestión keys/webhooks (JWT)
-app.use('/api/v1', apiPublicRoutes);                        // API pública (API Key)
-
-// ===== HEALTH CHECK =====
-// ⚡ Fast health (para monitoring/ping — sin DB query)
+// ===== HEALTH + MONITORING =====
 app.get('/health', (req, res) => {
+  const mem = process.memoryUsage();
   res.setHeader('Cache-Control', 'no-cache');
-  res.json({ status: 'ok', uptime: process.uptime() });
+  res.json({ 
+    status: 'ok', 
+    uptime: Math.floor(process.uptime()),
+    memory: { heapMB: Math.round(mem.heapUsed / 1048576), rssMB: Math.round(mem.rss / 1048576) }
+  });
+});
+
+app.get('/api/admin/cache-stats', (req, res) => {
+  const adminKey = req.headers['x-admin-key'];
+  if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
+    res.status(403).json({ error: 'No autorizado' }); return;
+  }
+  const mem = process.memoryUsage();
+  res.json({
+    caches: getCacheStats(),
+    memory: { heapMB: Math.round(mem.heapUsed / 1048576), rssMB: Math.round(mem.rss / 1048576) },
+    uptime: Math.floor(process.uptime()),
+    rateLimitEntries: rateLimitMap.size
+  });
 });
 
 app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'Bizonne Backend v6.0.0 - Multi-Tenant Platform',
-    version: '6.0.0',
-    modules: ['auth', 'whatsapp', 'assistants', 'conversations', 'clients', 'products', 'appointments', 'team'],
-    features: ['typing-indicators', 'recording-simulation', 'media-triggers', 'catalog-triggers', 'pause-resume', 'sub-users', 'permissions', 'gpt-fallback', 'subscription-cache'],
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'ok', message: 'Bizonne Backend v7.0 — Optimized', version: '7.0.0' });
 });
-
 app.get('/api', (req, res) => {
   res.json({
-    message: 'Elisa IA API v5.2',
+    message: 'BizonneCRM API v7.0',
     endpoints: {
       auth: '/api/auth', assistants: '/api/assistants', conversations: '/api/conversations',
       whatsapp: '/api/whatsapp', products: '/api/products', clients: '/api/clients',
-      appointments: '/api/appointments', team: '/api/team',
-      webhooks: { whatsapp: '/api/webhook/whatsapp' }
+      appointments: '/api/appointments', team: '/api/team', webhooks: { whatsapp: '/api/webhook/whatsapp' }
     }
   });
 });
 
-// ===== DIAGNÓSTICO DE DATOS (solo admin) =====
+// ===== ADMIN DIAGNOSTIC =====
 app.get('/api/admin/diagnostic', async (req, res) => {
   try {
-    // Verificar secret key
     const adminKey = req.headers['x-admin-key'];
     if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
-      res.status(403).json({ error: 'No autorizado' });
-      return;
+      res.status(403).json({ error: 'No autorizado' }); return;
     }
-
-    // Obtener todos los usuarios
-    const users = await prisma.user.findMany({
-      where: { parentUserId: null }, // Solo usuarios principales
-      select: { id: true, email: true, name: true, plan: true }
-    });
-
+    const users = await prisma.user.findMany({ where: { parentUserId: null }, select: { id: true, email: true, name: true, plan: true } });
     const diagnostic: any[] = [];
-
     for (const user of users) {
-      const lines = await prisma.whatsappLine.findMany({
-        where: { userId: user.id },
-        select: { id: true, label: true, phone: true, sessionName: true }
-      });
-
-      const conversations = await prisma.conversation.count({ where: { userId: user.id } });
-      const assistants = await prisma.assistant.count({ where: { userId: user.id } });
-      const clients = await prisma.client.count({ where: { userId: user.id } });
-      const appointments = await prisma.appointment.count({ where: { userId: user.id } });
-      const products = await prisma.product.count({ where: { userId: user.id } });
-
-      diagnostic.push({
-        user: { id: user.id, email: user.email, name: user.name, plan: user.plan },
-        lines: lines,
-        counts: { conversations, assistants, clients, appointments, products }
-      });
+      const [lines, conversations, assistants, clients, appointments, products] = await Promise.all([
+        prisma.whatsappLine.findMany({ where: { userId: user.id }, select: { id: true, label: true, phone: true, sessionName: true } }),
+        prisma.conversation.count({ where: { userId: user.id } }),
+        prisma.assistant.count({ where: { userId: user.id } }),
+        prisma.client.count({ where: { userId: user.id } }),
+        prisma.appointment.count({ where: { userId: user.id } }),
+        prisma.product.count({ where: { userId: user.id } })
+      ]);
+      diagnostic.push({ user: { id: user.id, email: user.email, name: user.name, plan: user.plan }, lines, counts: { conversations, assistants, clients, appointments, products } });
     }
-
-    // Verificar datos huérfanos (sin userId válido)
-    const orphanConversations = await prisma.conversation.count({
-      where: { userId: { notIn: users.map(u => u.id) } }
-    });
-
-    const orphanLines = await prisma.whatsappLine.count({
-      where: { userId: { notIn: users.map(u => u.id) } }
-    });
-
-    res.json({
-      status: 'ok',
-      totalUsers: users.length,
-      diagnostic,
-      orphans: {
-        conversations: orphanConversations,
-        lines: orphanLines
-      }
-    });
-  } catch (error: any) {
-    console.error('Error diagnóstico:', error);
-    res.status(500).json({ error: error.message });
-  }
+    res.json({ status: 'ok', totalUsers: users.length, diagnostic });
+  } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
-// ===== LIMPIEZA DE DATOS (solo admin) =====
 app.post('/api/admin/fix-orphans', async (req, res) => {
   try {
     const adminKey = req.headers['x-admin-key'];
     if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
-      res.status(403).json({ error: 'No autorizado' });
-      return;
+      res.status(403).json({ error: 'No autorizado' }); return;
     }
-
-    const users = await prisma.user.findMany({
-      where: { parentUserId: null },
-      select: { id: true }
-    });
-    const userIds = users.map(u => u.id);
-
-    // Eliminar datos huérfanos
-    const deletedConversations = await prisma.conversation.deleteMany({
-      where: { userId: { notIn: userIds } }
-    });
-
-    const deletedLines = await prisma.whatsappLine.deleteMany({
-      where: { userId: { notIn: userIds } }
-    });
-
-    const deletedAssistants = await prisma.assistant.deleteMany({
-      where: { userId: { notIn: userIds } }
-    });
-
-    res.json({
-      status: 'cleaned',
-      deleted: {
-        conversations: deletedConversations.count,
-        lines: deletedLines.count,
-        assistants: deletedAssistants.count
-      }
-    });
-  } catch (error: any) {
-    console.error('Error limpieza:', error);
-    res.status(500).json({ error: error.message });
-  }
+    const users = await prisma.user.findMany({ where: { parentUserId: null }, select: { id: true } });
+    const ids = users.map(u => u.id);
+    const [c, l, a] = await Promise.all([
+      prisma.conversation.deleteMany({ where: { userId: { notIn: ids } } }),
+      prisma.whatsappLine.deleteMany({ where: { userId: { notIn: ids } } }),
+      prisma.assistant.deleteMany({ where: { userId: { notIn: ids } } })
+    ]);
+    res.json({ status: 'cleaned', deleted: { conversations: c.count, lines: l.count, assistants: a.count } });
+  } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
 
 app.use((req, res) => { res.status(404).json({ error: 'No encontrado', path: req.path }); });
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
+  console.error('Error:', err.message);
   res.status(500).json({ error: 'Error interno' });
 });
 
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('   🚀 Bizonne Backend v6.0.0 — Multi-Tenant Platform');
-  console.log('   ⚡ Performance: Subscription Cache + DB Indexes');
-  console.log('   📱 WhatsApp: Typing + Recording + Catalog Triggers');
-  console.log('   👥 Grupos WhatsApp: ACTIVO');
-  console.log('   📅 Mensajes Programados: ACTIVO');
-  console.log('   👥 Módulo Equipos: ACTIVO');
-  console.log('   ⏸️  Pausa IA: ".." pausa / "." reactiva');
+  console.log('   🚀 Bizonne Backend v7.0.0 — Optimized Platform');
+  console.log('   ⚡ LRU Cache + Pool(20) + Rate Limit + DB Keepalive');
   console.log('═══════════════════════════════════════════════════════════');
   console.log(`   🌐 http://localhost:${PORT}`);
-  console.log(`   📡 WAHA: ${process.env.WAHA_API_URL || 'http://31.97.142.127:8080'}`);
-  console.log(`   🔗 Webhook: /api/webhook/whatsapp`);
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('');
 
-  // ⏰ Iniciar cron de mensajes programados
   startScheduledMessagesCron();
-
-  // ⚡ WARMUP: Pre-calentar conexión a DB al iniciar (evita latencia en primer request)
   prisma.$queryRaw`SELECT 1`.catch(() => {});
 
-  // ⚡ SELF-PING: Evitar cold starts en Railway (cada 4 minutos)
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {
-    const selfUrl = process.env.BACKEND_URL || process.env.RAILWAY_PUBLIC_DOMAIN 
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` 
-      : null;
-    
+    const selfUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null);
     if (selfUrl) {
-      setInterval(() => {
-        fetch(`${selfUrl}/health`).catch(() => {});
-      }, 240_000); // Cada 4 minutos
-      console.log(`   🏓 Self-ping activo: ${selfUrl}/health (cada 4min)`);
-    } else {
-      console.log('   ⚠️ Self-ping: Configura BACKEND_URL para evitar cold starts');
+      setInterval(() => { fetch(`${selfUrl}/health`).catch(() => {}); }, 240_000);
+      console.log(`   🏓 Self-ping: ${selfUrl}/health (4min)`);
     }
+    // 🔥 DB KEEPALIVE: Prevents Supabase free tier 7-day auto-pause
+    setInterval(() => { prisma.$queryRaw`SELECT 1`.catch(() => {}); }, 300_000);
+    console.log('   🗄️  DB keepalive: every 5min (anti Supabase pause)');
   }
 });
 

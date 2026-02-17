@@ -35,17 +35,31 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// ⏱️ Increase timeout for large uploads (2 min instead of default 30s)
+app.use((req, res, next) => {
+  if (req.path.includes('/assistants') || req.path.includes('/upload')) {
+    req.setTimeout(120000); // 2 min
+    res.setTimeout(120000);
+  }
+  next();
+});
+
 // ===== RUTAS PÚBLICAS =====
 app.use('/api/auth', authRoutes);
 
 // ===== WEBHOOKS PÚBLICOS (sin auth) =====
 app.post('/api/webhook/whatsapp', (req, res, next) => {
-  console.log('🔔 Webhook WhatsApp recibido en /api/webhook/whatsapp');
+  // Solo loggear mensajes reales, no acks/typing/presence que WAHA envía en masa
+  if (req.body?.event === 'message') {
+    const from = req.body?.payload?.from || '';
+    if (!from.includes('@broadcast') && !from.includes('status@')) {
+      // Log silencioso - solo mensajes reales
+    }
+  }
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
 app.post('/api/whatsapp/webhook', (req, res, next) => {
-  console.log('🔔 Webhook WhatsApp recibido en /api/whatsapp/webhook');
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });

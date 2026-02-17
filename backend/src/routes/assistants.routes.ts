@@ -61,6 +61,23 @@ router.post('/', async (req: Request, res: Response) => {
     const body = req.body;
     const lineId = body.lineId || null;
 
+    // 📏 Check total media payload size
+    const mediaItems = body.mediaItems || [];
+    const totalMediaSize = JSON.stringify(mediaItems).length;
+    const totalMediaMB = (totalMediaSize / (1024 * 1024)).toFixed(1);
+    
+    if (totalMediaSize > 45 * 1024 * 1024) { // 45MB limit for JSON field
+      res.status(413).json({ 
+        error: `Los archivos multimedia suman ${totalMediaMB}MB. Máximo permitido: 45MB. Elimina algunos archivos grandes e intenta de nuevo.`,
+        totalSize: totalMediaMB 
+      });
+      return;
+    }
+
+    if (totalMediaSize > 20 * 1024 * 1024) {
+      console.log(`⚠️ Guardando asistente con ${totalMediaMB}MB de media (${mediaItems.length} items)`);
+    }
+
     const data: any = {
       name: body.name || 'Asistente',
       context: body.context || null,
@@ -68,7 +85,7 @@ router.post('/', async (req: Request, res: Response) => {
       businessInfo: body.businessInfo || null,
       instructions: body.instructions || null,
       knowledgeItems: body.knowledgeItems || [],
-      mediaItems: body.mediaItems || [],
+      mediaItems,
       elevenLabsKey: body.elevenLabsKey || null,
       selectedVoice: body.selectedVoice || null,
       voiceEnabled: body.voiceEnabled || false,
@@ -128,8 +145,15 @@ router.post('/', async (req: Request, res: Response) => {
 
     res.json({ assistant, message: 'Guardado correctamente' });
   } catch (error: any) {
-    console.error('❌ Error:', error);
-    res.status(500).json({ error: error.message || 'Error' });
+    console.error('❌ Error guardando asistente:', error.message || error);
+    // Provide specific error messages for common failures
+    if (error.code === 'P2024' || error.message?.includes('timeout')) {
+      res.status(408).json({ error: 'Los archivos son muy pesados y se agotó el tiempo. Intenta eliminar algunos archivos de video/audio grandes y guarda de nuevo.' });
+    } else if (error.code === 'P2000') {
+      res.status(413).json({ error: 'Los datos son demasiado grandes para guardar. Reduce el tamaño o cantidad de archivos multimedia.' });
+    } else {
+      res.status(500).json({ error: error.message || 'Error al guardar' });
+    }
   }
 });
 

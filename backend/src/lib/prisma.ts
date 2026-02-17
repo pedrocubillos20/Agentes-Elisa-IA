@@ -5,16 +5,20 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  // ⚡ Optimización de conexiones
   datasources: {
     db: {
       url: process.env.DATABASE_URL
     }
   },
-  // Solo log errores en producción (reduce overhead)
+  // Solo log errores en producción
   log: process.env.NODE_ENV === 'production' 
     ? ['error'] 
-    : ['error', 'warn']
+    : ['error', 'warn'],
+  // ⏱️ Increase transaction timeout for large JSON saves (media items)
+  transactionOptions: {
+    maxWait: 10000,   // 10s max wait for transaction slot
+    timeout: 30000    // 30s max transaction duration
+  }
 });
 
 if (process.env.NODE_ENV !== 'production') {

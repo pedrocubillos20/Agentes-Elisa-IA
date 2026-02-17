@@ -102,10 +102,23 @@ export default function AsistentesPage() {
     setMessage({ type: '', text: '' });
     const token = localStorage.getItem('token');
 
+    // 📏 Calculate total media size before saving
+    const totalMediaSize = JSON.stringify(mediaItems).length;
+    const totalMB = (totalMediaSize / (1024 * 1024)).toFixed(1);
+    if (totalMediaSize > 45 * 1024 * 1024) {
+      setMessage({ type: 'error', text: `Los archivos multimedia suman ${totalMB}MB (máx 45MB). Elimina algunos archivos grandes.` });
+      setSaving(false);
+      return;
+    }
+
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
       const res = await fetch(`${API_URL}/api/assistants`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           name: 'Asistente Principal',
           context,
@@ -121,16 +134,23 @@ export default function AsistentesPage() {
         })
       });
 
+      clearTimeout(timeout);
+
       if (res.ok) {
         setMessage({ type: 'success', text: '¡Configuración guardada correctamente!' });
       } else {
-        setMessage({ type: 'error', text: 'Error al guardar' });
+        const data = await res.json().catch(() => ({}));
+        setMessage({ type: 'error', text: data.error || `Error al guardar (${res.status})` });
       }
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Error de conexión' });
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        setMessage({ type: 'error', text: 'Tiempo agotado. Los archivos pueden ser muy pesados. Intenta eliminar videos grandes.' });
+      } else {
+        setMessage({ type: 'error', text: 'Error de conexión. Verifica tu internet e intenta de nuevo.' });
+      }
     } finally {
       setSaving(false);
-      setTimeout(() => setMessage({ type: '', text: '' }), 4000);
+      setTimeout(() => setMessage({ type: '', text: '' }), 8000);
     }
   };
 
@@ -139,10 +159,42 @@ export default function AsistentesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Limit: 5MB
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'Archivo muy grande (máx 5MB)' });
+    // Video: 10MB, Image/Audio: 5MB
+    const maxSize = type === 'video' ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+    const maxLabel = type === 'video' ? '10MB' : '5MB';
+    if (file.size > maxSize) {
+      setMessage({ type: 'error', text: `Archivo muy grande (máx ${maxLabel})` });
       return;
+    }
+
+    // Check total accumulated size before adding
+    const currentTotalSize = JSON.stringify(mediaItems).length;
+    const estimatedNewSize = currentTotalSize + (file.size * 1.37); // base64 inflation
+    if (estimatedNewSize > 40 * 1024 * 1024) {
+      const currentMB = (currentTotalSize / (1024 * 1024)).toFixed(1);
+      setMessage({ type: 'error', text: `Ya tienes ${currentMB}MB de archivos. Elimina algunos antes de agregar más.` });
+      return;
+    }
+
+    // For images: compress if larger than 500KB
+    if (type === 'image' && file.size > 500 * 1024) {
+      try {
+        const compressed = await compressImage(file, 1200, 0.75);
+        const newMedia = {
+          id: Date.now().toString(),
+          name: file.name,
+          type,
+          url: compressed,
+          trigger: '',
+          caption: '',
+          size: compressed.length
+        };
+        setMediaItems(prev => [...prev, newMedia]);
+        const savedKB = ((file.size - compressed.length) / 1024).toFixed(0);
+        setMessage({ type: 'success', text: `Imagen "${file.name}" comprimida y agregada (ahorró ${savedKB}KB)` });
+        e.target.value = '';
+        return;
+      } catch {} // Fallback to uncompressed
     }
 
     const reader = new FileReader();
@@ -160,9 +212,37 @@ export default function AsistentesPage() {
       setMessage({ type: 'success', text: `${type === 'image' ? 'Imagen' : type === 'video' ? 'Video' : 'Audio'} "${file.name}" agregado. Define un trigger y guarda.` });
     };
     reader.readAsDataURL(file);
-    // Reset input
     e.target.value = '';
   };
+
+  // 🖼️ Compress image using canvas
+  const compressImage = (file: File, maxDim: number, quality: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject('no ctx'); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  // 📏 Calculate total media size
+  const totalMediaSize = JSON.stringify(mediaItems).length;
+  const totalMediaMB = (totalMediaSize / (1024 * 1024)).toFixed(1);
+  const mediaSizePercent = Math.min((totalMediaSize / (45 * 1024 * 1024)) * 100, 100);
 
   // 📂 CATÁLOGO: Crear nuevo catálogo vacío
   const createCatalog = () => {
@@ -178,8 +258,8 @@ export default function AsistentesPage() {
     setMessage({ type: 'success', text: 'Catálogo creado. Agrega imágenes, define trigger y guarda.' });
   };
 
-  // 📂 CATÁLOGO: Agregar imagen al catálogo
-  const addImageToCatalog = (catalogIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  // 📂 CATÁLOGO: Agregar imagen al catálogo (with compression)
+  const addImageToCatalog = async (catalogIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
@@ -197,31 +277,48 @@ export default function AsistentesPage() {
     const filesToProcess = Array.from(files).slice(0, remaining);
     let processed = 0;
 
-    filesToProcess.forEach(file => {
+    for (const file of filesToProcess) {
       if (file.size > 5 * 1024 * 1024) {
         setMessage({ type: 'error', text: `"${file.name}" es muy grande (máx 5MB)` });
-        return;
+        continue;
       }
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        processed++;
-        setMediaItems(prev => prev.map((item, i) => {
-          if (i !== catalogIndex) return item;
-          const imgs = [...(item.images || []), {
-            id: `${Date.now()}-${processed}`,
-            name: file.name,
-            url: reader.result as string,
-            size: file.size
-          }];
-          return { ...item, images: imgs };
-        }));
-        if (processed === filesToProcess.length) {
-          setMessage({ type: 'success', text: `${processed} imagen(es) agregada(s) al catálogo` });
+      let imageUrl: string;
+      // Compress if > 300KB
+      if (file.size > 300 * 1024) {
+        try {
+          imageUrl = await compressImage(file, 1200, 0.75);
+        } catch {
+          imageUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          });
         }
-      };
-      reader.readAsDataURL(file);
-    });
+      } else {
+        imageUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      processed++;
+      setMediaItems(prev => prev.map((item, i) => {
+        if (i !== catalogIndex) return item;
+        const imgs = [...(item.images || []), {
+          id: `${Date.now()}-${processed}`,
+          name: file.name,
+          url: imageUrl,
+          size: imageUrl.length
+        }];
+        return { ...item, images: imgs };
+      }));
+    }
+
+    if (processed > 0) {
+      setMessage({ type: 'success', text: `${processed} imagen(es) comprimida(s) y agregada(s) al catálogo` });
+    }
     e.target.value = '';
   };
 
@@ -491,6 +588,20 @@ export default function AsistentesPage() {
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-white mb-2">Biblioteca Multimedia</h3>
               <p className="text-[var(--text-muted)]">Sube archivos que el asistente enviará automáticamente cuando detecte el trigger en la conversación.</p>
+              {/* 📏 Total size indicator */}
+              {mediaItems.length > 0 && (
+                <div className="mt-3 p-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-[var(--text-muted)]">{mediaItems.length} archivo{mediaItems.length !== 1 ? 's' : ''} · {totalMediaMB}MB usado</span>
+                    <span className={`text-xs font-medium ${mediaSizePercent > 80 ? 'text-red-400' : mediaSizePercent > 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {mediaSizePercent > 80 ? '⚠️ Casi lleno' : mediaSizePercent > 50 ? '⚡ Moderado' : '✓ OK'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-500 ${mediaSizePercent > 80 ? 'bg-red-500' : mediaSizePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${mediaSizePercent}%` }} />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Upload Cards */}
@@ -522,7 +633,7 @@ export default function AsistentesPage() {
                 </div>
                 <h4 className="font-semibold text-white mb-1">Videos</h4>
                 <p className="text-xs text-[var(--text-muted)]">Tutoriales, demos, tours</p>
-                <p className="text-xs text-purple-400 mt-2">Máx 5MB</p>
+                <p className="text-xs text-purple-400 mt-2">Máx 10MB</p>
               </label>
 
               <label className="card glass-hover cursor-pointer text-center py-8 border-2 border-dashed border-[var(--border-primary)] hover:border-orange-500/50">

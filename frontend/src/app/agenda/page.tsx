@@ -17,7 +17,7 @@ export default function AgendaPage() {
 
   const [form, setForm] = useState({
     type: 'appointment', clientName: '', clientPhone: '', date: '', time: '', duration: '30',
-    notes: '', address: '', products: '', total: ''
+    notes: '', address: '', products: '', total: '', personas: '2', tipoReserva: ''
   });
 
   // === WORKSPACE: leer línea seleccionada ===
@@ -63,16 +63,21 @@ export default function AgendaPage() {
     const url = editingItem ? `${API_URL}/api/appointments/${editingItem.id}` : `${API_URL}/api/appointments`;
 
     try {
+      const body: any = {
+        ...form,
+        duration: parseInt(form.duration) || (form.type === 'reservation' ? 60 : 30),
+        total: parseFloat(form.total) || null,
+        products: form.products ? JSON.parse(`[${form.products}]`) : null,
+        lineId: getLineId()
+      };
+      // Build reservation notes if type is reservation and no custom notes
+      if (form.type === 'reservation' && !form.notes) {
+        body.notes = `🏨 RESERVA\n━━━━━━━━━━━━━━━\n📋 Tipo: ${form.tipoReserva || 'Reserva'}\n👥 Personas: ${form.personas || '2'}\n${form.address ? `📍 Dirección: ${form.address}\n` : ''}━━━━━━━━━━━━━━━`;
+      }
       const res = await fetch(url, {
         method,
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...form,
-          duration: parseInt(form.duration) || 30,
-          total: parseFloat(form.total) || null,
-          products: form.products ? JSON.parse(`[${form.products}]`) : null,
-          lineId: getLineId()
-        })
+        body: JSON.stringify(body)
       });
 
       if (res.ok) {
@@ -100,7 +105,7 @@ export default function AgendaPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar esta cita?')) return;
+    if (!confirm('¿Eliminar este registro?')) return;
     const token = localStorage.getItem('token');
     try {
       await fetch(`${API_URL}/api/appointments/${id}`, {
@@ -114,7 +119,7 @@ export default function AgendaPage() {
   };
 
   const resetForm = () => {
-    setForm({ type: 'appointment', clientName: '', clientPhone: '', date: '', time: '', duration: '30', notes: '', address: '', products: '', total: '' });
+    setForm({ type: 'appointment', clientName: '', clientPhone: '', date: '', time: '', duration: '30', notes: '', address: '', products: '', total: '', personas: '2', tipoReserva: '' });
     setEditingItem(null);
   };
 
@@ -124,7 +129,8 @@ export default function AgendaPage() {
       type: apt.type, clientName: apt.clientName, clientPhone: apt.clientPhone,
       date: apt.date?.split('T')[0] || '', time: apt.time, duration: apt.duration?.toString() || '30',
       notes: apt.notes || '', address: apt.address || '',
-      products: apt.products ? JSON.stringify(apt.products).slice(1, -1) : '', total: apt.total?.toString() || ''
+      products: apt.products ? JSON.stringify(apt.products).slice(1, -1) : '', total: apt.total?.toString() || '',
+      personas: '2', tipoReserva: ''
     });
     setShowModal(true);
   };
@@ -150,7 +156,8 @@ export default function AgendaPage() {
     today: appointments.filter(a => a.date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
     pending: appointments.filter(a => a.status === 'pending').length,
     confirmed: appointments.filter(a => a.status === 'confirmed').length,
-    totalOrders: appointments.filter(a => a.type === 'order').reduce((sum, a) => sum + (a.total || 0), 0)
+    totalOrders: appointments.filter(a => a.type === 'order').reduce((sum, a) => sum + (a.total || 0), 0),
+    reservations: appointments.filter(a => a.type === 'reservation').length
   };
 
   if (loading) {
@@ -172,7 +179,7 @@ export default function AgendaPage() {
           </div>
           <h2 className="text-2xl font-bold text-white mb-3">Agenda disponible en Plan Business</h2>
           <p className="text-[var(--text-muted)] mb-6">
-            Organiza citas, pedidos y entregas con la agenda integrada.
+            Organiza citas, pedidos, reservas y entregas con la agenda integrada.
             Incluye calendario visual, recordatorios y seguimiento de estados.
           </p>
           <div className="flex flex-col items-center gap-4">
@@ -226,16 +233,16 @@ export default function AgendaPage() {
           <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl hidden md:block" />
           <div>
             <h1 className="text-3xl font-bold text-white">Agenda</h1>
-            <p className="text-[var(--text-muted)]">Citas y pedidos programados</p>
+            <p className="text-[var(--text-muted)]">Citas, pedidos y reservas</p>
           </div>
         </div>
         <button onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary">
-          <Plus className="w-4 h-4" />Nueva Cita/Pedido
+          <Plus className="w-4 h-4" />Nueva Cita/Pedido/Reserva
         </button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="stat-card">
           <div className="stat-value">{stats.today}</div>
           <div className="stat-label">Hoy</div>
@@ -247,6 +254,10 @@ export default function AgendaPage() {
         <div className="stat-card">
           <div className="stat-value">{stats.confirmed}</div>
           <div className="stat-label">Confirmadas</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{stats.reservations}</div>
+          <div className="stat-label">Reservas</div>
         </div>
         <div className="stat-card">
           <div className="stat-value">${stats.totalOrders.toLocaleString()}</div>
@@ -300,8 +311,8 @@ export default function AgendaPage() {
                 {selectedDateAppointments.map((apt) => (
                   <div key={apt.id} className="p-4 rounded-xl bg-white/5 border border-[var(--border-primary)]">
                     <div className="flex items-center justify-between mb-2">
-                      <span className={`badge ${apt.type === 'order' ? 'badge-info' : 'badge-success'}`}>
-                        {apt.type === 'order' ? 'Pedido' : 'Cita'}
+                      <span className={`badge ${apt.type === 'order' ? 'badge-info' : apt.type === 'reservation' ? 'badge-warning' : 'badge-success'}`}>
+                        {apt.type === 'order' ? 'Pedido' : apt.type === 'reservation' ? 'Reserva' : 'Cita'}
                       </span>
                       <span className="text-sm font-medium text-[var(--accent-primary)]">{apt.time}</span>
                     </div>
@@ -324,7 +335,7 @@ export default function AgendaPage() {
             ) : (
               <div className="text-center py-8 text-[var(--text-muted)]">
                 <CalendarIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No hay citas</p>
+                <p>No hay eventos para este día</p>
               </div>
             )}
           </div>
@@ -335,8 +346,8 @@ export default function AgendaPage() {
             appointments.map((apt) => (
               <div key={apt.id} className="card flex flex-col md:flex-row md:items-center gap-4">
                 <div className="flex items-center gap-4 flex-1">
-                  <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${apt.type === 'order' ? 'bg-blue-500/20' : 'bg-purple-500/20'}`}>
-                    {apt.type === 'order' ? <Package className="w-7 h-7 text-blue-400" /> : <CalendarIcon className="w-7 h-7 text-purple-400" />}
+                  <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${apt.type === 'order' ? 'bg-blue-500/20' : apt.type === 'reservation' ? 'bg-amber-500/20' : 'bg-purple-500/20'}`}>
+                    {apt.type === 'order' ? <Package className="w-7 h-7 text-blue-400" /> : apt.type === 'reservation' ? <User className="w-7 h-7 text-amber-400" /> : <CalendarIcon className="w-7 h-7 text-purple-400" />}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
@@ -378,7 +389,7 @@ export default function AgendaPage() {
           ) : (
             <div className="card text-center py-12 text-[var(--text-muted)]">
               <CalendarIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No hay citas programadas</p>
+              <p>No hay eventos programados</p>
             </div>
           )}
         </div>
@@ -389,7 +400,7 @@ export default function AgendaPage() {
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-white">{editingItem ? 'Editar' : 'Nueva'} Cita/Pedido</h3>
+              <h3 className="text-xl font-bold text-white">{editingItem ? 'Editar' : 'Nueva'} Cita/Pedido/Reserva</h3>
               <button onClick={() => setShowModal(false)} className="btn-icon"><X className="w-5 h-5" /></button>
             </div>
 
@@ -402,6 +413,10 @@ export default function AgendaPage() {
                 <button onClick={() => setForm({...form, type: 'order'})}
                   className={`flex-1 py-2 rounded-lg font-medium transition-all ${form.type === 'order' ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)]'}`}>
                   Pedido
+                </button>
+                <button onClick={() => setForm({...form, type: 'reservation'})}
+                  className={`flex-1 py-2 rounded-lg font-medium transition-all ${form.type === 'reservation' ? 'bg-amber-500 text-white' : 'text-[var(--text-muted)]'}`}>
+                  Reserva
                 </button>
               </div>
 
@@ -442,6 +457,43 @@ export default function AgendaPage() {
                     <option value="120">2 horas</option>
                   </select>
                 </div>
+              ) : form.type === 'reservation' ? (
+                <>
+                  <div>
+                    <label className="input-label">Tipo de Reserva *</label>
+                    <input type="text" value={form.tipoReserva} onChange={(e) => setForm({...form, tipoReserva: e.target.value})}
+                      className="input" placeholder="Mesa, habitación, cancha, sala, turno..." />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="input-label">Personas</label>
+                      <input type="number" value={form.personas} onChange={(e) => setForm({...form, personas: e.target.value})}
+                        className="input" min="1" placeholder="2" />
+                    </div>
+                    <div>
+                      <label className="input-label">Duración (min)</label>
+                      <select value={form.duration} onChange={(e) => setForm({...form, duration: e.target.value})} className="input">
+                        <option value="30">30 min</option>
+                        <option value="60">1 hora</option>
+                        <option value="90">1.5 horas</option>
+                        <option value="120">2 horas</option>
+                        <option value="180">3 horas</option>
+                        <option value="240">4 horas</option>
+                        <option value="1440">Día completo</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="input-label">Dirección / Ubicación</label>
+                    <input type="text" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})}
+                      className="input" placeholder="Dirección o nombre del lugar" />
+                  </div>
+                  <div>
+                    <label className="input-label">Total (opcional)</label>
+                    <input type="number" value={form.total} onChange={(e) => setForm({...form, total: e.target.value})}
+                      className="input" placeholder="0" />
+                  </div>
+                </>
               ) : (
                 <>
                   <div>

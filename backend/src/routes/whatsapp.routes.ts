@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getOwnerId } from '../lib/helpers';
+import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -24,12 +26,8 @@ const getWahaHeaders = () => {
 // MEJORADO: Lock de procesamiento para evitar respuestas duplicadas
 // ====================================================
 const BUFFER_WAIT_MS = 5000; // Esperar 5 segundos por más mensajes (antes 3s)
-const recentlyProcessed = new Set<string>(); // Deduplicación de mensajes
-const recentlySentFromPlatform = new Set<string>(); // Mensajes enviados desde la plataforma (para no duplicar en webhook)
 
 // 🔑 Tracking de errores de API Key de OpenAI por usuario
-const apiKeyErrors = new Map<string, { type: 'invalid_key' | 'no_credits' | 'rate_limit', timestamp: number, message: string }>();
-const processingLock = new Set<string>(); // 🔒 Lock: evita que la IA procese 2 veces al mismo contacto
 
 const messageBuffer: Map<string, {
   messages: string[];
@@ -45,15 +43,7 @@ const messageBuffer: Map<string, {
 // ===== SESSION MANAGEMENT (multi-tenant) =====
 const getUserSessionName = (userId: string): string => `user_${userId}`;
 
-const ownerIdCache = new Map<string, { value: string; ts: number }>();
-const getOwnerId = async (userId: string): Promise<string> => {
-  const cached = ownerIdCache.get(userId);
-  if (cached && Date.now() - cached.ts < 300000) return cached.value;
-  const u = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  const ownerId = u?.parentUserId || userId;
-  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
-  return ownerId;
-};
+
 
 const findActiveSession = async (userId: string): Promise<{ name: string; data: any } | null> => {
   const ownerId = await getOwnerId(userId);
@@ -104,14 +94,11 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
 // =====================================================
 // WAHA Plus uses Linked IDs (@lid) instead of phone numbers in some cases
 // This resolves LIDs to real phone numbers via WAHA API
-const lidPhoneCache = new Map<string, { phone: string; ts: number }>();
 
 const resolveLidToPhone = async (session: string, lidChatId: string, payload?: any): Promise<string> => {
   // 1. Cache check (24hr TTL - LID→phone mapping doesn't change)
   const cached = lidPhoneCache.get(lidChatId);
-  if (cached && Date.now() - cached.ts < 86400000) {
-    return cached.phone;
-  }
+  if (cached) return cached;
 
   const lidClean = lidChatId.replace('@lid', '').replace('@c.us', '').replace('@s.whatsapp.net', '');
   log(`🔍 Resolviendo LID: ${lidChatId} → buscando número real...`);
@@ -129,7 +116,7 @@ const resolveLidToPhone = async (session: string, lidChatId: string, payload?: a
     const clean = (p || '').replace(/\D/g, '');
     if (clean.length >= 7 && clean.length <= 13 && clean !== lidClean) {
       log(`✅ Número real encontrado en payload._data: ${clean}`);
-      lidPhoneCache.set(lidChatId, { phone: clean, ts: Date.now() });
+      lidPhoneCache.set(lidChatId, clean);
       return clean;
     }
   }
@@ -174,7 +161,7 @@ const resolveLidToPhone = async (session: string, lidChatId: string, payload?: a
           const clean = (ph + '').replace(/\D/g, '');
           if (clean.length >= 7 && clean.length <= 13 && clean !== lidClean) {
             log(`✅ LID ${lidClean} → Número real: ${clean} (vía ${ep.url.split('/').slice(-2).join('/')})`);
-            lidPhoneCache.set(lidChatId, { phone: clean, ts: Date.now() });
+            lidPhoneCache.set(lidChatId, clean);
             return clean;
           }
         }
@@ -190,7 +177,7 @@ const resolveLidToPhone = async (session: string, lidChatId: string, payload?: a
 
   // 5. LID is too long (>13 digits) - store with LID prefix for identification
   log(`⚠️ LID no resuelto: ${lidClean} (${lidClean.length} dígitos) — guardando con prefijo LID_`);
-  lidPhoneCache.set(lidChatId, { phone: `LID_${lidClean}`, ts: Date.now() });
+  lidPhoneCache.set(lidChatId, `LID_${lidClean}`);
   return `LID_${lidClean}`;
 };
 
@@ -801,7 +788,12 @@ El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
    - El cliente confirma que quiere comprar y tiene datos completos → accion = "crear_pedido"
    - Llena también: fecha_entrega y todos los datos del pedido
 
-⚠️ IMPORTANTE: Solo usa la accion UNA VEZ cuando se confirma. Si "pedido" ya dice "creado" o "cita" dice "creada" en la memoria guardada, NO vuelvas a poner la accion.
+🏨 accion = "crear_reserva" — Cuando el cliente CONFIRMA una reserva:
+   - Reserva de mesa en restaurante, habitación de hotel, cancha deportiva, sala de eventos, turno, espacio, vehículo, servicio, etc.
+   - El cliente confirma fecha, hora y lo que quiere reservar → accion = "crear_reserva"
+   - Llena también: fecha_reserva, hora_reserva, tipo_reserva (qué se reserva: mesa, habitación, cancha, sala, turno, etc.), num_personas (cuántas personas), duracion_reserva (tiempo estimado en minutos si aplica)
+
+⚠️ IMPORTANTE: Solo usa la accion UNA VEZ cuando se confirma. Si "pedido" ya dice "creado", "cita" dice "creada", o "reserva" dice "creada" en la memoria guardada, NO vuelvas a poner la accion.
 
 === ⚠️⚠️⚠️ BLOQUE DE MEMORIA - SUPER IMPORTANTE ⚠️⚠️⚠️ ===
 
@@ -811,7 +803,7 @@ El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
 
 FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 
-<<MEMORY_JSON>>{"nombre":"","telefono":"","email":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","notas":"","etapa_actual":"","accion":""}<<END_MEMORY>>
+<<MEMORY_JSON>>{"nombre":"","telefono":"","email":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","fecha_reserva":"","hora_reserva":"","tipo_reserva":"","num_personas":"","duracion_reserva":"","reserva":"","notas":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
 INSTRUCCIONES:
 - Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
@@ -832,11 +824,16 @@ INSTRUCCIONES:
 - "pedido" = NO lo llenes tú, el sistema lo actualiza
 - "notas" = Cualquier dato extra relevante del cliente
 - "etapa_actual" = ${pipelineStages.length > 0 ? `OBLIGATORIO. SOLO puede ser una de estas exactas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(', ')}. NO inventes otras.` : 'Déjalo vacío si no hay etapas configuradas.'}
-- "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. Vacío en otros casos.
+- "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. "crear_reserva" cuando SE CONFIRMA reserva. Vacío en otros casos.
 - "fecha_cita" = Fecha de la cita confirmada (YYYY-MM-DD o texto como "mañana").
 - "hora_cita" = Hora de la cita (ej: "8:00", "14:30").
 - "tipo_cita" = Tipo: "demostración", "reunión", "consulta", "asesoría", etc.
-- "cita" y "pedido" = NO los llenes tú, el sistema los actualiza automáticamente.
+- "fecha_reserva" = Fecha de la reserva confirmada (YYYY-MM-DD o texto como "mañana", "viernes").
+- "hora_reserva" = Hora de la reserva (ej: "19:00", "8:00 pm").
+- "tipo_reserva" = Qué se reserva: "mesa", "habitación", "cancha", "sala", "turno", "vehículo", "espacio", etc.
+- "num_personas" = Número de personas para la reserva (ej: "2", "6", "10").
+- "duracion_reserva" = Duración estimada en minutos si aplica (ej: "60", "120").
+- "cita", "pedido" y "reserva" = NO los llenes tú, el sistema los actualiza automáticamente.
 - El bloque va en la ÚLTIMA LÍNEA de tu respuesta.
 - NO expliques el bloque al cliente, es interno/oculto.
 `;
@@ -853,7 +850,7 @@ INSTRUCCIONES:
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido".]`;
+    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas.]`;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
@@ -1433,6 +1430,143 @@ INSTRUCCIONES:
                 }
               }
               
+              // 🏨 CREAR RESERVA AUTOMÁTICA
+              if (actionToTake === 'crear_reserva' && merged.reserva !== 'creada') {
+                try {
+                  // 🕐 PARSEAR FECHA
+                  let reservaDate = new Date();
+                  const fechaReservaStr = (merged.fecha_reserva || '').toLowerCase().trim();
+                  const hoyR = new Date();
+                  
+                  if (fechaReservaStr) {
+                    if (fechaReservaStr.includes('hoy')) {
+                      reservaDate = new Date(hoyR);
+                    } else if (fechaReservaStr.includes('mañana') || fechaReservaStr.includes('manana')) {
+                      reservaDate = new Date(hoyR);
+                      reservaDate.setDate(reservaDate.getDate() + 1);
+                    } else if (fechaReservaStr.includes('pasado')) {
+                      reservaDate = new Date(hoyR);
+                      reservaDate.setDate(reservaDate.getDate() + 2);
+                    } else if (fechaReservaStr.includes('lunes') || fechaReservaStr.includes('martes') || fechaReservaStr.includes('miércoles') || fechaReservaStr.includes('miercoles') || fechaReservaStr.includes('jueves') || fechaReservaStr.includes('viernes') || fechaReservaStr.includes('sábado') || fechaReservaStr.includes('sabado') || fechaReservaStr.includes('domingo')) {
+                      const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+                      const dayNamesAlt = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+                      let targetDay = dayNames.findIndex(d => fechaReservaStr.includes(d));
+                      if (targetDay === -1) targetDay = dayNamesAlt.findIndex(d => fechaReservaStr.includes(d));
+                      if (targetDay >= 0) {
+                        reservaDate = new Date(hoyR);
+                        const currentDay = hoyR.getDay();
+                        let daysAhead = targetDay - currentDay;
+                        if (daysAhead <= 0) daysAhead += 7;
+                        reservaDate.setDate(reservaDate.getDate() + daysAhead);
+                      }
+                    } else {
+                      const monthNames: Record<string, number> = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
+                      const dateMatch = fechaReservaStr.match(/(\d{1,2})\s*(?:de\s+)?(\w+)/);
+                      if (dateMatch) {
+                        const day = parseInt(dateMatch[1]);
+                        const monthStr = dateMatch[2].toLowerCase();
+                        if (monthNames[monthStr] !== undefined) {
+                          reservaDate = new Date(hoyR.getFullYear(), monthNames[monthStr], day);
+                          if (reservaDate < hoyR) reservaDate.setFullYear(reservaDate.getFullYear() + 1);
+                        }
+                      }
+                      const parsed = new Date(merged.fecha_reserva);
+                      if (!isNaN(parsed.getTime())) reservaDate = parsed;
+                    }
+                  }
+                  
+                  // 🕐 PARSEAR HORA
+                  let reservaTime = '12:00';
+                  const horaReservaStr = (merged.hora_reserva || '').toLowerCase().trim();
+                  if (horaReservaStr) {
+                    const timeMatch = horaReservaStr.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+                    if (timeMatch) {
+                      let hours = parseInt(timeMatch[1]);
+                      const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                      const meridian = (timeMatch[3] || '').toLowerCase().replace('.', '');
+                      if (meridian === 'pm' && hours < 12) hours += 12;
+                      if (meridian === 'am' && hours === 12) hours = 0;
+                      reservaTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                    }
+                  }
+
+                  const tipoReserva = merged.tipo_reserva || 'reserva';
+                  const numPersonas = merged.num_personas || '1';
+                  const duracionReserva = parseInt(merged.duracion_reserva || '60') || 60;
+                  const nombreClienR = merged.nombre || clientName || 'Cliente WhatsApp';
+                  const phoneCleanR = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+
+                  const reservaData = {
+                    userId: ownerId,
+                    type: 'reservation',
+                    clientName: nombreClienR,
+                    clientPhone: phoneCleanR,
+                    date: reservaDate,
+                    time: reservaTime,
+                    duration: duracionReserva,
+                    status: 'pending',
+                    notes: `🏨 RESERVA — WhatsApp\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           `👤 Cliente: ${nombreClienR}\n` +
+                           `📱 Teléfono: ${phoneCleanR}\n` +
+                           `📋 Tipo: ${tipoReserva}\n` +
+                           `👥 Personas: ${numPersonas}\n` +
+                           `🗓️ Fecha: ${reservaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}\n` +
+                           `🕐 Hora: ${reservaTime}\n` +
+                           `⏱️ Duración: ${duracionReserva} min\n` +
+                           `━━━━━━━━━━━━━━━\n` +
+                           (merged.producto_servicio ? `🛎️ Servicio: ${merged.producto_servicio}\n` : '') +
+                           (merged.total ? `💵 Total: $${merged.total}\n` : '') +
+                           (merged.notas ? `📝 Notas: ${merged.notas}\n` : '') +
+                           `━━━━━━━━━━━━━━━`,
+                    total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+                    address: merged.direccion || merged.ciudad || '',
+                    whatsappLineId: whatsappLineId || null
+                  };
+                  await prisma.appointment.create({ data: reservaData });
+                  
+                  // Marcar reserva como creada
+                  merged.reserva = 'creada';
+                  await prisma.conversation.update({
+                    where: { id: conversationId },
+                    data: { contextData: merged }
+                  });
+                  
+                  log(`🏨 RESERVA CREADA: ${tipoReserva} | ${nombreClienR} | ${numPersonas} personas | ${reservaDate.toLocaleDateString('es-CO')} ${reservaTime}`);
+
+                  // 👥 AUTO-CREAR CLIENTE EN CRM
+                  try {
+                    const existingClientR = await prisma.client.findFirst({
+                      where: { userId: ownerId, phone: { endsWith: phoneCleanR.slice(-10) } }
+                    });
+                    if (!existingClientR) {
+                      await prisma.client.create({
+                        data: {
+                          userId: ownerId,
+                          name: nombreClienR,
+                          phone: phoneCleanR,
+                          email: merged.email || null,
+                          notes: `Cliente registrado automáticamente desde WhatsApp (reserva: ${tipoReserva})`,
+                          status: 'active',
+                          tags: ['reserva', tipoReserva, 'whatsapp'],
+                          lastContact: new Date(),
+                          whatsappLineId: whatsappLineId || null
+                        }
+                      });
+                    } else {
+                      await prisma.client.update({
+                        where: { id: existingClientR.id },
+                        data: { lastContact: new Date(), name: nombreClienR || existingClientR.name }
+                      });
+                    }
+                  } catch (crmErr: any) {
+                    console.error('⚠️ Error auto-CRM reserva:', crmErr.message);
+                  }
+                } catch (resErr: any) {
+                  console.error('❌ Error creando reserva:', resErr.message);
+                }
+              }
+              
             } catch (e) {
               console.error('⚠️ Error parseando memoria:', e);
             }
@@ -1455,9 +1589,8 @@ INSTRUCCIONES:
           
           // 🔑 TRACKEAR ERROR DE API KEY
           if (st === 401) {
-            apiKeyErrors.set(ownerId, { 
+            apiKeyErrorCache.set(ownerId, { 
               type: 'invalid_key', 
-              timestamp: Date.now(), 
               message: 'API Key de OpenAI inválida o expirada' 
             });
             // Marcar como desconectada
@@ -1468,17 +1601,15 @@ INSTRUCCIONES:
           if (st === 429 || st === 402) {
             const isQuota = errBody.toLowerCase().includes('insufficient_quota') || errBody.toLowerCase().includes('billing') || st === 402;
             if (isQuota) {
-              apiKeyErrors.set(ownerId, { 
+              apiKeyErrorCache.set(ownerId, { 
                 type: 'no_credits', 
-                timestamp: Date.now(), 
-                message: 'Sin créditos en OpenAI. Recarga tu cuenta.' 
+                  message: 'Sin créditos en OpenAI. Recarga tu cuenta.' 
               });
               console.error(`💰❌ SIN CRÉDITOS OpenAI para usuario ${ownerId}`);
             } else {
-              apiKeyErrors.set(ownerId, { 
+              apiKeyErrorCache.set(ownerId, { 
                 type: 'rate_limit', 
-                timestamp: Date.now(), 
-                message: 'Límite de velocidad alcanzado. Reintentando...' 
+                  message: 'Límite de velocidad alcanzado. Reintentando...' 
               });
             }
             log('⚠️ Rate limit/quota, reintentando en 2s...'); 
@@ -1965,12 +2096,10 @@ router.get('/api-key-error', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
     
-    const error = apiKeyErrors.get(ownerId);
-    if (error && (Date.now() - error.timestamp < 24 * 60 * 60 * 1000)) { // Solo últimas 24h
+    const error = apiKeyErrorCache.get(ownerId);
+    if (error) {
       res.json({ hasError: true, ...error });
     } else {
-      // Limpiar si es viejo
-      if (error) apiKeyErrors.delete(ownerId);
       res.json({ hasError: false });
     }
   } catch { res.json({ hasError: false }); }
@@ -1982,7 +2111,7 @@ router.put('/api-key-error/clear', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
-    apiKeyErrors.delete(ownerId);
+    apiKeyErrorCache.delete(ownerId);
     res.json({ success: true });
   } catch { res.json({ success: true }); }
 });

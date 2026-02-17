@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Clock, Plus, Trash2, Edit2, X, Send, Users, User, 
   LayoutGrid, Calendar, Repeat, ChevronDown, Image, Mic, Paperclip,
@@ -419,8 +420,11 @@ export default function ProgramadosPage() {
       {/* ====================================================
           📅 MODAL: Crear/Editar Mensaje Programado
           ==================================================== */}
-      {showModal && (
-        <div className="modal-overlay" style={{ padding: '1rem' }} onClick={() => !saving && setShowModal(false)}>
+      {showModal && createPortal(
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
+          onClick={() => !saving && setShowModal(false)}
+        >
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border-primary)]">
@@ -706,7 +710,8 @@ export default function ProgramadosPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

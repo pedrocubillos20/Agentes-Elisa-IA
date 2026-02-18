@@ -1,22 +1,28 @@
 FROM node:18-slim
 
-RUN apt-get update -y && apt-get install -y openssl libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y \
+    openssl \
+    libssl-dev \
+    ca-certificates \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+COPY prisma ./prisma/
+RUN npx prisma generate
+
 COPY . .
+RUN npm run build
 
-RUN npm install
+RUN mkdir -p /app/auth_sessions /app/uploads/pdfs /app/media && chmod -R 777 /app/auth_sessions /app/uploads /app/media
 
-# Fix permissions
-RUN chmod -R 755 node_modules/.bin/ 2>/dev/null || true
+ENV AUTH_DIR=/app/auth_sessions
+ENV NODE_ENV=production
 
-# Generate Prisma client (using node directly, NOT npx)
-RUN node node_modules/prisma/build/index.js generate
+EXPOSE 3001
 
-# Compile TypeScript (using node directly, NOT npx)
-RUN node node_modules/typescript/bin/tsc
-
-EXPOSE 3000
-
-CMD node node_modules/prisma/build/index.js db push --skip-generate && node dist/server.js
+CMD npx prisma db push --accept-data-loss && npm start

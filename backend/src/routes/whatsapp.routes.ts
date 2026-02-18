@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
 import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { uploadFile } from '../lib/storage';
 
 const router = Router();
 
@@ -2743,7 +2744,24 @@ router.post('/send', async (req: Request, res: Response) => {
     }
 
     // 📤 ENVIAR MEDIA (si hay)
+    let finalMediaUrl = mediaUrl;
     if (mediaUrl) {
+      // Si es base64, subir a R2 primero
+      if (mediaUrl.startsWith('data:')) {
+        try {
+          const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
+          if (match) {
+            const mimetype = match[1];
+            const buffer = Buffer.from(match[2], 'base64');
+            const ext = mimetype.includes('png') ? 'png' : mimetype.includes('webp') ? 'webp' : mimetype.includes('video') ? 'mp4' : mimetype.includes('audio') ? 'ogg' : 'jpg';
+            const result = await uploadFile(ownerId, `chat-${Date.now()}.${ext}`, buffer, mimetype, 'chat');
+            finalMediaUrl = result.url;
+          }
+        } catch (e: any) {
+          console.error('⚠️ Error subiendo media a R2:', e.message);
+          // Fallback: enviar con base64 original pero no guardarlo en DB
+        }
+      }
       const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
       const mediaSent = await sendWahaMedia(sessionName, chatId, mediaObj, !message ? '' : undefined);
       sent = sent || mediaSent;
@@ -2776,7 +2794,7 @@ router.post('/send', async (req: Request, res: Response) => {
       await prisma.message.create({ 
         data: { 
           conversationId: conv.id, content, fromMe: true, userId, role: 'assistant',
-          ...(mediaUrl && { mediaUrl, mediaType: sendMediaType || 'image' })
+          ...(finalMediaUrl && { mediaUrl: finalMediaUrl, mediaType: sendMediaType || 'image' })
         } 
       });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: content } });
@@ -2798,6 +2816,21 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
     const { contacts, message, whatsappLineId, lineId: legacyBulkLineId, mediaUrl, mediaType: bulkMediaType } = req.body;
     if (!contacts?.length || (!message && !mediaUrl)) { 
       res.status(400).json({ error: 'Se requieren contactos y mensaje o media' }); return; 
+    }
+
+    // 🖼️ Si mediaUrl es base64, subir a R2 una vez
+    let bulkMediaUrl = mediaUrl;
+    if (mediaUrl && mediaUrl.startsWith('data:')) {
+      try {
+        const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
+        if (match) {
+          const mimetype = match[1];
+          const buffer = Buffer.from(match[2], 'base64');
+          const ext = mimetype.includes('png') ? 'png' : mimetype.includes('video') ? 'mp4' : 'jpg';
+          const result = await uploadFile(ownerId, `bulk-${Date.now()}.${ext}`, buffer, mimetype, 'chat');
+          bulkMediaUrl = result.url;
+        }
+      } catch (e: any) { console.error('⚠️ Error R2 bulk media:', e.message); }
     }
 
     const effectiveLineId = whatsappLineId || legacyBulkLineId || null; // ✅ Acepta ambos
@@ -2900,8 +2933,8 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         await stopPresence(sessionName!, chatId).catch(() => {});
 
         // 📎 PASO 1: Enviar MEDIA PRIMERO (imagen/video/audio antes del texto)
-        if (mediaUrl) {
-          const mediaObj = { url: mediaUrl, type: bulkMediaType || 'image', name: 'media' };
+        if (bulkMediaUrl) {
+          const mediaObj = { url: bulkMediaUrl, type: bulkMediaType || 'image', name: 'media' };
           const mediaSent = await sendWahaMedia(sessionName!, chatId, mediaObj);
           if (!mediaSent) { log(`⚠️ Media falló para ${phone}`); }
           // Pausa entre media y texto
@@ -2928,7 +2961,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
           await prisma.message.create({ 
             data: { 
               conversationId: conv.id, content, fromMe: true, userId, role: 'assistant',
-              ...(mediaUrl && { mediaUrl, mediaType: bulkMediaType || 'image' })
+              ...(bulkMediaUrl && { mediaUrl: bulkMediaUrl, mediaType: bulkMediaType || 'image' })
             } 
           });
           await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: content } });
@@ -3449,14 +3482,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
       }
       
-      // 🖼️ IMAGEN → Guardar para mostrar en chat
+      // 🖼️ IMAGEN → Descargar para subir a R2 después
       else if (media.mediaType === 'image') {
-        // Intentar descargar y guardar como base64 para el chat
         if (media.messageId || media.mediaUrl) {
           const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
           if (downloaded) {
-            savedMediaUrl = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
-            log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
+            // Guardar buffer temporalmente para subir a R2 después de resolver userId
+            (req as any)._downloadedImage = downloaded;
+            log(`🖼️ Imagen descargada: ${downloaded.buffer.length} bytes (pendiente R2 upload)`);
           } else {
             savedMediaUrl = getMediaUrl(sessionName, media.messageId);
           }
@@ -3526,6 +3559,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🔗 Buscar whatsappLineId por sessionName
     const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
+
+    // 🖼️ Si hay imagen descargada, subirla a R2 ahora que tenemos userId
+    const downloadedImage = (req as any)._downloadedImage;
+    if (downloadedImage && !savedMediaUrl) {
+      try {
+        const ext = downloadedImage.mimetype?.includes('png') ? 'png' : downloadedImage.mimetype?.includes('webp') ? 'webp' : 'jpg';
+        const result = await uploadFile(userId, `whatsapp-${Date.now()}.${ext}`, downloadedImage.buffer, downloadedImage.mimetype || 'image/jpeg', 'chat');
+        savedMediaUrl = result.url;
+        log(`☁️ Imagen subida a R2: ${result.url} (${result.size} bytes)`);
+      } catch (e: any) {
+        log(`⚠️ Error subiendo imagen a R2: ${e.message}, usando fallback`);
+        savedMediaUrl = `data:${downloadedImage.mimetype};base64,${downloadedImage.buffer.toString('base64')}`;
+      }
+    }
 
     log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 

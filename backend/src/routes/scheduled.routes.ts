@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { uploadFile } from '../lib/storage';
 
 const router = Router();
 
@@ -203,12 +204,29 @@ router.post('/', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Se requiere mensaje o media' }); return;
     }
 
+    // 🖼️ Si mediaUrl es base64, subir a R2 primero
+    let finalMediaUrl = mediaUrl || null;
+    if (mediaUrl && mediaUrl.startsWith('data:')) {
+      try {
+        const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
+        if (match) {
+          const mimetype = match[1];
+          const buffer = Buffer.from(match[2], 'base64');
+          const ext = mimetype.includes('png') ? 'png' : mimetype.includes('video') ? 'mp4' : mimetype.includes('audio') ? 'ogg' : 'jpg';
+          const result = await uploadFile(ownerId, `scheduled-${Date.now()}.${ext}`, buffer, mimetype, 'scheduled');
+          finalMediaUrl = result.url;
+        }
+      } catch (e: any) {
+        console.error('⚠️ Error subiendo media programada a R2:', e.message);
+      }
+    }
+
     const scheduled = await prisma.scheduledMessage.create({
       data: {
         userId: ownerId, whatsappLineId: whatsappLineId || null,
         targetType: targetType || 'contact', targetId,
         targetName: targetName || null, message: message || null,
-        mediaUrl: mediaUrl || null, mediaType: mediaType || null,
+        mediaUrl: finalMediaUrl, mediaType: mediaType || null,
         scheduledAt: new Date(scheduledAt), recurrence: recurrence || 'once',
         recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
@@ -242,12 +260,27 @@ router.put('/:id', async (req: Request, res: Response) => {
       timezone, status
     } = req.body;
 
+    // 🖼️ Si mediaUrl es base64, subir a R2
+    let finalMediaUrl = mediaUrl;
+    if (mediaUrl && mediaUrl.startsWith('data:')) {
+      try {
+        const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
+        if (match) {
+          const mimetype = match[1];
+          const buffer = Buffer.from(match[2], 'base64');
+          const ext = mimetype.includes('png') ? 'png' : mimetype.includes('video') ? 'mp4' : 'jpg';
+          const result = await uploadFile(ownerId, `scheduled-${Date.now()}.${ext}`, buffer, mimetype, 'scheduled');
+          finalMediaUrl = result.url;
+        }
+      } catch (e: any) { console.error('⚠️ Error R2 scheduled update:', e.message); }
+    }
+
     const updated = await prisma.scheduledMessage.update({
       where: { id: req.params.id },
       data: {
         ...(targetType !== undefined && { targetType }), ...(targetId !== undefined && { targetId }),
         ...(targetName !== undefined && { targetName }), ...(message !== undefined && { message }),
-        ...(mediaUrl !== undefined && { mediaUrl }), ...(mediaType !== undefined && { mediaType }),
+        ...(finalMediaUrl !== undefined && { mediaUrl: finalMediaUrl }), ...(mediaType !== undefined && { mediaType }),
         ...(scheduledAt !== undefined && { scheduledAt: new Date(scheduledAt) }),
         ...(recurrence !== undefined && { recurrence }), ...(recurrenceDays !== undefined && { recurrenceDays }),
         ...(recurrenceTime !== undefined && { recurrenceTime }),

@@ -50,22 +50,7 @@ router.post('/', async (req: Request, res: Response) => {
     const body = req.body;
     const lineId = body.lineId || null;
 
-    // 📏 Check total media payload size
     const mediaItems = body.mediaItems || [];
-    const totalMediaSize = JSON.stringify(mediaItems).length;
-    const totalMediaMB = (totalMediaSize / (1024 * 1024)).toFixed(1);
-    
-    if (totalMediaSize > 45 * 1024 * 1024) { // 45MB limit for JSON field
-      res.status(413).json({ 
-        error: `Los archivos multimedia suman ${totalMediaMB}MB. Máximo permitido: 45MB. Elimina algunos archivos grandes e intenta de nuevo.`,
-        totalSize: totalMediaMB 
-      });
-      return;
-    }
-
-    if (totalMediaSize > 20 * 1024 * 1024) {
-      console.log(`⚠️ Guardando asistente con ${totalMediaMB}MB de media (${mediaItems.length} items)`);
-    }
 
     const data: any = {
       name: body.name || 'Asistente',

@@ -202,11 +202,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     let avgCycleTime = 0;
     try {
       const cycleResult = await prisma.$queryRawUnsafe(`
-        SELECT COALESCE(AVG(EXTRACT(EPOCH FROM ("updatedAt" - "createdAt")) / 86400.0), 0)::float as avg_days
-        FROM "Conversation"
-        WHERE "userId" = '${ownerId}' ${lineFilter}
-          AND "stage" IN ('converted', 'convertido', 'confirmado')
-          AND "updatedAt" >= '${rangeStart.toISOString()}'
+        SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (c."updatedAt" - c."createdAt")) / 86400.0), 0)::float as avg_days
+        FROM "Conversation" c
+        WHERE c."userId" = '${ownerId}' ${lineFilter}
+          AND c."stage" IN ('converted', 'convertido', 'confirmado')
+          AND c."updatedAt" >= '${rangeStart.toISOString()}'
       `) as any[];
       if (cycleResult?.[0]) avgCycleTime = Math.round((cycleResult[0].avg_days || 0) * 10) / 10;
     } catch (e) { console.error('Cycle time error:', e); }

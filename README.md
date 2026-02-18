@@ -2,31 +2,36 @@
 
 ## 📋 Descripción
 
-Elisa IA es una plataforma completa para gestionar agentes de inteligencia artificial conectados a WhatsApp. Incluye CRM, agenda, gestión de productos y conversaciones automatizadas.
+Elisa IA es una plataforma completa para gestionar agentes de inteligencia artificial conectados a WhatsApp. Incluye CRM, agenda, gestión de productos, conversaciones automatizadas y almacenamiento multimedia inteligente.
 
 ## 🏗️ Arquitectura
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│    Frontend     │────▶│    Backend      │────▶│     WAHA        │
-│   (Next.js)     │     │   (Express)     │     │  (WhatsApp API) │
-│    Vercel       │     │    Railway      │     │      VPS        │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                               │
-                               ▼
-                        ┌─────────────────┐
-                        │   PostgreSQL    │
-                        │    (Railway)    │
-                        └─────────────────┘
+│    Frontend      │────▶│    Backend       │────▶│     WAHA        │
+│   (Next.js 14)   │     │ (Express + TS)   │     │  (WhatsApp API) │
+│    Vercel        │     │    Railway       │     │      VPS        │
+└─────────────────┘     └────────┬─────────┘     └─────────────────┘
+                                 │
+                    ┌────────────┼────────────┐
+                    ▼            ▼            ▼
+             ┌───────────┐ ┌──────────┐ ┌──────────────┐
+             │ PostgreSQL │ │   R2     │ │   sharp +    │
+             │ (Supabase) │ │(Cloudflare)│ │   ffmpeg    │
+             │  Datos     │ │  Media   │ │ Compresión   │
+             └───────────┘ └──────────┘ └──────────────┘
 ```
 
 ## 🚀 Tecnologías
 
 - **Frontend**: Next.js 14, React, TailwindCSS
-- **Backend**: Node.js, Express, TypeScript, Prisma
+- **Backend**: Node.js 18, Express, TypeScript, Prisma
 - **WhatsApp**: WAHA (WhatsApp HTTP API)
-- **Base de datos**: PostgreSQL
+- **Base de datos**: PostgreSQL (Supabase)
+- **Storage multimedia**: Cloudflare R2 (S3-compatible, 10GB gratis)
+- **Compresión**: sharp (imágenes), ffmpeg (audio/video)
 - **Hosting**: Vercel (Frontend), Railway (Backend), VPS (WAHA)
+- **Pagos**: Wompi (Colombia)
 
 ## 📦 Estructura del Proyecto
 
@@ -35,35 +40,85 @@ elisa-ia/
 ├── backend/
 │   ├── src/
 │   │   ├── routes/
-│   │   │   ├── auth.routes.ts
-│   │   │   ├── whatsapp.routes.ts    # ← Integración WAHA
-│   │   │   ├── conversations.routes.ts
-│   │   │   ├── assistants.routes.ts
-│   │   │   ├── clients.routes.ts
-│   │   │   ├── products.routes.ts
-│   │   │   └── appointments.routes.ts
+│   │   │   ├── auth.routes.ts          # Registro, login, JWT
+│   │   │   ├── whatsapp.routes.ts      # Integración WAHA + webhooks
+│   │   │   ├── conversations.routes.ts # Chat + analytics dashboard
+│   │   │   ├── assistants.routes.ts    # Config IA + auto-aprendizaje
+│   │   │   ├── media.routes.ts         # Upload/delete multimedia → R2
+│   │   │   ├── clients.routes.ts       # CRM
+│   │   │   ├── products.routes.ts      # Catálogo
+│   │   │   ├── appointments.routes.ts  # Agenda
+│   │   │   ├── scheduled.routes.ts     # Mensajes programados
+│   │   │   ├── team.routes.ts          # Multi-usuario
+│   │   │   ├── subscription.routes.ts  # Planes + Wompi
+│   │   │   ├── stages.routes.ts        # Pipeline personalizable
+│   │   │   └── api.routes.ts           # API pública + webhooks
 │   │   ├── middleware/
+│   │   │   ├── auth.middleware.ts       # JWT validation
+│   │   │   └── subscription.middleware.ts # Plan enforcement
 │   │   ├── lib/
+│   │   │   ├── prisma.ts               # DB client + connection pool
+│   │   │   ├── cache.ts                # LRU cache in-memory
+│   │   │   ├── helpers.ts              # Utilidades comunes
+│   │   │   ├── storage.ts              # Cloudflare R2 / local fallback
+│   │   │   └── compress.ts             # Compresión multimedia
 │   │   └── server.ts
 │   ├── prisma/
 │   │   └── schema.prisma
-│   ├── package.json
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   └── app/
-│   │       ├── whatsapp/page.tsx     # ← Conexión WhatsApp
-│   │       ├── conversaciones/page.tsx
-│   │       ├── asistentes/page.tsx
-│   │       ├── crm/page.tsx
-│   │       └── agenda/page.tsx
+│   │       ├── dashboard/page.tsx      # Panel principal
+│   │       ├── whatsapp/page.tsx        # Conexión WhatsApp
+│   │       ├── conversaciones/page.tsx  # Chat + analytics
+│   │       ├── asistentes/page.tsx      # Config IA + multimedia
+│   │       ├── crm/page.tsx             # Gestión clientes
+│   │       ├── agenda/page.tsx          # Citas
+│   │       ├── programados/page.tsx     # Mensajes programados
+│   │       ├── equipo/page.tsx          # Multi-usuario
+│   │       ├── subscription/page.tsx    # Planes y pagos
+│   │       ├── admin/page.tsx           # Panel administración
+│   │       └── configuracion/page.tsx   # Ajustes
 │   └── package.json
 └── README.md
 ```
 
-## ⚙️ Configuración
+## 🗄️ Almacenamiento Multimedia
 
-### 1. Variables de Entorno - Backend (Railway)
+### Arquitectura de Storage
+
+```
+Usuario sube imagen/video/audio
+        ↓
+   Backend recibe (multer)
+        ↓
+   Compresión inteligente
+   ├── Imagen: sharp (quality 92, mozjpeg, max 2560px)
+   ├── Audio: ffmpeg (Opus 192kbps VBR, 48kHz)
+   └── Video: ffmpeg (H.264 CRF 20, AAC 192k)
+        ↓
+   Upload a Cloudflare R2
+        ↓
+   URL guardada en PostgreSQL (solo ~100 bytes)
+```
+
+### Límites y Costos
+
+| Clientes | Storage R2 | Costo/mes | DB Supabase |
+|----------|-----------|-----------|-------------|
+| 10       | 2.5 GB    | $0 (free) | ~5 MB       |
+| 100      | 25 GB     | $0.23     | ~50 MB      |
+| 1,000    | 250 GB    | $3.60     | ~500 MB     |
+
+- Cada usuario: **250MB** incluidos (expandible)
+- Cloudflare R2: **10GB gratis**, luego $0.015/GB
+- **$0 egress** (descargas gratis, a diferencia de S3)
+
+## ⚙️ Variables de Entorno
+
+### Backend (Railway)
 
 ```env
 # Base de datos
@@ -79,40 +134,21 @@ WAHA_API_URL="http://31.97.142.127:8080"
 WAHA_API_KEY="tu-api-key"
 
 # Frontend
-FRONTEND_URL="https://tu-app.vercel.app"
+FRONTEND_URL="https://agentes-elisa-ia.vercel.app"
+BACKEND_URL="https://elisa-iaagentes-production.up.railway.app"
+
+# Cloudflare R2 Storage
+R2_ACCOUNT_ID="tu-account-id"
+R2_ACCESS_KEY="tu-access-key"
+R2_SECRET_KEY="tu-secret-key"
+R2_BUCKET_NAME="bizonne-media"
+R2_PUBLIC_URL="https://pub-xxx.r2.dev"
 ```
 
-### 2. Variables de Entorno - Frontend (Vercel)
+### Frontend (Vercel)
 
 ```env
-NEXT_PUBLIC_API_URL="https://tu-backend.railway.app"
-```
-
-### 3. WAHA en VPS
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  waha:
-    image: devlikeapro/waha
-    container_name: elisa-waha
-    restart: unless-stopped
-    ports:
-      - "8080:3000"
-    environment:
-      - WAHA_DASHBOARD_ENABLED=true
-      - WAHA_DASHBOARD_USERNAME=admin
-      - WAHA_DASHBOARD_PASSWORD=admin
-      - WHATSAPP_API_KEY=tu-api-key
-      - WAHA_DEFAULT_ENGINE=WEBJS
-      - WAHA_PRINT_QR=true
-      - WHATSAPP_RESTART_ALL_SESSIONS=true
-      - WHATSAPP_HOOK_URL=https://tu-backend.railway.app/api/webhook/whatsapp
-      - WHATSAPP_HOOK_EVENTS=message,session.status
-    volumes:
-      - ./waha-sessions:/app/.sessions
+NEXT_PUBLIC_API_URL="https://elisa-iaagentes-production.up.railway.app"
 ```
 
 ## 🔌 API Endpoints
@@ -121,6 +157,7 @@ services:
 - `POST /api/auth/register` - Registrar usuario
 - `POST /api/auth/login` - Iniciar sesión
 - `GET /api/auth/me` - Obtener usuario actual
+- `POST /api/auth/forgot-password` - Recuperar contraseña
 
 ### WhatsApp
 - `GET /api/whatsapp/status` - Estado de conexión
@@ -129,75 +166,37 @@ services:
 - `POST /api/whatsapp/disconnect` - Desconectar
 - `POST /api/whatsapp/send` - Enviar mensaje
 
-### Webhooks (Públicos)
-- `POST /api/webhook/whatsapp` - Recibe mensajes de WAHA
-- `POST /api/webhook/wompi` - Recibe eventos de pagos
+### Multimedia
+- `POST /api/media/upload` - Subir archivo(s) con compresión automática
+- `DELETE /api/media/:id` - Eliminar archivo de R2
+- `GET /api/media/storage` - Info de storage del usuario
+- `GET /api/media/files` - Listar archivos
+- `POST /api/media/migrate` - Migrar base64 legacy a R2
 
 ### Conversaciones
 - `GET /api/conversations` - Listar conversaciones
-- `GET /api/conversations/:id` - Obtener conversación
-- `GET /api/conversations/:id/messages` - Mensajes de conversación
+- `GET /api/conversations/stats` - Estadísticas y analytics
+- `GET /api/conversations/:id/messages` - Mensajes
 
 ### Asistentes IA
-- `GET /api/assistants` - Listar asistentes
-- `POST /api/assistants` - Crear asistente
-- `PUT /api/assistants/:id` - Actualizar asistente
+- `GET /api/assistants` - Obtener asistente
+- `POST /api/assistants` - Crear/actualizar asistente
+- `POST /api/assistants/learn` - Auto-aprendizaje
 
-### CRM - Clientes
-- `GET /api/clients` - Listar clientes
-- `POST /api/clients` - Crear cliente
-- `PUT /api/clients/:id` - Actualizar cliente
+### CRM, Productos, Agenda, Equipo
+- `GET/POST/PUT /api/clients` - Gestión clientes
+- `GET/POST /api/products` - Catálogo
+- `GET/POST /api/appointments` - Citas
+- `GET/POST /api/team` - Sub-usuarios
 
-### Productos
-- `GET /api/products` - Listar productos
-- `POST /api/products` - Crear producto
+### Suscripciones
+- `GET /api/subscription/plans` - Planes disponibles
+- `POST /api/subscription/create` - Crear suscripción
+- `POST /api/subscription/webhook/wompi` - Webhook pagos
 
-### Agenda
-- `GET /api/appointments` - Listar citas
-- `POST /api/appointments` - Crear cita
-
-## 📱 Flujo de WhatsApp con WAHA
-
-### Conexión
-```
-Usuario → Frontend → Backend → WAHA (crea sesión)
-                                  ↓
-                              Genera QR
-                                  ↓
-Usuario escanea QR ← Frontend ← Backend ← WAHA
-                                  ↓
-                           Sesión conectada
-```
-
-### Envío de Mensajes
-```
-Usuario escribe mensaje
-        ↓
-    Frontend
-        ↓
-POST /api/whatsapp/send
-        ↓
-    Backend
-        ↓
-POST WAHA/api/sendText
-        ↓
-  WhatsApp envía
-```
-
-### Recepción de Mensajes
-```
-Mensaje llega a WhatsApp
-        ↓
-      WAHA
-        ↓
-POST /api/webhook/whatsapp
-        ↓
-    Backend
-        ↓
-Guarda en PostgreSQL
-        ↓
-Frontend actualiza (polling/websocket)
-```
+### Webhooks
+- `POST /api/webhook/whatsapp` - Recibe mensajes de WAHA
+- `POST /api/subscription/webhook/wompi` - Pagos Wompi
 
 ## 🛠️ Desarrollo Local
 
@@ -225,12 +224,13 @@ docker-compose up -d
 ## 📤 Despliegue
 
 ### Railway (Backend)
-1. Conectar repositorio
-2. Agregar variables de entorno
-3. Deploy automático
+1. Conectar repositorio GitHub
+2. Agregar variables de entorno (ver arriba)
+3. Dockerfile incluye: Node.js 18, sharp, ffmpeg
+4. Deploy automático con cada push
 
 ### Vercel (Frontend)
-1. Importar proyecto
+1. Importar proyecto desde GitHub
 2. Configurar `NEXT_PUBLIC_API_URL`
 3. Deploy automático
 
@@ -246,14 +246,13 @@ docker-compose up -d
 - JWT para autenticación de usuarios
 - API Key para comunicación con WAHA
 - HTTPS en todos los endpoints públicos
+- Rate limiting por IP (60 req/min general, 30 req/min media)
+- Credenciales R2 en variables de entorno
 - Webhook validación por sesión
-
-## 📞 Soporte
-
-Para soporte o consultas, contactar a través de la plataforma.
 
 ---
 
-**Versión**: 5.1.0  
-**Última actualización**: Enero 2026  
+**Versión**: 7.0.0
+**Última actualización**: Febrero 2026
 **WhatsApp Provider**: WAHA (WhatsApp HTTP API)
+**Storage**: Cloudflare R2

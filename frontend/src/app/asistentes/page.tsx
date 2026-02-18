@@ -320,20 +320,67 @@ export default function AsistentesPage() {
   };
 
   // 📂 CATÁLOGO: Eliminar imagen del catálogo
-  const removeImageFromCatalog = (catalogIndex: number, imageId: string) => {
+  const removeImageFromCatalog = async (catalogIndex: number, imageId: string) => {
+    const catalog = mediaItems[catalogIndex];
+    const image = catalog?.images?.find((img: any) => img.id === imageId);
+    const token = localStorage.getItem('token');
+
+    // Eliminar del backend si tiene key
+    if (image?.key && token) {
+      try {
+        const storageRes = await fetch(`${API_URL}/api/media/files`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (storageRes.ok) {
+          const { files } = await storageRes.json();
+          const mediaFile = files.find((f: any) => f.key === image.key);
+          if (mediaFile) {
+            await fetch(`${API_URL}/api/media/${mediaFile.id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          }
+        }
+      } catch (e) { console.error('Error eliminando imagen:', e); }
+    }
+
     setMediaItems(prev => prev.map((item, i) => {
       if (i !== catalogIndex) return item;
       return { ...item, images: (item.images || []).filter((img: any) => img.id !== imageId) };
     }));
+    fetchStorage();
   };
 
   const updateMediaItem = (index: number, field: string, value: string) => {
     setMediaItems(prev => prev.map((item, i) => i === index ? { ...item, [field]: value } : item));
   };
 
-  const removeMedia = (index: number) => {
+  const removeMedia = async (index: number) => {
+    const item = mediaItems[index];
+    const token = localStorage.getItem('token');
+
+    // Si tiene key, eliminar del backend (R2 + MediaFile)
+    if (item?.key && token) {
+      try {
+        // Buscar el MediaFile por key para obtener su ID
+        const storageRes = await fetch(`${API_URL}/api/media/files`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (storageRes.ok) {
+          const { files } = await storageRes.json();
+          const mediaFile = files.find((f: any) => f.key === item.key);
+          if (mediaFile) {
+            await fetch(`${API_URL}/api/media/${mediaFile.id}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+          }
+        }
+      } catch (e) { console.error('Error eliminando archivo:', e); }
+    }
+
     setMediaItems(prev => prev.filter((_, i) => i !== index));
-    fetchStorage(); // Actualizar barra de storage
+    fetchStorage();
   };
 
   // ===== AUTO-APRENDIZAJE =====

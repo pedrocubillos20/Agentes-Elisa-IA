@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
-  Send, MessageSquare, LayoutGrid, Sparkles
+  Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -42,6 +42,11 @@ export default function CRMPage() {
   
   const [massMessageText, setMassMessageText] = useState('');
   const [sendingMass, setSendingMass] = useState(false);
+  const [massMediaFile, setMassMediaFile] = useState<File | null>(null);
+  const [massMediaPreview, setMassMediaPreview] = useState<string | null>(null);
+  const [massSentCount, setMassSentCount] = useState(0);
+  const [massTotal, setMassTotal] = useState(0);
+  const massFileInputRef = useRef<HTMLInputElement>(null);
 
   const [editingItem, setEditingItem] = useState<any>(null);
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', status: 'lead', tags: '' });
@@ -162,39 +167,70 @@ export default function CRMPage() {
   const getConvsByStage = (stageId: string) => conversations.filter(c => c.stage === stageId);
 
   const sendMassMessage = async () => {
-    if (!selectedStage || !massMessageText.trim()) return;
+    if (!selectedStage || (!massMessageText.trim() && !massMediaFile)) return;
     setSendingMass(true);
     const token = localStorage.getItem('token');
     const stageConvs = getConvsByStage(selectedStage);
+    setMassTotal(stageConvs.length);
+    setMassSentCount(0);
     
     try {
+      // Convertir archivo a base64 si hay media
+      let mediaUrl: string | null = null;
+      let mediaType: string | null = null;
+      
+      if (massMediaFile) {
+        mediaUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(massMediaFile);
+        });
+        
+        if (massMediaFile.type.startsWith('image/')) mediaType = 'image';
+        else if (massMediaFile.type.startsWith('audio/')) mediaType = 'audio';
+        else if (massMediaFile.type.startsWith('video/')) mediaType = 'video';
+        else mediaType = 'document';
+      }
+
       const contacts = stageConvs.map(c => ({
         phone: c.recipientId,
         name: c.recipientName || c.recipientId,
         conversationId: c.id
       }));
 
-      // 🚀 USAR /send-bulk — El backend maneja los delays de 3s entre cada envío
       const res = await fetch(`${API_URL}/api/whatsapp/send-bulk`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           contacts,
-          message: massMessageText,
-          whatsappLineId: getLineId()  // ✅ FIX: era "lineId", ahora "whatsappLineId"
+          message: massMessageText || null,
+          whatsappLineId: getLineId(),
+          ...(mediaUrl && { mediaUrl, mediaType })
         })
       });
 
       if (res.ok) {
-        // Esperar tiempo estimado para que el backend envíe todo
-        const waitTime = stageConvs.length * 3500 + 2000;
+        let count = 0;
+        const progressInterval = setInterval(() => {
+          count += 1;
+          setMassSentCount(Math.min(count, stageConvs.length));
+          if (count >= stageConvs.length) clearInterval(progressInterval);
+        }, 3500);
+
         setTimeout(() => {
+          clearInterval(progressInterval);
+          setMassSentCount(stageConvs.length);
           alert(`✅ Mensaje masivo enviado a ${stageConvs.length} contactos`);
           setSendingMass(false);
           setShowMassMessage(false);
           setMassMessageText('');
+          setMassMediaFile(null);
+          setMassMediaPreview(null);
+          setMassSentCount(0);
+          setMassTotal(0);
           fetchAll();
-        }, Math.min(waitTime, 60000)); // Máximo 60 segundos de espera en UI
+        }, Math.min(stageConvs.length * 3500 + 2000, 60000));
       } else {
         throw new Error('Error');
       }
@@ -202,6 +238,26 @@ export default function CRMPage() {
       alert('❌ Error al enviar mensaje masivo');
       setSendingMass(false);
     }
+  };
+
+  // 📎 Manejar selección de archivo para masivo
+  const handleMassFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMassMediaFile(file);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setMassMediaPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setMassMediaPreview(null);
+    }
+  };
+
+  const removeMassMedia = () => {
+    setMassMediaFile(null);
+    setMassMediaPreview(null);
+    if (massFileInputRef.current) massFileInputRef.current.value = '';
   };
 
   const handleSaveClient = async () => {
@@ -518,20 +574,77 @@ export default function CRMPage() {
 
       {/* MODALES */}
       
-      {/* Modal Mensaje Masivo */}
+      {/* Modal Mensaje Masivo — Con media + barra de progreso */}
       {showMassMessage && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowMassMessage(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !sendingMass && setShowMassMessage(false)}>
           <div className="bg-[var(--bg-secondary)] rounded-xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-white">Mensaje Masivo</h3>
-              <button onClick={() => setShowMassMessage(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
+              <button onClick={() => !sendingMass && setShowMassMessage(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
             <p className="text-sm text-[var(--text-muted)] mb-3">
               Enviar a: <strong className="text-white">{stages.find(s => s.id === selectedStage)?.label}</strong> ({getConvsByStage(selectedStage).length} contactos)
             </p>
-            <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)]" />
-            <button onClick={sendMassMessage} disabled={sendingMass || !massMessageText.trim()} className="btn-primary w-full py-2 disabled:opacity-50">
-              {sendingMass ? 'Enviando...' : `Enviar a ${getConvsByStage(selectedStage).length} contactos`}
+            <textarea 
+              value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} 
+              placeholder="Escribe tu mensaje..." disabled={sendingMass}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50" 
+            />
+
+            {/* 📎 Adjuntar media */}
+            <div className="mb-3">
+              <input ref={massFileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleMassFileSelect} className="hidden" />
+              
+              {massMediaFile ? (
+                <div className="flex items-center gap-2 p-2 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-primary)]">
+                  {massMediaPreview ? (
+                    <img src={massMediaPreview} alt="" className="w-12 h-12 rounded object-cover" />
+                  ) : (
+                    <div className="w-12 h-12 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                      {massMediaFile.type.startsWith('audio/') ? <Mic className="w-5 h-5 text-[var(--accent-primary)]" /> : <FileText className="w-5 h-5 text-[var(--accent-primary)]" />}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{massMediaFile.name}</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">{(massMediaFile.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <button onClick={removeMassMedia} className="p-1 hover:bg-white/10 rounded" disabled={sendingMass}>
+                    <X className="w-4 h-4 text-red-400" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'image/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Image className="w-3.5 h-3.5" /> Imagen
+                  </button>
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'audio/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Mic className="w-3.5 h-3.5" /> Audio
+                  </button>
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = '*/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Paperclip className="w-3.5 h-3.5" /> Archivo
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Progreso de envío */}
+            {sendingMass && massTotal > 0 && (
+              <div className="mb-3">
+                <div className="flex justify-between text-xs text-[var(--text-muted)] mb-1">
+                  <span>Enviando...</span>
+                  <span>{massSentCount}/{massTotal}</span>
+                </div>
+                <div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2">
+                  <div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} />
+                </div>
+                <p className="text-[10px] text-[var(--text-muted)] mt-1 text-center">
+                  ⏱️ ~{Math.ceil((massTotal - massSentCount) * 3.5)}s restantes
+                </p>
+              </div>
+            )}
+
+            <button onClick={sendMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${getConvsByStage(selectedStage).length} contactos`}
             </button>
           </div>
         </div>

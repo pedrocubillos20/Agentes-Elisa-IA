@@ -306,29 +306,63 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 
     const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
 
+    // === EXTRA METRICS ===
+    // Abandonment rate: conversations with only incoming msgs (no response) in range
+    let abandonmentRate = 0;
+    try {
+      const abandonResult = await prisma.$queryRawUnsafe(`
+        SELECT 
+          COUNT(DISTINCT CASE WHEN NOT EXISTS (
+            SELECT 1 FROM "Message" m2 WHERE m2."conversationId" = c.id AND m2."fromMe" = true
+          ) THEN c.id END)::int as abandoned,
+          COUNT(DISTINCT c.id)::int as total
+        FROM "Conversation" c JOIN "Message" m ON m."conversationId" = c.id
+        WHERE c."userId" = '${ownerId}' ${lineFilter}
+          AND c."createdAt" >= '${rangeStart.toISOString()}' AND c."createdAt" <= '${rangeEnd.toISOString()}'
+          AND m."fromMe" = false
+      `) as any[];
+      if (abandonResult?.[0] && abandonResult[0].total > 0) {
+        abandonmentRate = Math.round((abandonResult[0].abandoned / abandonResult[0].total) * 100);
+      }
+    } catch (e) { console.error('Abandon rate error:', e); }
+
+    // Hourly distribution (for bar chart)
+    let hourlyData: Array<{hour: number; count: number}> = [];
+    try {
+      const hourlyResult = await prisma.$queryRawUnsafe(`
+        SELECT EXTRACT(HOUR FROM m."timestamp")::int as hour, COUNT(*)::int as count
+        FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
+        WHERE c."userId" = '${ownerId}' ${lineFilter}
+          AND m."timestamp" >= '${rangeStart.toISOString()}' AND m."timestamp" <= '${rangeEnd.toISOString()}'
+        GROUP BY hour ORDER BY hour
+      `) as any[];
+      const hourMap: Record<number, number> = {};
+      for (let h = 0; h < 24; h++) hourMap[h] = 0;
+      if (Array.isArray(hourlyResult)) hourlyResult.forEach((r: any) => { hourMap[r.hour] = r.count; });
+      hourlyData = Object.entries(hourMap).map(([h, c]) => ({ hour: Number(h), count: c }));
+    } catch (e) { console.error('Hourly error:', e); }
+
+    // AI transfer rate (aiPaused = transferred to human)
+    const aiTransferRate = totalConversations > 0 ? Math.round((aiPausedCount / totalConversations) * 100) : 0;
+    // AI resolved without human
+    const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - aiPausedCount, 0) : 0;
+    const aiResolvedRate = convertedTotal > 0 ? Math.round((aiResolvedCount / Math.max(convertedTotal, 1)) * 100) : 0;
+
     res.json({
       rangeLabel, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(),
-      // Core KPIs
       totalConversations, totalMessages,
       rangeMessages, todayMessages, yesterdayMessages,
       rangeNewConvs, rangeConvertedConvs, convertedTotal,
-      // Growth
       msgGrowth, convGrowth, convertedGrowth,
-      // Advanced metrics
       avgFRT, slaCompliance, contactRate, avgCycleTime, aiAutoRate, conversionRate,
       avgMsgsPerConv, aiPausedCount, atRiskConvs,
-      // Distribution
+      abandonmentRate, aiTransferRate, aiResolvedRate, aiResolvedCount,
       stageDistribution: { resolved: convertedTotal, active: activeCount, pending: pendingCount, atRisk: atRiskConvs, lost: lostCount, total: totalConversations },
       whatsappStats: { sent: rangeMsgsFromMe, received: rangeMsgsIncoming, total: rangeMessages },
-      // Time
       oldestWait, oldestWaitName: oldestUnresponded?.recipientName || '',
-      // Pipeline
-      funnelData, funnelRates,
-      // Appointments
+      funnelData, funnelRates, hourlyData,
       totalAppointments, pendingAppointments,
-      // Charts
       chartData,
-      // Lists
       recentActivity: recentMessages.map(m => ({
         user: m.conversation.recipientName || m.conversation.recipientId || 'Desconocido',
         action: m.content.substring(0, 80) + (m.content.length > 80 ? '...' : ''),

@@ -12,13 +12,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
-RUN chmod -R 755 node_modules/.bin/
-
 COPY prisma ./prisma/
 RUN npx prisma generate
 
 COPY . .
-RUN npm run build
+RUN node node_modules/typescript/bin/tsc
 
 RUN mkdir -p /app/auth_sessions /app/uploads/pdfs /app/media && chmod -R 777 /app/auth_sessions /app/uploads /app/media
 

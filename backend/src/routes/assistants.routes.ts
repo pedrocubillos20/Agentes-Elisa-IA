@@ -452,9 +452,11 @@ router.post('/elevenlabs/preview', async (req: Request, res: Response) => {
     
     // Intentar con multilingual v2, fallback a monolingual v1
     const models = ['eleven_multilingual_v2', 'eleven_multilingual_v1', 'eleven_monolingual_v1'];
+    const errors: string[] = [];
     
     for (const model of models) {
       try {
+        console.log(`🔊 TTS preview: model=${model}, voiceId=${voiceId.substring(0, 8)}...`);
         const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
           method: 'POST',
           headers: {
@@ -471,24 +473,27 @@ router.post('/elevenlabs/preview', async (req: Request, res: Response) => {
         
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer();
+          console.log(`🔊 TTS OK: model=${model}, size=${arrayBuffer.byteLength} bytes`);
           const base64 = Buffer.from(arrayBuffer).toString('base64');
           return res.json({ audio: `data:audio/mpeg;base64,${base64}`, model });
         }
         
-        // Si es error de modelo, intentar siguiente
         const errText = await response.text().catch(() => '');
-        if (response.status === 422 || errText.includes('model')) continue;
+        errors.push(`${model}: ${response.status} - ${errText.substring(0, 150)}`);
+        console.error(`❌ TTS ${model}: ${response.status} - ${errText.substring(0, 150)}`);
         
-        // Otro error → reportar
-        return res.status(response.status).json({ error: `ElevenLabs error (${response.status}): ${errText.substring(0, 200)}` });
-      } catch (modelErr) {
-        continue;
+        // Si es error de autenticación no intentar más modelos
+        if (response.status === 401) break;
+      } catch (modelErr: any) {
+        errors.push(`${model}: ${modelErr.message}`);
+        console.error(`❌ TTS ${model} exception:`, modelErr.message);
       }
     }
     
-    res.status(400).json({ error: 'No se pudo generar audio con ningún modelo disponible' });
+    res.status(400).json({ error: `No se pudo generar audio. Detalles: ${errors.join(' | ')}` });
   } catch (error: any) {
-    res.status(500).json({ error: 'Error: ' + error.message });
+    console.error('❌ TTS preview error:', error.message);
+    res.status(500).json({ error: 'Error servidor: ' + error.message });
   }
 });
 

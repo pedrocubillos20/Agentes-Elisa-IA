@@ -441,17 +441,15 @@ export default function AsistentesPage() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey: elevenLabsKey, voiceId })
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.audio) {
-          const audio = new Audio(data.audio);
-          audio.play();
-          setMessage({ type: 'success', text: '🔊 Reproduciendo vista previa...' });
-        }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.audio) {
+        const audio = new Audio(data.audio);
+        audio.play();
+        setMessage({ type: 'success', text: `🔊 Reproduciendo (modelo: ${data.model || 'default'})` });
       } else {
-        setMessage({ type: 'error', text: 'Error al generar preview' });
+        setMessage({ type: 'error', text: data.error || `Error preview (${res.status})` });
       }
-    } catch { setMessage({ type: 'error', text: 'Error de conexión' }); }
+    } catch (e: any) { setMessage({ type: 'error', text: 'Error de conexión: ' + e.message }); }
     finally { setTestingVoice(false); }
   };
 
@@ -953,42 +951,57 @@ export default function AsistentesPage() {
             </div>
 
             <div className="space-y-4">
+              {/* API Key */}
               <div>
                 <label className="input-label">Tu API Key de ElevenLabs</label>
+                <input type="password" value={elevenLabsKey} onChange={(e) => setElevenLabsKey(e.target.value)}
+                  placeholder="sk_..." className="input w-full font-mono" />
+              </div>
+
+              {/* Voice ID - MANUAL (principal) */}
+              <div>
+                <label className="input-label">Voice ID</label>
                 <div className="flex gap-3">
-                  <input type="password" value={elevenLabsKey} onChange={(e) => setElevenLabsKey(e.target.value)}
-                    placeholder="sk_..." className="input flex-1 font-mono" />
-                  <button onClick={testElevenLabs} disabled={!elevenLabsKey || testingVoice} className="btn-secondary">
-                    {testingVoice ? <div className="loading-spinner w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
-                    Conectar
-                  </button>
+                  <input type="text" value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)}
+                    placeholder="Pega tu Voice ID... (ej: EXAVITQu4vr4xnSDxMaL)" className="input flex-1 font-mono text-sm" />
+                  {selectedVoice && elevenLabsKey && (
+                    <button onClick={() => previewVoice(selectedVoice)} disabled={testingVoice} className="btn-secondary"
+                      title="Escuchar vista previa">
+                      {testingVoice ? <div className="loading-spinner w-4 h-4" /> : <Play className="w-4 h-4" />}
+                      Probar
+                    </button>
+                  )}
                 </div>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  Ve a <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">ElevenLabs → Voices</a> → 
+                  clic en la voz → "Copy Voice ID"
+                </p>
+              </div>
+
+              {/* O cargar voces automáticamente */}
+              <div className="border-t border-[var(--border-primary)] pt-4">
+                <button onClick={testElevenLabs} disabled={!elevenLabsKey || testingVoice} className="btn-secondary w-full">
+                  {testingVoice ? <div className="loading-spinner w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
+                  O cargar mis voces automáticamente
+                </button>
               </div>
 
               {elevenLabsVoices.length > 0 && (
                 <div>
-                  <label className="input-label">Selecciona una Voz</label>
-                  <div className="flex gap-3">
-                    <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="input flex-1">
-                      <option value="">-- Selecciona una voz --</option>
-                      {elevenLabsVoices.map((voice) => (
-                        <option key={voice.voice_id} value={voice.voice_id}>
-                          {voice.name} {voice.labels?.accent ? `(${voice.labels.accent})` : ''} {voice.labels?.gender ? `- ${voice.labels.gender}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {selectedVoice && (
-                      <button onClick={() => previewVoice(selectedVoice)} disabled={testingVoice} className="btn-secondary"
-                        title="Escuchar vista previa">
-                        {testingVoice ? <div className="loading-spinner w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        Probar
-                      </button>
-                    )}
-                  </div>
+                  <label className="input-label">Selecciona de tus voces</label>
+                  <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="input w-full">
+                    <option value="">-- Selecciona una voz --</option>
+                    {elevenLabsVoices.map((voice) => (
+                      <option key={voice.voice_id} value={voice.voice_id}>
+                        {voice.name} {voice.labels?.accent ? `(${voice.labels.accent})` : ''} {voice.labels?.gender ? `- ${voice.labels.gender}` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 
-              {selectedVoice && (
+              {/* Toggle activar */}
+              {selectedVoice && elevenLabsKey && (
                 <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
                   <div>
                     <h4 className="font-medium text-white">Activar respuestas de voz</h4>
@@ -1005,14 +1018,13 @@ export default function AsistentesPage() {
                 <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
                   <h4 className="font-medium text-emerald-400 mb-2">🔊 Voz IA Activa</h4>
                   <p className="text-sm text-[var(--text-muted)] mb-3">
-                    La IA enviará notas de voz automáticamente cuando sea apropiado. Puedes controlar cuándo desde tu base de conocimiento:
+                    Controla cuándo la IA responde con voz desde tu contexto:
                   </p>
                   <div className="space-y-2 text-xs text-[var(--text-muted)] bg-black/20 rounded-lg p-3 font-mono">
-                    <p className="text-emerald-400">// Ejemplo en tu contexto/knowledge:</p>
+                    <p className="text-emerald-400">// Ejemplo en tu contexto:</p>
                     <p>- Saluda siempre con nota de voz</p>
                     <p>- Usa voz al confirmar pedidos</p>
-                    <p>- Responde con voz cuando el cliente pregunte por precios</p>
-                    <p>- NO uses voz para enviar direcciones o datos</p>
+                    <p>- NO uses voz para datos técnicos o links</p>
                   </div>
                 </div>
               )}
@@ -1020,13 +1032,12 @@ export default function AsistentesPage() {
           </div>
 
           <div className="card bg-purple-500/5 border-purple-500/20">
-            <h4 className="font-semibold text-purple-400 mb-3 flex items-center gap-2"><Key className="w-4 h-4" />Cómo obtener tu API Key</h4>
+            <h4 className="font-semibold text-purple-400 mb-3 flex items-center gap-2"><Key className="w-4 h-4" />Cómo configurar</h4>
             <ol className="text-sm text-[var(--text-muted)] space-y-2">
-              <li>1. Crea una cuenta gratis en <a href="https://elevenlabs.io" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">elevenlabs.io</a></li>
-              <li>2. Ve a tu perfil → API Keys</li>
-              <li>3. Copia tu API Key y pégala arriba</li>
-              <li>4. Cada usuario usa sus propios créditos de ElevenLabs</li>
-              <li>5. Plan gratis incluye 10,000 caracteres/mes (~10 min de audio)</li>
+              <li>1. Ve a <a href="https://elevenlabs.io/app/developers/api-keys" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">elevenlabs.io → API Keys</a> y copia tu clave</li>
+              <li>2. Ve a <a href="https://elevenlabs.io/app/voice-library" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">elevenlabs.io → Voices</a> y copia el Voice ID</li>
+              <li>3. Pégalos arriba, activa el toggle y dale "Guardar Todo"</li>
+              <li>4. Plan gratis: 10,000 caracteres/mes (~10 min de audio)</li>
             </ol>
           </div>
         </div>

@@ -307,8 +307,18 @@ const textToSpeech = async (text: string, apiKey: string, voiceId: string): Prom
     });
     
     if (!response.ok) {
-      console.error(`❌ ElevenLabs TTS error (${response.status}): ${await response.text().catch(() => '')}`);
-      return null;
+      // Fallback a modelo más simple
+      const response2 = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+        body: JSON.stringify({ text: trimmedText, model_id: 'eleven_monolingual_v1', voice_settings: { stability: 0.5, similarity_boost: 0.75 } })
+      });
+      if (!response2.ok) {
+        console.error(`❌ ElevenLabs TTS error (${response2.status})`);
+        return null;
+      }
+      const arrayBuffer2 = await response2.arrayBuffer();
+      return Buffer.from(arrayBuffer2);
     }
     
     const arrayBuffer = await response.arrayBuffer();

@@ -450,29 +450,45 @@ router.post('/elevenlabs/preview', async (req: Request, res: Response) => {
     
     const previewText = text || 'Hola, soy tu asistente virtual. ¿En qué puedo ayudarte hoy?';
     
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg'
-      },
-      body: JSON.stringify({
-        text: previewText,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-      })
-    });
+    // Intentar con multilingual v2, fallback a monolingual v1
+    const models = ['eleven_multilingual_v2', 'eleven_multilingual_v1', 'eleven_monolingual_v1'];
     
-    if (!response.ok) {
-      return res.status(400).json({ error: `Error TTS (${response.status})` });
+    for (const model of models) {
+      try {
+        const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+          method: 'POST',
+          headers: {
+            'xi-api-key': apiKey,
+            'Content-Type': 'application/json',
+            'Accept': 'audio/mpeg'
+          },
+          body: JSON.stringify({
+            text: previewText,
+            model_id: model,
+            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+          })
+        });
+        
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          return res.json({ audio: `data:audio/mpeg;base64,${base64}`, model });
+        }
+        
+        // Si es error de modelo, intentar siguiente
+        const errText = await response.text().catch(() => '');
+        if (response.status === 422 || errText.includes('model')) continue;
+        
+        // Otro error → reportar
+        return res.status(response.status).json({ error: `ElevenLabs error (${response.status}): ${errText.substring(0, 200)}` });
+      } catch (modelErr) {
+        continue;
+      }
     }
     
-    const arrayBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    res.json({ audio: `data:audio/mpeg;base64,${base64}` });
+    res.status(400).json({ error: 'No se pudo generar audio con ningún modelo disponible' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Error: ' + error.message });
   }
 });
 

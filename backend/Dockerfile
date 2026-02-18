@@ -12,6 +12,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
+RUN chmod -R 755 node_modules/.bin/
+
 COPY prisma ./prisma/
 RUN npx prisma generate
 

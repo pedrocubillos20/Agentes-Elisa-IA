@@ -1744,6 +1744,210 @@ El tag <<VOZ>> es interno, el cliente NO lo verá.
 };
 
 // ====================================================
+// 💬 FOLLOW-UP INTELIGENTE POST-MEDIA
+// Genera una pregunta contextual después de enviar multimedia
+// para mantener la conversación activa y avanzar en el pipeline
+// ====================================================
+const generateMediaFollowUp = async (
+  ownerId: string, 
+  convId: string, 
+  mediaName: string, 
+  mediaType: string,
+  previousAiResponse: string | null,
+  whatsappLineId?: string | null
+): Promise<string | null> => {
+  try {
+    // ⚡ SKIP: Si la respuesta anterior YA terminó con pregunta, no duplicar
+    if (previousAiResponse) {
+      const trimmed = previousAiResponse.trim();
+      // Detectar si ya hay pregunta al final (últimos 80 chars)
+      const tail = trimmed.slice(-80);
+      if (/[?¿]/.test(tail)) {
+        log(`💬 Follow-up SKIP: respuesta anterior ya tiene pregunta`);
+        return null;
+      }
+    }
+
+    // 🧠 Cargar contexto de la conversación
+    const [conv, recentMsgs, user] = await Promise.all([
+      prisma.conversation.findUnique({ 
+        where: { id: convId }, 
+        select: { recipientName: true, stage: true, contextData: true } 
+      }),
+      prisma.message.findMany({ 
+        where: { conversationId: convId }, 
+        orderBy: { timestamp: 'desc' }, 
+        take: 5,
+        select: { content: true, fromMe: true }
+      }),
+      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true } })
+    ]);
+
+    if (!user?.apiKey) return null;
+
+    const clientName = conv?.recipientName || '';
+    const stage = conv?.stage || 'new';
+    const savedContext = (conv?.contextData as Record<string, any>) || {};
+
+    // 🔗 Cargar asistente para tener contexto del negocio
+    let assistant: any = null;
+    if (whatsappLineId) {
+      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId } });
+    }
+    if (!assistant) {
+      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+    }
+
+    // Último mensaje del cliente (lo que preguntó)
+    const lastClientMsg = [...recentMsgs].reverse().find(m => !m.fromMe)?.content || '';
+    
+    // Datos conocidos del cliente
+    const knownData = Object.entries(savedContext)
+      .filter(([_, v]) => v && v !== '' && v !== 'null')
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(', ');
+
+    // 🧠 Construir prompt enfocado para follow-up
+    const stageContext: Record<string, string> = {
+      'new': 'Es un lead NUEVO. Objetivo: despertar interés y calificar si es buen prospecto.',
+      'saludo': 'Acaba de saludar. Objetivo: conocer qué necesita exactamente.',
+      'interested': 'Ya mostró INTERÉS. Objetivo: profundizar en sus necesidades y ofrecer opciones.',
+      'interesado': 'Ya mostró INTERÉS. Objetivo: profundizar en sus necesidades y ofrecer opciones.',
+      'descubrimiento': 'Está en DESCUBRIMIENTO. Objetivo: entender bien qué busca para recomendar lo ideal.',
+      'cotización': 'Está en fase de COTIZACIÓN. Objetivo: resolver dudas de precio y empujar a decidir.',
+      'cotizacion': 'Está en fase de COTIZACIÓN. Objetivo: resolver dudas de precio y empujar a decidir.',
+      'quoting': 'Está en fase de COTIZACIÓN. Objetivo: resolver dudas de precio y empujar a decidir.',
+      'pendiente_decision': 'Está DECIDIENDO. Objetivo: dar el empujón final, resolver última objeción.',
+      'negotiating': 'Está NEGOCIANDO. Objetivo: cerrar el trato, ofrecer beneficio si decide ahora.',
+      'converted': 'Ya COMPRÓ. Objetivo: confirmar satisfacción y abrir puerta a upsell/referidos.',
+      'convertido': 'Ya COMPRÓ. Objetivo: confirmar satisfacción y abrir puerta a upsell/referidos.',
+      'confirmado': 'Ya CONFIRMÓ. Objetivo: generar confianza post-compra.',
+      'follow_up': 'Está en SEGUIMIENTO. Objetivo: reactivar interés y dar motivo para volver.',
+      'lost': 'Se PERDIÓ antes. Objetivo: re-engagement suave, preguntar si sigue interesado.',
+      'perdido': 'Se PERDIÓ antes. Objetivo: re-engagement suave, preguntar si sigue interesado.',
+    };
+
+    const stageGoal = stageContext[stage] || 'Objetivo: avanzar la conversación hacia una venta.';
+    
+    const systemPrompt = `Eres un vendedor experto por WhatsApp. Acabas de enviar ${
+      mediaType === 'catalog' ? `un catálogo de "${mediaName}" con varias fotos` : 
+      mediaType === 'video' ? `un video de "${mediaName}"` :
+      mediaType === 'audio' ? `un audio de "${mediaName}"` :
+      `una imagen de "${mediaName}"`
+    } al cliente.
+
+${assistant?.businessInfo ? `Negocio: ${assistant.businessInfo.substring(0, 200)}` : ''}
+${assistant?.personality ? `Tu estilo: ${assistant.personality.substring(0, 100)}` : ''}
+
+ETAPA DEL CLIENTE: ${stage}
+${stageGoal}
+${clientName ? `Nombre del cliente: ${clientName}` : ''}
+${knownData ? `Datos conocidos: ${knownData}` : ''}
+
+El cliente preguntó: "${lastClientMsg.substring(0, 150)}"
+${previousAiResponse ? `Tu respuesta anterior fue: "${previousAiResponse.substring(0, 150)}"` : ''}
+Luego enviaste las fotos/media de "${mediaName}".
+
+GENERA UN MENSAJE CORTO de follow-up para enviar DESPUÉS de las fotos. REGLAS:
+- Máximo 1-2 líneas (40 palabras máximo)
+- DEBE terminar con UNA pregunta que avance la venta
+- Tono natural de WhatsApp (no formal, usa emojis con moderación)
+- NO repitas lo que ya dijiste
+- NO digas "como puedes ver en la imagen/foto"
+- La pregunta debe ser ESTRATÉGICA según la etapa:
+  * Lead nuevo → ¿Cuál te llama la atención? ¿Para qué ocasión buscas?
+  * Interesado → ¿Cuál es tu favorito? ¿Te preparo cotización?
+  * Cotización → ¿Listo para apartar? ¿Cuándo lo necesitas?
+  * Convertido → ¿Necesitas algo más? ¿Conoces nuestra línea de X?
+  * Perdido → ¿Sigues interesado? Tenemos novedades
+- SOLO responde con el mensaje, nada más`;
+
+    // 🚀 Llamada rápida a OpenAI (max 80 tokens = barato y veloz)
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 8000);
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Genera el follow-up post-media para ${clientName || 'el cliente'} (etapa: ${stage})` }
+        ],
+        temperature: 0.8,
+        max_tokens: 80
+      }),
+      signal: ctrl.signal
+    });
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = await res.json() as any;
+      let followUp = data.choices?.[0]?.message?.content?.trim();
+      if (followUp) {
+        // Limpiar comillas o prefijos innecesarios
+        followUp = followUp.replace(/^["']|["']$/g, '').replace(/^(Follow-up|Mensaje|Respuesta):\s*/i, '').trim();
+        // Limpiar tags de memoria si se colaron
+        followUp = followUp.replace(/<<MEMORY_JSON>>[\s\S]*?<<END_MEMORY>>/g, '').trim();
+        if (followUp.length > 5 && followUp.length < 300) {
+          log(`💬 Follow-up generado: "${followUp.substring(0, 60)}..." (etapa: ${stage})`);
+          return followUp;
+        }
+      }
+    }
+
+    return null;
+  } catch (e: any) {
+    log(`⚠️ Follow-up error (no crítico): ${e.message}`);
+    return null;
+  }
+};
+
+// ====================================================
+// 📤 ENVIAR FOLLOW-UP POST-MEDIA (helper reutilizable)
+// ====================================================
+const sendMediaFollowUp = async (
+  sessionName: string,
+  from: string,
+  userId: string,
+  convId: string,
+  mediaName: string,
+  mediaType: string,
+  previousAiResponse: string | null,
+  whatsappLineId?: string | null
+): Promise<void> => {
+  try {
+    const followUp = await generateMediaFollowUp(userId, convId, mediaName, mediaType, previousAiResponse, whatsappLineId);
+    if (!followUp) return;
+
+    // ⏳ Pausa natural: simular que "mira las fotos" y luego escribe
+    const pauseMs = 2000 + Math.random() * 2000; // 2-4 segundos
+    await new Promise(r => setTimeout(r, pauseMs));
+
+    // ⌨️ Typing indicator
+    await setPresence(sessionName, from, 'typing');
+    await humanDelay(followUp.length);
+    await stopPresence(sessionName, from);
+
+    // 📤 Enviar follow-up
+    const sent = await sendWahaMessage(sessionName, from, followUp);
+    if (sent) {
+      await prisma.message.create({ 
+        data: { conversationId: convId, content: followUp, fromMe: true, userId, role: 'assistant' } 
+      });
+      await prisma.conversation.update({ 
+        where: { id: convId }, 
+        data: { lastMessage: followUp } 
+      });
+      log(`💬 Follow-up enviado → ${from}: "${followUp.substring(0, 50)}..."`);
+    }
+  } catch (e: any) {
+    log(`⚠️ sendMediaFollowUp error (no crítico): ${e.message}`);
+  }
+};
+
+// ====================================================
 // 🔥 PROCESAR MENSAJES AGRUPADOS
 // Se ejecuta después de 3 seg sin nuevos mensajes
 // Combina todas las líneas y genera UNA respuesta
@@ -1799,6 +2003,43 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     if (matchedMedia) {
       log(`📎 Trigger multimedia: "${matchedMedia.name}" (tipo: ${matchedMedia.type})`);
+      await stopPresence(sessionName, from);
+
+      // ═══ PASO 1: ENVIAR MEDIA PRIMERO ═══
+      let mediaSent = false;
+      if (matchedMedia.type === 'catalog' && Array.isArray(matchedMedia.images) && matchedMedia.images.length > 0) {
+        log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
+        let sentCount = 0;
+        for (let i = 0; i < matchedMedia.images.length; i++) {
+          const img = matchedMedia.images[i];
+          const caption = i === 0 ? (matchedMedia.caption || matchedMedia.name) : (img.name || '');
+          const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
+          const sent = await sendWahaMedia(sessionName, from, imgMedia, caption);
+          if (sent) { sentCount++; log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`); }
+          if (i < matchedMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
+        }
+        await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
+        mediaSent = sentCount > 0;
+        log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
+      } else {
+        const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
+        if (sent) {
+          await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
+          mediaSent = true;
+        } else {
+          const fallbackText = matchedMedia.caption
+            ? `📎 ${matchedMedia.caption}`
+            : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles 😊`;
+          await sendWahaMessage(sessionName, from, fallbackText);
+          await prisma.message.create({ data: { conversationId: convId, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
+        }
+      }
+
+      // ═══ PASO 2: GENERAR Y ENVIAR TEXTO IA (después de la media) ═══
+      if (mediaSent) {
+        await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500)); // Pausa natural 1.5-3s
+        await setPresence(sessionName, from, 'typing');
+      }
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       await stopPresence(sessionName, from);
 
@@ -1808,40 +2049,10 @@ const processBufferedMessages = async (bufferKey: string) => {
         await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
       }
 
-      // 📂 CATÁLOGO: Enviar múltiples imágenes secuencialmente
-      if (matchedMedia.type === 'catalog' && Array.isArray(matchedMedia.images) && matchedMedia.images.length > 0) {
-        log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
-        let sentCount = 0;
-        for (let i = 0; i < matchedMedia.images.length; i++) {
-          const img = matchedMedia.images[i];
-          const caption = i === 0 ? (matchedMedia.caption || matchedMedia.name) : (img.name || '');
-          const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-          const sent = await sendWahaMedia(sessionName, from, imgMedia, caption);
-          if (sent) {
-            sentCount++;
-            log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`);
-          }
-          // Pequeña pausa entre imágenes para evitar throttling
-          if (i < matchedMedia.images.length - 1) {
-            await new Promise(r => setTimeout(r, 1500));
-          }
-        }
-        await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
-        log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
-      } else {
-        // Archivo individual (imagen, video, audio)
-        const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
-        if (sent) {
-          await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
-        } else {
-          const fallbackText = matchedMedia.caption
-            ? `📎 ${matchedMedia.caption}`
-            : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles 😊`;
-          await sendWahaMessage(sessionName, from, fallbackText);
-          await prisma.message.create({ data: { conversationId: convId, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
-        }
-      }
       await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse || `📎 ${matchedMedia.name}` } });
+
+      // ═══ PASO 3: FOLLOW-UP ESTRATÉGICO ═══
+      await sendMediaFollowUp(sessionName, from, userId, convId, matchedMedia.name, matchedMedia.type, aiResponse, whatsappLineId);
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
@@ -1857,46 +2068,18 @@ const processBufferedMessages = async (bufferKey: string) => {
         
         // Limpiar tags de control antes de enviar
         const cleanResponse = aiResponse.replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
-        
-        await humanDelay(cleanResponse.length);
-        
-        if (shouldVoice && assistant?.elevenLabsKey && assistant?.selectedVoice) {
-          // 🔊 MODO VOZ: Enviar texto + audio
-          const sent = await sendWahaMessage(sessionName, from, cleanResponse);
-          if (sent) {
-            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
-            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
-          }
-          
-          // Generar y enviar audio (fire-and-forget para no bloquear)
-          try {
-            const audioBuffer = await textToSpeech(cleanResponse, assistant.elevenLabsKey, assistant.selectedVoice);
-            if (audioBuffer) {
-              await sendVoiceNote(sessionName, from, audioBuffer);
-              await prisma.message.create({ data: { conversationId: convId, content: '🔊 [Nota de voz]', fromMe: true, userId, role: 'assistant', mediaType: 'audio' } });
-              log(`🔊 Voz enviada → ${senderName} (${audioBuffer.length} bytes)`);
-            }
-          } catch (voiceErr: any) {
-            console.error('⚠️ Error TTS (no crítico):', voiceErr.message);
-          }
-        } else {
-          // 📝 MODO TEXTO: Normal
-          const sent = await sendWahaMessage(sessionName, from, cleanResponse);
-          if (sent) {
-            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
-            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
-            log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
-          }
-        }
 
-        // 📸 TRIGGER POR RESPUESTA: Solo para CATÁLOGOS (no imágenes individuales)
-        const catalogItems = mediaItems.filter((m: any) => m.type === 'catalog' && m.trigger);
-        if (catalogItems.length > 0) {
-          const responseMedia = findMediaTrigger(cleanResponse, catalogItems);
-          if (responseMedia && responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
-            log(`📸 Trigger catálogo por RESPUESTA del bot: "${responseMedia.name}"`);
-            await new Promise(r => setTimeout(r, 1000));
-            log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes (por respuesta)`);
+        // ═══ DETECTAR TRIGGER EN RESPUESTA ANTES DE ENVIAR TEXTO ═══
+        const triggerableItems = mediaItems.filter((m: any) => m.trigger);
+        const responseMedia = triggerableItems.length > 0 ? findMediaTrigger(cleanResponse, triggerableItems) : null;
+
+        if (responseMedia) {
+          // ═══ FLUJO: MEDIA PRIMERO → TEXTO → FOLLOW-UP ═══
+          log(`📸 Trigger por RESPUESTA del bot: "${responseMedia.name}" (tipo: ${responseMedia.type})`);
+
+          // PASO 1: Enviar media PRIMERO
+          if (responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
+            log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes`);
             let sentCount = 0;
             for (let i = 0; i < responseMedia.images.length; i++) {
               const img = responseMedia.images[i];
@@ -1908,6 +2091,61 @@ const processBufferedMessages = async (bufferKey: string) => {
             }
             await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
             log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
+          } else {
+            const sent = await sendWahaMedia(sessionName, from, responseMedia, responseMedia.caption || '');
+            if (sent) {
+              await prisma.message.create({ data: { conversationId: convId, content: `📎 [${responseMedia.type}: ${responseMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: responseMedia.type } });
+              log(`📎 Media enviada por trigger de respuesta: ${responseMedia.name}`);
+            }
+          }
+
+          // PASO 2: Pausa natural + enviar texto IA DESPUÉS de la media
+          await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500));
+          await setPresence(sessionName, from, 'typing');
+          await humanDelay(cleanResponse.length);
+          await stopPresence(sessionName, from);
+
+          const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+          if (sent) {
+            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+            log(`🤖 Respuesta (post-media) → ${senderName}`);
+          }
+
+          // PASO 3: Follow-up estratégico
+          await sendMediaFollowUp(sessionName, from, userId, convId, responseMedia.name, responseMedia.type, cleanResponse, whatsappLineId);
+
+        } else {
+          // ═══ FLUJO NORMAL SIN TRIGGER: Solo texto ═══
+          await humanDelay(cleanResponse.length);
+        
+          if (shouldVoice && assistant?.elevenLabsKey && assistant?.selectedVoice) {
+            // 🔊 MODO VOZ: Enviar texto + audio
+            const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+            if (sent) {
+              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+              await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+            }
+            
+            // Generar y enviar audio
+            try {
+              const audioBuffer = await textToSpeech(cleanResponse, assistant.elevenLabsKey, assistant.selectedVoice);
+              if (audioBuffer) {
+                await sendVoiceNote(sessionName, from, audioBuffer);
+                await prisma.message.create({ data: { conversationId: convId, content: '🔊 [Nota de voz]', fromMe: true, userId, role: 'assistant', mediaType: 'audio' } });
+                log(`🔊 Voz enviada → ${senderName} (${audioBuffer.length} bytes)`);
+              }
+            } catch (voiceErr: any) {
+              console.error('⚠️ Error TTS (no crítico):', voiceErr.message);
+            }
+          } else {
+            // 📝 MODO TEXTO: Normal
+            const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+            if (sent) {
+              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+              await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+              log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
+            }
           }
         }
       }

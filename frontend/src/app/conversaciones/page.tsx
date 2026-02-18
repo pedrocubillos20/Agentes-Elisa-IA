@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Search, Send, X,
-  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText
+  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -50,8 +50,17 @@ export default function ConversacionesPage() {
   const [groupSettingsLocal, setGroupSettingsLocal] = useState<any>(null);
   const [fixingLids, setFixingLids] = useState(false);
   const [lidFixResult, setLidFixResult] = useState<any>(null);
+  // 📎 Chat media
+  const [chatMediaFile, setChatMediaFile] = useState<File | null>(null);
+  const [chatMediaPreview, setChatMediaPreview] = useState<string | null>(null);
+  // ⚡ Quick replies
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [editingQuickReplies, setEditingQuickReplies] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
+  const [newQuickReply, setNewQuickReply] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
   const selectedConvRef = useRef<any>(null); // Ref para polling de mensajes
   const lastMessageCountRef = useRef<number>(0);
 
@@ -228,24 +237,46 @@ export default function ConversacionesPage() {
   };
 
   // ====================================================
-  // ✉️ ENVIAR MENSAJE — Con whatsappLineId correcto + mensaje visible inmediato
+  // ✉️ ENVIAR MENSAJE — Con whatsappLineId correcto + media + optimistic
   // ====================================================
   const sendMessage = async () => {
-    if (!selectedConv || !newMessage.trim() || sending) return;
+    if (!selectedConv || (!newMessage.trim() && !chatMediaFile) || sending) return;
     setSending(true);
     const token = localStorage.getItem('token');
     const messageText = newMessage;
     
+    // Convertir archivo a base64 si hay media
+    let mediaUrl: string | null = null;
+    let mediaType: string | null = null;
+    
+    if (chatMediaFile) {
+      mediaUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(chatMediaFile);
+      });
+      if (chatMediaFile.type.startsWith('image/')) mediaType = 'image';
+      else if (chatMediaFile.type.startsWith('audio/')) mediaType = 'audio';
+      else if (chatMediaFile.type.startsWith('video/')) mediaType = 'video';
+      else mediaType = 'document';
+    }
+
     // 🔥 MOSTRAR MENSAJE INMEDIATAMENTE en el chat (optimistic update)
     const optimisticMsg = {
       id: `temp-${Date.now()}`,
-      content: messageText,
+      content: messageText || (mediaType === 'image' ? '📷 [Imagen]' : mediaType === 'audio' ? '🎤 [Audio]' : '📎 [Archivo]'),
       fromMe: true,
       timestamp: new Date().toISOString(),
-      role: 'assistant'
+      role: 'assistant',
+      ...(mediaType === 'image' && chatMediaPreview ? { mediaType: 'image', mediaUrl: chatMediaPreview } : {}),
+      ...(mediaType && mediaType !== 'image' ? { mediaType } : {})
     };
     setMessages(prev => [...prev, optimisticMsg]);
     setNewMessage('');
+    setChatMediaFile(null);
+    setChatMediaPreview(null);
+    if (chatFileInputRef.current) chatFileInputRef.current.value = '';
 
     try {
       const res = await fetch(`${API_URL}/api/whatsapp/send`, {
@@ -253,15 +284,14 @@ export default function ConversacionesPage() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           to: selectedConv.recipientId, 
-          message: messageText, 
-          whatsappLineId: getLineId()  // ✅ FIX: era "lineId", ahora "whatsappLineId"
+          message: messageText || null, 
+          whatsappLineId: getLineId(),
+          ...(mediaUrl && { mediaUrl, mediaType })
         })
       });
       if (res.ok) {
-        // Refrescar mensajes reales después de 1.5s
         setTimeout(() => fetchMessages(selectedConv.id), 1500);
       } else {
-        // Si falló, quitar el mensaje optimista y restaurar texto
         setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
         setNewMessage(messageText);
       }
@@ -270,6 +300,57 @@ export default function ConversacionesPage() {
       setNewMessage(messageText);
     }
     finally { setSending(false); }
+  };
+
+  // 📎 Chat media handlers
+  const handleChatFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setChatMediaFile(file);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setChatMediaPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setChatMediaPreview(null);
+    }
+  };
+
+  const removeChatMedia = () => {
+    setChatMediaFile(null);
+    setChatMediaPreview(null);
+    if (chatFileInputRef.current) chatFileInputRef.current.value = '';
+  };
+
+  // ⚡ Quick Replies — Guardadas en localStorage por línea
+  const qrKey = `quickReplies_${getLineId() || 'default'}`;
+  
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(qrKey);
+      if (saved) setQuickReplies(JSON.parse(saved));
+      else setQuickReplies(['¡Hola! ¿En qué puedo ayudarte?', 'Gracias por tu compra 🎉', 'Déjame verificar y te confirmo', 'Listo, tu pedido ha sido enviado ✅', '¿Necesitas algo más?']);
+    } catch { setQuickReplies([]); }
+  }, [qrKey]);
+
+  const saveQuickReplies = (replies: string[]) => {
+    setQuickReplies(replies);
+    localStorage.setItem(qrKey, JSON.stringify(replies));
+  };
+
+  const addQuickReply = () => {
+    if (!newQuickReply.trim()) return;
+    saveQuickReplies([...quickReplies, newQuickReply.trim()]);
+    setNewQuickReply('');
+  };
+
+  const removeQuickReply = (index: number) => {
+    saveQuickReplies(quickReplies.filter((_, i) => i !== index));
+  };
+
+  const useQuickReply = (text: string) => {
+    setNewMessage(text);
+    setShowQuickReplies(false);
   };
 
   const toggleAIPause = async () => {
@@ -591,9 +672,80 @@ export default function ConversacionesPage() {
               </div>
 
               <div className="p-3 border-t border-[var(--border-primary)] flex-shrink-0">
-                <div className="flex gap-2">
+                <input ref={chatFileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleChatFileSelect} className="hidden" />
+                
+                {/* 📎 Media preview */}
+                {chatMediaFile && (
+                  <div className="flex items-center gap-2 p-2 mb-2 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-primary)]">
+                    {chatMediaPreview ? (
+                      <img src={chatMediaPreview} alt="" className="w-12 h-12 rounded object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                        {chatMediaFile.type.startsWith('audio/') ? <Mic className="w-4 h-4 text-[var(--accent-primary)]" /> : <FileText className="w-4 h-4 text-[var(--accent-primary)]" />}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-white truncate">{chatMediaFile.name}</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">{(chatMediaFile.size / 1024).toFixed(0)} KB</p>
+                    </div>
+                    <button onClick={removeChatMedia} className="p-1 hover:bg-white/10 rounded"><X className="w-4 h-4 text-red-400" /></button>
+                  </div>
+                )}
+
+                {/* ⚡ Quick Replies dropdown */}
+                {showQuickReplies && (
+                  <div className="mb-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-2 max-h-[200px] overflow-y-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-[var(--text-muted)]">⚡ Respuestas rápidas</span>
+                      <button onClick={() => setEditingQuickReplies(!editingQuickReplies)} className="text-[10px] text-[var(--accent-primary)] hover:underline">
+                        {editingQuickReplies ? 'Listo' : 'Editar'}
+                      </button>
+                    </div>
+                    {quickReplies.map((qr, i) => (
+                      <div key={i} className="flex items-center gap-1 group">
+                        <button onClick={() => useQuickReply(qr)} className="flex-1 text-left text-xs text-white px-2 py-1.5 rounded hover:bg-white/10 transition truncate">
+                          {qr}
+                        </button>
+                        {editingQuickReplies && (
+                          <button onClick={() => removeQuickReply(i)} className="p-0.5 hover:bg-red-500/20 rounded"><X className="w-3 h-3 text-red-400" /></button>
+                        )}
+                      </div>
+                    ))}
+                    {editingQuickReplies && (
+                      <div className="flex gap-1 mt-2 pt-2 border-t border-[var(--border-primary)]">
+                        <input value={newQuickReply} onChange={(e) => setNewQuickReply(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addQuickReply()}
+                          placeholder="Nueva respuesta..." className="flex-1 bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded px-2 py-1 text-xs text-white placeholder-[var(--text-muted)] focus:outline-none" />
+                        <button onClick={addQuickReply} className="px-2 py-1 bg-[var(--accent-primary)] rounded text-xs text-white">+</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Input row: media buttons + quick replies + text + send */}
+                <div className="flex items-center gap-1.5">
+                  {/* Media buttons */}
+                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'image/*'; chatFileInputRef.current.click(); } }}
+                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Imagen">
+                    <Image className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'audio/*'; chatFileInputRef.current.click(); } }}
+                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Audio">
+                    <Mic className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = '*/*'; chatFileInputRef.current.click(); } }}
+                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Archivo">
+                    <Paperclip className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                  <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                    className={`p-2 hover:bg-white/10 rounded-lg transition ${showQuickReplies ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : ''}`} title="Respuestas rápidas">
+                    <Zap className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+
+                  <div className="h-5 w-px bg-[var(--border-primary)]" />
+
+                  {/* Text input */}
                   <input type="text" placeholder="Escribe un mensaje..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} className="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-                  <button onClick={sendMessage} disabled={sending || !newMessage.trim()} className="btn-primary px-4 py-2 disabled:opacity-50">
+                  <button onClick={sendMessage} disabled={sending || (!newMessage.trim() && !chatMediaFile)} className="btn-primary px-4 py-2 disabled:opacity-50">
                     {sending ? <div className="loading-spinner w-4 h-4" /> : <Send className="w-4 h-4" />}
                   </button>
                 </div>

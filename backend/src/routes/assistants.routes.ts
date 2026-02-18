@@ -1,20 +1,9 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getOwnerId } from '../lib/helpers';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
-
-// ⚡ getOwnerId con cache — sub-usuarios heredan asistentes del admin
-const ownerIdCache = new Map<string, { value: string; ts: number }>();
-const getOwnerId = async (userId: string): Promise<string> => {
-  const cached = ownerIdCache.get(userId);
-  if (cached && Date.now() - cached.ts < 300000) return cached.value;
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  const ownerId = user?.parentUserId || userId;
-  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
-  return ownerId;
-};
-
 // GET /api/assistants - returns assistant for specific line or default
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -439,15 +428,51 @@ router.post('/learn/dismiss', async (req: Request, res: Response) => {
 router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
   try {
     const { apiKey } = req.body;
+    if (!apiKey) return res.status(400).json({ error: 'API Key requerida' });
     const response = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': apiKey } });
     if (response.ok) {
       const data = await response.json() as any;
       res.json({ voices: data.voices });
     } else {
-      res.status(400).json({ error: 'API Key inválida' });
+      const errText = await response.text().catch(() => '');
+      res.status(400).json({ error: `API Key inválida (${response.status})`, detail: errText.substring(0, 200) });
     }
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Error de conexión: ' + error.message });
+  }
+});
+
+// POST /api/assistants/elevenlabs/preview — Previsualizar voz
+router.post('/elevenlabs/preview', async (req: Request, res: Response) => {
+  try {
+    const { apiKey, voiceId, text } = req.body;
+    if (!apiKey || !voiceId) return res.status(400).json({ error: 'apiKey y voiceId requeridos' });
+    
+    const previewText = text || 'Hola, soy tu asistente virtual. ¿En qué puedo ayudarte hoy?';
+    
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg'
+      },
+      body: JSON.stringify({
+        text: previewText,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+      })
+    });
+    
+    if (!response.ok) {
+      return res.status(400).json({ error: `Error TTS (${response.status})` });
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    res.json({ audio: `data:audio/mpeg;base64,${base64}` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -413,13 +413,43 @@ export default function AsistentesPage() {
     if (!elevenLabsKey) return;
     setTestingVoice(true);
     try {
-      const res = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': elevenLabsKey } });
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/assistants/elevenlabs/voices`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: elevenLabsKey })
+      });
       if (res.ok) {
         const data = await res.json();
         setElevenLabsVoices(data.voices || []);
         setMessage({ type: 'success', text: `¡Conectado! ${data.voices?.length || 0} voces disponibles` });
       } else {
-        setMessage({ type: 'error', text: 'API Key de ElevenLabs inválida' });
+        const err = await res.json().catch(() => ({}));
+        setMessage({ type: 'error', text: err.error || 'API Key de ElevenLabs inválida' });
+      }
+    } catch { setMessage({ type: 'error', text: 'Error de conexión con ElevenLabs' }); }
+    finally { setTestingVoice(false); }
+  };
+
+  const previewVoice = async (voiceId: string) => {
+    if (!elevenLabsKey || !voiceId) return;
+    setTestingVoice(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/assistants/elevenlabs/preview`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: elevenLabsKey, voiceId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audio) {
+          const audio = new Audio(data.audio);
+          audio.play();
+          setMessage({ type: 'success', text: '🔊 Reproduciendo vista previa...' });
+        }
+      } else {
+        setMessage({ type: 'error', text: 'Error al generar preview' });
       }
     } catch { setMessage({ type: 'error', text: 'Error de conexión' }); }
     finally { setTestingVoice(false); }
@@ -918,7 +948,7 @@ export default function AsistentesPage() {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-white">ElevenLabs Text-to-Speech</h3>
-                <p className="text-[var(--text-muted)]">El asistente puede responder con audios de voz natural</p>
+                <p className="text-[var(--text-muted)]">El asistente responde con notas de voz de IA</p>
               </div>
             </div>
 
@@ -927,7 +957,7 @@ export default function AsistentesPage() {
                 <label className="input-label">Tu API Key de ElevenLabs</label>
                 <div className="flex gap-3">
                   <input type="password" value={elevenLabsKey} onChange={(e) => setElevenLabsKey(e.target.value)}
-                    placeholder="Pega tu API Key aquí..." className="input flex-1 font-mono" />
+                    placeholder="sk_..." className="input flex-1 font-mono" />
                   <button onClick={testElevenLabs} disabled={!elevenLabsKey || testingVoice} className="btn-secondary">
                     {testingVoice ? <div className="loading-spinner w-4 h-4" /> : <RefreshCw className="w-4 h-4" />}
                     Conectar
@@ -938,14 +968,23 @@ export default function AsistentesPage() {
               {elevenLabsVoices.length > 0 && (
                 <div>
                   <label className="input-label">Selecciona una Voz</label>
-                  <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="input">
-                    <option value="">-- Selecciona una voz --</option>
-                    {elevenLabsVoices.map((voice) => (
-                      <option key={voice.voice_id} value={voice.voice_id}>
-                        {voice.name} {voice.labels?.accent && `(${voice.labels.accent})`}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex gap-3">
+                    <select value={selectedVoice} onChange={(e) => setSelectedVoice(e.target.value)} className="input flex-1">
+                      <option value="">-- Selecciona una voz --</option>
+                      {elevenLabsVoices.map((voice) => (
+                        <option key={voice.voice_id} value={voice.voice_id}>
+                          {voice.name} {voice.labels?.accent ? `(${voice.labels.accent})` : ''} {voice.labels?.gender ? `- ${voice.labels.gender}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedVoice && (
+                      <button onClick={() => previewVoice(selectedVoice)} disabled={testingVoice} className="btn-secondary"
+                        title="Escuchar vista previa">
+                        {testingVoice ? <div className="loading-spinner w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        Probar
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -953,12 +992,28 @@ export default function AsistentesPage() {
                 <div className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
                   <div>
                     <h4 className="font-medium text-white">Activar respuestas de voz</h4>
-                    <p className="text-sm text-[var(--text-muted)]">El asistente enviará audios en cada respuesta</p>
+                    <p className="text-sm text-[var(--text-muted)]">La IA decidirá cuándo responder con voz según el contexto</p>
                   </div>
                   <button onClick={() => setVoiceEnabled(!voiceEnabled)}
                     className={`relative w-16 h-8 rounded-full transition-all ${voiceEnabled ? 'bg-[var(--accent-primary)]' : 'bg-[var(--bg-primary)]'}`}>
                     <div className={`absolute top-1 w-6 h-6 rounded-full bg-white shadow-lg transition-all ${voiceEnabled ? 'left-9' : 'left-1'}`} />
                   </button>
+                </div>
+              )}
+
+              {voiceEnabled && selectedVoice && (
+                <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  <h4 className="font-medium text-emerald-400 mb-2">🔊 Voz IA Activa</h4>
+                  <p className="text-sm text-[var(--text-muted)] mb-3">
+                    La IA enviará notas de voz automáticamente cuando sea apropiado. Puedes controlar cuándo desde tu base de conocimiento:
+                  </p>
+                  <div className="space-y-2 text-xs text-[var(--text-muted)] bg-black/20 rounded-lg p-3 font-mono">
+                    <p className="text-emerald-400">// Ejemplo en tu contexto/knowledge:</p>
+                    <p>- Saluda siempre con nota de voz</p>
+                    <p>- Usa voz al confirmar pedidos</p>
+                    <p>- Responde con voz cuando el cliente pregunte por precios</p>
+                    <p>- NO uses voz para enviar direcciones o datos</p>
+                  </div>
                 </div>
               )}
             </div>
@@ -970,7 +1025,8 @@ export default function AsistentesPage() {
               <li>1. Crea una cuenta gratis en <a href="https://elevenlabs.io" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">elevenlabs.io</a></li>
               <li>2. Ve a tu perfil → API Keys</li>
               <li>3. Copia tu API Key y pégala arriba</li>
-              <li>4. Cada usuario usa sus propios créditos</li>
+              <li>4. Cada usuario usa sus propios créditos de ElevenLabs</li>
+              <li>5. Plan gratis incluye 10,000 caracteres/mes (~10 min de audio)</li>
             </ol>
           </div>
         </div>

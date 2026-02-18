@@ -270,6 +270,87 @@ const sendWahaMessage = async (session: string, chatId: string, text: string): P
 };
 
 // ====================================================
+// 🔊 TEXT-TO-SPEECH (ElevenLabs)
+// ====================================================
+const textToSpeech = async (text: string, apiKey: string, voiceId: string): Promise<Buffer | null> => {
+  try {
+    // Limpiar texto (quitar emojis, markdown, URLs, etc.)
+    const cleanText = text
+      .replace(/<<MEMORY_JSON>>[\s\S]*?<<END_MEMORY>>/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[*_~`#]/g, '')
+      .replace(/<<VOZ>>/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    
+    if (!cleanText || cleanText.length < 3) return null;
+    // Limitar a 800 chars para no gastar créditos en textos muy largos
+    const trimmedText = cleanText.length > 800 ? cleanText.substring(0, 800) + '...' : cleanText;
+    
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg'
+      },
+      body: JSON.stringify({
+        text: trimmedText,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true
+        }
+      })
+    });
+    
+    if (!response.ok) {
+      console.error(`❌ ElevenLabs TTS error (${response.status}): ${await response.text().catch(() => '')}`);
+      return null;
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (e: any) {
+    console.error('❌ ElevenLabs TTS error:', e.message);
+    return null;
+  }
+};
+
+// 🎤 Enviar nota de voz via WAHA
+const sendVoiceNote = async (session: string, chatId: string, audioBuffer: Buffer): Promise<boolean> => {
+  try {
+    const base64Audio = audioBuffer.toString('base64');
+    
+    const r = await fetch(`${WAHA_API_URL}/api/sendFile`, {
+      method: 'POST',
+      headers: getWahaHeaders(),
+      body: JSON.stringify({
+        session,
+        chatId,
+        file: {
+          mimetype: 'audio/mpeg',
+          filename: 'voice.mp3',
+          data: base64Audio
+        }
+      })
+    });
+    
+    if (r.ok) {
+      log('🔊 Nota de voz enviada OK');
+      return true;
+    }
+    console.error(`❌ sendVoiceNote error (${r.status}): ${await r.text().catch(() => '')}`);
+    return false;
+  } catch (e: any) {
+    console.error('❌ sendVoiceNote error:', e.message);
+    return false;
+  }
+};
+
+// ====================================================
 // 🎤 AUDIO TRANSCRIPTION (Whisper via OpenAI)
 // ====================================================
 const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<string | null> => {
@@ -839,6 +920,33 @@ INSTRUCCIONES:
 `;
 
     promptParts.push(memoryPrompt);
+
+    // 🔊 INSTRUCCIONES DE VOZ (si ElevenLabs está activo)
+    if (assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice) {
+      promptParts.push(`
+=== 🔊 MODO VOZ ACTIVADO ===
+
+El sistema puede convertir tus respuestas en notas de voz. Usa la etiqueta <<VOZ>> al INICIO de tu respuesta cuando consideres que responder con audio mejoraría la experiencia del cliente.
+
+CUÁNDO USAR <<VOZ>>:
+- Saludos personalizados (primera interacción)
+- Confirmaciones importantes (pedidos, citas, reservas confirmadas)
+- Explicaciones detalladas de productos/servicios
+- Seguimiento post-venta
+- Cuando el cliente envía audio (responder con audio es más natural)
+- Momentos emotivos o de cierre de venta
+
+CUÁNDO NO USAR <<VOZ>> (solo texto):
+- Mensajes con listas, precios, direcciones o datos técnicos (mejor leer)
+- Respuestas muy cortas ("ok", "listo", "sí")
+- Cuando envías links o números de cuenta
+
+FORMATO: Si quieres voz, empieza tu respuesta con <<VOZ>> y luego tu texto normal.
+Ejemplo: <<VOZ>>¡Hola Pedro! Bienvenido, me alegra que nos contactes...
+
+El tag <<VOZ>> es interno, el cliente NO lo verá.
+`);
+    }
 
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
@@ -1731,37 +1839,65 @@ const processBufferedMessages = async (bufferKey: string) => {
       await stopPresence(sessionName, from);
 
       if (aiResponse) {
-        await humanDelay(aiResponse.length);
-        const sent = await sendWahaMessage(sessionName, from, aiResponse);
-        if (sent) {
-          await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
-          await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse } });
-          log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
-
-          // 📸 TRIGGER POR RESPUESTA: Solo para CATÁLOGOS (no imágenes individuales)
-          // Esto evita falsos positivos con triggers simples como "Negro", "precio", etc.
-          const catalogItems = mediaItems.filter((m: any) => m.type === 'catalog' && m.trigger);
-          if (catalogItems.length > 0) {
-            const responseMedia = findMediaTrigger(aiResponse, catalogItems);
-            if (responseMedia && responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
-              log(`📸 Trigger catálogo por RESPUESTA del bot: "${responseMedia.name}"`);
-              
-              // Pequeña pausa antes de enviar multimedia
-              await new Promise(r => setTimeout(r, 1000));
-
-              log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes (por respuesta)`);
-              let sentCount = 0;
-              for (let i = 0; i < responseMedia.images.length; i++) {
-                const img = responseMedia.images[i];
-                const caption = i === 0 ? (responseMedia.caption || responseMedia.name) : '';
-                const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-                const imgSent = await sendWahaMedia(sessionName, from, imgMedia, caption);
-                if (imgSent) sentCount++;
-                if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
-              }
-              await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
-              log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
+        // 🔊 CHECK: ¿Responder con voz?
+        const shouldVoice = isVoiceMode && (
+          aiResponse.includes('<<VOZ>>') || // Trigger explícito desde el contexto/IA
+          (assistant?.voiceEnabled && !aiResponse.includes('<<TEXTO>>')) // Modo siempre-voz (salvo override)
+        );
+        
+        // Limpiar tags de control antes de enviar
+        const cleanResponse = aiResponse.replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
+        
+        await humanDelay(cleanResponse.length);
+        
+        if (shouldVoice && assistant?.elevenLabsKey && assistant?.selectedVoice) {
+          // 🔊 MODO VOZ: Enviar texto + audio
+          const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+          if (sent) {
+            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+          }
+          
+          // Generar y enviar audio (fire-and-forget para no bloquear)
+          try {
+            const audioBuffer = await textToSpeech(cleanResponse, assistant.elevenLabsKey, assistant.selectedVoice);
+            if (audioBuffer) {
+              await sendVoiceNote(sessionName, from, audioBuffer);
+              await prisma.message.create({ data: { conversationId: convId, content: '🔊 [Nota de voz]', fromMe: true, userId, role: 'assistant', mediaType: 'audio' } });
+              log(`🔊 Voz enviada → ${senderName} (${audioBuffer.length} bytes)`);
             }
+          } catch (voiceErr: any) {
+            console.error('⚠️ Error TTS (no crítico):', voiceErr.message);
+          }
+        } else {
+          // 📝 MODO TEXTO: Normal
+          const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+          if (sent) {
+            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+            log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
+          }
+        }
+
+        // 📸 TRIGGER POR RESPUESTA: Solo para CATÁLOGOS (no imágenes individuales)
+        const catalogItems = mediaItems.filter((m: any) => m.type === 'catalog' && m.trigger);
+        if (catalogItems.length > 0) {
+          const responseMedia = findMediaTrigger(cleanResponse, catalogItems);
+          if (responseMedia && responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
+            log(`📸 Trigger catálogo por RESPUESTA del bot: "${responseMedia.name}"`);
+            await new Promise(r => setTimeout(r, 1000));
+            log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes (por respuesta)`);
+            let sentCount = 0;
+            for (let i = 0; i < responseMedia.images.length; i++) {
+              const img = responseMedia.images[i];
+              const caption = i === 0 ? (responseMedia.caption || responseMedia.name) : '';
+              const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
+              const imgSent = await sendWahaMedia(sessionName, from, imgMedia, caption);
+              if (imgSent) sentCount++;
+              if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
+            }
+            await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
+            log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
           }
         }
       }

@@ -43,6 +43,11 @@ model User {
   whatsappConnected     Boolean   @default(false)
   whatsappStatus        String?
   
+  // === STORAGE ===
+  storageUsed     Int      @default(0)         // Bytes usados actualmente
+  storageLimit    Int      @default(262144000)  // 250MB en bytes (default)
+  extraStorage    Int      @default(0)          // Storage adicional comprado (bytes)
+  
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -56,6 +61,7 @@ model User {
   whatsappLines   WhatsappLine[]
   apiKeys         UserApiKey[]
   webhooks        UserWebhook[]
+  mediaFiles      MediaFile[]
 
   @@index([parentUserId])
   @@index([role])
@@ -446,4 +452,23 @@ model WebhookLog {
 
   @@index([webhookId])
   @@index([userId, createdAt(sort: Desc)])
+}
+
+// ====================================================
+// 📁 MEDIA FILE — Tracking de archivos en storage externo
+// ====================================================
+model MediaFile {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url         String    // URL pública (R2 o local)
+  key         String    // Key en R2 o path local (para eliminar)
+  fileName    String
+  fileSize    Int       // Bytes
+  mimeType    String
+  category    String    @default("assistant") // assistant, scheduled, chat
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([userId, category])
 }

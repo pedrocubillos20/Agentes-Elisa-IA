@@ -16,6 +16,7 @@ import subscriptionRoutes from './routes/subscription.routes';
 import stagesRoutes from './routes/stages.routes';
 import scheduledRoutes, { startScheduledMessagesCron } from './routes/scheduled.routes';
 import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes';
+import mediaRoutes from './routes/media.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -104,6 +105,7 @@ app.use('/api/appointments', authMiddleware, subscriptionMiddleware, apiRL, appo
 app.use('/api/team', authMiddleware, subscriptionMiddleware, apiRL, teamRoutes);
 app.use('/api/stages', authMiddleware, subscriptionMiddleware, apiRL, stagesRoutes);
 app.use('/api/scheduled', authMiddleware, subscriptionMiddleware, apiRL, scheduledRoutes);
+app.use('/api/media', authMiddleware, subscriptionMiddleware, rateLimit(30, 60_000), mediaRoutes);
 app.use('/api/subscription', authMiddleware, subscriptionRoutes);
 app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
 app.use('/api/v1', apiPublicRoutes);

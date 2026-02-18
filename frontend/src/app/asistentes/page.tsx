@@ -23,6 +23,8 @@ export default function AsistentesPage() {
 
   // Media
   const [mediaItems, setMediaItems] = useState<any[]>([]);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<any>(null);
 
   // Voice
   const [elevenLabsKey, setElevenLabsKey] = useState('');
@@ -42,10 +44,22 @@ export default function AsistentesPage() {
 
   useEffect(() => {
     fetchAssistant();
+    fetchStorage();
     const onLineChanged = () => { setLoading(true); fetchAssistant(); };
     window.addEventListener('lineChanged', onLineChanged);
     return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
+
+  const fetchStorage = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/media/storage`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setStorageInfo(await res.json());
+    } catch {}
+  };
 
   const fetchAssistant = async () => {
     const token = localStorage.getItem('token');
@@ -102,18 +116,9 @@ export default function AsistentesPage() {
     setMessage({ type: '', text: '' });
     const token = localStorage.getItem('token');
 
-    // 📏 Calculate total media size before saving
-    const totalMediaSize = JSON.stringify(mediaItems).length;
-    const totalMB = (totalMediaSize / (1024 * 1024)).toFixed(1);
-    if (totalMediaSize > 45 * 1024 * 1024) {
-      setMessage({ type: 'error', text: `Los archivos multimedia suman ${totalMB}MB (máx 45MB). Elimina algunos archivos grandes.` });
-      setSaving(false);
-      return;
-    }
-
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+      const timeout = setTimeout(() => controller.abort(), 30000);
 
       const res = await fetch(`${API_URL}/api/assistants`, {
         method: 'POST',
@@ -138,13 +143,14 @@ export default function AsistentesPage() {
 
       if (res.ok) {
         setMessage({ type: 'success', text: '¡Configuración guardada correctamente!' });
+        fetchStorage(); // Actualizar info de storage
       } else {
         const data = await res.json().catch(() => ({}));
         setMessage({ type: 'error', text: data.error || `Error al guardar (${res.status})` });
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        setMessage({ type: 'error', text: 'Tiempo agotado. Los archivos pueden ser muy pesados. Intenta eliminar videos grandes.' });
+        setMessage({ type: 'error', text: 'Tiempo agotado. Intenta de nuevo.' });
       } else {
         setMessage({ type: 'error', text: 'Error de conexión. Verifica tu internet e intenta de nuevo.' });
       }
@@ -155,94 +161,75 @@ export default function AsistentesPage() {
   };
 
   // ===== MULTIMEDIA =====
+  // ===== MULTIMEDIA: Upload via API (compresión en backend) =====
   const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Video: 10MB, Image/Audio: 5MB
-    const maxSize = type === 'video' ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
-    const maxLabel = type === 'video' ? '10MB' : '5MB';
+    // Límites por tipo
+    const maxSize = type === 'video' ? 15 * 1024 * 1024 : 5 * 1024 * 1024;
+    const maxLabel = type === 'video' ? '15MB' : '5MB';
     if (file.size > maxSize) {
       setMessage({ type: 'error', text: `Archivo muy grande (máx ${maxLabel})` });
       return;
     }
 
-    // Check total accumulated size before adding
-    const currentTotalSize = JSON.stringify(mediaItems).length;
-    const estimatedNewSize = currentTotalSize + (file.size * 1.37); // base64 inflation
-    if (estimatedNewSize > 40 * 1024 * 1024) {
-      const currentMB = (currentTotalSize / (1024 * 1024)).toFixed(1);
-      setMessage({ type: 'error', text: `Ya tienes ${currentMB}MB de archivos. Elimina algunos antes de agregar más.` });
-      return;
-    }
+    setUploadingMedia(true);
+    setMessage({ type: '', text: '' });
 
-    // For images: compress if larger than 500KB
-    if (type === 'image' && file.size > 500 * 1024) {
-      try {
-        const compressed = await compressImage(file, 1200, 0.75);
-        const newMedia = {
-          id: Date.now().toString(),
-          name: file.name,
-          type,
-          url: compressed,
-          trigger: '',
-          caption: '',
-          size: compressed.length
-        };
-        setMediaItems(prev => [...prev, newMedia]);
-        const savedKB = ((file.size - compressed.length) / 1024).toFixed(0);
-        setMessage({ type: 'success', text: `Imagen "${file.name}" comprimida y agregada (ahorró ${savedKB}KB)` });
-        e.target.value = '';
+    try {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+      formData.append('files', file);
+      formData.append('category', 'assistant');
+
+      const res = await fetch(`${API_URL}/api/media/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.storage?.fileTooLarge) {
+          setMessage({ type: 'error', text: `Sin espacio. ${data.error}` });
+        } else {
+          setMessage({ type: 'error', text: data.error || 'Error al subir archivo' });
+        }
         return;
-      } catch {} // Fallback to uncompressed
-    }
+      }
 
-    const reader = new FileReader();
-    reader.onload = () => {
+      const data = await res.json();
+      const uploaded = data.files[0];
+
       const newMedia = {
         id: Date.now().toString(),
         name: file.name,
         type,
-        url: reader.result as string,
+        url: uploaded.url,
+        key: uploaded.key,
         trigger: '',
         caption: '',
-        size: file.size
+        size: uploaded.fileSize
       };
       setMediaItems(prev => [...prev, newMedia]);
-      setMessage({ type: 'success', text: `${type === 'image' ? 'Imagen' : type === 'video' ? 'Video' : 'Audio'} "${file.name}" agregado. Define un trigger y guarda.` });
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+
+      const savedPct = uploaded.savedPercent > 0 ? ` (comprimido ${uploaded.savedPercent}%)` : '';
+      const typeLabel = type === 'image' ? 'Imagen' : type === 'video' ? 'Video' : 'Audio';
+      setMessage({ type: 'success', text: `${typeLabel} "${file.name}" subido${savedPct}. Define un trigger y guarda.` });
+      fetchStorage(); // Actualizar barra de storage
+    } catch (error: any) {
+      setMessage({ type: 'error', text: 'Error de conexión al subir archivo' });
+    } finally {
+      setUploadingMedia(false);
+      e.target.value = '';
+    }
   };
 
-  // 🖼️ Compress image using canvas
-  const compressImage = (file: File, maxDim: number, quality: number): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new window.Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          const ratio = Math.min(maxDim / width, maxDim / height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject('no ctx'); return; }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', quality));
-      };
-      img.onerror = reject;
-      img.src = URL.createObjectURL(file);
-    });
-  };
-
-  // 📏 Calculate total media size
-  const totalMediaSize = JSON.stringify(mediaItems).length;
-  const totalMediaMB = (totalMediaSize / (1024 * 1024)).toFixed(1);
-  const mediaSizePercent = Math.min((totalMediaSize / (45 * 1024 * 1024)) * 100, 100);
+  // 📏 Storage info from backend (real)
+  const storageUsedMB = storageInfo ? parseFloat(storageInfo.usedMB) : 0;
+  const storageLimitMB = storageInfo ? parseFloat(storageInfo.limitMB) : 250;
+  const storagePercent = storageInfo ? storageInfo.percent : 0;
 
   // 📂 CATÁLOGO: Crear nuevo catálogo vacío
   const createCatalog = () => {
@@ -258,7 +245,7 @@ export default function AsistentesPage() {
     setMessage({ type: 'success', text: 'Catálogo creado. Agrega imágenes, define trigger y guarda.' });
   };
 
-  // 📂 CATÁLOGO: Agregar imagen al catálogo (with compression)
+  // 📂 CATÁLOGO: Agregar imagen(es) via API upload
   const addImageToCatalog = async (catalogIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -275,51 +262,61 @@ export default function AsistentesPage() {
     }
 
     const filesToProcess = Array.from(files).slice(0, remaining);
+    setUploadingMedia(true);
     let processed = 0;
 
-    for (const file of filesToProcess) {
-      if (file.size > 5 * 1024 * 1024) {
-        setMessage({ type: 'error', text: `"${file.name}" es muy grande (máx 5MB)` });
-        continue;
-      }
+    try {
+      const token = localStorage.getItem('token');
 
-      let imageUrl: string;
-      // Compress if > 300KB
-      if (file.size > 300 * 1024) {
-        try {
-          imageUrl = await compressImage(file, 1200, 0.75);
-        } catch {
-          imageUrl = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(file);
-          });
+      for (const file of filesToProcess) {
+        if (file.size > 5 * 1024 * 1024) {
+          setMessage({ type: 'error', text: `"${file.name}" es muy grande (máx 5MB)` });
+          continue;
         }
-      } else {
-        imageUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
+
+        const formData = new FormData();
+        formData.append('files', file);
+        formData.append('category', 'assistant');
+
+        const res = await fetch(`${API_URL}/api/media/upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
         });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setMessage({ type: 'error', text: data.error || `Error subiendo ${file.name}` });
+          continue;
+        }
+
+        const data = await res.json();
+        const uploaded = data.files[0];
+
+        processed++;
+        setMediaItems(prev => prev.map((item, i) => {
+          if (i !== catalogIndex) return item;
+          const imgs = [...(item.images || []), {
+            id: `${Date.now()}-${processed}`,
+            name: file.name,
+            url: uploaded.url,
+            key: uploaded.key,
+            size: uploaded.fileSize
+          }];
+          return { ...item, images: imgs };
+        }));
       }
 
-      processed++;
-      setMediaItems(prev => prev.map((item, i) => {
-        if (i !== catalogIndex) return item;
-        const imgs = [...(item.images || []), {
-          id: `${Date.now()}-${processed}`,
-          name: file.name,
-          url: imageUrl,
-          size: imageUrl.length
-        }];
-        return { ...item, images: imgs };
-      }));
+      if (processed > 0) {
+        setMessage({ type: 'success', text: `${processed} imagen(es) subida(s) y comprimida(s) al catálogo` });
+        fetchStorage();
+      }
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Error de conexión al subir imágenes' });
+    } finally {
+      setUploadingMedia(false);
+      e.target.value = '';
     }
-
-    if (processed > 0) {
-      setMessage({ type: 'success', text: `${processed} imagen(es) comprimida(s) y agregada(s) al catálogo` });
-    }
-    e.target.value = '';
   };
 
   // 📂 CATÁLOGO: Eliminar imagen del catálogo
@@ -336,6 +333,7 @@ export default function AsistentesPage() {
 
   const removeMedia = (index: number) => {
     setMediaItems(prev => prev.filter((_, i) => i !== index));
+    fetchStorage(); // Actualizar barra de storage
   };
 
   // ===== AUTO-APRENDIZAJE =====
@@ -616,18 +614,26 @@ export default function AsistentesPage() {
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-white mb-2">Biblioteca Multimedia</h3>
               <p className="text-[var(--text-muted)]">Sube archivos que el asistente enviará automáticamente cuando detecte el trigger en la conversación.</p>
-              {/* 📏 Total size indicator */}
-              {mediaItems.length > 0 && (
+              {/* 📏 Storage indicator — from backend */}
+              {(mediaItems.length > 0 || storageInfo) && (
                 <div className="mt-3 p-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-[var(--text-muted)]">{mediaItems.length} archivo{mediaItems.length !== 1 ? 's' : ''} · {totalMediaMB}MB usado</span>
-                    <span className={`text-xs font-medium ${mediaSizePercent > 80 ? 'text-red-400' : mediaSizePercent > 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {mediaSizePercent > 80 ? '⚠️ Casi lleno' : mediaSizePercent > 50 ? '⚡ Moderado' : '✓ OK'}
+                    <span className="text-xs text-[var(--text-muted)]">
+                      {mediaItems.length} archivo{mediaItems.length !== 1 ? 's' : ''} · {storageUsedMB.toFixed(1)}MB / {storageLimitMB}MB
+                    </span>
+                    <span className={`text-xs font-medium ${storagePercent > 80 ? 'text-red-400' : storagePercent > 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {storagePercent > 90 ? '🚨 Casi lleno' : storagePercent > 80 ? '⚠️ Poco espacio' : storagePercent > 50 ? '⚡ Moderado' : '✓ OK'}
                     </span>
                   </div>
                   <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
-                    <div className={`h-full rounded-full transition-all duration-500 ${mediaSizePercent > 80 ? 'bg-red-500' : mediaSizePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${mediaSizePercent}%` }} />
+                    <div className={`h-full rounded-full transition-all duration-500 ${storagePercent > 80 ? 'bg-red-500' : storagePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(storagePercent, 100)}%` }} />
                   </div>
+                </div>
+              )}
+              {uploadingMedia && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-blue-400">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Subiendo y comprimiendo...
                 </div>
               )}
             </div>
@@ -661,7 +667,7 @@ export default function AsistentesPage() {
                 </div>
                 <h4 className="font-semibold text-white mb-1">Videos</h4>
                 <p className="text-xs text-[var(--text-muted)]">Tutoriales, demos, tours</p>
-                <p className="text-xs text-purple-400 mt-2">Máx 10MB</p>
+                <p className="text-xs text-purple-400 mt-2">Máx 15MB</p>
               </label>
 
               <label className="card glass-hover cursor-pointer text-center py-8 border-2 border-dashed border-[var(--border-primary)] hover:border-orange-500/50">

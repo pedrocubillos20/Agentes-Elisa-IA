@@ -1,22 +1,11 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getOwnerId } from '../lib/helpers';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
 
 // Helper para obtener el owner real (con cache para evitar queries repetidas)
-const ownerIdCache = new Map<string, { value: string; ts: number }>();
-const getOwnerId = async (userId: string): Promise<string> => {
-  const cached = ownerIdCache.get(userId);
-  if (cached && Date.now() - cached.ts < 300000) return cached.value;
-  const user = await prisma.user.findUnique({ 
-    where: { id: userId }, 
-    select: { parentUserId: true } 
-  });
-  const ownerId = user?.parentUserId || userId;
-  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
-  return ownerId;
-};
 
 // GET /api/conversations
 router.get('/', async (req: Request, res: Response) => {
@@ -69,7 +58,7 @@ router.get('/stats', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD v2
+// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD v3
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -82,10 +71,8 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const yesterdayStart = new Date(todayStart); yesterdayStart.setDate(yesterdayStart.getDate() - 1);
     const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
 
-    // === CUSTOM DATE RANGE ===
+    // === DATE RANGE ===
     let rangeStart = weekStart;
     let rangeEnd = now;
     let rangeLabel = '7d';
@@ -96,274 +83,261 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       rangeEnd.setHours(23, 59, 59, 999);
       rangeLabel = 'custom';
     } else if (period === '24h') {
-      rangeStart = new Date(now.getTime() - 86400000);
-      rangeLabel = '24h';
+      rangeStart = new Date(now.getTime() - 86400000); rangeLabel = '24h';
     } else if (period === '7d' || period === 'week') {
       rangeStart = weekStart; rangeLabel = '7d';
     } else if (period === '30d' || period === 'month') {
       rangeStart = monthStart; rangeLabel = '30d';
     } else if (period === '90d') {
       rangeStart = new Date(now.getTime() - 90 * 86400000); rangeLabel = '90d';
-    } else if (period === 'quarter') {
-      const q = Math.floor(now.getMonth() / 3);
-      rangeStart = new Date(now.getFullYear(), q * 3, 1); rangeLabel = 'quarter';
     } else if (period === 'year') {
       rangeStart = new Date(now.getFullYear(), 0, 1); rangeLabel = 'year';
     }
 
-    // Prev range for comparison
     const rangeDuration = rangeEnd.getTime() - rangeStart.getTime();
     const prevRangeStart = new Date(rangeStart.getTime() - rangeDuration);
     const prevRangeEnd = new Date(rangeStart);
 
     const convWhere: any = { userId: ownerId };
-    const apptWhere: any = { userId: ownerId };
-    if (lineId) {
-      convWhere.whatsappLineId = lineId as string;
-      apptWhere.whatsappLineId = lineId as string;
-    }
+    if (lineId) convWhere.whatsappLineId = lineId as string;
 
+    // ===== MAIN QUERIES =====
     const [
       totalConversations, totalMessages,
       rangeMessages, prevRangeMessages,
       todayMessages, yesterdayMessages,
-      weekMessages, monthMessages,
       rangeNewConvs, prevRangeNewConvs,
-      rangeConvertedConvs,
+      rangeConvertedConvs, prevRangeConverted,
       stageStats,
-      totalAppointments, pendingAppointments,
-      totalClients, activeClients,
-      aiPausedCount,
-      convertedTotal,
-      // Conversations at risk (no messages in 48h, not converted)
+      aiPausedCount, convertedTotal,
       atRiskConvs,
-      // Lines
-      lines,
-      // Recent activity
-      recentMessages,
-      // Top leads
-      topLeadsRaw,
-      // Chart: daily msgs in range
-      dailyMsgsRaw,
-      // Chart: daily new convs in range
-      dailyConvsRaw,
-      // Messages fromMe vs incoming in range
-      rangeMsgsFromMe,
-      rangeMsgsIncoming,
-      // Longest wait (oldest unresponded)
-      oldestUnresponded
+      totalAppointments, pendingAppointments,
+      rangeMsgsFromMe, rangeMsgsIncoming,
+      oldestUnresponded,
+      lines
     ] = await Promise.all([
       prisma.conversation.count({ where: convWhere }),
       prisma.message.count({ where: { conversation: convWhere } }),
-      // Range messages
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: prevRangeStart, lt: prevRangeEnd } } }),
-      // Today/yesterday
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: todayStart } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: yesterdayStart, lt: todayStart } } }),
-      // Week/month
-      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: weekStart } } }),
-      prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: monthStart } } }),
-      // New conversations in range
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
-      // Converted in range
       prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
-      // Stage distribution
+      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
       prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
-      // Appointments
-      prisma.appointment.count({ where: apptWhere }),
-      prisma.appointment.count({ where: { ...apptWhere, status: 'pending' } }),
-      // Clients
-      prisma.client.count({ where: { userId: ownerId } }),
-      prisma.client.count({ where: { userId: ownerId, status: 'active' } }),
-      // AI paused
       prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
-      // Total converted (including confirmado)
       prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] } } }),
-      // At risk: updated >48h ago, not converted/lost
       prisma.conversation.count({ 
-        where: { 
-          ...convWhere, 
-          updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) },
-          stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] }
-        } 
+        where: { ...convWhere, updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) }, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } } 
       }),
-      // Lines
-      prisma.whatsappLine.findMany({
-        where: { userId: ownerId },
-        select: { id: true, label: true, phone: true, status: true, sessionName: true }
-      }),
-      // Recent messages
-      prisma.message.findMany({
-        where: { conversation: convWhere, fromMe: false },
-        orderBy: { timestamp: 'desc' }, take: 8,
-        include: { conversation: { select: { recipientName: true, recipientId: true, stage: true, whatsappLineId: true } } }
-      }),
-      // Top leads
-      prisma.conversation.findMany({
-        where: { ...convWhere, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } },
-        orderBy: { updatedAt: 'desc' }, take: 5,
-        select: { id: true, recipientName: true, recipientId: true, stage: true, updatedAt: true, whatsappLineId: true, _count: { select: { messages: true } } }
-      }),
-      // Daily messages in range (for chart)
-      lineId
-        ? prisma.$queryRaw`
-            SELECT m."timestamp"::date as day, COUNT(*)::int as count
-            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string}
-              AND m."timestamp" >= ${rangeStart} AND m."timestamp" <= ${rangeEnd}
-            GROUP BY m."timestamp"::date ORDER BY day
-          ` as Promise<Array<{ day: Date; count: number }>>
-        : prisma.$queryRaw`
-            SELECT m."timestamp"::date as day, COUNT(*)::int as count
-            FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
-            WHERE c."userId" = ${ownerId}
-              AND m."timestamp" >= ${rangeStart} AND m."timestamp" <= ${rangeEnd}
-            GROUP BY m."timestamp"::date ORDER BY day
-          ` as Promise<Array<{ day: Date; count: number }>>,
-      // Daily new conversations in range (for chart)
-      lineId
-        ? prisma.$queryRaw`
-            SELECT "createdAt"::date as day, COUNT(*)::int as count
-            FROM "Conversation"
-            WHERE "userId" = ${ownerId} AND "whatsappLineId" = ${lineId as string}
-              AND "createdAt" >= ${rangeStart} AND "createdAt" <= ${rangeEnd}
-            GROUP BY "createdAt"::date ORDER BY day
-          ` as Promise<Array<{ day: Date; count: number }>>
-        : prisma.$queryRaw`
-            SELECT "createdAt"::date as day, COUNT(*)::int as count
-            FROM "Conversation"
-            WHERE "userId" = ${ownerId}
-              AND "createdAt" >= ${rangeStart} AND "createdAt" <= ${rangeEnd}
-            GROUP BY "createdAt"::date ORDER BY day
-          ` as Promise<Array<{ day: Date; count: number }>>,
-      // Messages sent vs received in range
+      prisma.appointment.count({ where: { userId: ownerId, ...(lineId ? { whatsappLineId: lineId as string } : {}) } }),
+      prisma.appointment.count({ where: { userId: ownerId, status: 'pending', ...(lineId ? { whatsappLineId: lineId as string } : {}) } }),
       prisma.message.count({ where: { conversation: convWhere, fromMe: true, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.message.count({ where: { conversation: convWhere, fromMe: false, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
-      // Oldest unresponded conversation
       prisma.conversation.findFirst({
         where: { ...convWhere, aiPaused: true, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } },
-        orderBy: { updatedAt: 'asc' },
-        select: { updatedAt: true, recipientName: true }
-      })
+        orderBy: { updatedAt: 'asc' }, select: { updatedAt: true, recipientName: true }
+      }),
+      prisma.whatsappLine.findMany({ where: { userId: ownerId }, select: { id: true, label: true, phone: true, status: true } })
     ]);
 
-    // === Process daily chart data ===
+    // ===== ADVANCED METRICS (raw SQL for performance) =====
+    const lineFilter = lineId ? `AND c."whatsappLineId" = '${lineId}'` : '';
+
+    // 1. FRT - First Response Time (avg minutes from first incoming to first outgoing msg)
+    let avgFRT = 0;
+    let slaCompliance = 0;
+    try {
+      const frtResult = await prisma.$queryRawUnsafe(`
+        WITH first_incoming AS (
+          SELECT c.id as conv_id, MIN(m."timestamp") as first_in
+          FROM "Conversation" c JOIN "Message" m ON m."conversationId" = c.id
+          WHERE c."userId" = '${ownerId}' ${lineFilter} AND m."fromMe" = false
+            AND c."createdAt" >= '${rangeStart.toISOString()}' AND c."createdAt" <= '${rangeEnd.toISOString()}'
+          GROUP BY c.id
+        ),
+        first_response AS (
+          SELECT c.id as conv_id, MIN(m."timestamp") as first_out
+          FROM "Conversation" c JOIN "Message" m ON m."conversationId" = c.id
+          WHERE c."userId" = '${ownerId}' ${lineFilter} AND m."fromMe" = true
+          GROUP BY c.id
+        ),
+        frt_data AS (
+          SELECT fi.conv_id, 
+            EXTRACT(EPOCH FROM (fr.first_out - fi.first_in)) / 60.0 as frt_minutes
+          FROM first_incoming fi JOIN first_response fr ON fi.conv_id = fr.conv_id
+          WHERE fr.first_out > fi.first_in
+        )
+        SELECT 
+          COALESCE(AVG(frt_minutes), 0)::float as avg_frt,
+          COALESCE(COUNT(CASE WHEN frt_minutes <= 5 THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 0)::float as sla_pct,
+          COUNT(*)::int as total_measured
+        FROM frt_data
+      `) as any[];
+      if (frtResult?.[0]) {
+        avgFRT = Math.round((frtResult[0].avg_frt || 0) * 10) / 10;
+        slaCompliance = Math.round(frtResult[0].sla_pct || 0);
+      }
+    } catch (e) { console.error('FRT query error:', e); }
+
+    // 2. Contact Rate - % conversations with at least one outgoing message
+    let contactRate = 0;
+    try {
+      const contactResult = await prisma.$queryRawUnsafe(`
+        SELECT 
+          COUNT(DISTINCT CASE WHEN m."fromMe" = true THEN c.id END)::int as contacted,
+          COUNT(DISTINCT c.id)::int as total
+        FROM "Conversation" c LEFT JOIN "Message" m ON m."conversationId" = c.id
+        WHERE c."userId" = '${ownerId}' ${lineFilter}
+          AND c."createdAt" >= '${rangeStart.toISOString()}' AND c."createdAt" <= '${rangeEnd.toISOString()}'
+      `) as any[];
+      if (contactResult?.[0] && contactResult[0].total > 0) {
+        contactRate = Math.round((contactResult[0].contacted / contactResult[0].total) * 100);
+      }
+    } catch (e) { console.error('Contact rate error:', e); }
+
+    // 3. Cycle Time - avg days from creation to conversion
+    let avgCycleTime = 0;
+    try {
+      const cycleResult = await prisma.$queryRawUnsafe(`
+        SELECT COALESCE(AVG(EXTRACT(EPOCH FROM ("updatedAt" - "createdAt")) / 86400.0), 0)::float as avg_days
+        FROM "Conversation"
+        WHERE "userId" = '${ownerId}' ${lineFilter}
+          AND "stage" IN ('converted', 'convertido', 'confirmado')
+          AND "updatedAt" >= '${rangeStart.toISOString()}'
+      `) as any[];
+      if (cycleResult?.[0]) avgCycleTime = Math.round((cycleResult[0].avg_days || 0) * 10) / 10;
+    } catch (e) { console.error('Cycle time error:', e); }
+
+    // 4. AI Automation Rate - % conversations resolved without human intervention
+    const aiAutoRate = totalConversations > 0 
+      ? Math.round(((totalConversations - aiPausedCount) / totalConversations) * 100) : 0;
+
+    // 5. Conversion funnel (stage-to-stage)
+    const stageOrder = ['new', 'saludo', 'interesado', 'interested'];
+    const midStages = stageStats
+      .filter(s => !['converted','convertido','confirmado','lost','perdido','new','saludo'].includes(s.stage))
+      .map(s => s.stage);
+    const orderedStages = [...stageOrder.filter(s => stageStats.some(ss => ss.stage === s)), ...midStages, 'converted'];
+    
+    const funnelRates: Array<{from: string; to: string; rate: number}> = [];
+    for (let i = 0; i < orderedStages.length - 1; i++) {
+      const fromCount = stageStats.find(s => s.stage === orderedStages[i])?._count.id || 0;
+      const toCount = stageStats.find(s => s.stage === orderedStages[i + 1])?._count.id || 0;
+      if (fromCount > 0) {
+        funnelRates.push({ from: orderedStages[i], to: orderedStages[i + 1], rate: Math.round((toCount / (fromCount + toCount)) * 100) });
+      }
+    }
+
+    // ===== CHART DATA =====
+    const dailyMsgsRaw = await (lineId
+      ? prisma.$queryRaw`
+          SELECT m."timestamp"::date as day, COUNT(*)::int as count
+          FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
+          WHERE c."userId" = ${ownerId} AND c."whatsappLineId" = ${lineId as string}
+            AND m."timestamp" >= ${rangeStart} AND m."timestamp" <= ${rangeEnd}
+          GROUP BY m."timestamp"::date ORDER BY day`
+      : prisma.$queryRaw`
+          SELECT m."timestamp"::date as day, COUNT(*)::int as count
+          FROM "Message" m JOIN "Conversation" c ON m."conversationId" = c.id
+          WHERE c."userId" = ${ownerId}
+            AND m."timestamp" >= ${rangeStart} AND m."timestamp" <= ${rangeEnd}
+          GROUP BY m."timestamp"::date ORDER BY day`
+    ) as Array<{ day: Date; count: number }>;
+
+    const dailyConvsRaw = await (lineId
+      ? prisma.$queryRaw`
+          SELECT "createdAt"::date as day, COUNT(*)::int as count
+          FROM "Conversation" WHERE "userId" = ${ownerId} AND "whatsappLineId" = ${lineId as string}
+            AND "createdAt" >= ${rangeStart} AND "createdAt" <= ${rangeEnd}
+          GROUP BY "createdAt"::date ORDER BY day`
+      : prisma.$queryRaw`
+          SELECT "createdAt"::date as day, COUNT(*)::int as count
+          FROM "Conversation" WHERE "userId" = ${ownerId}
+            AND "createdAt" >= ${rangeStart} AND "createdAt" <= ${rangeEnd}
+          GROUP BY "createdAt"::date ORDER BY day`
+    ) as Array<{ day: Date; count: number }>;
+
     const dailyMap: Record<string, { msgs: number; convs: number }> = {};
     const dayDiff = Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / 86400000);
     for (let i = 0; i <= dayDiff; i++) {
-      const d = new Date(rangeStart); d.setDate(d.getDate() + i);
-      const key = d.toISOString().split('T')[0];
-      dailyMap[key] = { msgs: 0, convs: 0 };
+      const dd = new Date(rangeStart); dd.setDate(dd.getDate() + i);
+      dailyMap[dd.toISOString().split('T')[0]] = { msgs: 0, convs: 0 };
     }
-    if (Array.isArray(dailyMsgsRaw)) {
-      dailyMsgsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].msgs = Number(r.count) || 0; });
-    }
-    if (Array.isArray(dailyConvsRaw)) {
-      dailyConvsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].convs = Number(r.count) || 0; });
-    }
-    const chartData = Object.entries(dailyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({
-      day, date: day, msgs: v.msgs, convs: v.convs
-    }));
+    if (Array.isArray(dailyMsgsRaw)) dailyMsgsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].msgs = Number(r.count) || 0; });
+    if (Array.isArray(dailyConvsRaw)) dailyConvsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].convs = Number(r.count) || 0; });
+    const chartData = Object.entries(dailyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({ day, msgs: v.msgs, convs: v.convs }));
 
-    // === Growth calculations ===
+    // ===== LISTS =====
+    const [recentMessages, topLeadsRaw] = await Promise.all([
+      prisma.message.findMany({
+        where: { conversation: convWhere, fromMe: false }, orderBy: { timestamp: 'desc' }, take: 8,
+        include: { conversation: { select: { recipientName: true, recipientId: true, stage: true } } }
+      }),
+      prisma.conversation.findMany({
+        where: { ...convWhere, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } },
+        orderBy: { updatedAt: 'desc' }, take: 5,
+        select: { id: true, recipientName: true, recipientId: true, stage: true, updatedAt: true, _count: { select: { messages: true } } }
+      })
+    ]);
+
+    // ===== GROWTH CALCULATIONS =====
     const msgGrowth = prevRangeMessages > 0 ? (((rangeMessages - prevRangeMessages) / prevRangeMessages) * 100).toFixed(1) : rangeMessages > 0 ? '100' : '0';
     const convGrowth = prevRangeNewConvs > 0 ? (((rangeNewConvs - prevRangeNewConvs) / prevRangeNewConvs) * 100).toFixed(1) : rangeNewConvs > 0 ? '100' : '0';
-    const todayGrowth = yesterdayMessages > 0 ? (((todayMessages - yesterdayMessages) / yesterdayMessages) * 100).toFixed(0) : '0';
+    const convertedGrowth = prevRangeConverted > 0 ? (((rangeConvertedConvs - prevRangeConverted) / prevRangeConverted) * 100).toFixed(1) : rangeConvertedConvs > 0 ? '100' : '0';
 
-    // === Resolution rate ===
-    const resolvedStages = ['converted', 'convertido', 'confirmado', 'lost', 'perdido'];
-    const resolvedCount = stageStats.filter(s => resolvedStages.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
-    const resolutionRate = totalConversations > 0 ? ((resolvedCount / totalConversations) * 100).toFixed(1) : '0';
-
-    // === Stage distribution for donut (dynamic - works with any custom stages) ===
-    const resolvedStagesList = ['converted', 'convertido', 'confirmado', 'lost', 'perdido'];
+    // Stage distribution
+    const resolvedStagesList = ['converted', 'convertido', 'confirmado'];
+    const lostStagesList = ['lost', 'perdido'];
     const activeStagesList = ['interesado', 'interested', 'cotización', 'cotizacion', 'quoting', 'en_cotización', 'demo', 'descubrimiento', 'trial_activo', 'pendiente_decision', 'negotiating'];
     
-    const resolvedCountForDonut = stageStats.filter(s => resolvedStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    const resolvedCount = stageStats.filter(s => resolvedStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
+    const lostCount = stageStats.filter(s => lostStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
     const activeCount = stageStats.filter(s => activeStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
-    // Pending = everything that isn't resolved, active, or at risk
-    const pendingCount = totalConversations - resolvedCountForDonut - activeCount - atRiskConvs;
-    
-    const stageDistribution = {
-      resolved: convertedTotal,
-      active: activeCount,
-      pending: Math.max(pendingCount, 0),
-      atRisk: atRiskConvs,
-      total: totalConversations
-    };
-
-    // === Avg msgs per conversation ===
+    const pendingCount = Math.max(totalConversations - resolvedCount - lostCount - activeCount - atRiskConvs, 0);
+    const conversionRate = totalConversations > 0 ? ((convertedTotal / totalConversations) * 100).toFixed(1) : '0';
     const avgMsgsPerConv = totalConversations > 0 ? (totalMessages / totalConversations).toFixed(1) : '0';
 
-    // === Oldest wait time ===
+    // Oldest wait
     const oldestWaitMs = oldestUnresponded ? (now.getTime() - new Date(oldestUnresponded.updatedAt).getTime()) : 0;
-    const oldestWaitFormatted = oldestWaitMs > 0 
-      ? `${Math.floor(oldestWaitMs / 3600000)}h ${Math.floor((oldestWaitMs % 3600000) / 60000)}m`
-      : '0h';
+    const oldestWait = oldestWaitMs > 0 ? `${Math.floor(oldestWaitMs / 3600000)}h ${Math.floor((oldestWaitMs % 3600000) / 60000)}m` : '0h';
 
-    // === Funnel data ===
     const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
 
-    // === WhatsApp delivery stats ===
-    const whatsappStats = {
-      sent: rangeMsgsFromMe,
-      received: rangeMsgsIncoming,
-      total: rangeMessages,
-      deliveryRate: rangeMsgsFromMe > 0 ? '100' : '0', // We assume delivered since WAHA confirms
-    };
-
-    // Recent activity
-    const recentActivity = recentMessages.map(m => ({
-      type: 'message' as const,
-      user: m.conversation.recipientName || m.conversation.recipientId || 'Desconocido',
-      action: m.content.substring(0, 80) + (m.content.length > 80 ? '...' : ''),
-      time: m.timestamp.toISOString(),
-      stage: m.conversation.stage,
-      lineId: m.conversation.whatsappLineId,
-    }));
-
-    // Top leads
-    const topLeads = topLeadsRaw.map(l => ({
-      id: l.id, name: l.recipientName || l.recipientId, stage: l.stage,
-      messages: l._count.messages, lastActive: l.updatedAt, lineId: l.whatsappLineId
-    }));
-
     res.json({
-      // Range info
       rangeLabel, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(),
-      // Core metrics
+      // Core KPIs
       totalConversations, totalMessages,
-      rangeMessages, prevRangeMessages,
-      todayMessages, yesterdayMessages,
-      weekMessages, monthMessages,
+      rangeMessages, todayMessages, yesterdayMessages,
+      rangeNewConvs, rangeConvertedConvs, convertedTotal,
       // Growth
-      msgGrowth, convGrowth, todayGrowth,
-      // Conversations
-      rangeNewConvs, prevRangeNewConvs,
-      rangeConvertedConvs,
-      convertedTotal,
-      // Engagement
-      aiPausedCount, avgMsgsPerConv,
-      atRiskConvs,
-      // Resolution
-      resolutionRate, resolvedCount,
-      stageDistribution,
-      // WhatsApp
-      whatsappStats,
+      msgGrowth, convGrowth, convertedGrowth,
+      // Advanced metrics
+      avgFRT, slaCompliance, contactRate, avgCycleTime, aiAutoRate, conversionRate,
+      avgMsgsPerConv, aiPausedCount, atRiskConvs,
+      // Distribution
+      stageDistribution: { resolved: convertedTotal, active: activeCount, pending: pendingCount, atRisk: atRiskConvs, lost: lostCount, total: totalConversations },
+      whatsappStats: { sent: rangeMsgsFromMe, received: rangeMsgsIncoming, total: rangeMessages },
       // Time
-      oldestWait: oldestWaitFormatted,
-      oldestWaitName: oldestUnresponded?.recipientName || '',
-      // Appointments & Clients
+      oldestWait, oldestWaitName: oldestUnresponded?.recipientName || '',
+      // Pipeline
+      funnelData, funnelRates,
+      // Appointments
       totalAppointments, pendingAppointments,
-      totalClients, activeClients,
       // Charts
       chartData,
       // Lists
-      funnelData, stageStats: funnelData,
-      recentActivity, topLeads,
-      // Lines
+      recentActivity: recentMessages.map(m => ({
+        user: m.conversation.recipientName || m.conversation.recipientId || 'Desconocido',
+        action: m.content.substring(0, 80) + (m.content.length > 80 ? '...' : ''),
+        time: m.timestamp.toISOString(), stage: m.conversation.stage,
+      })),
+      topLeads: topLeadsRaw.map(l => ({
+        id: l.id, name: l.recipientName || l.recipientId, stage: l.stage,
+        messages: l._count.messages, lastActive: l.updatedAt
+      })),
       lines
     });
   } catch (error) {

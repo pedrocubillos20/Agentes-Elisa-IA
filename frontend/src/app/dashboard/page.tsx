@@ -472,7 +472,7 @@ export default function DashboardPage() {
         <div className="card p-4">
           <div className="flex items-center gap-2 mb-3"><BarChart3 className="w-4 h-4 text-purple-400"/><span className="text-xs font-semibold text-white">Conversión por Etapa</span></div>
           {pipelineData.length > 0 ? (
-            <BarChart data={pipelineData.map(p => ({...p, label: p.label.substring(0,6)}))} height={150} showLabels={true}/>
+            <BarChart data={pipelineData.map((p: any) => ({...p, label: p.label.substring(0,6)}))} height={150} showLabels={true}/>
           ) : <div className="text-center py-8 text-[var(--text-muted)] text-xs">Sin datos</div>}
         </div>
       </div>

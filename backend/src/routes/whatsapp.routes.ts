@@ -3,7 +3,6 @@ import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
 import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { uploadFile } from '../lib/storage';
 
 const router = Router();
 
@@ -957,6 +956,46 @@ Ejemplo: <<VOZ>>¡Hola Pedro! Bienvenido, me alegra que nos contactes...
 
 El tag <<VOZ>> es interno, el cliente NO lo verá.
 `);
+    }
+
+    // 🔄 INSTRUCCIONES DE TRANSFERENCIA ENTRE LÍNEAS
+    if (whatsappLineId) {
+      const allLines = await prisma.whatsappLine.findMany({
+        where: { userId: ownerId, status: 'connected', isActive: true },
+        select: { id: true, label: true, phone: true, sessionName: true }
+      });
+      
+      if (allLines.length >= 2) {
+        const currentLine = allLines.find(l => l.id === whatsappLineId);
+        const otherLines = allLines.filter(l => l.id !== whatsappLineId);
+        
+        const linesList = otherLines.map(l => 
+          `  - "${l.label}" → número: ${l.phone || 'sin número'}`
+        ).join('\n');
+        
+        promptParts.push(`
+=== 🔄 TRANSFERENCIA ENTRE LÍNEAS ===
+
+Estás respondiendo desde la línea: "${currentLine?.label || 'Principal'}" (${currentLine?.phone || ''})
+
+Otras líneas disponibles para transferir:
+${linesList}
+
+CÓMO TRANSFERIR:
+Si el cliente necesita ser atendido por otra área/departamento/persona, usa la etiqueta <<TRANSFERIR:número>> en tu respuesta.
+
+Ejemplo: Si necesitas transferir al +573118083993:
+"Entiendo, voy a transferirte con nuestro equipo de soporte para que te ayuden mejor. <<TRANSFERIR:${otherLines[0]?.phone || '+573118083993'}>>"
+
+REGLAS DE TRANSFERENCIA:
+- SOLO transfiere cuando el cliente necesita un área diferente o cuando tu contexto lo indique
+- El número debe ser EXACTO como aparece arriba (con código de país)
+- El tag <<TRANSFERIR:número>> es interno, el cliente NO lo verá
+- Escribe un mensaje de despedida natural ANTES del tag
+- La otra línea recibirá la conversación y podrá continuar la atención
+- Si en tu contexto/instrucciones se menciona cuándo transferir a cada línea, sigue esas reglas
+`);
+      }
     }
 
 
@@ -1949,6 +1988,136 @@ const sendMediaFollowUp = async (
 };
 
 // ====================================================
+// 🔄 TRANSFERIR CONVERSACIÓN ENTRE LÍNEAS
+// Envía mensaje desde la línea destino al cliente
+// ====================================================
+const executeLineTransfer = async (
+  targetPhone: string,
+  customerChatId: string,
+  customerName: string,
+  userId: string,
+  sourceLineId: string,
+  sourceConvId: string,
+  transferMessage: string
+): Promise<boolean> => {
+  try {
+    // 1. Find target line by phone number
+    const cleanTarget = targetPhone.replace(/[^0-9]/g, '');
+    const targetLine = await prisma.whatsappLine.findFirst({
+      where: {
+        userId,
+        status: 'connected',
+        isActive: true,
+        phone: { contains: cleanTarget.slice(-10) }
+      }
+    });
+
+    if (!targetLine) {
+      log(`🔄❌ Línea destino no encontrada: ${targetPhone}`);
+      return false;
+    }
+
+    if (targetLine.id === sourceLineId) {
+      log(`🔄⚠️ Transferencia a la misma línea ignorada`);
+      return false;
+    }
+
+    log(`🔄 Transferencia: ${customerName} → línea "${targetLine.label}" (${targetLine.phone})`);
+
+    // 2. Find or create conversation on target line
+    const cleanCustomer = customerChatId.replace('@c.us', '').replace('@s.whatsapp.net', '');
+    let targetConv = await prisma.conversation.findFirst({
+      where: { userId, recipientId: { contains: cleanCustomer.slice(-10) }, whatsappLineId: targetLine.id }
+    });
+
+    if (!targetConv) {
+      targetConv = await prisma.conversation.create({
+        data: {
+          userId,
+          recipientId: cleanCustomer,
+          recipientName: customerName || cleanCustomer,
+          whatsappLineId: targetLine.id,
+          stage: 'new',
+          lastMessage: `🔄 Transferido desde ${(await prisma.whatsappLine.findUnique({ where: { id: sourceLineId }, select: { label: true } }))?.label || 'otra línea'}`,
+          isActive: true
+        }
+      });
+      log(`🔄 Nueva conversación creada en línea "${targetLine.label}"`);
+    }
+
+    // 3. Get context from source conversation to pass to target
+    const sourceConv = await prisma.conversation.findUnique({
+      where: { id: sourceConvId },
+      select: { contextData: true, stage: true, recipientName: true }
+    });
+
+    // Copy context data to target conversation
+    if (sourceConv?.contextData) {
+      await prisma.conversation.update({
+        where: { id: targetConv.id },
+        data: { contextData: sourceConv.contextData }
+      });
+    }
+
+    // 4. Build greeting from target line
+    const targetAssistant = await prisma.assistant.findFirst({
+      where: { userId, whatsappLineId: targetLine.id }
+    }) || await prisma.assistant.findFirst({
+      where: { userId, isActive: true }
+    });
+
+    const greetingName = targetAssistant?.name || targetLine.label;
+    const greeting = `¡Hola${customerName ? ` ${customerName}` : ''}! 👋 Soy ${greetingName}. Me transfirieron tu conversación para poder ayudarte mejor. ¿En qué puedo asistirte?`;
+
+    // 5. Send greeting from target line
+    await humanDelay(greeting.length);
+    const sent = await sendWahaMessage(targetLine.sessionName, customerChatId, greeting);
+
+    if (sent) {
+      // Save message in target conversation
+      await prisma.message.create({
+        data: {
+          conversationId: targetConv.id,
+          content: greeting,
+          fromMe: true,
+          userId,
+          role: 'assistant'
+        }
+      });
+
+      // Update target conversation
+      await prisma.conversation.update({
+        where: { id: targetConv.id },
+        data: { lastMessage: greeting, isActive: true }
+      });
+
+      // 6. Mark source conversation as transferred
+      await prisma.message.create({
+        data: {
+          conversationId: sourceConvId,
+          content: `🔄 Conversación transferida a línea "${targetLine.label}" (${targetLine.phone})`,
+          fromMe: true,
+          userId,
+          role: 'system'
+        }
+      });
+      await prisma.conversation.update({
+        where: { id: sourceConvId },
+        data: { lastMessage: `🔄 Transferido a ${targetLine.label}` }
+      });
+
+      log(`🔄✅ Transferencia exitosa: ${customerName} → "${targetLine.label}" (${targetLine.phone})`);
+      return true;
+    }
+
+    return false;
+  } catch (e: any) {
+    console.error(`🔄❌ Error en transferencia:`, e.message);
+    return false;
+  }
+};
+
+// ====================================================
 // 🔥 PROCESAR MENSAJES AGRUPADOS
 // Se ejecuta después de 3 seg sin nuevos mensajes
 // Combina todas las líneas y genera UNA respuesta
@@ -2045,9 +2214,20 @@ const processBufferedMessages = async (bufferKey: string) => {
       await stopPresence(sessionName, from);
 
       if (aiResponse) {
-        await humanDelay(aiResponse.length);
-        await sendWahaMessage(sessionName, from, aiResponse);
-        await prisma.message.create({ data: { conversationId: convId, content: aiResponse, fromMe: true, userId, role: 'assistant' } });
+        // 🔄 Check for transfer in media+AI path
+        const mediaTransferMatch = aiResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
+        const cleanAiResponse = aiResponse.replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '').replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
+        
+        if (cleanAiResponse) {
+          await humanDelay(cleanAiResponse.length);
+          await sendWahaMessage(sessionName, from, cleanAiResponse);
+          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
+        }
+
+        if (mediaTransferMatch && whatsappLineId) {
+          await new Promise(r => setTimeout(r, 2000));
+          await executeLineTransfer(mediaTransferMatch[1], from, senderName, userId, whatsappLineId, convId, cleanAiResponse);
+        }
       }
 
       await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse || `📎 ${matchedMedia.name}` } });
@@ -2069,6 +2249,39 @@ const processBufferedMessages = async (bufferKey: string) => {
         
         // Limpiar tags de control antes de enviar
         const cleanResponse = aiResponse.replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
+
+        // ═══ 🔄 DETECTAR TRANSFERENCIA ENTRE LÍNEAS ═══
+        const transferMatch = cleanResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
+        if (transferMatch && whatsappLineId) {
+          const targetPhone = transferMatch[1];
+          const farewellMessage = cleanResponse.replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '').trim();
+          
+          log(`🔄 Transferencia detectada → ${targetPhone}`);
+
+          // Send farewell message from current line
+          if (farewellMessage) {
+            await humanDelay(farewellMessage.length);
+            const sent = await sendWahaMessage(sessionName, from, farewellMessage);
+            if (sent) {
+              await prisma.message.create({ data: { conversationId: convId, content: farewellMessage, fromMe: true, userId, role: 'assistant' } });
+              await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: farewellMessage } });
+            }
+          }
+
+          // Execute transfer to target line
+          await new Promise(r => setTimeout(r, 2000)); // Pause before transfer
+          await executeLineTransfer(
+            targetPhone,
+            from,
+            senderName,
+            userId,
+            whatsappLineId,
+            convId,
+            farewellMessage
+          );
+
+          // Skip the rest of the normal flow — transfer handled
+        } else {
 
         // ═══ DETECTAR TRIGGER EN RESPUESTA ANTES DE ENVIAR TEXTO ═══
         const triggerableItems = mediaItems.filter((m: any) => m.trigger);
@@ -2149,6 +2362,7 @@ const processBufferedMessages = async (bufferKey: string) => {
             }
           }
         }
+        } // end transfer else
       }
     }
   } catch (e: any) {
@@ -2744,24 +2958,7 @@ router.post('/send', async (req: Request, res: Response) => {
     }
 
     // 📤 ENVIAR MEDIA (si hay)
-    let finalMediaUrl = mediaUrl;
     if (mediaUrl) {
-      // Si es base64, subir a R2 primero
-      if (mediaUrl.startsWith('data:')) {
-        try {
-          const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
-          if (match) {
-            const mimetype = match[1];
-            const buffer = Buffer.from(match[2], 'base64');
-            const ext = mimetype.includes('png') ? 'png' : mimetype.includes('webp') ? 'webp' : mimetype.includes('video') ? 'mp4' : mimetype.includes('audio') ? 'ogg' : 'jpg';
-            const result = await uploadFile(ownerId, `chat-${Date.now()}.${ext}`, buffer, mimetype, 'chat');
-            finalMediaUrl = result.url;
-          }
-        } catch (e: any) {
-          console.error('⚠️ Error subiendo media a R2:', e.message);
-          // Fallback: enviar con base64 original pero no guardarlo en DB
-        }
-      }
       const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
       const mediaSent = await sendWahaMedia(sessionName, chatId, mediaObj, !message ? '' : undefined);
       sent = sent || mediaSent;
@@ -2794,7 +2991,7 @@ router.post('/send', async (req: Request, res: Response) => {
       await prisma.message.create({ 
         data: { 
           conversationId: conv.id, content, fromMe: true, userId, role: 'assistant',
-          ...(finalMediaUrl && { mediaUrl: finalMediaUrl, mediaType: sendMediaType || 'image' })
+          ...(mediaUrl && { mediaUrl, mediaType: sendMediaType || 'image' })
         } 
       });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: content } });
@@ -2816,21 +3013,6 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
     const { contacts, message, whatsappLineId, lineId: legacyBulkLineId, mediaUrl, mediaType: bulkMediaType } = req.body;
     if (!contacts?.length || (!message && !mediaUrl)) { 
       res.status(400).json({ error: 'Se requieren contactos y mensaje o media' }); return; 
-    }
-
-    // 🖼️ Si mediaUrl es base64, subir a R2 una vez
-    let bulkMediaUrl = mediaUrl;
-    if (mediaUrl && mediaUrl.startsWith('data:')) {
-      try {
-        const match = mediaUrl.match(/^data:(.+?);base64,(.+)$/s);
-        if (match) {
-          const mimetype = match[1];
-          const buffer = Buffer.from(match[2], 'base64');
-          const ext = mimetype.includes('png') ? 'png' : mimetype.includes('video') ? 'mp4' : 'jpg';
-          const result = await uploadFile(ownerId, `bulk-${Date.now()}.${ext}`, buffer, mimetype, 'chat');
-          bulkMediaUrl = result.url;
-        }
-      } catch (e: any) { console.error('⚠️ Error R2 bulk media:', e.message); }
     }
 
     const effectiveLineId = whatsappLineId || legacyBulkLineId || null; // ✅ Acepta ambos
@@ -2933,8 +3115,8 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         await stopPresence(sessionName!, chatId).catch(() => {});
 
         // 📎 PASO 1: Enviar MEDIA PRIMERO (imagen/video/audio antes del texto)
-        if (bulkMediaUrl) {
-          const mediaObj = { url: bulkMediaUrl, type: bulkMediaType || 'image', name: 'media' };
+        if (mediaUrl) {
+          const mediaObj = { url: mediaUrl, type: bulkMediaType || 'image', name: 'media' };
           const mediaSent = await sendWahaMedia(sessionName!, chatId, mediaObj);
           if (!mediaSent) { log(`⚠️ Media falló para ${phone}`); }
           // Pausa entre media y texto
@@ -2961,7 +3143,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
           await prisma.message.create({ 
             data: { 
               conversationId: conv.id, content, fromMe: true, userId, role: 'assistant',
-              ...(bulkMediaUrl && { mediaUrl: bulkMediaUrl, mediaType: bulkMediaType || 'image' })
+              ...(mediaUrl && { mediaUrl, mediaType: bulkMediaType || 'image' })
             } 
           });
           await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: content } });
@@ -3482,14 +3664,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
       }
       
-      // 🖼️ IMAGEN → Descargar para subir a R2 después
+      // 🖼️ IMAGEN → Guardar para mostrar en chat
       else if (media.mediaType === 'image') {
+        // Intentar descargar y guardar como base64 para el chat
         if (media.messageId || media.mediaUrl) {
           const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
           if (downloaded) {
-            // Guardar buffer temporalmente para subir a R2 después de resolver userId
-            (req as any)._downloadedImage = downloaded;
-            log(`🖼️ Imagen descargada: ${downloaded.buffer.length} bytes (pendiente R2 upload)`);
+            savedMediaUrl = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
+            log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
           } else {
             savedMediaUrl = getMediaUrl(sessionName, media.messageId);
           }
@@ -3559,20 +3741,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🔗 Buscar whatsappLineId por sessionName
     const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
-
-    // 🖼️ Si hay imagen descargada, subirla a R2 ahora que tenemos userId
-    const downloadedImage = (req as any)._downloadedImage;
-    if (downloadedImage && !savedMediaUrl) {
-      try {
-        const ext = downloadedImage.mimetype?.includes('png') ? 'png' : downloadedImage.mimetype?.includes('webp') ? 'webp' : 'jpg';
-        const result = await uploadFile(userId, `whatsapp-${Date.now()}.${ext}`, downloadedImage.buffer, downloadedImage.mimetype || 'image/jpeg', 'chat');
-        savedMediaUrl = result.url;
-        log(`☁️ Imagen subida a R2: ${result.url} (${result.size} bytes)`);
-      } catch (e: any) {
-        log(`⚠️ Error subiendo imagen a R2: ${e.message}, usando fallback`);
-        savedMediaUrl = `data:${downloadedImage.mimetype};base64,${downloadedImage.buffer.toString('base64')}`;
-      }
-    }
 
     log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
@@ -4137,72 +4305,5 @@ Responde SOLO con el nombre exacto de una de las etapas listadas arriba. Nada m�
     res.status(500).json({ error: 'Error al analizar conversaciones' });
   }
 });
-
-// ====================================================
-// 🔄 SYNC WAHA SESSIONS — Auto-detect disconnects
-// Runs every 2 minutes, updates DB if WAHA session died
-// ====================================================
-export const startWahaSyncCron = () => {
-  const syncSessions = async () => {
-    try {
-      const lines = await prisma.whatsappLine.findMany({
-        where: { status: { not: 'disconnected' } },
-        select: { id: true, sessionName: true, status: true, phone: true }
-      });
-
-      if (lines.length === 0) return;
-
-      for (const line of lines) {
-        try {
-          const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
-            headers: getWahaHeaders(),
-            signal: AbortSignal.timeout(5000)
-          });
-
-          if (r.ok) {
-            const data = await r.json() as any;
-            const wahaStatus = data.status || 'STOPPED';
-            const isConnected = ['WORKING', 'CONNECTED'].includes(wahaStatus);
-            const newStatus = isConnected ? 'connected' : wahaStatus === 'SCAN_QR_CODE' ? 'qr' : 'disconnected';
-
-            if (newStatus !== line.status) {
-              await prisma.whatsappLine.update({
-                where: { id: line.id },
-                data: { status: newStatus }
-              }).catch(() => {});
-              console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → ${newStatus}`);
-            }
-          } else {
-            // WAHA no reconoce la sesión = desconectada
-            if (line.status !== 'disconnected') {
-              await prisma.whatsappLine.update({
-                where: { id: line.id },
-                data: { status: 'disconnected' }
-              }).catch(() => {});
-              console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → disconnected (sesión no existe)`);
-            }
-          }
-        } catch {
-          // WAHA caído = marcar como desconectada
-          if (line.status !== 'disconnected') {
-            await prisma.whatsappLine.update({
-              where: { id: line.id },
-              data: { status: 'disconnected' }
-            }).catch(() => {});
-            console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → disconnected (WAHA no responde)`);
-          }
-        }
-      }
-    } catch (e: any) {
-      console.error('🔄 Sync error:', e.message);
-    }
-  };
-
-  // Sync every 2 minutes
-  setInterval(syncSessions, 120_000);
-  // First sync after 30 seconds (let WAHA boot)
-  setTimeout(syncSessions, 30_000);
-  console.log('   🔄 WAHA sync: every 2min (auto-detect disconnects)');
-};
 
 export default router;

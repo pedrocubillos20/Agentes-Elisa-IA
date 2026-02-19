@@ -201,8 +201,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // ====================================================
 // 🧹 AUTO-CLEANUP: Delete inactive accounts
-// - Trial expirado + 15 días sin pagar → eliminar
-// - Plan pago expirado + 30 días sin renovar → eliminar
+// - Trial expirado + 5 días sin pagar → eliminar
+// - Plan pago expirado + 5 días sin renovar → eliminar
 // Runs daily at 11:59 PM (server timezone)
 // ====================================================
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://31.97.142.127:8080';
@@ -267,10 +267,10 @@ const startAccountCleanupCron = () => {
       let totalDeleted = 0;
 
       // ═══════════════════════════════════════════
-      // 1️⃣ TRIAL EXPIRADO + 15 DÍAS SIN PAGAR
+      // 1️⃣ TRIAL EXPIRADO + 5 DÍAS SIN PAGAR
       // ═══════════════════════════════════════════
       const trialCutoff = new Date();
-      trialCutoff.setDate(trialCutoff.getDate() - 15);
+      trialCutoff.setDate(trialCutoff.getDate() - 5);
 
       const expiredTrials = await prisma.user.findMany({
         where: {
@@ -282,7 +282,7 @@ const startAccountCleanupCron = () => {
       });
 
       if (expiredTrials.length > 0) {
-        console.log(`🧹 Trial expirados (>15d): ${expiredTrials.length} cuentas`);
+        console.log(`🧹 Trial expirados (>5d): ${expiredTrials.length} cuentas`);
       }
 
       for (const user of expiredTrials) {
@@ -298,10 +298,10 @@ const startAccountCleanupCron = () => {
       }
 
       // ═══════════════════════════════════════════
-      // 2️⃣ PLAN PAGO EXPIRADO + 30 DÍAS SIN RENOVAR
+      // 2️⃣ PLAN PAGO EXPIRADO + 5 DÍAS SIN RENOVAR
       // ═══════════════════════════════════════════
       const paidCutoff = new Date();
-      paidCutoff.setDate(paidCutoff.getDate() - 30);
+      paidCutoff.setDate(paidCutoff.getDate() - 5);
 
       // Find users with expired/cancelled subscriptions where period ended > 30 days ago
       const expiredPaid = await prisma.user.findMany({
@@ -317,7 +317,7 @@ const startAccountCleanupCron = () => {
       });
 
       if (expiredPaid.length > 0) {
-        console.log(`🧹 Planes pagos expirados (>30d): ${expiredPaid.length} cuentas`);
+        console.log(`🧹 Planes pagos expirados (>5d): ${expiredPaid.length} cuentas`);
       }
 
       for (const user of expiredPaid) {
@@ -366,7 +366,7 @@ const startAccountCleanupCron = () => {
   };
 
   scheduleNextRun();
-  console.log('   🧹 Auto-cleanup: diario 11:59 PM (trial >15d, pagos >30d)');
+  console.log('   🧹 Auto-cleanup: diario 11:59 PM (trial >5d, pagos >5d)');
 };
 
 app.listen(PORT, () => {

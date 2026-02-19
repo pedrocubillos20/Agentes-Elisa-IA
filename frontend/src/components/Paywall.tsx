@@ -141,10 +141,14 @@ export default function Paywall({ plan, daysExpired }: PaywallProps) {
 
         {/* Info Footer */}
         <div className="text-center space-y-2">
-          <p className="text-gray-500 text-xs flex items-center justify-center gap-2">
-            <Clock className="w-3 h-3" />
-            Tus datos y conversaciones se mantienen seguros. Se restauran al activar tu plan.
-          </p>
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 max-w-md mx-auto">
+            <p className="text-red-400 text-xs font-semibold flex items-center justify-center gap-2">
+              ⚠️ Tu cuenta y todos tus datos serán eliminados en 5 días si no activas un plan
+            </p>
+            <p className="text-gray-500 text-[10px] mt-1">
+              Por políticas de seguridad y base de datos, las cuentas inactivas se eliminan automáticamente.
+            </p>
+          </div>
           <p className="text-gray-600 text-[10px]">
             Ahorra hasta 31% con planes semestrales y anuales
           </p>

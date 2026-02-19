@@ -1444,8 +1444,8 @@ router.get('/admin/users', async (req: Request, res: Response) => {
         daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
         if (daysLeft <= 0) {
           status = 'expired';
-          // 15 days grace for trial
-          const deletionDate = new Date(u.trialEndsAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+          // 5 days grace for trial
+          const deletionDate = new Date(u.trialEndsAt.getTime() + 5 * 24 * 60 * 60 * 1000);
           daysUntilDeletion = Math.max(0, Math.ceil((deletionDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
         }
         else status = 'trial';
@@ -1455,9 +1455,9 @@ router.get('/admin/users', async (req: Request, res: Response) => {
         daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
         if (diff <= 0) {
           status = 'expired';
-          // 30 days grace for paid plans
+          // 5 days grace for paid plans
           if (['expired', 'cancelled'].includes(u.subscription.status)) {
-            const deletionDate = new Date(u.subscription.currentPeriodEnd.getTime() + 30 * 24 * 60 * 60 * 1000);
+            const deletionDate = new Date(u.subscription.currentPeriodEnd.getTime() + 5 * 24 * 60 * 60 * 1000);
             daysUntilDeletion = Math.max(0, Math.ceil((deletionDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
           }
         }

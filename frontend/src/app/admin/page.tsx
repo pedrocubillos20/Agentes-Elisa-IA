@@ -332,7 +332,7 @@ export default function AdminPage() {
                       {u.daysUntilDeletion !== null && u.daysUntilDeletion !== undefined && u.subscriptionStatus === 'expired' && (
                         <div className="mt-1">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.daysUntilDeletion <= 3 ? 'bg-red-600/30 text-red-300 animate-pulse' : u.daysUntilDeletion <= 7 ? 'bg-orange-500/20 text-orange-400' : 'bg-gray-500/15 text-gray-500'}`}>
-                            🗑️ {u.plan === 'trial' ? '15d' : '30d'} gracia → {u.daysUntilDeletion}d
+                            🗑️ {u.plan === 'trial' ? '5d' : '5d'} gracia → {u.daysUntilDeletion}d
                           </span>
                         </div>
                       )}

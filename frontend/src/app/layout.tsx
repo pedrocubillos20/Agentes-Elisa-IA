@@ -172,7 +172,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'CRM', href: '/crm', icon: Users, perm: 'crm' },
     { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda' },
     { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations' },
-    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team' },
+    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', featureKey: 'team' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
     { name: 'Integraciones', href: '/integraciones', icon: Code, perm: 'config', featureKey: 'integrations' },
@@ -181,7 +181,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   const navigation = allNavigation.filter(item => {
     if ((item as any).adminOnly && !isAdmin) return false;
-    return hasPerm(item.perm);
+    if (!hasPerm(item.perm)) return false;
+    // 🔒 Ocultar si el plan no incluye la feature
+    if (item.featureKey && planFeatures[item.featureKey] === false) return false;
+    return true;
   }).map(item => ({
     ...item,
     locked: hasImplementation && item.featureKey && implementationLocked.includes(item.featureKey)

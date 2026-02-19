@@ -31,11 +31,27 @@ const hasPermission = async (userId: string, perm: string): Promise<boolean> => 
   return (u.permissions as any)?.[perm] === true;
 };
 
+// 🔒 Verificar que el plan permite acceso a Equipo
+const planAllowsTeam = async (userId: string): Promise<boolean> => {
+  const ownerId = await getOwnerId(userId);
+  const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
+  if (!owner) return false;
+  // Solo business permite equipo
+  const plansWithTeam = ['business'];
+  return plansWithTeam.includes(owner.plan);
+};
+
 // GET /api/team — Listar equipo + líneas disponibles
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    // 🔒 Verificar plan
+    if (!(await planAllowsTeam(userId))) {
+      res.status(403).json({ error: 'plan_required', message: 'La función de Equipo requiere el plan Business.', upgrade: true });
+      return;
+    }
 
     const ownerId = await getOwnerId(userId);
 
@@ -80,6 +96,12 @@ router.post('/', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     if (!(await hasPermission(userId, 'team'))) { res.status(403).json({ error: 'Sin permiso' }); return; }
+
+    // 🔒 Verificar plan
+    if (!(await planAllowsTeam(userId))) {
+      res.status(403).json({ error: 'plan_required', message: 'La función de Equipo requiere el plan Business.', upgrade: true });
+      return;
+    }
 
     const ownerId = await getOwnerId(userId);
     const { email: rawEmail, password, name, role, permissions } = req.body;

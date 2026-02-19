@@ -5,7 +5,12 @@ import prisma from '../lib/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key-2024';
+// 🔒 SEGURIDAD: JWT_SECRET obligatorio — NO fallback hardcodeado
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET no está configurado en las variables de entorno');
+  process.exit(1);
+}
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 
 // ====================================================
@@ -338,8 +343,8 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     // Plan features
     const PLAN_FEATURES: Record<string, any> = {
       trial: { 
-        maxWhatsappLines: 1, maxProducts: 5,
-        crm: true, agenda: true, team: true, chatAssignment: true, products: true,
+        maxWhatsappLines: 1, maxProducts: 10,
+        crm: true, agenda: true, team: false, chatAssignment: false, products: true,
         assistants: true, config: true, integrations: true
       },
       starter: { 
@@ -480,6 +485,40 @@ router.post('/api-key/test', async (req: Request, res: Response) => {
       res.json({ valid: false, message: e.name === 'AbortError' ? 'Timeout' : 'Error conexión' });
     }
   } catch { res.json({ valid: false, message: 'Error' }); }
+});
+
+// ====================================================
+// 🔒 ADMIN: Verificar si el usuario es super admin
+// ====================================================
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
+router.post('/admin/verify', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, parentUserId: true } });
+    if (!user || user.parentUserId) {
+      res.status(403).json({ isAdmin: false });
+      return;
+    }
+
+    if (ADMIN_EMAILS.length === 0) {
+      console.warn('⚠️ ADMIN_EMAILS no configurado — nadie puede acceder al panel admin');
+      res.status(403).json({ isAdmin: false });
+      return;
+    }
+
+    const isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
+    if (!isAdmin) {
+      res.status(403).json({ isAdmin: false });
+      return;
+    }
+
+    res.json({ isAdmin: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error' });
+  }
 });
 
 export default router;

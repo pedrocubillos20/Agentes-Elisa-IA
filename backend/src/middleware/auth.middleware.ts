@@ -1,7 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'elisa-ia-secret-key-2024';
+// 🔒 SEGURIDAD: JWT_SECRET obligatorio — NO fallback hardcodeado
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET no está configurado en las variables de entorno');
+  process.exit(1);
+}
 
 export interface AuthRequest extends Request {
   user?: {

@@ -126,7 +126,7 @@ app.get('/health', (req, res) => {
 
 app.get('/api/admin/cache-stats', (req, res) => {
   const adminKey = req.headers['x-admin-key'];
-  if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
+  if (!process.env.ADMIN_SECRET_KEY || adminKey !== process.env.ADMIN_SECRET_KEY) {
     res.status(403).json({ error: 'No autorizado' }); return;
   }
   const mem = process.memoryUsage();
@@ -156,7 +156,7 @@ app.get('/api', (req, res) => {
 app.get('/api/admin/diagnostic', async (req, res) => {
   try {
     const adminKey = req.headers['x-admin-key'];
-    if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
+    if (!process.env.ADMIN_SECRET_KEY || adminKey !== process.env.ADMIN_SECRET_KEY) {
       res.status(403).json({ error: 'No autorizado' }); return;
     }
     const users = await prisma.user.findMany({ where: { parentUserId: null }, select: { id: true, email: true, name: true, plan: true } });
@@ -179,7 +179,7 @@ app.get('/api/admin/diagnostic', async (req, res) => {
 app.post('/api/admin/fix-orphans', async (req, res) => {
   try {
     const adminKey = req.headers['x-admin-key'];
-    if (adminKey !== process.env.ADMIN_SECRET_KEY && adminKey !== 'bizonne-admin-2024') {
+    if (!process.env.ADMIN_SECRET_KEY || adminKey !== process.env.ADMIN_SECRET_KEY) {
       res.status(403).json({ error: 'No autorizado' }); return;
     }
     const users = await prisma.user.findMany({ where: { parentUserId: null }, select: { id: true } });

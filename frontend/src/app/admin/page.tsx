@@ -4,19 +4,16 @@ import { useRouter } from 'next/navigation';
 import { 
   Shield, Users, CreditCard, Clock, Search, 
   RefreshCw, X,
-  DollarSign, UserCheck, UserX, Edit3, Save, Lock, Eye, EyeOff,
+  DollarSign, UserCheck, UserX, Edit3, Save, Lock,
   Tag, Plus, Trash2, ToggleLeft, ToggleRight, Gift, Percent, Copy, Check
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-const ADMIN_PASSWORD = 'Agente_Elisa_4dm1n*';
 
 export default function AdminPage() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [passError, setPassError] = useState('');
+  const [checking, setChecking] = useState(true);
   const [users, setUsers] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -49,23 +46,36 @@ export default function AdminPage() {
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
+  // 🔒 Verificar admin via backend API (no más contraseña hardcodeada)
   useEffect(() => {
-    const adminAuth = sessionStorage.getItem('bizonne_admin_auth');
-    if (adminAuth === 'true') setAuthenticated(true);
+    const verifyAdmin = async () => {
+      if (!token) { router.push('/login'); return; }
+      try {
+        const res = await fetch(`${API_URL}/api/auth/admin/verify`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isAdmin) {
+            setAuthenticated(true);
+          } else {
+            alert('No tienes permisos de administrador');
+            router.push('/dashboard');
+          }
+        } else {
+          alert('No tienes permisos de administrador');
+          router.push('/dashboard');
+        }
+      } catch (error) {
+        console.error('Error verificando admin:', error);
+        router.push('/dashboard');
+      } finally {
+        setChecking(false);
+      }
+    };
+    verifyAdmin();
   }, []);
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password === ADMIN_PASSWORD) {
-      setAuthenticated(true);
-      sessionStorage.setItem('bizonne_admin_auth', 'true');
-      setPassError('');
-      loadAll();
-    } else {
-      setPassError('Contraseña incorrecta');
-      setPassword('');
-    }
-  };
 
   useEffect(() => {
     if (authenticated) loadAll();
@@ -187,43 +197,20 @@ export default function AdminPage() {
   const formatCOP = (n: number) => '$' + Math.round(n).toLocaleString('es-CO');
   const formatDate = (d: string) => new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  // ===== PANTALLA DE CONTRASEÑA =====
-  if (!authenticated) {
+  // ===== VERIFICANDO ACCESO =====
+  if (checking || !authenticated) {
     return (
       <div className="min-h-[80vh] flex items-center justify-center">
-        <form onSubmit={handleLogin} className="w-full max-w-md bg-white/5 border border-white/10 rounded-3xl p-10 shadow-2xl">
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-gradient-to-br from-red-500/20 to-orange-500/20 rounded-2xl mx-auto mb-4 flex items-center justify-center border border-red-500/20">
-              <Lock className="w-10 h-10 text-red-400" />
-            </div>
-            <h1 className="text-2xl font-black text-white">Acceso Restringido</h1>
-            <p className="text-gray-500 text-sm mt-2">Panel de Administración de Bizonne</p>
+        <div className="w-full max-w-md bg-white/5 border border-white/10 rounded-3xl p-10 shadow-2xl text-center">
+          <div className="w-20 h-20 bg-gradient-to-br from-red-500/20 to-orange-500/20 rounded-2xl mx-auto mb-4 flex items-center justify-center border border-red-500/20">
+            <Shield className="w-10 h-10 text-red-400" />
           </div>
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Contraseña</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => { setPassword(e.target.value); setPassError(''); }}
-                  placeholder="Ingresa la contraseña..."
-                  className="w-full px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:border-red-500/50 focus:outline-none pr-12"
-                  autoFocus
-                />
-                <button type="button" onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              {passError && <p className="text-red-400 text-xs mt-2 flex items-center gap-1"><X className="w-3 h-3" /> {passError}</p>}
-            </div>
-            <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-red-600 to-orange-600 text-white font-bold rounded-xl hover:shadow-lg hover:shadow-red-500/20 transition-all hover:scale-[1.02]">
-              <Shield className="w-4 h-4 inline mr-2" /> Acceder al Panel
-            </button>
+          <h1 className="text-2xl font-black text-white">Panel de Administración</h1>
+          <p className="text-gray-500 text-sm mt-2">Verificando permisos...</p>
+          <div className="mt-6 flex justify-center">
+            <RefreshCw className="w-6 h-6 text-red-400 animate-spin" />
           </div>
-          <p className="text-center text-gray-700 text-xs mt-6">Exclusivo para administradores del sistema</p>
-        </form>
+        </div>
       </div>
     );
   }
@@ -266,7 +253,7 @@ export default function AdminPage() {
           <button onClick={loadAll} disabled={refreshing} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-xl text-sm font-medium text-white hover:bg-white/15 transition">
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Actualizar
           </button>
-          <button onClick={() => { sessionStorage.removeItem('bizonne_admin_auth'); setAuthenticated(false); }}
+          <button onClick={() => { router.push('/dashboard'); }}
             className="flex items-center gap-2 px-4 py-2 bg-red-500/10 rounded-xl text-sm font-medium text-red-400 hover:bg-red-500/20 transition border border-red-500/20">
             <Lock className="w-4 h-4" /> Cerrar Admin
           </button>

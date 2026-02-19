@@ -37,6 +37,7 @@ const ROLE_DEFAULTS: Record<string, any> = {
 
 export default function EquipoPage() {
   const [loading, setLoading] = useState(true);
+  const [needsUpgrade, setNeedsUpgrade] = useState(false);
   const [members, setMembers] = useState<any[]>([]);
   const [owner, setOwner] = useState<any>(null);
   const [lines, setLines] = useState<any[]>([]);
@@ -68,6 +69,12 @@ export default function EquipoPage() {
         setMembers(data.members || []);
         setOwner(data.owner);
         setLines(data.lines || []);
+        setNeedsUpgrade(false);
+      } else if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        if (data.error === 'plan_required') {
+          setNeedsUpgrade(true);
+        }
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -202,7 +209,7 @@ export default function EquipoPage() {
     );
   }
 
-  if (owner?.plan === 'starter') {
+  if (needsUpgrade || owner?.plan === 'starter' || owner?.plan === 'trial') {
     return (
       <div className="max-w-2xl mx-auto py-16 text-center">
         <div className="card p-10 border-purple-500/30">

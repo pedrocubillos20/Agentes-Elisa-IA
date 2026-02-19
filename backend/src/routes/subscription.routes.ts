@@ -1290,11 +1290,16 @@ router.post('/verify-payment', async (req: Request, res: Response) => {
 // ===== ADMIN: CÓDIGOS DE DESCUENTO =====
 // =====================================================
 
-// Helper: verificar admin
+// Helper: verificar super admin (usa ADMIN_EMAILS env var)
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
 async function isAdmin(userId: string | undefined): Promise<boolean> {
   if (!userId) return false;
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  return !!user && !user.parentUserId;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, parentUserId: true } });
+  if (!user || user.parentUserId) return false;
+  // Si ADMIN_EMAILS no está configurado, nadie es admin
+  if (ADMIN_EMAILS.length === 0) return false;
+  return ADMIN_EMAILS.includes(user.email.toLowerCase());
 }
 
 // GET /api/subscription/admin/discounts

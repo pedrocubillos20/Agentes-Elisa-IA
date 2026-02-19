@@ -4138,4 +4138,71 @@ Responde SOLO con el nombre exacto de una de las etapas listadas arriba. Nada m�
   }
 });
 
+// ====================================================
+// 🔄 SYNC WAHA SESSIONS — Auto-detect disconnects
+// Runs every 2 minutes, updates DB if WAHA session died
+// ====================================================
+export const startWahaSyncCron = () => {
+  const syncSessions = async () => {
+    try {
+      const lines = await prisma.whatsappLine.findMany({
+        where: { status: { not: 'disconnected' } },
+        select: { id: true, sessionName: true, status: true, phone: true }
+      });
+
+      if (lines.length === 0) return;
+
+      for (const line of lines) {
+        try {
+          const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
+            headers: getWahaHeaders(),
+            signal: AbortSignal.timeout(5000)
+          });
+
+          if (r.ok) {
+            const data = await r.json() as any;
+            const wahaStatus = data.status || 'STOPPED';
+            const isConnected = ['WORKING', 'CONNECTED'].includes(wahaStatus);
+            const newStatus = isConnected ? 'connected' : wahaStatus === 'SCAN_QR_CODE' ? 'qr' : 'disconnected';
+
+            if (newStatus !== line.status) {
+              await prisma.whatsappLine.update({
+                where: { id: line.id },
+                data: { status: newStatus }
+              }).catch(() => {});
+              console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → ${newStatus}`);
+            }
+          } else {
+            // WAHA no reconoce la sesión = desconectada
+            if (line.status !== 'disconnected') {
+              await prisma.whatsappLine.update({
+                where: { id: line.id },
+                data: { status: 'disconnected' }
+              }).catch(() => {});
+              console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → disconnected (sesión no existe)`);
+            }
+          }
+        } catch {
+          // WAHA caído = marcar como desconectada
+          if (line.status !== 'disconnected') {
+            await prisma.whatsappLine.update({
+              where: { id: line.id },
+              data: { status: 'disconnected' }
+            }).catch(() => {});
+            console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → disconnected (WAHA no responde)`);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error('🔄 Sync error:', e.message);
+    }
+  };
+
+  // Sync every 2 minutes
+  setInterval(syncSessions, 120_000);
+  // First sync after 30 seconds (let WAHA boot)
+  setTimeout(syncSessions, 30_000);
+  console.log('   🔄 WAHA sync: every 2min (auto-detect disconnects)');
+};
+
 export default router;

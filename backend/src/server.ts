@@ -7,7 +7,7 @@ import { getCacheStats } from './lib/cache';
 import authRoutes from './routes/auth.routes';
 import assistantsRoutes from './routes/assistants.routes';
 import conversationsRoutes from './routes/conversations.routes';
-import whatsappRoutes from './routes/whatsapp.routes';
+import whatsappRoutes, { startWahaSyncCron } from './routes/whatsapp.routes';
 import productsRoutes from './routes/products.routes';
 import clientsRoutes from './routes/clients.routes';
 import appointmentsRoutes from './routes/appointments.routes';
@@ -207,6 +207,7 @@ app.listen(PORT, () => {
   console.log('═══════════════════════════════════════════════════════════');
 
   startScheduledMessagesCron();
+  startWahaSyncCron();
   prisma.$queryRaw`SELECT 1`.catch(() => {});
 
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {

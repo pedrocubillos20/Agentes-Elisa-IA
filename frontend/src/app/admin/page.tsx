@@ -340,7 +340,16 @@ export default function AdminPage() {
                       </span>
                       {u.subscription?.period && <span className="text-[10px] text-gray-600 ml-1">({u.subscription.period === 'annual' ? 'Anual' : u.subscription.period === 'semiannual' ? '6M' : 'Mes'})</span>}
                     </td>
-                    <td className="px-5 py-4"><span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${statusColors[u.subscriptionStatus] || statusColors.expired}`}>{statusLabels[u.subscriptionStatus] || u.subscriptionStatus}</span></td>
+                    <td className="px-5 py-4">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${statusColors[u.subscriptionStatus] || statusColors.expired}`}>{statusLabels[u.subscriptionStatus] || u.subscriptionStatus}</span>
+                      {u.daysUntilDeletion !== null && u.daysUntilDeletion !== undefined && u.subscriptionStatus === 'expired' && (
+                        <div className="mt-1">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.daysUntilDeletion <= 3 ? 'bg-red-600/30 text-red-300 animate-pulse' : u.daysUntilDeletion <= 7 ? 'bg-orange-500/20 text-orange-400' : 'bg-gray-500/15 text-gray-500'}`}>
+                            🗑️ {u.plan === 'trial' ? '15d' : '30d'} gracia → {u.daysUntilDeletion}d
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-5 py-4"><span className={`text-sm font-bold ${u.daysLeft <= 5 ? 'text-red-400' : u.daysLeft <= 10 ? 'text-amber-400' : 'text-emerald-400'}`}>{u.daysLeft}d</span></td>
                     <td className="px-5 py-4 text-sm text-gray-400">{u._count?.conversations || 0}</td>
                     <td className="px-5 py-4 text-xs text-gray-500">{formatDate(u.createdAt)}</td>

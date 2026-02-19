@@ -1432,20 +1432,33 @@ router.get('/admin/users', async (req: Request, res: Response) => {
     const usersWithStatus = users.map(u => {
       let status = 'active';
       let daysLeft = 0;
+      let daysUntilDeletion: number | null = null;
       
       if (u.plan === 'trial' && u.trialEndsAt) {
         const diff = u.trialEndsAt.getTime() - Date.now();
         daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-        if (daysLeft <= 0) status = 'expired';
+        if (daysLeft <= 0) {
+          status = 'expired';
+          // 15 days grace for trial
+          const deletionDate = new Date(u.trialEndsAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+          daysUntilDeletion = Math.max(0, Math.ceil((deletionDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+        }
         else status = 'trial';
       } else if (u.subscription) {
         status = u.subscription.status;
         const diff = u.subscription.currentPeriodEnd.getTime() - Date.now();
         daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-        if (diff <= 0) status = 'expired';
+        if (diff <= 0) {
+          status = 'expired';
+          // 30 days grace for paid plans
+          if (['expired', 'cancelled'].includes(u.subscription.status)) {
+            const deletionDate = new Date(u.subscription.currentPeriodEnd.getTime() + 30 * 24 * 60 * 60 * 1000);
+            daysUntilDeletion = Math.max(0, Math.ceil((deletionDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+          }
+        }
       }
 
-      return { ...u, subscriptionStatus: status, daysLeft };
+      return { ...u, subscriptionStatus: status, daysLeft, daysUntilDeletion };
     });
 
     res.json({ users: usersWithStatus });

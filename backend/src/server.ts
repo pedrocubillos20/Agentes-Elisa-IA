@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import prisma from './lib/prisma';
 import { getCacheStats } from './lib/cache';
+import { deleteFile } from './lib/storage';
 
 import authRoutes from './routes/auth.routes';
 import assistantsRoutes from './routes/assistants.routes';
@@ -197,6 +198,176 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Error interno' });
 });
 
+// ====================================================
+// 🧹 AUTO-CLEANUP: Delete inactive accounts
+// - Trial expirado + 15 días sin pagar → eliminar
+// - Plan pago expirado + 30 días sin renovar → eliminar
+// Runs daily at 11:59 PM (server timezone)
+// ====================================================
+const WAHA_API_URL = process.env.WAHA_API_URL || 'http://31.97.142.127:8080';
+const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
+const getWahaHeaders = () => {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (WAHA_API_KEY) h['X-Api-Key'] = WAHA_API_KEY;
+  return h;
+};
+
+const deleteUserCompletely = async (user: any) => {
+  // 1. Delete R2 files
+  for (const file of user.mediaFiles) {
+    await deleteFile(file.key).catch(() => {});
+  }
+  if (user.mediaFiles.length > 0) {
+    console.log(`   🗑️ ${user.mediaFiles.length} archivos R2 eliminados`);
+  }
+
+  // 2. Stop WAHA sessions
+  for (const line of user.whatsappLines) {
+    await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/stop`, {
+      method: 'POST', headers: getWahaHeaders()
+    }).catch(() => {});
+    await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
+      method: 'DELETE', headers: getWahaHeaders()
+    }).catch(() => {});
+  }
+
+  // 3. Delete ScheduledMessages (no cascade relation)
+  await prisma.scheduledMessage.deleteMany({ where: { userId: user.id } });
+
+  // 4. Delete sub-users first
+  const subUsers = await prisma.user.findMany({
+    where: { parentUserId: user.id },
+    select: { id: true }
+  });
+  for (const sub of subUsers) {
+    await prisma.scheduledMessage.deleteMany({ where: { userId: sub.id } });
+    await prisma.user.delete({ where: { id: sub.id } }).catch(() => {});
+  }
+
+  // 5. Delete main user (cascade: assistants, conversations, messages, 
+  //    products, clients, appointments, subscription, payments, lines, media)
+  await prisma.user.delete({ where: { id: user.id } });
+};
+
+const startAccountCleanupCron = () => {
+  const cleanup = async () => {
+    try {
+      const now = new Date();
+      console.log(`🧹 [${now.toISOString()}] Iniciando limpieza nocturna...`);
+
+      const userSelect = {
+        id: true, name: true, email: true, plan: true,
+        trialEndsAt: true, createdAt: true,
+        subscription: { select: { status: true, currentPeriodEnd: true } },
+        whatsappLines: { select: { sessionName: true } },
+        mediaFiles: { select: { key: true } }
+      };
+
+      let totalDeleted = 0;
+
+      // ═══════════════════════════════════════════
+      // 1️⃣ TRIAL EXPIRADO + 15 DÍAS SIN PAGAR
+      // ═══════════════════════════════════════════
+      const trialCutoff = new Date();
+      trialCutoff.setDate(trialCutoff.getDate() - 15);
+
+      const expiredTrials = await prisma.user.findMany({
+        where: {
+          plan: 'trial',
+          parentUserId: null,
+          trialEndsAt: { lt: trialCutoff }
+        },
+        select: userSelect
+      });
+
+      if (expiredTrials.length > 0) {
+        console.log(`🧹 Trial expirados (>15d): ${expiredTrials.length} cuentas`);
+      }
+
+      for (const user of expiredTrials) {
+        try {
+          const expDate = user.trialEndsAt?.toISOString().split('T')[0] || 'N/A';
+          console.log(`🧹 [TRIAL] Eliminando: ${user.name || user.email} (venció: ${expDate})`);
+          await deleteUserCompletely(user);
+          console.log(`   ✅ ${user.email} eliminado`);
+          totalDeleted++;
+        } catch (e: any) {
+          console.error(`   ❌ Error: ${user.email}: ${e.message}`);
+        }
+      }
+
+      // ═══════════════════════════════════════════
+      // 2️⃣ PLAN PAGO EXPIRADO + 30 DÍAS SIN RENOVAR
+      // ═══════════════════════════════════════════
+      const paidCutoff = new Date();
+      paidCutoff.setDate(paidCutoff.getDate() - 30);
+
+      // Find users with expired/cancelled subscriptions where period ended > 30 days ago
+      const expiredPaid = await prisma.user.findMany({
+        where: {
+          parentUserId: null,
+          plan: { in: ['starter', 'business'] },
+          subscription: {
+            status: { in: ['expired', 'cancelled'] },
+            currentPeriodEnd: { lt: paidCutoff }
+          }
+        },
+        select: userSelect
+      });
+
+      if (expiredPaid.length > 0) {
+        console.log(`🧹 Planes pagos expirados (>30d): ${expiredPaid.length} cuentas`);
+      }
+
+      for (const user of expiredPaid) {
+        try {
+          const expDate = user.subscription?.currentPeriodEnd?.toISOString().split('T')[0] || 'N/A';
+          console.log(`🧹 [${user.plan?.toUpperCase()}] Eliminando: ${user.name || user.email} (venció: ${expDate})`);
+          await deleteUserCompletely(user);
+          console.log(`   ✅ ${user.email} eliminado`);
+          totalDeleted++;
+        } catch (e: any) {
+          console.error(`   ❌ Error: ${user.email}: ${e.message}`);
+        }
+      }
+
+      if (totalDeleted > 0) {
+        console.log(`🧹 Limpieza completada: ${totalDeleted} cuentas eliminadas`);
+      } else {
+        console.log(`🧹 Limpieza completada: sin cuentas para eliminar`);
+      }
+    } catch (e: any) {
+      console.error('🧹 Error en limpieza:', e.message);
+    }
+  };
+
+  // Schedule daily at 11:59 PM
+  const scheduleNextRun = () => {
+    const now = new Date();
+    const next = new Date();
+    next.setHours(23, 59, 0, 0); // 11:59 PM today
+    
+    // If already past 11:59 PM, schedule for tomorrow
+    if (now >= next) {
+      next.setDate(next.getDate() + 1);
+    }
+    
+    const msUntilNext = next.getTime() - now.getTime();
+    const hoursUntil = (msUntilNext / (1000 * 60 * 60)).toFixed(1);
+    
+    console.log(`   🧹 Próxima limpieza: ${next.toISOString().split('T')[0]} 23:59 (en ${hoursUntil}h)`);
+    
+    setTimeout(() => {
+      cleanup();
+      // After running, schedule every 24 hours
+      setInterval(cleanup, 24 * 60 * 60 * 1000);
+    }, msUntilNext);
+  };
+
+  scheduleNextRun();
+  console.log('   🧹 Auto-cleanup: diario 11:59 PM (trial >15d, pagos >30d)');
+};
+
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
@@ -208,6 +379,7 @@ app.listen(PORT, () => {
 
   startScheduledMessagesCron();
   startWahaSyncCron();
+  startAccountCleanupCron();
   prisma.$queryRaw`SELECT 1`.catch(() => {});
 
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {

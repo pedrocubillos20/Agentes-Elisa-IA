@@ -492,7 +492,7 @@ router.post('/api-key/test', async (req: Request, res: Response) => {
 // ====================================================
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
 
-router.post('/admin/verify', async (req: Request, res: Response) => {
+router.post('/admin/verify', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }

@@ -1,5 +1,5 @@
 {
-  "name": "elisa-ia-backend",
+  "name": "bizonne-backend",
   "version": "6.0.0",
   "description": "Bizonne Backend - Multi-Tenant WhatsApp Platform",
   "main": "dist/server.js",

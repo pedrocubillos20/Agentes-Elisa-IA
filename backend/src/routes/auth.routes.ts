@@ -25,7 +25,7 @@ const sendEmail = async (to: string, subject: string, html: string): Promise<boo
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'Elisa IA <onboarding@resend.dev>',
+        from: 'Bizonne <onboarding@resend.dev>',
         to: [to],
         subject,
         html
@@ -101,7 +101,7 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       <body>
         <div class="container">
           <div class="logo">
-            <h1>🤖 Elisa IA</h1>
+            <h1>🤖 Bizonne CRM</h1>
           </div>
           <p class="message">Hola${user.name ? ` ${user.name}` : ''},</p>
           <p class="message">Recibimos una solicitud para restablecer tu contraseña. Usa el siguiente código:</p>
@@ -109,14 +109,14 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
           <p class="warning">⏰ Este código expira en 15 minutos.</p>
           <p class="message">Si no solicitaste este cambio, puedes ignorar este correo.</p>
           <div class="footer">
-            <p>© ${new Date().getFullYear()} Elisa IA - Automatiza tu WhatsApp con IA</p>
+            <p>© ${new Date().getFullYear()} Bizonne - Automatiza tu WhatsApp con IA</p>
           </div>
         </div>
       </body>
       </html>
     `;
 
-    const sent = await sendEmail(email, '🔐 Código de recuperación - Elisa IA', emailHtml);
+    const sent = await sendEmail(email, '🔐 Código de recuperación - Bizonne', emailHtml);
     
     if (sent) {
       console.log(`🔐 Código de reset enviado a ${email}: ${resetCode}`);

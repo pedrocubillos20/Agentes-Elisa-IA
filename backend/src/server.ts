@@ -29,6 +29,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:3001',
+    'https://crm.bizonne.com',
     'https://agentes-elisa-ia.vercel.app',
     process.env.FRONTEND_URL || ''
   ].filter(Boolean),
@@ -371,8 +372,8 @@ const startAccountCleanupCron = () => {
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('   🚀 Bizonne Backend v7.0.0 — Optimized Platform');
-  console.log('   ⚡ LRU Cache + Pool(20) + Rate Limit + DB Keepalive');
+  console.log('   🚀 Bizonne Backend v7.0.1 — Egress Optimized');
+  console.log('   ⚡ LRU Cache + Pool(5) + Rate Limit');
   console.log('═══════════════════════════════════════════════════════════');
   console.log(`   🌐 http://localhost:${PORT}`);
   console.log('═══════════════════════════════════════════════════════════');
@@ -385,12 +386,36 @@ app.listen(PORT, () => {
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {
     const selfUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null);
     if (selfUrl) {
-      setInterval(() => { fetch(`${selfUrl}/health`).catch(() => {}); }, 240_000);
-      console.log(`   🏓 Self-ping: ${selfUrl}/health (4min)`);
+      setInterval(() => { fetch(`${selfUrl}/health`).catch(() => {}); }, 600_000); // 10min
+      console.log(`   🏓 Self-ping: ${selfUrl}/health (10min)`);
     }
-    // 🔥 DB KEEPALIVE: Prevents Supabase free tier 7-day auto-pause
-    setInterval(() => { prisma.$queryRaw`SELECT 1`.catch(() => {}); }, 300_000);
-    console.log('   🗄️  DB keepalive: every 5min (anti Supabase pause)');
+    // 🧹 Weekly VACUUM: Sundays at 4 AM — prevents dead tuple bloat
+    const scheduleWeeklyVacuum = () => {
+      const now = new Date();
+      const nextSunday = new Date();
+      nextSunday.setDate(now.getDate() + (7 - now.getDay()) % 7);
+      nextSunday.setHours(4, 0, 0, 0);
+      if (nextSunday <= now) nextSunday.setDate(nextSunday.getDate() + 7);
+      const msUntil = nextSunday.getTime() - now.getTime();
+      setTimeout(async () => {
+        try {
+          await prisma.$executeRawUnsafe('VACUUM "Assistant"');
+          await prisma.$executeRawUnsafe('VACUUM "Message"');
+          await prisma.$executeRawUnsafe('VACUUM "Conversation"');
+          console.log('🧹 Weekly VACUUM completed');
+        } catch (e: any) { console.error('⚠️ VACUUM error:', e.message); }
+        setInterval(async () => {
+          try {
+            await prisma.$executeRawUnsafe('VACUUM "Assistant"');
+            await prisma.$executeRawUnsafe('VACUUM "Message"');
+            await prisma.$executeRawUnsafe('VACUUM "Conversation"');
+            console.log('🧹 Weekly VACUUM completed');
+          } catch (e: any) { console.error('⚠️ VACUUM error:', e.message); }
+        }, 7 * 24 * 60 * 60 * 1000);
+      }, msUntil);
+      console.log(`   🧹 Weekly VACUUM: Sundays 4 AM (next in ${(msUntil / 3600000).toFixed(1)}h)`);
+    };
+    scheduleWeeklyVacuum();
   }
 });
 

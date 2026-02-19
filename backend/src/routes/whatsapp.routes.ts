@@ -3886,8 +3886,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       } else if (respondTo === 'mentions') {
         // Solo responder si mencionan al bot o usan palabras clave
         const botMentioned = payload?.mentionedIds?.length > 0 || 
-                            messageLower.includes('@elisa') || 
-                            messageLower.includes('elisa') ||
+                            messageLower.includes('@bizonne') || 
+                            messageLower.includes('bizonne') ||
                             messageLower.includes('bot');
         shouldRespond = botMentioned;
       } else if (respondTo === 'keywords') {
@@ -4349,7 +4349,7 @@ Responde SOLO con el nombre exacto de una de las etapas listadas arriba. Nada m�
 
 // ====================================================
 // 🔄 WAHA SYNC CRON — Auto-detect disconnected sessions
-// Runs every 2 minutes
+// Runs every 10 minutes
 // ====================================================
 export const startWahaSyncCron = () => {
   const syncSessions = async () => {
@@ -4392,9 +4392,9 @@ export const startWahaSyncCron = () => {
     }
   };
 
-  setInterval(syncSessions, 120_000); // Every 2 minutes
+  setInterval(syncSessions, 600_000); // Every 10 minutes — reduces egress by 80%
   setTimeout(syncSessions, 30_000); // First run after 30s
-  console.log('🔄 WAHA sync: every 2min (auto-detect disconnects)');
+  console.log('🔄 WAHA sync: every 10min (auto-detect disconnects)');
 };
 
 export default router;

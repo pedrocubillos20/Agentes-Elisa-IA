@@ -317,10 +317,10 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 // ====================================================
-// ⏰ CRON: Verificar mensajes pendientes cada 60 segundos
+// ⏰ CRON: Verificar mensajes pendientes cada 3 minutos
 // ====================================================
 export const startScheduledMessagesCron = () => {
-  log('⏰ Cron de mensajes programados INICIADO (cada 60s)');
+  log('⏰ Cron de mensajes programados INICIADO (cada 3min)');
 
   setInterval(async () => {
     try {
@@ -346,7 +346,7 @@ export const startScheduledMessagesCron = () => {
     } catch (e: any) {
       console.error('⏰ Error en cron de programados:', e.message);
     }
-  }, 60000);
+  }, 180_000); // 3 minutes — reduces egress by 67%
 };
 
 // ====================================================

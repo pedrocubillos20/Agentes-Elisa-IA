@@ -17,9 +17,9 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-6">
-      <img src="/elisa.png" alt="Elisa IA" className="w-24 h-24 rounded-3xl animate-pulse shadow-lg" />
+      <img src="/bizonne.png" alt="Bizonne CRM" className="w-24 h-24 rounded-3xl animate-pulse shadow-lg" />
       <h1 className="text-3xl font-bold text-white">
-        Elisa <span className="text-[var(--accent-primary)] font-light">IA</span>
+        Bizonne<span className="text-[var(--accent-primary)] font-light">CRM</span>
       </h1>
       <div className="loading-spinner" />
     </div>

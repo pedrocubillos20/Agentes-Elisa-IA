@@ -722,7 +722,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
         }
       });
       
-      const frontendUrl = process.env.FRONTEND_URL || 'https://agentes-elisa-ia.vercel.app';
+      const frontendUrl = process.env.FRONTEND_URL || 'https://crm.bizonne.com';
       res.json({
         publicKey: WOMPI_PUBLIC_KEY, amountInCents, currency: 'COP',
         reference, signature,
@@ -889,7 +889,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'https://agentes-elisa-ia.vercel.app';
+    const frontendUrl = process.env.FRONTEND_URL || 'https://crm.bizonne.com';
 
     res.json({
       publicKey: WOMPI_PUBLIC_KEY,

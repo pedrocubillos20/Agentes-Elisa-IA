@@ -8,7 +8,7 @@ import {
   Tag, Plus, Trash2, ToggleLeft, ToggleRight, Gift, Percent, Copy, Check
 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://elisa-ia-agentes-production.up.railway.app';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const ADMIN_PASSWORD = 'Agente_Elisa_4dm1n*';
 
 export default function AdminPage() {
@@ -50,7 +50,7 @@ export default function AdminPage() {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   useEffect(() => {
-    const adminAuth = sessionStorage.getItem('elisa_admin_auth');
+    const adminAuth = sessionStorage.getItem('bizonne_admin_auth');
     if (adminAuth === 'true') setAuthenticated(true);
   }, []);
 
@@ -58,7 +58,7 @@ export default function AdminPage() {
     e.preventDefault();
     if (password === ADMIN_PASSWORD) {
       setAuthenticated(true);
-      sessionStorage.setItem('elisa_admin_auth', 'true');
+      sessionStorage.setItem('bizonne_admin_auth', 'true');
       setPassError('');
       loadAll();
     } else {
@@ -266,7 +266,7 @@ export default function AdminPage() {
           <button onClick={loadAll} disabled={refreshing} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-xl text-sm font-medium text-white hover:bg-white/15 transition">
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} /> Actualizar
           </button>
-          <button onClick={() => { sessionStorage.removeItem('elisa_admin_auth'); setAuthenticated(false); }}
+          <button onClick={() => { sessionStorage.removeItem('bizonne_admin_auth'); setAuthenticated(false); }}
             className="flex items-center gap-2 px-4 py-2 bg-red-500/10 rounded-xl text-sm font-medium text-red-400 hover:bg-red-500/20 transition border border-red-500/20">
             <Lock className="w-4 h-4" /> Cerrar Admin
           </button>

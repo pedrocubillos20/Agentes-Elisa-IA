@@ -147,7 +147,7 @@ function extractStagesFromContext(context: string): any[] {
   const sectionMatch = context.match(/##?\s*[^\n]*?ETAPAS[^\n]*(?:PIPELINE|CRM|FLUJO|AUTOMÁTICO)?[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
   
   if (!sectionMatch) {
-    console.log('  📋 No se encontró sección de etapas en el contexto');
+    // Silent in production — no stages section is normal
     return [];
   }
   
@@ -197,7 +197,7 @@ function extractStagesFromContext(context: string): any[] {
   
   // Necesitamos al menos 2 etapas válidas
   if (foundItems.length < 2) {
-    console.log(`  📋 Muy pocas etapas encontradas (${foundItems.length}), retornando vacío`);
+    // Silent in production — few stages is normal
     return [];
   }
   

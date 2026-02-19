@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Crown, Check, X, Clock, CreditCard, Shield, Zap, ArrowLeft, AlertTriangle, Star, Sparkles, Building2, Rocket, ChevronDown, Tag, Percent, Gift, Info } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://elisa-ia-agentes-production.up.railway.app';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 const PLAN_FEATURES: Record<string, { included: string[]; excluded: string[] }> = {
   starter: {

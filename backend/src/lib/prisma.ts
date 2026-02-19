@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 /**
- * ⚡ PRISMA CLIENT — OPTIMIZADO PARA SUPABASE
+ * ⚡ PRISMA CLIENT — OPTIMIZADO PARA SUPABASE FREE TIER
  * 
  * MEJORAS:
  * 1. Connection pool configurado (20 conexiones, 10s timeout)
@@ -11,7 +11,7 @@ import { PrismaClient } from '@prisma/client';
  * 
  * IMPORTANTE: En Supabase, usa la URL del Pooler (puerto 6543):
  *   postgres://postgres.[REF]:[PASS]@aws-0-xxx.pooler.supabase.com:6543/postgres
- *   Agrega: ?pgbouncer=true&connection_limit=20
+ *   Agrega: ?pgbouncer=true&connection_limit=5
  */
 
 const globalForPrisma = globalThis as unknown as {
@@ -30,8 +30,8 @@ const getDatabaseUrl = (): string => {
   // Add connection pool params for Supabase
   const separator = url.includes('?') ? '&' : '?';
   const params = [
-    'connection_limit=20',    // Max 20 connections in Prisma pool
-    'pool_timeout=10',        // Wait 10s for available connection
+    'connection_limit=5',     // Max 5 connections (Supabase free tier safe)
+    'pool_timeout=15',        // Wait 15s for available connection
   ];
   
   // Add pgbouncer=true if using Supabase pooler (port 6543)

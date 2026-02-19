@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, KeyRound, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://elisa-iaagentes-production.up.railway.app';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 export default function ForgotPasswordPage() {
   const router = useRouter();

@@ -829,7 +829,7 @@ export default function ConversacionesPage() {
                         const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean);
                         updateGroupSettings({ triggerWords: words });
                       }}
-                      placeholder="elisa, ayuda, info"
+                      placeholder="bizonne, ayuda, info"
                       className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
                     />
                     <p className="text-[9px] text-[var(--text-muted)] mt-1">Separar con comas</p>

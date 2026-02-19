@@ -894,11 +894,13 @@ El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
 
 FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
 
-<<MEMORY_JSON>>{"nombre":"","telefono":"","email":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","fecha_reserva":"","hora_reserva":"","tipo_reserva":"","num_personas":"","duracion_reserva":"","reserva":"","notas":"","etapa_actual":"","accion":""}<<END_MEMORY>>
+<<MEMORY_JSON>>{"nombre":"","nombre_empresa":"","tipo_negocio":"","telefono":"","email":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","fecha_reserva":"","hora_reserva":"","tipo_reserva":"","num_personas":"","duracion_reserva":"","reserva":"","notas":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
 INSTRUCCIONES:
 - Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
 - "nombre" = Nombre del cliente
+- "nombre_empresa" = Nombre del negocio o empresa del cliente (ej: "Moda Express", "La Parrilla", "Sonrisa Dental")
+- "tipo_negocio" = A qué se dedica: tipo de negocio y productos/servicios que ofrece (ej: "Tienda de ropa femenina - vende buzos, camisetas, jeans", "Restaurante de comida italiana - pizzas, pastas, lasagna")
 - "telefono" = Teléfono o celular del cliente
 - "email" = Email del cliente (si lo da)
 - "producto_servicio" = Qué producto o servicio quiere (ej: "Buzo Negro XL Premium", "Consulta legal", "Paquete turístico Cancún")
@@ -987,12 +989,17 @@ Si el cliente necesita ser atendido por otra área/departamento/persona, usa la 
 Ejemplo: Si necesitas transferir al +573118083993:
 "Entiendo, voy a transferirte con nuestro equipo de soporte para que te ayuden mejor. <<TRANSFERIR:${otherLines[0]?.phone || '+573118083993'}>>"
 
+TRANSFERENCIA CON RESET (para demos):
+Si necesitas transferir Y LIMPIAR esta conversación para que el próximo cliente empiece de cero, usa <<TRANSFERIR_RESET:número>>
+Ejemplo: "Te conecto de vuelta con Elisa 🚀 <<TRANSFERIR_RESET:+573118083993>>"
+Esto borra todos los mensajes de esta conversación después de transferir.
+
 REGLAS DE TRANSFERENCIA:
 - SOLO transfiere cuando el cliente necesita un área diferente o cuando tu contexto lo indique
 - El número debe ser EXACTO como aparece arriba (con código de país)
-- El tag <<TRANSFERIR:número>> es interno, el cliente NO lo verá
+- Los tags <<TRANSFERIR:>> y <<TRANSFERIR_RESET:>> son internos, el cliente NO los verá
 - Escribe un mensaje de despedida natural ANTES del tag
-- La otra línea recibirá la conversación y podrá continuar la atención
+- La otra línea recibirá la conversación con la memoria del cliente copiada
 - Si en tu contexto/instrucciones se menciona cuándo transferir a cada línea, sigue esas reglas
 `);
       }
@@ -1998,7 +2005,8 @@ const executeLineTransfer = async (
   userId: string,
   sourceLineId: string,
   sourceConvId: string,
-  transferMessage: string
+  transferMessage: string,
+  resetSource: boolean = false
 ): Promise<boolean> => {
   try {
     // 1. Find target line by phone number
@@ -2022,13 +2030,20 @@ const executeLineTransfer = async (
       return false;
     }
 
-    log(`🔄 Transferencia: ${customerName} → línea "${targetLine.label}" (${targetLine.phone})`);
+    log(`🔄 Transferencia: ${customerName} → línea "${targetLine.label}" (${targetLine.phone})${resetSource ? ' [+RESET SOURCE]' : ''}`);
 
     // 2. Find or create conversation on target line
     const cleanCustomer = customerChatId.replace('@c.us', '').replace('@s.whatsapp.net', '');
     let targetConv = await prisma.conversation.findFirst({
       where: { userId, recipientId: { contains: cleanCustomer.slice(-10) }, whatsappLineId: targetLine.id }
     });
+
+    // 3. Get context from source conversation
+    const sourceConv = await prisma.conversation.findUnique({
+      where: { id: sourceConvId },
+      select: { contextData: true, stage: true, recipientName: true }
+    });
+    const ctx = (sourceConv?.contextData as Record<string, any>) || {};
 
     if (!targetConv) {
       targetConv = await prisma.conversation.create({
@@ -2038,54 +2053,57 @@ const executeLineTransfer = async (
           recipientName: customerName || cleanCustomer,
           whatsappLineId: targetLine.id,
           stage: 'new',
-          lastMessage: `🔄 Transferido desde ${(await prisma.whatsappLine.findUnique({ where: { id: sourceLineId }, select: { label: true } }))?.label || 'otra línea'}`,
-          isActive: true
+          lastMessage: `🔄 Transferido`,
+          isActive: true,
+          contextData: ctx
         }
       });
       log(`🔄 Nueva conversación creada en línea "${targetLine.label}"`);
+    } else {
+      // Update existing conv with fresh context and reset messages for demo
+      const updateData: any = { contextData: ctx, isActive: true };
+      if (resetSource) {
+        // If target is being reused (demo), clear old messages first
+        await prisma.message.deleteMany({ where: { conversationId: targetConv.id } });
+        updateData.stage = 'new';
+        log(`🔄 Conversación existente limpiada para nueva demo`);
+      }
+      await prisma.conversation.update({ where: { id: targetConv.id }, data: updateData });
     }
 
-    // 3. Get context from source conversation to pass to target
-    const sourceConv = await prisma.conversation.findUnique({
-      where: { id: sourceConvId },
-      select: { contextData: true, stage: true, recipientName: true }
-    });
-
-    // Copy context data to target conversation
-    if (sourceConv?.contextData) {
-      await prisma.conversation.update({
-        where: { id: targetConv.id },
-        data: { contextData: sourceConv.contextData }
-      });
-    }
-
-    // 4. Build greeting from target line
+    // 4. Build smart greeting based on context
     const targetAssistant = await prisma.assistant.findFirst({
       where: { userId, whatsappLineId: targetLine.id }
     }) || await prisma.assistant.findFirst({
       where: { userId, isActive: true }
     });
 
-    const greetingName = targetAssistant?.name || targetLine.label;
-    const greeting = `¡Hola${customerName ? ` ${customerName}` : ''}! 👋 Soy ${greetingName}. Me transfirieron tu conversación para poder ayudarte mejor. ¿En qué puedo asistirte?`;
+    let greeting = '';
+    const clientFirstName = ctx.nombre || customerName || '';
+    const businessName = ctx.nombre_empresa || ctx.producto_servicio?.split(' - ')?.[0] || '';
+    const businessType = ctx.tipo_negocio || ctx.producto_servicio || ctx.notas || '';
+
+    // Smart greeting based on what we know
+    if (businessName && businessType) {
+      // Transferring TO Demo — greet as the business
+      greeting = `¡Hola! 😊 Bienvenido/a a *${businessName}*. Soy tu asistente virtual.\n\nPuedo ayudarte con todo sobre ${businessType}.\n\n¿En qué puedo ayudarte hoy?`;
+    } else if (clientFirstName && ctx.etapa_actual === 'Demo Enviada') {
+      // Transferring BACK from Demo — welcome back
+      greeting = `¡${clientFirstName}, ya regresaste! 🎉\n\n¿Qué te pareció la experiencia con tu demo personalizada?`;
+    } else {
+      // Generic fallback
+      const greetingName = targetAssistant?.name || targetLine.label;
+      greeting = `¡Hola${clientFirstName ? ` ${clientFirstName}` : ''}! 👋 Soy ${greetingName}. Me transfirieron tu conversación para poder ayudarte mejor. ¿En qué puedo asistirte?`;
+    }
 
     // 5. Send greeting from target line
     await humanDelay(greeting.length);
     const sent = await sendWahaMessage(targetLine.sessionName, customerChatId, greeting);
 
     if (sent) {
-      // Save message in target conversation
       await prisma.message.create({
-        data: {
-          conversationId: targetConv.id,
-          content: greeting,
-          fromMe: true,
-          userId,
-          role: 'assistant'
-        }
+        data: { conversationId: targetConv.id, content: greeting, fromMe: true, userId, role: 'assistant' }
       });
-
-      // Update target conversation
       await prisma.conversation.update({
         where: { id: targetConv.id },
         data: { lastMessage: greeting, isActive: true }
@@ -2096,15 +2114,23 @@ const executeLineTransfer = async (
         data: {
           conversationId: sourceConvId,
           content: `🔄 Conversación transferida a línea "${targetLine.label}" (${targetLine.phone})`,
-          fromMe: true,
-          userId,
-          role: 'system'
+          fromMe: true, userId, role: 'system'
         }
       });
       await prisma.conversation.update({
         where: { id: sourceConvId },
         data: { lastMessage: `🔄 Transferido a ${targetLine.label}` }
       });
+
+      // 7. RESET SOURCE if requested (for demo cleanup)
+      if (resetSource) {
+        await prisma.message.deleteMany({ where: { conversationId: sourceConvId } });
+        await prisma.conversation.update({
+          where: { id: sourceConvId },
+          data: { contextData: {}, stage: 'new', lastMessage: '🔄 Demo finalizada - limpio para siguiente cliente' }
+        });
+        log(`🧹 Source conversation reset (demo cleanup)`);
+      }
 
       log(`🔄✅ Transferencia exitosa: ${customerName} → "${targetLine.label}" (${targetLine.phone})`);
       return true;
@@ -2215,8 +2241,13 @@ const processBufferedMessages = async (bufferKey: string) => {
 
       if (aiResponse) {
         // 🔄 Check for transfer in media+AI path
-        const mediaTransferMatch = aiResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
-        const cleanAiResponse = aiResponse.replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '').replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
+        const mediaTransferResetMatch = aiResponse.match(/<<TRANSFERIR_RESET:(\+?\d{7,15})>>/);
+        const mediaTransferMatch = mediaTransferResetMatch || aiResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
+        const mediaIsReset = !!mediaTransferResetMatch;
+        const cleanAiResponse = aiResponse
+          .replace(/<<TRANSFERIR_RESET:\+?\d{7,15}>>/g, '')
+          .replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '')
+          .replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
         
         if (cleanAiResponse) {
           await humanDelay(cleanAiResponse.length);
@@ -2226,7 +2257,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
         if (mediaTransferMatch && whatsappLineId) {
           await new Promise(r => setTimeout(r, 2000));
-          await executeLineTransfer(mediaTransferMatch[1], from, senderName, userId, whatsappLineId, convId, cleanAiResponse);
+          await executeLineTransfer(mediaTransferMatch[1], from, senderName, userId, whatsappLineId, convId, cleanAiResponse, mediaIsReset);
         }
       }
 
@@ -2251,12 +2282,18 @@ const processBufferedMessages = async (bufferKey: string) => {
         const cleanResponse = aiResponse.replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
 
         // ═══ 🔄 DETECTAR TRANSFERENCIA ENTRE LÍNEAS ═══
-        const transferMatch = cleanResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
+        const transferResetMatch = cleanResponse.match(/<<TRANSFERIR_RESET:(\+?\d{7,15})>>/);
+        const transferMatch = transferResetMatch || cleanResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
+        const isResetTransfer = !!transferResetMatch;
+        
         if (transferMatch && whatsappLineId) {
           const targetPhone = transferMatch[1];
-          const farewellMessage = cleanResponse.replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '').trim();
+          const farewellMessage = cleanResponse
+            .replace(/<<TRANSFERIR_RESET:\+?\d{7,15}>>/g, '')
+            .replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '')
+            .trim();
           
-          log(`🔄 Transferencia detectada → ${targetPhone}`);
+          log(`🔄 Transferencia detectada → ${targetPhone}${isResetTransfer ? ' [RESET]' : ''}`);
 
           // Send farewell message from current line
           if (farewellMessage) {
@@ -2277,7 +2314,8 @@ const processBufferedMessages = async (bufferKey: string) => {
             userId,
             whatsappLineId,
             convId,
-            farewellMessage
+            farewellMessage,
+            isResetTransfer
           );
 
           // Skip the rest of the normal flow — transfer handled

@@ -2083,13 +2083,16 @@ const executeLineTransfer = async (
     const businessName = ctx.nombre_empresa || ctx.producto_servicio?.split(' - ')?.[0] || '';
     const businessType = ctx.tipo_negocio || ctx.producto_servicio || ctx.notas || '';
 
-    // Smart greeting based on what we know
-    if (businessName && businessType) {
+    // Smart greeting based on transfer context
+    if (resetSource && clientFirstName && businessName) {
+      // Coming BACK from Demo → welcome back + ask what they liked
+      greeting = `¡${clientFirstName}, ya regresaste! 🎉\n\nCuéntame, ¿qué fue lo que más te gustó de la demo de *${businessName}*? 😊`;
+    } else if (businessName && businessType && !resetSource) {
       // Transferring TO Demo — greet as the business
       greeting = `¡Hola! 😊 Bienvenido/a a *${businessName}*. Soy tu asistente virtual.\n\nPuedo ayudarte con todo sobre ${businessType}.\n\n¿En qué puedo ayudarte hoy?`;
-    } else if (clientFirstName && ctx.etapa_actual === 'Demo Enviada') {
-      // Transferring BACK from Demo — welcome back
-      greeting = `¡${clientFirstName}, ya regresaste! 🎉\n\n¿Qué te pareció la experiencia con tu demo personalizada?`;
+    } else if (clientFirstName && (ctx.etapa_actual === 'Demo Enviada' || resetSource)) {
+      // Fallback: coming back from demo without business name
+      greeting = `¡${clientFirstName}, ya regresaste! 🎉\n\n¿Qué fue lo que más te gustó de la demo? 😊`;
     } else {
       // Generic fallback
       const greetingName = targetAssistant?.name || targetLine.label;

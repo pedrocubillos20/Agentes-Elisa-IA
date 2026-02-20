@@ -63,7 +63,7 @@ export default function Paywall({ plan, daysExpired }: PaywallProps) {
           </h1>
           <p className="text-gray-400 text-lg max-w-lg mx-auto">
             {isTrialExpired 
-              ? 'Los 7 días de prueba han finalizado. Elige un plan para seguir automatizando tu negocio con IA.'
+              ? 'Los 3 días de prueba han finalizado. Elige un plan para seguir automatizando tu negocio con IA.'
               : 'Tu plan ha vencido. Renueva para recuperar el acceso a todas tus herramientas y conversaciones.'}
           </p>
         </div>

@@ -97,6 +97,31 @@ app.get('/api/subscription/exchange-rate', (req, res, next) => {
   req.url = '/exchange-rate'; subscriptionRoutes(req, res, next);
 });
 
+// ===== DELETE CONVERSATION =====
+app.delete('/api/conversations/:id', authMiddleware, async (req: any, res: any) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    const { id } = req.params;
+    
+    // Verify conversation belongs to user
+    const conv = await prisma.conversation.findFirst({
+      where: { id, userId },
+      select: { id: true, recipientName: true, recipientId: true }
+    });
+    
+    if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
+    
+    // Delete conversation (messages cascade automatically)
+    await prisma.conversation.delete({ where: { id } });
+    
+    console.log(`🗑️ Conversación eliminada: ${conv.recipientName || conv.recipientId} (user: ${userId})`);
+    res.json({ success: true, message: 'Conversación eliminada' });
+  } catch (e: any) {
+    console.error('Error eliminando conversación:', e.message);
+    res.status(500).json({ error: 'Error al eliminar la conversación' });
+  }
+});
+
 // ===== PROTECTED ROUTES (60 req/min per IP) =====
 const apiRL = rateLimit(60, 60_000);
 app.use('/api/assistants', authMiddleware, subscriptionMiddleware, apiRL, assistantsRoutes);

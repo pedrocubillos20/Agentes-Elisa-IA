@@ -248,13 +248,13 @@ router.post('/register', async (req: Request, res: Response) => {
     if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
 
     const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + 7);
+    trialEndsAt.setDate(trialEndsAt.getDate() + 3);
 
     const user = await prisma.user.create({
       data: { email, password: await bcrypt.hash(password, 10), name: name || null, role: 'admin', plan: 'trial', trialEndsAt }
     });
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '3d' });
     res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, role: 'admin' }, token });
   } catch (error) {
     console.error('Error registro:', error);
@@ -280,7 +280,7 @@ router.post('/login', async (req: Request, res: Response) => {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '3d' });
 
     res.json({
       user: {

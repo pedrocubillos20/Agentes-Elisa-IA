@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Search, Send, X,
-  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap
+  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap, Trash2
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -58,6 +58,8 @@ export default function ConversacionesPage() {
   const [editingQuickReplies, setEditingQuickReplies] = useState(false);
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [newQuickReply, setNewQuickReply] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
@@ -367,6 +369,27 @@ export default function ConversacionesPage() {
     } catch {}
   };
 
+  // 🗑️ Eliminar conversación
+  const deleteConversation = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${deleteConfirm.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setConversations(prev => prev.filter(c => c.id !== deleteConfirm.id));
+        if (selectedConv?.id === deleteConfirm.id) {
+          setSelectedConv(null);
+          setMessages([]);
+        }
+        setDeleteConfirm(null);
+      }
+    } catch {} finally { setDeleting(false); }
+  };
+
   // 👥 Actualizar configuración de grupo
   const updateGroupSettings = async (updates: any) => {
     if (!selectedConv?.isGroup) return;
@@ -627,6 +650,9 @@ export default function ConversacionesPage() {
                   <button onClick={toggleAIPause} className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${selectedConv.aiPaused ? 'bg-yellow-500/20 text-yellow-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
                     {selectedConv.aiPaused ? <PauseCircle className="w-3 h-3" /> : <PlayCircle className="w-3 h-3" />}
                     {selectedConv.aiPaused ? 'Pausada' : 'Activa'}
+                  </button>
+                  <button onClick={() => setDeleteConfirm(selectedConv)} className="px-2 py-1 rounded text-xs flex items-center gap-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors" title="Eliminar conversación">
+                    <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
               </div>
@@ -944,6 +970,35 @@ export default function ConversacionesPage() {
             <button onClick={sendMassMessage} disabled={sendingMass || (!massText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
               {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${conversations.filter(c => c.stage === filterStage).length} contactos`}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🗑️ Modal Confirmar Eliminación */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[var(--bg-secondary)] border border-red-500/30 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-14 h-14 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center">
+                <Trash2 className="w-7 h-7 text-red-400" />
+              </div>
+            </div>
+            <h3 className="text-lg font-bold text-white text-center mb-2">¿Eliminar conversación?</h3>
+            <p className="text-sm text-[var(--text-muted)] text-center mb-1">
+              <span className="text-white font-semibold">{deleteConfirm.recipientName || deleteConfirm.recipientId?.replace('@c.us', '')}</span>
+            </p>
+            <p className="text-xs text-red-400/80 text-center mb-6">
+              Se eliminarán todos los mensajes de forma permanente. Si vuelve a escribir, la conversación iniciará desde cero.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm(null)} disabled={deleting} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors">
+                Cancelar
+              </button>
+              <button onClick={deleteConversation} disabled={deleting} className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-500 hover:bg-red-600 text-white transition-colors flex items-center justify-center gap-2">
+                {deleting ? <div className="loading-spinner w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                {deleting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}

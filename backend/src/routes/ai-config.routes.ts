@@ -4,6 +4,10 @@ import { getOwnerId } from '../lib/helpers';
 import { AuthRequest } from '../middleware/auth.middleware';
 import multer from 'multer';
 
+// pdf-parse: handle both ESM and CJS imports
+const pdfParseModule = require('pdf-parse');
+const pdfParse = typeof pdfParseModule === 'function' ? pdfParseModule : (pdfParseModule.default || pdfParseModule);
+
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -73,7 +77,6 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
     let pdfText = '';
     if (req.file) {
       try {
-        const pdfParse = require('pdf-parse');
         const pdfData = await pdfParse(req.file.buffer);
         pdfText = pdfData.text || '';
         console.log(`📄 PDF extraído: ${pdfText.length} caracteres`);

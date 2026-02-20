@@ -18,6 +18,7 @@ import stagesRoutes from './routes/stages.routes';
 import scheduledRoutes, { startScheduledMessagesCron } from './routes/scheduled.routes';
 import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes';
 import mediaRoutes from './routes/media.routes';
+import ghlRoutes from './routes/ghl.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -97,6 +98,16 @@ app.get('/api/subscription/exchange-rate', (req, res, next) => {
   req.url = '/exchange-rate'; subscriptionRoutes(req, res, next);
 });
 
+// ===== GHL PUBLIC ROUTES (OAuth callback + Webhook) =====
+app.get('/api/ghl/callback', (req, res, next) => {
+  req.url = '/callback';
+  ghlRoutes(req, res, next);
+});
+app.post('/api/ghl/webhook', (req, res, next) => {
+  req.url = '/webhook';
+  ghlRoutes(req, res, next);
+});
+
 // ===== DELETE CONVERSATION =====
 app.delete('/api/conversations/:id', authMiddleware, async (req: any, res: any) => {
   try {
@@ -136,6 +147,7 @@ app.use('/api/scheduled', authMiddleware, subscriptionMiddleware, apiRL, schedul
 app.use('/api/media', authMiddleware, subscriptionMiddleware, rateLimit(30, 60_000), mediaRoutes);
 app.use('/api/subscription', authMiddleware, subscriptionRoutes);
 app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
+app.use('/api/ghl', authMiddleware, subscriptionMiddleware, apiRL, ghlRoutes);
 app.use('/api/v1', apiPublicRoutes);
 
 // ===== HEALTH + MONITORING =====
@@ -172,7 +184,8 @@ app.get('/api', (req, res) => {
     endpoints: {
       auth: '/api/auth', assistants: '/api/assistants', conversations: '/api/conversations',
       whatsapp: '/api/whatsapp', products: '/api/products', clients: '/api/clients',
-      appointments: '/api/appointments', team: '/api/team', webhooks: { whatsapp: '/api/webhook/whatsapp' }
+      appointments: '/api/appointments', team: '/api/team', ghl: '/api/ghl',
+      webhooks: { whatsapp: '/api/webhook/whatsapp', ghl: '/api/ghl/webhook' }
     }
   });
 });
@@ -328,7 +341,6 @@ const startAccountCleanupCron = () => {
       const paidCutoff = new Date();
       paidCutoff.setDate(paidCutoff.getDate() - 5);
 
-      // Find users with expired/cancelled subscriptions where period ended > 30 days ago
       const expiredPaid = await prisma.user.findMany({
         where: {
           parentUserId: null,

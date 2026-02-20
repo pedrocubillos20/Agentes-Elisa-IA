@@ -62,6 +62,7 @@ model User {
   apiKeys         UserApiKey[]
   webhooks        UserWebhook[]
   mediaFiles      MediaFile[]
+  ghlIntegration  GhlIntegration?
 
   @@index([parentUserId])
   @@index([role])
@@ -471,4 +472,73 @@ model MediaFile {
 
   @@index([userId])
   @@index([userId, category])
+}
+
+// ====================================================
+// 🔗 GOHIGHLEVEL INTEGRATION
+// ====================================================
+
+model GhlIntegration {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Auth — supports BOTH methods
+  authMethod      String    @default("apikey")   // "apikey" or "oauth"
+  ghlApiKey       String?   @db.Text             // User's own GHL API Key
+  accessToken     String?   @db.Text             // OAuth access token
+  refreshToken    String?   @db.Text             // OAuth refresh token
+  tokenExpiresAt  DateTime?
+  
+  // GHL Location info
+  locationId      String
+  locationName    String?
+  companyId       String?
+  
+  // Sync settings
+  syncContacts      Boolean   @default(true)
+  syncPipeline      Boolean   @default(true)
+  syncCalendar      Boolean   @default(true)
+  syncConversations Boolean   @default(true)
+  syncDirection     String    @default("bidirectional")
+  
+  // GHL Pipeline mapping
+  pipelineId      String?
+  pipelineStages  Json      @default("{}")
+  calendarId      String?
+  
+  // Status
+  isActive        Boolean   @default(true)
+  lastSyncAt      DateTime?
+  lastError       String?
+  totalSynced     Int       @default(0)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  syncLogs        GhlSyncLog[]
+
+  @@index([userId])
+  @@index([locationId])
+}
+
+model GhlSyncLog {
+  id              String    @id @default(cuid())
+  integrationId   String
+  integration     GhlIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  userId          String
+  
+  action          String
+  direction       String
+  entityType      String
+  bizonneid       String?
+  ghlId           String?
+  payload         Json?
+  success         Boolean   @default(true)
+  error           String?
+  
+  createdAt       DateTime  @default(now())
+
+  @@index([integrationId])
+  @@index([userId, createdAt(sort: Desc)])
 }

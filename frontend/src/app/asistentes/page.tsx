@@ -5,7 +5,7 @@ import {
   Bot, Save, Play, Pause, Upload, Image, Video, Music, FileText, 
   Sparkles, Brain, MessageSquare, Settings, Trash2, Plus, X, 
   ChevronDown, ChevronUp, Volume2, Key, RefreshCw, CheckCircle,
-  AlertCircle, Eye, Code, FileJson, Mic, Zap, TrendingUp, Loader2, Check, XCircle
+  AlertCircle, Eye, Code, FileJson, Mic, Zap, TrendingUp, Loader2, Check, XCircle, Wand2
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -38,10 +38,7 @@ export default function AsistentesPage() {
   const [autoLearn, setAutoLearn] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [applyingId, setApplyingId] = useState<string | null>(null);
-
-  // Auto-save: se activa después de upload/delete exitoso de multimedia
-  const pendingAutoSave = useRef(false);
-  const autoSaveTimer = useRef<NodeJS.Timeout | null>(null);
+  const [hasAiConfig, setHasAiConfig] = useState<boolean | null>(null);
 
   // === WORKSPACE: leer línea seleccionada ===
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
@@ -49,52 +46,20 @@ export default function AsistentesPage() {
   useEffect(() => {
     fetchAssistant();
     fetchStorage();
+    fetchAiConfigStatus();
     const onLineChanged = () => { setLoading(true); fetchAssistant(); };
     window.addEventListener('lineChanged', onLineChanged);
     return () => window.removeEventListener('lineChanged', onLineChanged);
   }, []);
 
-  // ✅ Auto-save: cuando mediaItems cambia por upload/delete, guardar automáticamente
-  useEffect(() => {
-    if (!pendingAutoSave.current) return;
-    pendingAutoSave.current = false;
-
-    // Debounce: esperar 500ms por si hay múltiples cambios rápidos (ej: catálogo multi-upload)
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-      try {
-        setSaving(true);
-        const res = await fetch(`${API_URL}/api/assistants`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: 'Asistente Principal',
-            context,
-            knowledgeItems,
-            mediaItems,
-            elevenLabsKey,
-            selectedVoice,
-            voiceEnabled,
-            autoLearn,
-            learningHistory,
-            isActive: true,
-            lineId: getLineId()
-          })
-        });
-        if (res.ok) {
-          setMessage({ type: 'success', text: '✅ Guardado automáticamente' });
-          fetchStorage();
-        }
-      } catch (e) {
-        console.error('Auto-save error:', e);
-      } finally {
-        setSaving(false);
-        setTimeout(() => setMessage({ type: '', text: '' }), 4000);
-      }
-    }, 800);
-  }, [mediaItems]);
+  const fetchAiConfigStatus = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/ai-config/status`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (res.ok) { const d = await res.json(); setHasAiConfig(d.hasAccess || false); }
+    } catch {}
+  };
 
   const fetchStorage = async () => {
     const token = localStorage.getItem('token');
@@ -259,11 +224,10 @@ export default function AsistentesPage() {
         size: uploaded.fileSize
       };
       setMediaItems(prev => [...prev, newMedia]);
-      pendingAutoSave.current = true; // ✅ Auto-guardar
 
       const savedPct = uploaded.savedPercent > 0 ? ` (comprimido ${uploaded.savedPercent}%)` : '';
       const typeLabel = type === 'image' ? 'Imagen' : type === 'video' ? 'Video' : 'Audio';
-      setMessage({ type: 'success', text: `${typeLabel} "${file.name}" subido${savedPct}. Guardando...` });
+      setMessage({ type: 'success', text: `${typeLabel} "${file.name}" subido${savedPct}. Define un trigger y guarda.` });
       fetchStorage(); // Actualizar barra de storage
     } catch (error: any) {
       setMessage({ type: 'error', text: 'Error de conexión al subir archivo' });
@@ -289,7 +253,7 @@ export default function AsistentesPage() {
       images: [] as { id: string; name: string; url: string; size: number }[]
     };
     setMediaItems(prev => [...prev, newCatalog]);
-    setMessage({ type: 'success', text: 'Catálogo creado. Agrega imágenes y define un trigger.' });
+    setMessage({ type: 'success', text: 'Catálogo creado. Agrega imágenes, define trigger y guarda.' });
   };
 
   // 📂 CATÁLOGO: Agregar imagen(es) via API upload
@@ -355,8 +319,7 @@ export default function AsistentesPage() {
       }
 
       if (processed > 0) {
-        pendingAutoSave.current = true; // ✅ Auto-guardar
-        setMessage({ type: 'success', text: `${processed} imagen(es) subida(s). Guardando...` });
+        setMessage({ type: 'success', text: `${processed} imagen(es) subida(s) y comprimida(s) al catálogo` });
         fetchStorage();
       }
     } catch (error) {
@@ -396,7 +359,6 @@ export default function AsistentesPage() {
       if (i !== catalogIndex) return item;
       return { ...item, images: (item.images || []).filter((img: any) => img.id !== imageId) };
     }));
-    pendingAutoSave.current = true; // ✅ Auto-guardar
     fetchStorage();
   };
 
@@ -429,7 +391,6 @@ export default function AsistentesPage() {
     }
 
     setMediaItems(prev => prev.filter((_, i) => i !== index));
-    pendingAutoSave.current = true; // ✅ Auto-guardar
     fetchStorage();
   };
 
@@ -649,6 +610,9 @@ export default function AsistentesPage() {
             <button onClick={() => setContext(markdownTemplate)} className="btn-secondary text-sm py-2">
               <Sparkles className="w-4 h-4" />Usar Plantilla
             </button>
+            <a href="/ai-config" className="btn-secondary text-sm py-2 flex items-center gap-1.5 bg-violet-500/10 border-violet-500/30 text-violet-400 hover:bg-violet-500/20">
+              <Wand2 className="w-4 h-4" />{hasAiConfig ? 'Configurar con IA' : '🔒 Config IA'}
+            </a>
           </div>
 
           <div className="card p-0 overflow-hidden">
@@ -908,8 +872,7 @@ export default function AsistentesPage() {
               <li>• <strong className="text-white">Caption:</strong> Texto opcional que acompaña al archivo</li>
               <li>• <strong className="text-emerald-400">Catálogo:</strong> Agrupa hasta 10 imágenes con un solo trigger. Se envían todas en secuencia cuando el cliente activa la palabra clave</li>
               <li>• La IA responderá primero con texto, y luego enviará el archivo o catálogo</li>
-              <li>• <strong className="text-emerald-400">Auto-guardado:</strong> Los archivos se guardan automáticamente al subir o eliminar</li>
-              <li>• Para cambios en triggers o captions, haz clic en "Guardar Todo"</li>
+              <li>• <strong className="text-yellow-400">Importante:</strong> Haz clic en "Guardar Todo" después de agregar/editar archivos</li>
             </ul>
           </div>
         </div>

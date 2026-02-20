@@ -233,17 +233,30 @@ const sendWahaMedia = async (session: string, chatId: string, media: any, captio
       if (match) fileData = { mimetype: match[1], filename: media.name || 'file', data: match[2] };
       else return false;
     }
+
+    // For VIDEOS: always download and send as base64 (URL method needs :chrome image)
+    if (media.type === 'video' && !isBase64 && media.url) {
+      try {
+        log(`📤 Video: descargando de R2 para enviar como base64...`);
+        const videoRes = await fetch(media.url);
+        if (videoRes.ok) {
+          const buf = Buffer.from(await videoRes.arrayBuffer());
+          const b64 = buf.toString('base64');
+          fileData = { mimetype: 'video/mp4', filename: media.name || 'video.mp4', data: b64 };
+          log(`📤 Video descargado: ${(buf.length / 1024 / 1024).toFixed(1)}MB → base64`);
+        }
+      } catch (e: any) {
+        console.error(`⚠️ Video download failed: ${e.message}`);
+      }
+    }
+
     let endpoint = media.type === 'image' ? '/api/sendImage' : media.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
     const body: any = { session, chatId };
     if (fileData) {
       body.file = fileData;
     } else if (media.url) {
-      // Include mimetype for videos so WAHA sends as video not document
       const fileObj: any = { url: media.url };
-      if (media.type === 'video') {
-        fileObj.mimetype = 'video/mp4';
-        fileObj.filename = media.name || 'video.mp4';
-      } else if (media.type === 'image') {
+      if (media.type === 'image') {
         fileObj.mimetype = media.name?.endsWith('.png') ? 'image/png' : 'image/jpeg';
         fileObj.filename = media.name || 'image.jpg';
       }
@@ -251,34 +264,16 @@ const sendWahaMedia = async (session: string, chatId: string, media: any, captio
     }
     if (caption) body.caption = caption;
 
-    log(`📤 Enviando ${media.type} via ${endpoint} (url: ${!!media.url}, base64: ${isBase64})`);
+    log(`📤 Enviando ${media.type} via ${endpoint} (base64: ${!!fileData?.data})`);
     const r = await fetch(`${WAHA_API_URL}${endpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
     if (r.ok) { log(`✅ ${media.type} enviado OK via ${endpoint}`); return true; }
     const errText = await r.text().catch(() => '');
     console.error(`❌ ${endpoint} (${r.status}): ${errText.substring(0, 200)}`);
 
-    // Fallback: for videos, try sendFile with video mimetype (not as generic document)
+    // Fallback: sendFile (delivers as document but at least arrives)
     if (endpoint !== '/api/sendFile') {
-      if (media.type === 'video' && !isBase64 && media.url) {
-        // Try downloading and sending as base64 video
-        try {
-          const videoRes = await fetch(media.url);
-          if (videoRes.ok) {
-            const buf = Buffer.from(await videoRes.arrayBuffer());
-            const b64 = buf.toString('base64');
-            const retryBody: any = {
-              session, chatId,
-              file: { mimetype: 'video/mp4', filename: media.name || 'video.mp4', data: b64 }
-            };
-            if (caption) retryBody.caption = caption;
-            const r3 = await fetch(`${WAHA_API_URL}/api/sendVideo`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(retryBody) });
-            if (r3.ok) { log(`✅ Video enviado OK (base64 retry)`); return true; }
-          }
-        } catch (e: any) { console.error(`⚠️ Video base64 retry failed: ${e.message}`); }
-      }
-      // Last resort: sendFile
       const r2 = await fetch(`${WAHA_API_URL}/api/sendFile`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
-      if (r2.ok) { log(`✅ ${media.type} enviado via sendFile (fallback)`); return true; }
+      if (r2.ok) { log(`⚠️ ${media.type} enviado via sendFile (fallback)`); return true; }
     }
     return false;
   } catch (e: any) { console.error('❌ Media error:', e.message); return false; }

@@ -3,10 +3,20 @@ import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
 import { AuthRequest } from '../middleware/auth.middleware';
 import multer from 'multer';
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
-// pdf-parse: handle both ESM and CJS imports
-const pdfParseModule = require('pdf-parse');
-const pdfParse = typeof pdfParseModule === 'function' ? pdfParseModule : (pdfParseModule.default || pdfParseModule);
+// pdf-parse: import the actual parser directly (bypasses test file issue)
+let pdfParseFn: any = null;
+try {
+  pdfParseFn = require('pdf-parse/lib/pdf-parse.js');
+} catch {
+  try { pdfParseFn = require('pdf-parse'); } catch {}
+}
+if (pdfParseFn && typeof pdfParseFn !== 'function' && pdfParseFn.default) {
+  pdfParseFn = pdfParseFn.default;
+}
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -77,12 +87,40 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
     let pdfText = '';
     if (req.file) {
       try {
-        const pdfData = await pdfParse(req.file.buffer);
-        pdfText = pdfData.text || '';
-        console.log(`📄 PDF extraído: ${pdfText.length} caracteres`);
+        // Method 1: pdf-parse library
+        if (pdfParseFn && typeof pdfParseFn === 'function') {
+          try {
+            const data = await pdfParseFn(req.file.buffer);
+            pdfText = data.text || '';
+            console.log(`📄 PDF extraído (pdf-parse): ${pdfText.length} chars`);
+          } catch (e1: any) {
+            console.log(`⚠️ pdf-parse falló: ${e1.message}, intentando pdftotext...`);
+          }
+        }
+
+        // Method 2: pdftotext fallback (if poppler-utils installed)
+        if (!pdfText) {
+          try {
+            const tmpPdf = path.join('/tmp', `aiconfig-${Date.now()}.pdf`);
+            const tmpTxt = tmpPdf.replace('.pdf', '.txt');
+            fs.writeFileSync(tmpPdf, req.file.buffer);
+            execSync(`pdftotext -layout "${tmpPdf}" "${tmpTxt}"`, { timeout: 15000 });
+            pdfText = fs.readFileSync(tmpTxt, 'utf-8');
+            try { fs.unlinkSync(tmpPdf); } catch {}
+            try { fs.unlinkSync(tmpTxt); } catch {}
+            console.log(`📄 PDF extraído (pdftotext): ${pdfText.length} chars`);
+          } catch (e2: any) {
+            console.log(`⚠️ pdftotext no disponible: ${e2.message}`);
+          }
+        }
+
+        if (!pdfText) {
+          res.status(400).json({ error: 'No se pudo leer el PDF. Intenta con otro archivo.' });
+          return;
+        }
       } catch (e: any) {
         console.error('❌ Error leyendo PDF:', e.message);
-        res.status(400).json({ error: 'No se pudo leer el PDF. Asegúrate de que no esté protegido.' });
+        res.status(400).json({ error: 'Error al procesar el PDF.' });
         return;
       }
     }

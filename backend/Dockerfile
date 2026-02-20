@@ -1,11 +1,12 @@
 FROM node:20-slim
 
-# Install system dependencies including ffmpeg for audio/video compression
+# Install system dependencies including ffmpeg and poppler-utils for PDF text extraction
 RUN apt-get update -y && apt-get install -y \
     openssl \
     libssl-dev \
     ca-certificates \
     ffmpeg \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,5 +32,4 @@ ENV NODE_ENV=production
 
 EXPOSE 3001
 
-# Push schema changes and start server
-CMD npx prisma db push --accept-data-loss && npm start
+CMD ["npm", "start"]

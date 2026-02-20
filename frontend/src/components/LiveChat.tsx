@@ -85,17 +85,37 @@ const KNOWLEDGE_BASE: KBEntry[] = [
     category: 'asistente'
   },
   {
-    keywords: ['etapa', 'pipeline', 'crm', 'embudo', 'stage', 'etapas'],
+    keywords: ['etapa', 'pipeline', 'crm', 'embudo', 'stage', 'etapas', 'columnas', 'funnel'],
     question: '¿Cómo configuro las etapas del CRM?',
-    answer: 'Las etapas se configuran dentro del conocimiento del asistente IA:',
+    answer: 'Las etapas del CRM se configuran dentro del **Conocimiento (Prompt)** del asistente IA. La IA las detecta automáticamente y mueve al cliente por el embudo.\n\n📋 **¿Qué son las etapas?**\nSon las fases por las que pasa un cliente: desde que escribe por primera vez hasta que compra.\n\n⚙️ **¿Cómo configurarlas?**',
     steps: [
-      'Ve a Asistentes IA → edita tu asistente',
-      'En el campo "Conocimiento", agrega una sección de etapas así:',
-      '## ETAPAS DEL PIPELINE\n| Etapa | Descripción |\n|-------|-------------|\n| **Nuevo** | Acaba de escribir |\n| **Interesado** | Preguntando por productos |\n| **Cotización** | Se envió precio |\n| **Confirmado** | Compra confirmada |',
-      'La IA detectará automáticamente en qué etapa está cada cliente',
-      'Las etapas aparecerán como columnas en tu CRM'
+      'Ve a **Asistentes IA** → edita tu asistente',
+      'En el campo **"Conocimiento"**, agrega una sección de etapas con este formato:\n\n## 🎯 ETAPAS DEL PIPELINE\n\n| # | Etapa | Descripción |\n|---|-------|-------------|\n| 1 | **Nuevo Contacto** | Cliente escribió por primera vez |\n| 2 | **Saludo** | Pidiendo nombre del cliente |\n| 3 | **Interesado** | Ya dio nombre, mostrando productos |\n| 4 | **En Cotización** | Se envió precio/cotización |\n| 5 | **Cotizado** | Esperando confirmación |\n| 6 | **Realizó Pedido** | Confirmó compra |\n| 7 | **Pendiente Pago** | Esperando pago |\n| 8 | **Confirmado** | Pago recibido |\n| 9 | **Despachado** | Producto enviado |\n| 10 | **Entregado** | Cliente recibió |\n| 11 | **Perdido** | No le interesa |',
+      '**IMPORTANTE:** Incluye en el prompt la instrucción: "El bot detecta y actualiza la etapa automáticamente según el flujo de la conversación"',
+      'Las etapas aparecerán automáticamente en el **CRM** como filtros y en cada conversación como badge de color',
+      '**Ejemplo de instrucción en el prompt:**\n"Cuando el cliente dice hola → Nuevo Contacto\nCuando da su nombre → Interesado\nCuando pregunta precio → En Cotización\nCuando dice sí quiero → Realizó Pedido"',
+      '**Personaliza según tu negocio:**\n• Restaurante: Nuevo → Menú Enviado → Pedido → En Preparación → Entregado\n• Inmobiliaria: Nuevo → Interesado → Visita Agendada → Oferta → Cerrado\n• Servicios: Nuevo → Consulta → Propuesta → Negociación → Contratado'
     ],
     category: 'crm'
+  },
+  // DISPARADORES MULTIMEDIA (TRIGGERS)
+  {
+    keywords: ['trigger', 'triggers', 'disparador', 'disparadores', 'multimedia', 'biblioteca', 'imagen automática', 'video automático', 'catálogo automático', 'enviar imagen', 'enviar video', 'media', 'archivo automático', 'biblioteca multimedia'],
+    question: '¿Cómo configuro los disparadores multimedia (Triggers)?',
+    answer: 'Los **disparadores (triggers)** permiten que la IA envíe automáticamente imágenes, videos, audios o documentos cuando detecta palabras clave.\n\n🎯 **¿Cómo funciona?**\nSubes un archivo → le asignas un trigger → cuando la IA menciona esa palabra, el sistema envía el archivo automáticamente.\n\n⚙️ **Paso a paso:**',
+    steps: [
+      '**1. Ve a Asistentes IA** → selecciona tu asistente → busca la sección **"Biblioteca Multimedia"** (debajo del prompt)',
+      '**2. Sube tu archivo** haciendo clic en "Subir archivo":\n• 📸 Imagen: JPG, PNG, WEBP (catálogo, colores, productos)\n• 🎥 Video: MP4 (demostración, tutorial, testimonios)\n• 🎧 Audio: MP3, OGG (mensaje de voz, saludo)\n• 📄 Documento: PDF (catálogo, lista de precios)',
+      '**3. Configura el trigger:**\n• **Nombre:** Palabra clave que activa el envío (ej: "Catálogo")\n• **Descripción:** Contexto para la IA (ej: "Catálogo completo")\n\n⚠️ Usa palabras únicas, NO comunes como "hola" o "sí"',
+      '**4. Instruye a la IA en el prompt:**\n\nAgrega esto en el conocimiento:\n"El asistente tiene una Biblioteca Multimedia con triggers.\n❌ NUNCA inventes URLs o links de imágenes\n✅ Solo menciona la palabra trigger y el sistema envía el archivo"',
+      '**📸 EJEMPLO 1 — Imagen de Catálogo:**\n• Archivo: catalogo.jpg\n• Trigger: "Catálogo"\n• En el prompt: "Cuando pidan ver productos, responde con Catálogo"\n• La IA dirá: "Te muestro nuestro Catálogo 👇" → imagen se envía sola',
+      '**🎥 EJEMPLO 2 — Video demostrativo:**\n• Archivo: bordado.mp4\n• Trigger: "Bordado"\n• En el prompt: "Cuando pregunten por bordado, menciona Bordado"\n• La IA dirá: "Manejamos Bordado de alta calidad 👇" → video se envía solo',
+      '**🎧 EJEMPLO 3 — Audio de bienvenida:**\n• Archivo: bienvenida.mp3\n• Trigger: "AudioBienvenida"\n• En el prompt: "Al saludar, incluye AudioBienvenida"',
+      '**📄 EJEMPLO 4 — PDF de precios:**\n• Archivo: lista-precios.pdf\n• Trigger: "ListaPrecios"\n• En el prompt: "Si piden precios, menciona ListaPrecios"',
+      '**📸 EJEMPLO 5 — Múltiples imágenes:**\nSube varias con triggers diferentes:\n• marfil.jpg → Trigger: "MarfilM"\n• negro.jpg → Trigger: "NegroM"\n• blanco.jpg → Trigger: "BlancoM"\nLa IA menciona cada trigger y se envían las fotos correspondientes',
+      '**⚠️ REGLAS IMPORTANTES:**\n• El trigger se activa cuando la IA menciona la **palabra exacta**\n• NO uses palabras comunes ("hola", "sí", "no")\n• Usa nombres específicos de productos o categorías\n• La IA NUNCA debe inventar URLs\n• Puedes tener múltiples triggers para diferentes archivos'
+    ],
+    category: 'multimedia'
   },
   // CRM
   {
@@ -226,6 +246,7 @@ const QUICK_TOPICS = [
   { icon: '🤖', label: 'Configurar Asistente', query: 'configurar asistente' },
   { icon: '📢', label: 'Mensajes Masivos', query: 'mensaje masivo' },
   { icon: '📋', label: 'Etapas del CRM', query: 'etapas pipeline' },
+  { icon: '📸', label: 'Triggers Multimedia', query: 'triggers disparadores multimedia biblioteca' },
   { icon: '💳', label: 'Planes y Precios', query: 'planes precio suscripción' },
 ];
 

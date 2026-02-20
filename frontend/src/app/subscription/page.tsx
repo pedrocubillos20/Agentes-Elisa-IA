@@ -812,10 +812,15 @@ export default function SubscriptionPage() {
         )}
 
         {/* ===== 🛒 ADDONS MARKETPLACE ===== */}
-        {subStatus?.subscription?.status === 'active' && (
-          <div className="max-w-5xl mx-auto mt-10">
+        <div className="max-w-5xl mx-auto mt-10">
             <h3 className="text-xl font-bold text-white mb-1">🛒 Potencia tu Plan</h3>
             <p className="text-gray-400 text-sm mb-6">Complementos de pago único para expandir tu negocio</p>
+            
+            {isTrial && (
+              <div className="mb-4 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-center">
+                <p className="text-sm text-orange-300">⚡ Suscríbete a un plan para desbloquear estos complementos</p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               
@@ -832,12 +837,14 @@ export default function SubscriptionPage() {
                   <div className="text-[10px] text-emerald-400 mb-2">✅ {subStatus.effectiveLimits.extraLinesPurchased} línea(s) extra comprada(s)</div>
                 )}
                 <button
-                  onClick={() => handlePayment('extra_line')}
+                  onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('extra_line')}
                   disabled={!!paymentLoading}
-                  className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30"
+                  className={`w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${isTrial ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20' : 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30'}`}
                 >
                   {paymentLoading === 'extra_line' ? (
                     <div className="w-4 h-4 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                  ) : isTrial ? (
+                    <>🔒 Suscríbete primero</>
                   ) : (
                     <>📱 Agregar Línea</>
                   )}
@@ -857,12 +864,14 @@ export default function SubscriptionPage() {
                   <div className="text-[10px] text-emerald-400 mb-2">✅ +{subStatus.effectiveLimits.extraProductsPurchased * 10} productos extra</div>
                 )}
                 <button
-                  onClick={() => handlePayment('extra_products')}
+                  onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('extra_products')}
                   disabled={!!paymentLoading}
-                  className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+                  className={`w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${isTrial ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'}`}
                 >
                   {paymentLoading === 'extra_products' ? (
                     <div className="w-4 h-4 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                  ) : isTrial ? (
+                    <>🔒 Suscríbete primero</>
                   ) : (
                     <>📦 Agregar Productos</>
                   )}
@@ -896,12 +905,14 @@ export default function SubscriptionPage() {
                     <div className="text-lg font-black text-amber-400 mb-1">$15 USD</div>
                     <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(15 * exchangeRate))} COP · Por 1 año</div>
                     <button
-                      onClick={() => handlePayment('priority_support')}
+                      onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('priority_support')}
                       disabled={!!paymentLoading}
-                      className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30"
+                      className={`w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${isTrial ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30'}`}
                     >
                       {paymentLoading === 'priority_support' ? (
                         <div className="w-4 h-4 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                      ) : isTrial ? (
+                        <>🔒 Suscríbete primero</>
                       ) : (
                         <>📞 Activar Soporte</>
                       )}
@@ -934,12 +945,14 @@ export default function SubscriptionPage() {
                     <div className="text-lg font-black text-orange-400 mb-1">$100 USD</div>
                     <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(100 * exchangeRate))} COP · Pago único</div>
                     <button
-                      onClick={() => handlePayment('implementation')}
+                      onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('implementation')}
                       disabled={!!paymentLoading}
-                      className="w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30"
+                      className={`w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${isTrial ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20' : 'bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30'}`}
                     >
                       {paymentLoading === 'implementation' ? (
                         <div className="w-4 h-4 border-2 border-orange-400/30 border-t-orange-400 rounded-full animate-spin" />
+                      ) : isTrial ? (
+                        <>🔒 Suscríbete primero</>
                       ) : (
                         <>🛠️ Contratar</>
                       )}
@@ -964,7 +977,6 @@ export default function SubscriptionPage() {
               </div>
             )}
           </div>
-        )}
 
         {/* Payment Methods Info */}
         <div className="mt-12 text-center">

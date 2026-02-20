@@ -960,9 +960,49 @@ export default function SubscriptionPage() {
                   </>
                 )}
               </div>
-            </div>
 
-            {/* Current limits summary */}
+              {/* 🤖 Configuración IA */}
+              <div className={`rounded-xl border p-4 flex flex-col ${
+                subStatus?.hasAiConfig 
+                  ? 'border-violet-500/30 bg-violet-500/5' 
+                  : 'border-violet-500/20 bg-violet-500/5'
+              }`}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">🤖</span>
+                  <h4 className="text-sm font-bold text-white">Configuración IA</h4>
+                </div>
+                <p className="text-[11px] text-gray-400 mb-3 flex-1">Sube un PDF y la IA crea tu base de conocimiento completa, con triggers, pipeline y FAQ</p>
+                {subStatus?.hasAiConfig ? (
+                  <>
+                    <div className="text-[10px] text-emerald-400 mb-3 font-bold">✅ Activado</div>
+                    <a href="/ai-config"
+                      className="w-full py-2.5 rounded-lg font-bold text-xs text-center bg-violet-500/20 text-violet-400 border border-violet-500/30 hover:bg-violet-500/30"
+                    >
+                      🤖 Configurar Asistente
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-lg font-black text-violet-400 mb-1">$20 USD</div>
+                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(20 * exchangeRate))} COP · Pago único</div>
+                    <button
+                      onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('ai_config')}
+                      disabled={!!paymentLoading}
+                      className={`w-full py-2.5 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 ${isTrial ? 'bg-gray-500/10 text-gray-500 border border-gray-500/20' : 'bg-violet-500/20 text-violet-400 border border-violet-500/30 hover:bg-violet-500/30'}`}
+                    >
+                      {paymentLoading === 'ai_config' ? (
+                        <div className="w-4 h-4 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
+                      ) : isTrial ? (
+                        <>🔒 Suscríbete primero</>
+                      ) : (
+                        <>🤖 Comprar</>
+                      )}
+                    </button>
+                    <p className="text-[9px] text-gray-500 mt-1.5 text-center">Gratis en Plan Business</p>
+                  </>
+                )}
+              </div>
+            </div>
             {subStatus?.effectiveLimits && (
               <div className="mt-4 flex flex-wrap gap-3 justify-center text-[10px] text-gray-500">
                 <span>📱 Líneas: {subStatus.effectiveLimits.maxLines} máx</span>

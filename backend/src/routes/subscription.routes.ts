@@ -61,6 +61,7 @@ const PRIORITY_SUPPORT_ADDON = {
 // ===== ADD-ONS INDIVIDUALES (Pago único) =====
 const ADDON_EXTRA_LINE = { price: 10, name: 'Línea Adicional WhatsApp' };     // +1 línea
 const ADDON_EXTRA_PRODUCTS = { price: 10, name: '+10 Productos Catálogo' };   // +10 productos
+const ADDON_AI_CONFIG = { price: 20, name: 'Configuración IA (PDF → Base de Conocimiento)' }; // AI auto-config
 
 const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
 
@@ -283,6 +284,12 @@ router.get('/plans', async (req: Request, res: Response) => {
         name: ADDON_EXTRA_PRODUCTS.name,
         priceUsd: ADDON_EXTRA_PRODUCTS.price,
         priceCop: Math.round(ADDON_EXTRA_PRODUCTS.price * rate),
+      },
+      aiConfig: {
+        id: 'ai_config',
+        name: ADDON_AI_CONFIG.name,
+        priceUsd: ADDON_AI_CONFIG.price,
+        priceCop: Math.round(ADDON_AI_CONFIG.price * rate),
       }
     };
 
@@ -333,6 +340,11 @@ router.get('/status', async (req: Request, res: Response) => {
     });
     const hasPrioritySupport = (subscription?.plan === 'business') || !!hasImplementation || !!hasPrioritySupportAddon;
 
+    // Verificar si compró Configuración IA
+    const hasAiConfig = await prisma.payment.findFirst({
+      where: { userId, plan: 'ai_config', status: 'approved' }
+    });
+
     // Contar addons comprados
     const extraLinesPurchased = await prisma.payment.count({
       where: { userId, plan: 'extra_line', status: 'approved' }
@@ -379,6 +391,7 @@ router.get('/status', async (req: Request, res: Response) => {
       periodEnd,
       hasImplementation: !!hasImplementation,
       hasPrioritySupport,
+      hasAiConfig: !!hasAiConfig || user.plan === 'business',
       effectiveLimits,
       subscription: subscription ? {
         plan: subscription.plan,
@@ -637,7 +650,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       return;
     }
 
-    if (plan === 'extra_line' || plan === 'extra_products') {
+    if (plan === 'extra_line' || plan === 'extra_products' || plan === 'ai_config') {
       // Compra de addon individual (pago único)
       const existingSub = await prisma.subscription.findUnique({ where: { userId } });
       if (!existingSub || existingSub.status !== 'active') {
@@ -645,7 +658,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
         return;
       }
       
-      const addonConfig = plan === 'extra_line' ? ADDON_EXTRA_LINE : ADDON_EXTRA_PRODUCTS;
+      const addonConfig = plan === 'extra_line' ? ADDON_EXTRA_LINE : plan === 'extra_products' ? ADDON_EXTRA_PRODUCTS : ADDON_AI_CONFIG;
       const quantity = Math.max(1, parseInt(req.body.quantity) || 1);
       const priceAddon = addonConfig.price * quantity;
       
@@ -656,7 +669,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       const rate = trm.rate;
       const copAmount = Math.round(priceAddon * rate);
       const amountInCents = copAmount * 100;
-      const suffix = plan === 'extra_line' ? 'LINE' : 'PRODS';
+      const suffix = plan === 'extra_line' ? 'LINE' : plan === 'extra_products' ? 'PRODS' : 'AICONF';
       const reference = `BIZONNE-${suffix}-${userId.slice(-8)}-${Date.now()}`;
       
       const integritySecret = WOMPI_INTEGRITY_KEY;
@@ -1054,7 +1067,8 @@ async function activateSubscription(payment: any, transactionId: string, payment
         'priority_support': 'SOPORTE PRIORITARIO',
         'implementation': 'IMPLEMENTACIÓN',
         'extra_line': 'LÍNEA ADICIONAL',
-        'extra_products': '+10 PRODUCTOS'
+        'extra_products': '+10 PRODUCTOS',
+        'ai_config': 'CONFIGURACIÓN IA'
       };
       const addonName = addonNames[payment.plan] || payment.plan.toUpperCase();
       

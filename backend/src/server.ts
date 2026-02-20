@@ -19,6 +19,7 @@ import scheduledRoutes, { startScheduledMessagesCron } from './routes/scheduled.
 import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes';
 import mediaRoutes from './routes/media.routes';
 import ghlRoutes from './routes/ghl.routes';
+import aiConfigRoutes from './routes/ai-config.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -148,6 +149,7 @@ app.use('/api/media', authMiddleware, subscriptionMiddleware, rateLimit(30, 60_0
 app.use('/api/subscription', authMiddleware, subscriptionRoutes);
 app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
 app.use('/api/ghl', authMiddleware, subscriptionMiddleware, apiRL, ghlRoutes);
+app.use('/api/ai-config', authMiddleware, subscriptionMiddleware, apiRL, aiConfigRoutes);
 app.use('/api/v1', apiPublicRoutes);
 
 // ===== HEALTH + MONITORING =====
@@ -184,7 +186,7 @@ app.get('/api', (req, res) => {
     endpoints: {
       auth: '/api/auth', assistants: '/api/assistants', conversations: '/api/conversations',
       whatsapp: '/api/whatsapp', products: '/api/products', clients: '/api/clients',
-      appointments: '/api/appointments', team: '/api/team', ghl: '/api/ghl',
+      appointments: '/api/appointments', team: '/api/team', ghl: '/api/ghl', aiConfig: '/api/ai-config',
       webhooks: { whatsapp: '/api/webhook/whatsapp', ghl: '/api/ghl/webhook' }
     }
   });

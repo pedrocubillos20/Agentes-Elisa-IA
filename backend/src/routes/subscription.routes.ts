@@ -391,7 +391,7 @@ router.get('/status', async (req: Request, res: Response) => {
       periodEnd,
       hasImplementation: !!hasImplementation,
       hasPrioritySupport,
-      hasAiConfig: !!hasAiConfig || user.plan === 'business',
+      hasAiConfig: !!hasAiConfig,
       effectiveLimits,
       subscription: subscription ? {
         plan: subscription.plan,
@@ -1448,7 +1448,7 @@ router.get('/admin/users', async (req: Request, res: Response) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const usersWithStatus = users.map(u => {
+    const usersWithStatus = await Promise.all(users.map(async u => {
       let status = 'active';
       let daysLeft = 0;
       let daysUntilDeletion: number | null = null;
@@ -1458,7 +1458,6 @@ router.get('/admin/users', async (req: Request, res: Response) => {
         daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
         if (daysLeft <= 0) {
           status = 'expired';
-          // 5 days grace for trial
           const deletionDate = new Date(u.trialEndsAt.getTime() + 5 * 24 * 60 * 60 * 1000);
           daysUntilDeletion = Math.max(0, Math.ceil((deletionDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
         }
@@ -1469,7 +1468,6 @@ router.get('/admin/users', async (req: Request, res: Response) => {
         daysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
         if (diff <= 0) {
           status = 'expired';
-          // 5 days grace for paid plans
           if (['expired', 'cancelled'].includes(u.subscription.status)) {
             const deletionDate = new Date(u.subscription.currentPeriodEnd.getTime() + 5 * 24 * 60 * 60 * 1000);
             daysUntilDeletion = Math.max(0, Math.ceil((deletionDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
@@ -1477,8 +1475,21 @@ router.get('/admin/users', async (req: Request, res: Response) => {
         }
       }
 
-      return { ...u, subscriptionStatus: status, daysLeft, daysUntilDeletion };
-    });
+      // Fetch addons for this user
+      const addonPayments = await prisma.payment.findMany({
+        where: { userId: u.id, type: 'addon', status: 'approved' },
+        select: { plan: true, createdAt: true }
+      });
+      const addons = {
+        implementation: addonPayments.some(p => p.plan === 'implementation'),
+        prioritySupport: addonPayments.some(p => p.plan === 'priority_support'),
+        aiConfig: addonPayments.some(p => p.plan === 'ai_config'),
+        extraLines: addonPayments.filter(p => p.plan === 'extra_line').length,
+        extraProducts: addonPayments.filter(p => p.plan === 'extra_products').length
+      };
+
+      return { ...u, subscriptionStatus: status, daysLeft, daysUntilDeletion, addons };
+    }));
 
     res.json({ users: usersWithStatus });
   } catch (error) {
@@ -1544,6 +1555,67 @@ router.get('/admin/payments', async (req: Request, res: Response) => {
     res.json({ payments });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
+  }
+});
+
+// ===== ADMIN: POST /api/subscription/admin/addon — Activar/desactivar addon =====
+router.post('/admin/addon', async (req: Request, res: Response) => {
+  try {
+    const adminId = (req as AuthRequest).user?.id;
+    const admin = await prisma.user.findUnique({ where: { id: adminId } });
+    if (!admin || admin.parentUserId) { res.status(403).json({ error: 'No autorizado' }); return; }
+
+    const { targetUserId, addonPlan, action } = req.body;
+    if (!targetUserId || !addonPlan) { res.status(400).json({ error: 'targetUserId y addonPlan requeridos' }); return; }
+
+    const validAddons = ['implementation', 'priority_support', 'ai_config', 'extra_line', 'extra_products'];
+    if (!validAddons.includes(addonPlan)) { res.status(400).json({ error: `Addon inválido. Válidos: ${validAddons.join(', ')}` }); return; }
+
+    if (action === 'remove') {
+      // Remove addon — delete approved payment records
+      const deleted = await prisma.payment.deleteMany({
+        where: { userId: targetUserId, plan: addonPlan, type: 'addon', status: 'approved' }
+      });
+      console.log(`🗑️ Admin: removido addon ${addonPlan} de ${targetUserId} (${deleted.count} pagos)`);
+      res.json({ success: true, message: `Addon ${addonPlan} removido`, deleted: deleted.count });
+      return;
+    }
+
+    // Add addon — create approved payment record (manual activation)
+    const existing = await prisma.payment.findFirst({
+      where: { userId: targetUserId, plan: addonPlan, type: 'addon', status: 'approved' }
+    });
+
+    if (existing && !['extra_line', 'extra_products'].includes(addonPlan)) {
+      res.json({ success: true, message: `Addon ${addonPlan} ya está activo`, alreadyActive: true });
+      return;
+    }
+
+    await prisma.payment.create({
+      data: {
+        userId: targetUserId,
+        type: 'addon',
+        plan: addonPlan,
+        period: 'one_time',
+        amountUsd: 0,
+        amountCop: 0,
+        exchangeRate: 0,
+        totalCop: 0,
+        status: 'approved',
+        wompiReference: `ADMIN-${addonPlan.toUpperCase()}-${Date.now()}`,
+        method: 'admin_manual'
+      }
+    });
+
+    const addonNames: Record<string, string> = {
+      'implementation': 'Implementación', 'priority_support': 'Soporte Prioritario',
+      'ai_config': 'Configuración IA', 'extra_line': 'Línea Adicional', 'extra_products': '+10 Productos'
+    };
+    console.log(`✅ Admin: addon ${addonNames[addonPlan] || addonPlan} activado para ${targetUserId}`);
+    res.json({ success: true, message: `Addon ${addonNames[addonPlan] || addonPlan} activado` });
+  } catch (error: any) {
+    console.error('Error admin addon:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -998,7 +998,6 @@ export default function SubscriptionPage() {
                         <>🤖 Comprar</>
                       )}
                     </button>
-                    <p className="text-[9px] text-gray-500 mt-1.5 text-center">Gratis en Plan Business</p>
                   </>
                 )}
               </div>

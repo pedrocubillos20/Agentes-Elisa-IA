@@ -22,7 +22,7 @@ router.get('/status', async (req: Request, res: Response) => {
       where: { userId: ownerId, plan: 'ai_config', status: 'approved' }
     });
     const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
-    const hasAccess = !!hasPurchased || user?.plan === 'business';
+    const hasAccess = !!hasPurchased;
 
     res.json({ hasAccess, purchased: !!hasPurchased, plan: user?.plan });
   } catch (e: any) {
@@ -45,7 +45,7 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
       where: { id: ownerId },
       select: { plan: true, apiKey: true, apiKeyConnected: true }
     });
-    if (!hasPurchased && user?.plan !== 'business') {
+    if (!hasPurchased) {
       res.status(403).json({ error: 'Necesitas comprar el addon "Configuración IA" para usar esta función.' });
       return;
     }

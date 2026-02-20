@@ -26,6 +26,7 @@ export default function AdminPage() {
   const [editDays, setEditDays] = useState(30);
   const [actionLoading, setActionLoading] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [addonLoading, setAddonLoading] = useState('');
 
   // Discount codes state
   const [discounts, setDiscounts] = useState<any[]>([]);
@@ -112,6 +113,21 @@ export default function AdminPage() {
       else alert('❌ Error al actualizar');
     } catch (e) { alert('❌ Error de conexión'); }
     setActionLoading('');
+  };
+
+  const handleAddon = async (targetUserId: string, addonPlan: string, action: 'add' | 'remove') => {
+    setAddonLoading(`${targetUserId}-${addonPlan}`);
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/admin/addon`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId, addonPlan, action })
+      });
+      const data = await res.json();
+      if (res.ok) { loadAll(); }
+      else alert(`❌ ${data.error || 'Error'}`);
+    } catch (e) { alert('❌ Error de conexión'); }
+    setAddonLoading('');
   };
 
   // ===== DISCOUNT FUNCTIONS =====
@@ -311,6 +327,7 @@ export default function AdminPage() {
               <thead><tr className="border-b border-white/10 text-left">
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Usuario</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Plan</th>
+                <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Addons</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Estado</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Días</th>
                 <th className="px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Chats</th>
@@ -328,6 +345,16 @@ export default function AdminPage() {
                       {u.subscription?.period && <span className="text-[10px] text-gray-600 ml-1">({u.subscription.period === 'annual' ? 'Anual' : u.subscription.period === 'semiannual' ? '6M' : 'Mes'})</span>}
                     </td>
                     <td className="px-5 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {u.addons?.implementation && <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">🛠️ Impl</span>}
+                        {u.addons?.prioritySupport && <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">📞 Sop</span>}
+                        {u.addons?.aiConfig && <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">🤖 IA</span>}
+                        {u.addons?.extraLines > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">📱 +{u.addons.extraLines}</span>}
+                        {u.addons?.extraProducts > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">📦 +{u.addons.extraProducts * 10}</span>}
+                        {!u.addons?.implementation && !u.addons?.prioritySupport && !u.addons?.aiConfig && !u.addons?.extraLines && !u.addons?.extraProducts && <span className="text-[9px] text-gray-600">—</span>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
                       <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${statusColors[u.subscriptionStatus] || statusColors.expired}`}>{statusLabels[u.subscriptionStatus] || u.subscriptionStatus}</span>
                       {u.daysUntilDeletion !== null && u.daysUntilDeletion !== undefined && u.subscriptionStatus === 'expired' && (
                         <div className="mt-1">
@@ -342,15 +369,37 @@ export default function AdminPage() {
                     <td className="px-5 py-4 text-xs text-gray-500">{formatDate(u.createdAt)}</td>
                     <td className="px-5 py-4">
                       {editingUser === u.id ? (
-                        <div className="flex items-center gap-2">
-                          <select value={editPlan} onChange={e => setEditPlan(e.target.value)} className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white">
-                            <option value="trial">Trial</option><option value="starter">Starter</option><option value="business">Business</option>
-                          </select>
-                          <input type="number" value={editDays} onChange={e => setEditDays(Number(e.target.value))} className="w-16 bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white" />
-                          <button onClick={() => handleExtend(u.id)} disabled={actionLoading === u.id} className="p-1.5 bg-emerald-500/20 rounded-lg text-emerald-400 hover:bg-emerald-500/30">
-                            {actionLoading === u.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                          </button>
-                          <button onClick={() => setEditingUser(null)} className="p-1.5 bg-red-500/20 rounded-lg text-red-400 hover:bg-red-500/30"><X className="w-3.5 h-3.5" /></button>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <select value={editPlan} onChange={e => setEditPlan(e.target.value)} className="bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white">
+                              <option value="trial">Trial</option><option value="starter">Starter</option><option value="business">Business</option>
+                            </select>
+                            <input type="number" value={editDays} onChange={e => setEditDays(Number(e.target.value))} className="w-16 bg-white/10 border border-white/20 rounded-lg px-2 py-1 text-xs text-white" />
+                            <button onClick={() => handleExtend(u.id)} disabled={actionLoading === u.id} className="p-1.5 bg-emerald-500/20 rounded-lg text-emerald-400 hover:bg-emerald-500/30">
+                              {actionLoading === u.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            </button>
+                            <button onClick={() => setEditingUser(null)} className="p-1.5 bg-red-500/20 rounded-lg text-red-400 hover:bg-red-500/30"><X className="w-3.5 h-3.5" /></button>
+                          </div>
+                          {/* Addon toggles */}
+                          <div className="flex flex-wrap gap-1.5 pt-1 border-t border-white/5">
+                            {[
+                              { plan: 'implementation', label: '🛠️ Impl', active: u.addons?.implementation },
+                              { plan: 'priority_support', label: '📞 Sop', active: u.addons?.prioritySupport },
+                              { plan: 'ai_config', label: '🤖 IA', active: u.addons?.aiConfig },
+                              { plan: 'extra_line', label: '📱 +Línea', active: false },
+                              { plan: 'extra_products', label: '📦 +Prod', active: false }
+                            ].map(a => (
+                              <button key={a.plan} disabled={addonLoading === `${u.id}-${a.plan}`}
+                                onClick={() => handleAddon(u.id, a.plan, a.active ? 'remove' : 'add')}
+                                className={`text-[9px] px-2 py-1 rounded-lg border transition-all ${
+                                  addonLoading === `${u.id}-${a.plan}` ? 'opacity-50' :
+                                  a.active ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400 hover:bg-red-500/20 hover:border-red-500/30 hover:text-red-400' :
+                                  'bg-white/5 border-white/10 text-gray-500 hover:bg-emerald-500/10 hover:border-emerald-500/20 hover:text-emerald-400'
+                                }`}>
+                                {addonLoading === `${u.id}-${a.plan}` ? '...' : a.active ? `✅ ${a.label}` : `+ ${a.label}`}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       ) : (
                         <button onClick={() => { setEditingUser(u.id); setEditPlan(u.plan); setEditDays(30); }}

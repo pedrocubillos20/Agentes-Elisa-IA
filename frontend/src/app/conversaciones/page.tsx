@@ -15,6 +15,20 @@ const isValidWhatsAppPhone = (recipientId: string): boolean => {
   return clean.length >= 7 && clean.length <= 13;
 };
 
+// Helper: Detectar si es un LID (Linked ID) de NOWEB engine
+const isLidNumber = (recipientId: string): boolean => {
+  if (!recipientId) return false;
+  const clean = recipientId.replace(/\D/g, '');
+  return clean.length > 13;
+};
+
+// Helper: Formatear número para mostrar
+const formatPhoneDisplay = (recipientId: string): string => {
+  if (!recipientId) return '';
+  if (isLidNumber(recipientId)) return ''; // No mostrar LIDs largos
+  return `+${recipientId.replace(/@c\.us|@s\.whatsapp\.net/g, '')}`;
+};
+
 const STAGE_COLORS: Record<string, string> = {
   blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
@@ -597,7 +611,7 @@ export default function ConversacionesPage() {
                   </div>
                   <div className="min-w-0">
                     <h3 className="font-semibold text-white text-sm truncate">{selectedConv.recipientName || selectedConv.recipientId}</h3>
-                    <p className="text-[10px] text-[var(--text-muted)]">+{selectedConv.recipientId?.replace('@c.us', '')}</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">{formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp'}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -753,7 +767,7 @@ export default function ConversacionesPage() {
               </div>
               <h4 className="font-semibold text-white text-sm">{selectedConv.groupName || selectedConv.recipientName}</h4>
               <p className="text-[10px] text-[var(--text-muted)]">
-                {selectedConv.isGroup ? '👥 Grupo' : `+${selectedConv.recipientId?.replace('@c.us', '')}`}
+                {selectedConv.isGroup ? '👥 Grupo' : (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp')}
               </p>
             </div>
 

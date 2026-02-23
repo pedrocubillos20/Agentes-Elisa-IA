@@ -185,10 +185,10 @@ const resolveLidToPhone = async (session: string, lidChatId: string, payload?: a
     return lidClean;
   }
 
-  // 5. LID is too long (>13 digits) - store with LID prefix for identification
-  log(`⚠️ LID no resuelto: ${lidClean} (${lidClean.length} dígitos) — guardando con prefijo LID_`);
-  lidPhoneCache.set(lidChatId, `LID_${lidClean}`);
-  return `LID_${lidClean}`;
+  // 5. LID is too long (>13 digits) - store as-is (will use @lid when sending)
+  log(`⚠️ LID no resuelto: ${lidClean} (${lidClean.length} dígitos) — guardando número LID directo`);
+  lidPhoneCache.set(lidChatId, lidClean);
+  return lidClean;
 };
 
 // ===== PRESENCE: TYPING & RECORDING =====
@@ -298,7 +298,7 @@ const sendWahaMessage = async (session: string, chatId: string, text: string): P
     });
     if (r.ok) {
       // Marcar para que el webhook no duplique este mensaje
-      const cleanId = chatId.replace(/[@\s]/g, '').replace('c.us', '').replace('g.us', '');
+      const cleanId = chatId.replace(/[@\s]/g, '').replace('c.us', '').replace('g.us', '').replace('lid', '').replace('s.whatsapp.net', '');
       const dedupKey = `${cleanId}:${text.substring(0, 60)}`;
       recentlySentFromPlatform.add(dedupKey);
       setTimeout(() => recentlySentFromPlatform.delete(dedupKey), 60000);
@@ -2986,8 +2986,9 @@ router.post('/send', async (req: Request, res: Response) => {
     const { to, message, whatsappLineId, lineId: legacyLineId, mediaUrl, mediaType: sendMediaType } = req.body;
     if (!userId || !to || (!message && !mediaUrl)) { res.status(400).json({ error: 'Faltan datos' }); return; }
     const ownerId = await getOwnerId(userId);
-    const chatId = to.includes('@') ? to : `${to.replace(/\D/g, '')}@c.us`;
     const cleanNumber = to.replace(/\D/g, '');
+    // LID numbers (>13 digits) need @lid suffix, regular phones use @c.us
+    const chatId = to.includes('@') ? to : cleanNumber.length > 13 ? `${cleanNumber}@lid` : `${cleanNumber}@c.us`;
 
     // 🔗 DETERMINAR SESIÓN CORRECTA: usar la línea específica, NO findActiveSession
     let sessionName: string | null = null;
@@ -3158,13 +3159,14 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       const contact = contacts[i];
       try {
         const phone = (contact.phone || contact.recipientId || contact).replace(/\D/g, '');
-        // STRICT: Real phone numbers are 7-13 digits max
-        if (!phone || phone.length < 7 || phone.length > 13) { 
+        // STRICT: Real phone numbers are 7-13 digits, LIDs are >13 digits
+        if (!phone || phone.length < 7) { 
           log(`⏭️ Número inválido: ${phone} (${phone.length} dígitos) — saltando`);
           failed++; continue; 
         }
 
-        const chatId = `${phone}@c.us`;
+        // LID numbers (>13 digits) use @lid, regular phones use @c.us
+        const chatId = phone.length > 13 ? `${phone}@lid` : `${phone}@c.us`;
 
         // 🔍 Verificar si existe en WhatsApp (con cache)
         try {
@@ -3815,7 +3817,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 👥 Para grupos necesitamos resolver el usuario por la sesión, no por el participante
     const participantClean = isGroup 
       ? participant.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '')
-      : recipientId.replace('LID_', '');
+      : recipientId.replace(/\D/g, '');
     
     const userId = await resolveUserFromWebhook(sessionName, participantClean);
     if (!userId) { res.status(400).json({ error: 'No user' }); return; }
@@ -3868,13 +3870,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // 🔑 AUTO-MIGRATE: If conv has old LID number and we resolved a real phone, update it
-    if (conv && !isGroup && isLid && recipientId.length >= 7 && recipientId.length <= 13 && !recipientId.startsWith('LID_')) {
+    // 🔑 AUTO-MIGRATE: If conv has old LID_ prefixed number, update it
+    if (conv && !isGroup && isLid && !recipientId.startsWith('LID_')) {
       const oldId = conv.recipientId;
-      const oldClean = oldId.replace(/\D/g, '');
-      if (oldClean.length > 13 || oldId.startsWith('LID_')) {
-        await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId } }).catch(() => {});
-        log(`🔑 AUTO-MIGRADO: ${oldId} → ${recipientId} (${conv.recipientName || 'sin nombre'})`);
+      if (oldId.startsWith('LID_')) {
+        const newId = oldId.replace('LID_', '');
+        await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId: newId } }).catch(() => {});
+        log(`🔑 AUTO-MIGRADO: ${oldId} → ${newId} (eliminado prefijo LID_)`);
       }
     }
     

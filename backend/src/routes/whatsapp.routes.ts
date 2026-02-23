@@ -453,7 +453,7 @@ const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: st
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: formData
       });
       if (!uploadRes.ok) { console.error(`❌ Cloud media upload (${uploadRes.status})`); return false; }
-      const uploadData = await uploadRes.json();
+      const uploadData = await uploadRes.json() as any;
       messageBody[cloudType] = { id: uploadData.id };
     } else {
       messageBody[cloudType] = { link: url };
@@ -482,7 +482,7 @@ const sendCloudVoice = async (phoneNumberId: string, accessToken: string, to: st
       method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: formData
     });
     if (!uploadRes.ok) return false;
-    const uploadData = await uploadRes.json();
+    const uploadData = await uploadRes.json() as any;
     const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -4731,8 +4731,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             const audioRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
             if (audioRes.ok) {
               const audioBuf = Buffer.from(await audioRes.arrayBuffer());
-              const aiConfig = await prisma.aIConfig.findUnique({ where: { userId } }).catch(() => null);
-              const apiKey = (aiConfig as any)?.openaiKey || process.env.OPENAI_API_KEY;
+              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+              const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
               if (apiKey) { const t = await transcribeAudio(audioBuf, apiKey); if (t) messageBody = t; }
             }
           } catch {}

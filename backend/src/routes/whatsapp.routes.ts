@@ -244,44 +244,61 @@ const sendWahaMedia = async (session: string, chatId: string, media: any, captio
       else return false;
     }
 
-    // For VIDEOS: always download and send as base64 (URL method needs :chrome image)
-    if (media.type === 'video' && !isBase64 && media.url) {
+    // NOWEB: ALWAYS download external URLs and send as base64 (NOWEB can't fetch URLs)
+    if (!isBase64 && media.url) {
       try {
-        log(`📤 Video: descargando de R2 para enviar como base64...`);
-        const videoRes = await fetch(media.url);
-        if (videoRes.ok) {
-          const buf = Buffer.from(await videoRes.arrayBuffer());
-          const b64 = buf.toString('base64');
-          fileData = { mimetype: 'video/mp4', filename: media.name || 'video.mp4', data: b64 };
-          log(`📤 Video descargado: ${(buf.length / 1024 / 1024).toFixed(1)}MB → base64`);
+        log(`📤 ${media.type}: descargando para enviar como base64...`);
+        const mediaRes = await fetch(media.url);
+        if (mediaRes.ok) {
+          const buf = Buffer.from(await mediaRes.arrayBuffer());
+          const contentType = mediaRes.headers.get('content-type') || '';
+          const mimeMap: Record<string, string> = {
+            image: contentType.includes('png') ? 'image/png' : 'image/jpeg',
+            video: 'video/mp4',
+            audio: 'audio/mpeg',
+            document: contentType || 'application/octet-stream'
+          };
+          const extMap: Record<string, string> = {
+            image: media.name || (contentType.includes('png') ? 'image.png' : 'image.jpg'),
+            video: media.name || 'video.mp4',
+            audio: media.name || 'audio.mp3',
+            document: media.name || 'file'
+          };
+          fileData = {
+            mimetype: mimeMap[media.type] || contentType || 'application/octet-stream',
+            filename: extMap[media.type] || media.name || 'file',
+            data: buf.toString('base64')
+          };
+          log(`📤 ${media.type} descargado: ${(buf.length / 1024 / 1024).toFixed(1)}MB → base64`);
         }
       } catch (e: any) {
-        console.error(`⚠️ Video download failed: ${e.message}`);
+        console.error(`⚠️ Media download failed: ${e.message}`);
       }
     }
 
-    let endpoint = media.type === 'image' ? '/api/sendImage' : media.type === 'video' ? '/api/sendVideo' : '/api/sendFile';
-    const body: any = { session, chatId };
-    if (fileData) {
-      body.file = fileData;
-    } else if (media.url) {
-      const fileObj: any = { url: media.url };
-      if (media.type === 'image') {
-        fileObj.mimetype = media.name?.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        fileObj.filename = media.name || 'image.jpg';
-      }
-      body.file = fileObj;
+    // Si no hay fileData, no podemos enviar
+    if (!fileData) {
+      console.error('❌ No file data available for sending');
+      return false;
     }
+
+    // NOWEB: sendFile works reliably for all media types
+    const body: any = { session, chatId, file: fileData };
     if (caption) body.caption = caption;
 
-    log(`📤 Enviando ${media.type} via ${endpoint} (base64: ${!!fileData?.data})`);
-    const r = await fetch(`${WAHA_API_URL}${endpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
-    if (r.ok) { log(`✅ ${media.type} enviado OK via ${endpoint}`); return true; }
+    // Try specific endpoint first, then fallback to sendFile
+    const endpointMap: Record<string, string> = { image: '/api/sendImage', video: '/api/sendVideo' };
+    const primaryEndpoint = endpointMap[media.type] || '/api/sendFile';
+
+    log(`📤 Enviando ${media.type} via ${primaryEndpoint} (base64: ${fileData.data.length > 0})`);
+    const r = await fetch(`${WAHA_API_URL}${primaryEndpoint}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
+    if (r.ok) { log(`✅ ${media.type} enviado OK via ${primaryEndpoint}`); return true; }
     const errText = await r.text().catch(() => '');
-    console.error(`❌ ${endpoint} (${r.status}): ${errText.substring(0, 200)}`);
+    console.error(`❌ ${primaryEndpoint} (${r.status}): ${errText.substring(0, 200)}`);
 
     // Fallback: sendFile (delivers as document but at least arrives)
-    if (endpoint !== '/api/sendFile') {
+    if (primaryEndpoint !== '/api/sendFile') {
+      log(`📤 Fallback: enviando via /api/sendFile...`);
       const r2 = await fetch(`${WAHA_API_URL}/api/sendFile`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(body) });
       if (r2.ok) { log(`⚠️ ${media.type} enviado via sendFile (fallback)`); return true; }
     }

@@ -379,6 +379,16 @@ model WhatsappLine {
   sessionName     String    @unique
   status          String    @default("disconnected")
   
+  // 🔌 Connection type: 'waha' (QR scan) or 'cloud_api' (Meta WhatsApp Cloud API)
+  connectionType  String    @default("waha")
+  
+  // ☁️ WhatsApp Cloud API fields
+  cloudPhoneNumberId    String?
+  cloudBusinessId       String?
+  cloudAccessToken      String?
+  cloudWebhookVerifyToken String?
+  cloudAppId            String?
+  
   assignedTo      String?
   assignedName    String?
   assistantId     String?
@@ -394,6 +404,7 @@ model WhatsappLine {
   updatedAt       DateTime  @updatedAt
 
   @@index([userId])
+  @@index([cloudPhoneNumberId])
 }
 
 // ====================================================

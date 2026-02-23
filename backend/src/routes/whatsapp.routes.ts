@@ -416,6 +416,128 @@ const sendVoiceNote = async (session: string, chatId: string, audioBuffer: Buffe
 };
 
 // ====================================================
+// ☁️ WHATSAPP CLOUD API — Send Functions
+// ====================================================
+const CLOUD_API_URL = 'https://graph.facebook.com/v21.0';
+
+const sendCloudText = async (phoneNumberId: string, accessToken: string, to: string, text: string): Promise<boolean> => {
+  try {
+    const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: to.replace(/\D/g, ''), type: 'text', text: { body: text } })
+    });
+    if (r.ok) { log(`☁️ Cloud texto → ${to}`); return true; }
+    console.error(`❌ Cloud sendText (${r.status}): ${(await r.text().catch(() => '')).substring(0, 200)}`);
+    return false;
+  } catch (e: any) { console.error('❌ Cloud sendText:', e.message); return false; }
+};
+
+const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: string, media: any, caption?: string): Promise<boolean> => {
+  try {
+    const cleanTo = to.replace(/\D/g, '');
+    const url = media.url || '';
+    const typeMap: Record<string, string> = { image: 'image', video: 'video', audio: 'audio', document: 'document' };
+    const cloudType = typeMap[media.type] || 'document';
+    const messageBody: any = { messaging_product: 'whatsapp', to: cleanTo, type: cloudType };
+
+    if (url.startsWith('data:')) {
+      const match = url.match(/^data:(.+?);base64,(.+)$/s);
+      if (!match) return false;
+      const formData = new FormData();
+      const buffer = Buffer.from(match[2], 'base64');
+      formData.append('file', new Blob([buffer], { type: match[1] }), media.name || 'file');
+      formData.append('messaging_product', 'whatsapp');
+      formData.append('type', match[1]);
+      const uploadRes = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/media`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: formData
+      });
+      if (!uploadRes.ok) { console.error(`❌ Cloud media upload (${uploadRes.status})`); return false; }
+      const uploadData = await uploadRes.json();
+      messageBody[cloudType] = { id: uploadData.id };
+    } else {
+      messageBody[cloudType] = { link: url };
+      if (cloudType === 'document') messageBody[cloudType].filename = media.name || 'document';
+    }
+    if (caption && ['image', 'video', 'document'].includes(cloudType)) messageBody[cloudType].caption = caption;
+
+    const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(messageBody)
+    });
+    if (r.ok) { log(`☁️ Cloud ${media.type} → ${to}`); return true; }
+    console.error(`❌ Cloud sendMedia (${r.status}): ${(await r.text().catch(() => '')).substring(0, 200)}`);
+    return false;
+  } catch (e: any) { console.error('❌ Cloud sendMedia:', e.message); return false; }
+};
+
+const sendCloudVoice = async (phoneNumberId: string, accessToken: string, to: string, audioBuffer: Buffer): Promise<boolean> => {
+  try {
+    const formData = new FormData();
+    formData.append('file', new Blob([audioBuffer], { type: 'audio/ogg' }), 'voice.ogg');
+    formData.append('messaging_product', 'whatsapp');
+    formData.append('type', 'audio/ogg');
+    const uploadRes = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/media`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: formData
+    });
+    if (!uploadRes.ok) return false;
+    const uploadData = await uploadRes.json();
+    const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to: to.replace(/\D/g, ''), type: 'audio', audio: { id: uploadData.id } })
+    });
+    return r.ok;
+  } catch (e: any) { console.error('❌ Cloud voice:', e.message); return false; }
+};
+
+const markCloudRead = async (phoneNumberId: string, accessToken: string, messageId: string): Promise<void> => {
+  fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: messageId })
+  }).catch(() => {});
+};
+
+// ====================================================
+// 🔀 UNIFIED SEND — Auto-detect Cloud API vs WAHA
+// ====================================================
+const lineInfoCache = new Map<string, { type: string; pnid?: string; token?: string; ttl: number }>();
+
+const getLineInfo = async (lineId: string | null | undefined) => {
+  if (!lineId) return null;
+  const cached = lineInfoCache.get(lineId);
+  if (cached && cached.ttl > Date.now()) return cached;
+  const line = await prisma.whatsappLine.findUnique({
+    where: { id: lineId },
+    select: { connectionType: true, cloudPhoneNumberId: true, cloudAccessToken: true }
+  });
+  if (!line) return null;
+  const info = { type: line.connectionType || 'waha', pnid: line.cloudPhoneNumberId || undefined, token: line.cloudAccessToken || undefined, ttl: Date.now() + 300000 };
+  lineInfoCache.set(lineId, info);
+  return info;
+};
+
+const unifiedSendText = async (sessionName: string, chatId: string, text: string, whatsappLineId?: string | null): Promise<boolean> => {
+  const li = await getLineInfo(whatsappLineId);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudText(li.pnid, li.token, chatId.replace(/@.*/g, ''), text);
+  return sendWahaMessage(sessionName, chatId, text);
+};
+
+const unifiedSendMedia = async (sessionName: string, chatId: string, media: any, caption: string | undefined, whatsappLineId?: string | null): Promise<boolean> => {
+  const li = await getLineInfo(whatsappLineId);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudMedia(li.pnid, li.token, chatId.replace(/@.*/g, ''), media, caption);
+  return sendWahaMedia(sessionName, chatId, media, caption);
+};
+
+const unifiedSendVoice = async (sessionName: string, chatId: string, audioBuffer: Buffer, whatsappLineId?: string | null): Promise<boolean> => {
+  const li = await getLineInfo(whatsappLineId);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudVoice(li.pnid, li.token, chatId.replace(/@.*/g, ''), audioBuffer);
+  return sendVoiceNote(sessionName, chatId, audioBuffer);
+};
+
+// ====================================================
 // 🎤 AUDIO TRANSCRIPTION (Whisper via OpenAI)
 // ====================================================
 const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<string | null> => {
@@ -2033,7 +2155,7 @@ const sendMediaFollowUp = async (
     await stopPresence(sessionName, from);
 
     // 📤 Enviar follow-up
-    const sent = await sendWahaMessage(sessionName, from, followUp);
+    const sent = await unifiedSendText(sessionName, from, followUp, whatsappLineId);
     if (sent) {
       await prisma.message.create({ 
         data: { conversationId: convId, content: followUp, fromMe: true, userId, role: 'assistant' } 
@@ -2268,7 +2390,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           const img = matchedMedia.images[i];
           const caption = i === 0 ? (matchedMedia.caption || matchedMedia.name) : (img.name || '');
           const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-          const sent = await sendWahaMedia(sessionName, from, imgMedia, caption);
+          const sent = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
           if (sent) { sentCount++; log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`); }
           if (i < matchedMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
         }
@@ -2276,7 +2398,7 @@ const processBufferedMessages = async (bufferKey: string) => {
         mediaSent = sentCount > 0;
         log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
       } else {
-        const sent = await sendWahaMedia(sessionName, from, matchedMedia, matchedMedia.caption || '');
+        const sent = await unifiedSendMedia(sessionName, from, matchedMedia, matchedMedia.caption || '', whatsappLineId);
         if (sent) {
           await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
           mediaSent = true;
@@ -2284,7 +2406,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           const fallbackText = matchedMedia.caption
             ? `📎 ${matchedMedia.caption}`
             : `📎 Tengo ${matchedMedia.type === 'image' ? 'una imagen' : matchedMedia.type === 'video' ? 'un video' : 'un audio'} de "${matchedMedia.name}" para mostrarte. Pídeme más detalles 😊`;
-          await sendWahaMessage(sessionName, from, fallbackText);
+          await unifiedSendText(sessionName, from, fallbackText, whatsappLineId);
           await prisma.message.create({ data: { conversationId: convId, content: fallbackText, fromMe: true, userId, role: 'assistant' } });
         }
       }
@@ -2309,7 +2431,7 @@ const processBufferedMessages = async (bufferKey: string) => {
         
         if (cleanAiResponse) {
           await humanDelay(cleanAiResponse.length);
-          await sendWahaMessage(sessionName, from, cleanAiResponse);
+          await unifiedSendText(sessionName, from, cleanAiResponse, whatsappLineId);
           await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
         }
 
@@ -2356,7 +2478,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           // Send farewell message from current line
           if (farewellMessage) {
             await humanDelay(farewellMessage.length);
-            const sent = await sendWahaMessage(sessionName, from, farewellMessage);
+            const sent = await unifiedSendText(sessionName, from, farewellMessage, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: farewellMessage, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: farewellMessage } });
@@ -2395,14 +2517,14 @@ const processBufferedMessages = async (bufferKey: string) => {
               const img = responseMedia.images[i];
               const caption = i === 0 ? (responseMedia.caption || responseMedia.name) : '';
               const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-              const imgSent = await sendWahaMedia(sessionName, from, imgMedia, caption);
+              const imgSent = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
               if (imgSent) sentCount++;
               if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
             }
             await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
             log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
           } else {
-            const sent = await sendWahaMedia(sessionName, from, responseMedia, responseMedia.caption || '');
+            const sent = await unifiedSendMedia(sessionName, from, responseMedia, responseMedia.caption || '', whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: `📎 [${responseMedia.type}: ${responseMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: responseMedia.type } });
               log(`📎 Media enviada por trigger de respuesta: ${responseMedia.name}`);
@@ -2415,7 +2537,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           await humanDelay(cleanResponse.length);
           await stopPresence(sessionName, from);
 
-          const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+          const sent = await unifiedSendText(sessionName, from, cleanResponse, whatsappLineId);
           if (sent) {
             await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
             await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
@@ -2431,7 +2553,7 @@ const processBufferedMessages = async (bufferKey: string) => {
         
           if (shouldVoice && assistant?.elevenLabsKey && assistant?.selectedVoice) {
             // 🔊 MODO VOZ: Enviar texto + audio
-            const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+            const sent = await unifiedSendText(sessionName, from, cleanResponse, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
@@ -2441,7 +2563,7 @@ const processBufferedMessages = async (bufferKey: string) => {
             try {
               const audioBuffer = await textToSpeech(cleanResponse, assistant.elevenLabsKey, assistant.selectedVoice);
               if (audioBuffer) {
-                await sendVoiceNote(sessionName, from, audioBuffer);
+                await unifiedSendVoice(sessionName, from, audioBuffer, whatsappLineId);
                 await prisma.message.create({ data: { conversationId: convId, content: '🔊 [Nota de voz]', fromMe: true, userId, role: 'assistant', mediaType: 'audio' } });
                 log(`🔊 Voz enviada → ${senderName} (${audioBuffer.length} bytes)`);
               }
@@ -2450,7 +2572,7 @@ const processBufferedMessages = async (bufferKey: string) => {
             }
           } else {
             // 📝 MODO TEXTO: Normal
-            const sent = await sendWahaMessage(sessionName, from, cleanResponse);
+            const sent = await unifiedSendText(sessionName, from, cleanResponse, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
@@ -2496,8 +2618,12 @@ router.get('/lines', async (req: Request, res: Response) => {
       orderBy: { createdAt: 'asc' }
     });
     
-    // Actualizar status de cada línea consultando WAHA
+    // Actualizar status de cada línea consultando WAHA (skip Cloud API)
     const updatedLines = await Promise.all(lines.map(async (line) => {
+      // Cloud API lines don't need WAHA status check
+      if (line.connectionType === 'cloud_api') {
+        return { ...line, status: line.status || 'connected' };
+      }
       try {
         const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
         if (r.ok) {
@@ -2557,10 +2683,12 @@ router.post('/lines', async (req: Request, res: Response) => {
       return;
     }
     
-    const { label, assignedTo, assistantId } = req.body;
+    const { label, assignedTo, assistantId, connectionType, cloudPhoneNumberId, cloudBusinessId, cloudAccessToken, cloudAppId } = req.body;
     
     // Generar nombre de sesión único
-    const sessionName = `line_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 8)}`;
+    const sessionName = connectionType === 'cloud_api' 
+      ? `cloud_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 8)}`
+      : `line_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 8)}`;
     
     // Buscar nombre del asignado si hay
     let assignedName: string | null = null;
@@ -2569,20 +2697,61 @@ router.post('/lines', async (req: Request, res: Response) => {
       assignedName = member?.name || null;
     }
     
+    // ☁️ Cloud API: validate required fields
+    let verifiedPhone: string | null = null;
+    if (connectionType === 'cloud_api') {
+      if (!cloudPhoneNumberId || !cloudAccessToken) {
+        res.status(400).json({ error: 'Se requiere Phone Number ID y Access Token para Cloud API' }); return;
+      }
+      try {
+        const verifyRes = await fetch(`https://graph.facebook.com/v21.0/${cloudPhoneNumberId}`, {
+          headers: { 'Authorization': `Bearer ${cloudAccessToken}` }
+        });
+        if (!verifyRes.ok) {
+          const errData = await verifyRes.json().catch(() => ({}));
+          res.status(400).json({ error: `Token inválido: ${(errData as any)?.error?.message || 'No se pudo verificar'}` }); return;
+        }
+        const phoneData = await verifyRes.json() as any;
+        verifiedPhone = phoneData.display_phone_number || null;
+        log(`☁️ Cloud API verificado: ${verifiedPhone || cloudPhoneNumberId}`);
+      } catch (e: any) {
+        res.status(400).json({ error: `Error verificando Cloud API: ${e.message}` }); return;
+      }
+    }
+    
+    const webhookVerifyToken = connectionType === 'cloud_api' 
+      ? `biz_${Math.random().toString(36).substring(2, 15)}${Date.now().toString(36)}` : null;
+    
     const line = await prisma.whatsappLine.create({
       data: {
         userId: ownerId,
         label: label || 'Nueva Línea',
         sessionName,
+        connectionType: connectionType || 'waha',
         assignedTo: assignedTo || null,
         assignedName,
         assistantId: assistantId || null,
-        status: 'disconnected'
+        status: connectionType === 'cloud_api' ? 'connected' : 'disconnected',
+        phone: verifiedPhone || null,
+        ...(connectionType === 'cloud_api' && {
+          cloudPhoneNumberId, cloudBusinessId: cloudBusinessId || null,
+          cloudAccessToken, cloudWebhookVerifyToken: webhookVerifyToken,
+          cloudAppId: cloudAppId || null,
+        })
       }
     });
     
-    log(`📱 Línea creada: ${line.id} (${sessionName})`);
-    res.json({ line, success: true });
+    log(`📱 Línea creada: ${line.id} (${sessionName}) [${connectionType || 'waha'}]`);
+    const backendUrl = process.env.BACKEND_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:3000');
+    
+    res.json({ 
+      line, success: true,
+      ...(connectionType === 'cloud_api' && {
+        webhookUrl: `${backendUrl}/api/webhook/whatsapp-cloud`,
+        webhookVerifyToken,
+        instructions: 'Configura este Webhook URL y Verify Token en tu app de Meta → WhatsApp → Configuration → Webhook'
+      })
+    });
   } catch (e: any) {
     console.error('Error creando línea:', e.message);
     res.status(500).json({ error: e.message });
@@ -2597,7 +2766,7 @@ router.put('/lines/:id', async (req: Request, res: Response) => {
     const ownerId = await getOwnerId(userId);
     
     const { id } = req.params;
-    const { label, assignedTo, assistantId } = req.body;
+    const { label, assignedTo, assistantId, cloudPhoneNumberId, cloudAccessToken, cloudBusinessId, cloudAppId } = req.body;
     
     // Verificar que la línea pertenece al usuario
     const existing = await prisma.whatsappLine.findFirst({ where: { id, userId: ownerId } });
@@ -2609,14 +2778,36 @@ router.put('/lines/:id', async (req: Request, res: Response) => {
       assignedName = member?.name || null;
     }
     
+    // Validate Cloud API token if changed
+    if (cloudAccessToken && cloudPhoneNumberId && existing.connectionType === 'cloud_api') {
+      try {
+        const verifyRes = await fetch(`https://graph.facebook.com/v21.0/${cloudPhoneNumberId}`, {
+          headers: { 'Authorization': `Bearer ${cloudAccessToken}` }
+        });
+        if (!verifyRes.ok) {
+          const errData = await verifyRes.json().catch(() => ({}));
+          res.status(400).json({ error: `Token inválido: ${(errData as any)?.error?.message || 'Error'}` }); return;
+        }
+      } catch (e: any) {
+        res.status(400).json({ error: `Error verificando: ${e.message}` }); return;
+      }
+    }
+    
     const line = await prisma.whatsappLine.update({
       where: { id },
       data: {
         ...(label !== undefined ? { label } : {}),
         ...(assignedTo !== undefined ? { assignedTo: assignedTo || null, assignedName } : {}),
-        ...(assistantId !== undefined ? { assistantId: assistantId || null } : {})
+        ...(assistantId !== undefined ? { assistantId: assistantId || null } : {}),
+        ...(cloudPhoneNumberId !== undefined ? { cloudPhoneNumberId } : {}),
+        ...(cloudAccessToken !== undefined ? { cloudAccessToken } : {}),
+        ...(cloudBusinessId !== undefined ? { cloudBusinessId: cloudBusinessId || null } : {}),
+        ...(cloudAppId !== undefined ? { cloudAppId: cloudAppId || null } : {}),
       }
     });
+    
+    // Clear lineInfo cache if cloud fields changed
+    if (cloudAccessToken || cloudPhoneNumberId) lineInfoCache.delete(id);
     
     res.json({ line, success: true });
   } catch (e: any) {
@@ -2636,10 +2827,12 @@ router.delete('/lines/:id', async (req: Request, res: Response) => {
     const line = await prisma.whatsappLine.findFirst({ where: { id, userId: ownerId } });
     if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
     
-    // Detener sesión en WAHA si existe
-    try {
-      await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/stop`, { method: 'POST', headers: getWahaHeaders() });
-    } catch {}
+    // Detener sesión en WAHA si no es Cloud API
+    if (line.connectionType !== 'cloud_api') {
+      try {
+        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/stop`, { method: 'POST', headers: getWahaHeaders() });
+      } catch {}
+    }
     
     await prisma.whatsappLine.delete({ where: { id } });
     log(`🗑️ Línea eliminada: ${line.id} (${line.sessionName})`);
@@ -3007,58 +3200,47 @@ router.post('/send', async (req: Request, res: Response) => {
     // LID numbers (>13 digits) need @lid suffix, regular phones use @c.us
     const chatId = to.includes('@') ? to : cleanNumber.length > 13 ? `${cleanNumber}@lid` : `${cleanNumber}@c.us`;
 
-    // 🔗 DETERMINAR SESIÓN CORRECTA: usar la línea específica, NO findActiveSession
+    // 🔗 DETERMINAR SESIÓN/LÍNEA CORRECTA
     let sessionName: string | null = null;
-    let lineId: string | null = whatsappLineId || legacyLineId || null; // ✅ Acepta ambos nombres
+    let lineId: string | null = whatsappLineId || legacyLineId || null;
+    let lineRecord: any = null;
 
     if (whatsappLineId) {
-      // Buscar sesión de la línea específica
       const line = await prisma.whatsappLine.findFirst({ where: { id: whatsappLineId, userId: ownerId } });
-      if (line) {
-        sessionName = line.sessionName;
-        lineId = line.id;
-      }
+      if (line) { sessionName = line.sessionName; lineId = line.id; lineRecord = line; }
     }
-    
     if (!sessionName) {
-      // Fallback: buscar la conversación para saber de qué línea es
       const existingConv = await prisma.conversation.findFirst({ 
         where: { userId: ownerId, recipientId: { endsWith: cleanNumber.slice(-10) } },
         select: { whatsappLineId: true }
       });
       if (existingConv?.whatsappLineId) {
         const line = await prisma.whatsappLine.findUnique({ where: { id: existingConv.whatsappLineId } });
-        if (line) {
-          sessionName = line.sessionName;
-          lineId = line.id;
-        }
+        if (line) { sessionName = line.sessionName; lineId = line.id; lineRecord = line; }
       }
     }
-
     if (!sessionName) {
-      // Último fallback: primera línea conectada del usuario
       const firstLine = await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected' } });
-      if (firstLine) {
-        sessionName = firstLine.sessionName;
-        lineId = firstLine.id;
-      } else {
-        // Legacy: findActiveSession
-        const session = await findActiveSession(ownerId);
-        sessionName = session?.name || getUserSessionName(ownerId);
-      }
+      if (firstLine) { sessionName = firstLine.sessionName; lineId = firstLine.id; lineRecord = firstLine; }
+      else { const session = await findActiveSession(ownerId); sessionName = session?.name || getUserSessionName(ownerId); }
     }
 
-    // 📤 ENVIAR MENSAJE
+    // 📤 ENVIAR — detectar Cloud API vs WAHA
     let sent = false;
-    if (message) {
-      sent = await sendWahaMessage(sessionName, chatId, message);
-    }
-
-    // 📤 ENVIAR MEDIA (si hay)
-    if (mediaUrl) {
-      const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
-      const mediaSent = await sendWahaMedia(sessionName, chatId, mediaObj, !message ? '' : undefined);
-      sent = sent || mediaSent;
+    const isCloud = lineRecord?.connectionType === 'cloud_api' && lineRecord?.cloudPhoneNumberId && lineRecord?.cloudAccessToken;
+    
+    if (isCloud) {
+      if (message) sent = await sendCloudText(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, message);
+      if (mediaUrl) {
+        const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
+        sent = (await sendCloudMedia(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, mediaObj, !message ? '' : undefined)) || sent;
+      }
+    } else {
+      if (message) sent = await sendWahaMessage(sessionName, chatId, message);
+      if (mediaUrl) {
+        const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
+        sent = (await sendWahaMedia(sessionName, chatId, mediaObj, !message ? '' : undefined)) || sent;
+      }
     }
 
     if (sent) {
@@ -3977,7 +4159,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       await new Promise(r => setTimeout(r, 1000));
       await stopPresence(sessionName, from);
       const pauseMsg = '🙋‍♂️ Te conecto con un asesor humano. En un momento te atienden.';
-      await sendWahaMessage(sessionName, from, pauseMsg);
+      await unifiedSendText(sessionName, from, pauseMsg, whatsappLineId);
       await prisma.message.create({ data: { conversationId: conv.id, content: pauseMsg, fromMe: true, userId, role: 'assistant' } });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: pauseMsg } });
       log(`⏸️ IA PAUSADA → ${senderName}`);
@@ -3993,7 +4175,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         await new Promise(r => setTimeout(r, 800));
         await stopPresence(sessionName, from);
         const resumeMsg = '🤖 ¡Hola de nuevo! Soy tu asistente virtual. ¿En qué puedo ayudarte?';
-        await sendWahaMessage(sessionName, from, resumeMsg);
+        await unifiedSendText(sessionName, from, resumeMsg, whatsappLineId);
         await prisma.message.create({ data: { conversationId: conv.id, content: resumeMsg, fromMe: true, userId, role: 'assistant' } });
         await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: resumeMsg } });
         log(`▶️ IA REACTIVADA → ${senderName}`);
@@ -4415,7 +4597,7 @@ export const startWahaSyncCron = () => {
   const syncSessions = async () => {
     try {
       const lines = await prisma.whatsappLine.findMany({
-        where: { status: { not: 'disconnected' } }
+        where: { status: { not: 'disconnected' }, connectionType: { not: 'cloud_api' } }
       });
 
       for (const line of lines) {
@@ -4456,5 +4638,182 @@ export const startWahaSyncCron = () => {
   setTimeout(syncSessions, 30_000); // First run after 30s
   console.log('🔄 WAHA sync: every 10min (auto-detect disconnects)');
 };
+
+// ====================================================
+// ☁️ CLOUD API WEBHOOK — Verification (GET)
+// ====================================================
+router.get('/webhook-cloud', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  
+  if (mode === 'subscribe' && token && challenge) {
+    prisma.whatsappLine.findFirst({ where: { cloudWebhookVerifyToken: token as string } })
+      .then(line => {
+        if (line) { log(`☁️ Webhook verificado: ${line.label}`); res.status(200).send(challenge); }
+        else { console.error(`❌ Verify token no reconocido`); res.status(403).send('Forbidden'); }
+      }).catch(() => res.status(500).send('Error'));
+  } else {
+    res.status(400).send('Bad Request');
+  }
+});
+
+// ====================================================
+// ☁️ CLOUD API WEBHOOK — Messages (POST)
+// ====================================================
+router.post('/webhook-cloud', async (req: Request, res: Response) => {
+  try {
+    res.status(200).json({ success: true }); // Respond fast to Meta
+    
+    const body = req.body;
+    if (!body?.entry?.[0]?.changes?.[0]?.value) return;
+    const value = body.entry[0].changes[0].value;
+    const phoneNumberId = value.metadata?.phone_number_id;
+    if (!phoneNumberId) return;
+    
+    const line = await prisma.whatsappLine.findFirst({
+      where: { cloudPhoneNumberId: phoneNumberId, connectionType: 'cloud_api' }
+    });
+    if (!line) { console.warn(`☁️ Línea no encontrada: ${phoneNumberId}`); return; }
+    
+    const userId = line.userId;
+    const whatsappLineId = line.id;
+    const sessionName = line.sessionName;
+    
+    // Process statuses
+    for (const status of (value.statuses || [])) {
+      if (status.status === 'failed') {
+        log(`☁️ Msg falló → ${status.recipient_id}: ${status.errors?.[0]?.message || 'Unknown'}`);
+      }
+    }
+    
+    // Process messages
+    for (const msg of (value.messages || [])) {
+      const from = msg.from;
+      const msgType = msg.type;
+      const msgId = msg.id;
+      
+      if (msgId && recentlyProcessed.has(msgId)) continue;
+      if (msgId) { recentlyProcessed.add(msgId); setTimeout(() => recentlyProcessed.delete(msgId), 60000); }
+      
+      // Mark read
+      if (line.cloudAccessToken) markCloudRead(phoneNumberId, line.cloudAccessToken, msgId);
+      
+      // Get contact name
+      const contact = (value.contacts || []).find((c: any) => c.wa_id === from);
+      const senderName = contact?.profile?.name || from;
+      
+      // ❌ fromMe detection (Cloud API: messages from business are NOT in webhook, only customer msgs)
+      // So all messages here are from customers → proceed
+      
+      let messageBody = '';
+      let savedMediaType: string | null = null;
+      let savedMediaUrl: string | null = null;
+      
+      if (msgType === 'text') {
+        messageBody = msg.text?.body || '';
+      } else if (['image', 'video', 'audio', 'document'].includes(msgType)) {
+        const caption = msg[msgType]?.caption || '';
+        messageBody = caption;
+        savedMediaType = msgType;
+        const mediaId = msg[msgType]?.id;
+        if (mediaId && line.cloudAccessToken) {
+          try {
+            const mediaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+              headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` }
+            });
+            if (mediaRes.ok) { savedMediaUrl = ((await mediaRes.json()) as any).url || null; }
+          } catch {}
+        }
+        // Audio transcription
+        if (msgType === 'audio' && savedMediaUrl && line.cloudAccessToken) {
+          try {
+            const audioRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
+            if (audioRes.ok) {
+              const audioBuf = Buffer.from(await audioRes.arrayBuffer());
+              const aiConfig = await prisma.aIConfig.findUnique({ where: { userId } }).catch(() => null);
+              const apiKey = (aiConfig as any)?.openaiKey || process.env.OPENAI_API_KEY;
+              if (apiKey) { const t = await transcribeAudio(audioBuf, apiKey); if (t) messageBody = t; }
+            }
+          } catch {}
+        }
+      } else if (msgType === 'location') {
+        messageBody = `📍 Ubicación: ${msg.location?.latitude}, ${msg.location?.longitude}`;
+      } else if (msgType === 'contacts') {
+        const c = msg.contacts?.[0];
+        messageBody = `👤 Contacto: ${c?.name?.formatted_name || 'Sin nombre'} - ${c?.phones?.[0]?.phone || ''}`;
+      } else if (msgType === 'sticker') {
+        messageBody = '🏷️ Sticker';
+      } else if (msgType === 'reaction') { continue; }
+      else { messageBody = `[${msgType}]`; }
+      
+      if (!messageBody && !savedMediaType) continue;
+      
+      const recipientId = from.replace(/\D/g, '');
+      
+      // Find or create conversation
+      let conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
+      if (!conv) conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: recipientId.slice(-10) }, whatsappLineId } });
+      if (!conv) {
+        conv = await prisma.conversation.create({
+          data: { userId, recipientId, recipientName: senderName, lastMessage: messageBody, stage: 'new', whatsappLineId }
+        });
+        log(`☁️ Nueva conv: ${senderName} (${recipientId})`);
+      }
+      
+      // Save message
+      const displayContent = savedMediaType === 'audio' ? `🎤 ${messageBody}` : messageBody;
+      await prisma.message.create({
+        data: {
+          conversationId: conv.id, content: displayContent || '[Media]', fromMe: false,
+          userId, role: 'user',
+          ...(savedMediaType && { mediaType: savedMediaType }),
+          ...(savedMediaUrl && { mediaUrl: savedMediaUrl })
+        }
+      });
+      await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: displayContent, recipientName: senderName } });
+      
+      if (conv.aiPaused) { log(`☁️ IA pausada → ${senderName}`); continue; }
+      
+      // Pause/Resume commands
+      if (messageBody.trim() === '0') {
+        await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: true } });
+        const pauseMsg = '🙋‍♂️ Te conecto con un asesor humano. En un momento te atienden.';
+        if (line.cloudAccessToken) await sendCloudText(phoneNumberId, line.cloudAccessToken, recipientId, pauseMsg);
+        await prisma.message.create({ data: { conversationId: conv.id, content: pauseMsg, fromMe: true, userId, role: 'assistant' } });
+        continue;
+      }
+      if (messageBody.trim() === '.') {
+        if (conv.aiPaused) {
+          await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: false } });
+          const resumeMsg = '🤖 ¡Hola de nuevo! Soy tu asistente virtual. ¿En qué puedo ayudarte?';
+          if (line.cloudAccessToken) await sendCloudText(phoneNumberId, line.cloudAccessToken, recipientId, resumeMsg);
+          await prisma.message.create({ data: { conversationId: conv.id, content: resumeMsg, fromMe: true, userId, role: 'assistant' } });
+        }
+        continue;
+      }
+      
+      // 📦 Buffer for AI response (reuses existing buffer system)
+      const bufferKey = `${userId}_${recipientId}`;
+      const existingBuffer = messageBuffer.get(bufferKey);
+      const chatIdForSend = `${recipientId}@c.us`; // Cloud API uses clean numbers but buffer needs format
+      
+      if (existingBuffer) {
+        existingBuffer.messages.push(messageBody);
+        clearTimeout(existingBuffer.timer);
+        existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      } else {
+        const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+        messageBuffer.set(bufferKey, {
+          messages: [messageBody], timer, sessionName,
+          from: chatIdForSend, senderName, userId,
+          convId: conv.id, whatsappLineId
+        });
+      }
+    }
+  } catch (e: any) {
+    console.error('☁️ Cloud webhook error:', e.message);
+  }
+});
 
 export default router;

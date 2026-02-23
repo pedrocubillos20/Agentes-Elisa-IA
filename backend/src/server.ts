@@ -88,6 +88,16 @@ app.post('/api/whatsapp/webhook', rateLimit(200, 1000), (req, res, next) => {
   req.url = '/webhook';
   whatsappRoutes(req, res, next);
 });
+
+// ☁️ WhatsApp Cloud API webhooks (Meta)
+app.get('/api/webhook/whatsapp-cloud', (req, res, next) => {
+  req.url = '/webhook-cloud';
+  whatsappRoutes(req, res, next);
+});
+app.post('/api/webhook/whatsapp-cloud', rateLimit(200, 1000), (req, res, next) => {
+  req.url = '/webhook-cloud';
+  whatsappRoutes(req, res, next);
+});
 app.post('/api/subscription/webhook/wompi', (req, res, next) => {
   req.url = '/webhook/wompi';
   subscriptionRoutes(req, res, next);

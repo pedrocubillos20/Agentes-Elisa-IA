@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Smartphone, CheckCircle, XCircle, RefreshCw, Wifi, WifiOff, QrCode,
-  Plus, Trash2, Edit2, X, Crown, Lock, Users, Bot, Phone, Signal
+  Plus, Trash2, Edit2, X, Crown, Lock, Users, Bot, Phone, Signal, Cloud, Copy, ExternalLink
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -23,7 +23,9 @@ export default function WhatsAppPage() {
   // Modal
   const [showModal, setShowModal] = useState(false);
   const [editingLine, setEditingLine] = useState<any>(null);
-  const [lineForm, setLineForm] = useState({ label: '', assignedTo: '', assistantId: '' });
+  const [lineForm, setLineForm] = useState({ label: '', assignedTo: '', assistantId: '', connectionType: 'waha', cloudPhoneNumberId: '', cloudBusinessId: '', cloudAccessToken: '', cloudAppId: '' });
+  const [cloudSetupInfo, setCloudSetupInfo] = useState<any>(null);
+  const [savingLine, setSavingLine] = useState(false);
 
   // Plan limits (including purchased addons)
   const plan = user?.plan || 'trial';
@@ -95,26 +97,27 @@ export default function WhatsAppPage() {
 
   // ===== CRUD Lines =====
   const handleSaveLine = async () => {
+    setSavingLine(true);
     try {
       const url = editingLine 
         ? `${API_URL}/api/whatsapp/lines/${editingLine.id}`
         : `${API_URL}/api/whatsapp/lines`;
       const method = editingLine ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method, headers: headers(),
-        body: JSON.stringify(lineForm)
-      });
-
+      const res = await fetch(url, { method, headers: headers(), body: JSON.stringify(lineForm) });
       if (res.ok) {
+        const data = await res.json();
+        if (data.webhookUrl && data.webhookVerifyToken) {
+          setCloudSetupInfo({ webhookUrl: data.webhookUrl, webhookVerifyToken: data.webhookVerifyToken, instructions: data.instructions });
+        } else {
+          setShowModal(false); resetForm();
+        }
         await loadAll();
-        setShowModal(false);
-        resetForm();
       } else {
         const err = await res.json();
         alert(err.error || 'Error al guardar');
       }
     } catch (e) { console.error(e); }
+    finally { setSavingLine(false); }
   };
 
   const handleDeleteLine = async (lineId: string) => {
@@ -126,17 +129,20 @@ export default function WhatsAppPage() {
   };
 
   const resetForm = () => {
-    setLineForm({ label: '', assignedTo: '', assistantId: '' });
+    setLineForm({ label: '', assignedTo: '', assistantId: '', connectionType: 'waha', cloudPhoneNumberId: '', cloudBusinessId: '', cloudAccessToken: '', cloudAppId: '' });
     setEditingLine(null);
+    setCloudSetupInfo(null);
   };
 
   const openEditLine = (line: any) => {
     setEditingLine(line);
     setLineForm({
-      label: line.label || '',
-      assignedTo: line.assignedTo || '',
-      assistantId: line.assistantId || ''
+      label: line.label || '', assignedTo: line.assignedTo || '', assistantId: line.assistantId || '',
+      connectionType: line.connectionType || 'waha',
+      cloudPhoneNumberId: line.cloudPhoneNumberId || '', cloudBusinessId: line.cloudBusinessId || '',
+      cloudAccessToken: line.cloudAccessToken || '', cloudAppId: line.cloudAppId || ''
     });
+    setCloudSetupInfo(null);
     setShowModal(true);
   };
 
@@ -288,12 +294,16 @@ export default function WhatsAppPage() {
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isConnected ? 'bg-emerald-500/20' : 'bg-gray-500/20'}`}>
-                      {isConnected ? <Wifi className="w-6 h-6 text-emerald-400" /> : <WifiOff className="w-6 h-6 text-gray-500" />}
+                      {line.connectionType === 'cloud_api' 
+                        ? <Cloud className={`w-6 h-6 ${isConnected ? 'text-blue-400' : 'text-gray-500'}`} />
+                        : isConnected ? <Wifi className="w-6 h-6 text-emerald-400" /> : <WifiOff className="w-6 h-6 text-gray-500" />
+                      }
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="text-lg font-bold text-white">{line.label}</h3>
                         {line.isDefault && <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold">PRINCIPAL</span>}
+                        {line.connectionType === 'cloud_api' && <span className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><Cloud className="w-3 h-3" />CLOUD API</span>}
                       </div>
                       {line.phone ? (
                         <p className="text-sm text-emerald-400 flex items-center gap-1">
@@ -330,13 +340,20 @@ export default function WhatsAppPage() {
                 {/* Action Buttons */}
                 {isConnected ? (
                   <div className="flex gap-2">
-                    <div className="flex-1 flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 text-emerald-400 text-sm">
-                      <Signal className="w-4 h-4" />
-                      Línea activa y respondiendo
+                    <div className={`flex-1 flex items-center gap-2 p-3 rounded-xl ${line.connectionType === 'cloud_api' ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'} text-sm`}>
+                      {line.connectionType === 'cloud_api' ? <Cloud className="w-4 h-4" /> : <Signal className="w-4 h-4" />}
+                      {line.connectionType === 'cloud_api' ? 'Cloud API activa — API oficial Meta' : 'Línea activa y respondiendo'}
                     </div>
-                    <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
-                      <XCircle className="w-4 h-4" /> Desconectar
-                    </button>
+                    {line.connectionType !== 'cloud_api' && (
+                      <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
+                        <XCircle className="w-4 h-4" /> Desconectar
+                      </button>
+                    )}
+                  </div>
+                ) : line.connectionType === 'cloud_api' ? (
+                  <div className="p-3 rounded-xl bg-red-500/10 text-red-400 text-sm flex items-center gap-2">
+                    <XCircle className="w-4 h-4" />
+                    Cloud API desconectada — verifica tu token en la configuración
                   </div>
                 ) : (
                   <div>
@@ -375,7 +392,7 @@ export default function WhatsAppPage() {
       )}
 
       {/* Features */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="card text-center">
           <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
             <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
@@ -385,7 +402,14 @@ export default function WhatsAppPage() {
         </div>
         <div className="card text-center">
           <div className="w-14 h-14 rounded-xl bg-blue-500/20 flex items-center justify-center mx-auto mb-4">
-            <Phone className="w-7 h-7 text-blue-400" />
+            <Cloud className="w-7 h-7 text-blue-400" />
+          </div>
+          <h3 className="font-semibold text-white mb-2">Cloud API</h3>
+          <p className="text-sm text-[var(--text-muted)]">Conecta la API oficial de Meta para mayor estabilidad</p>
+        </div>
+        <div className="card text-center">
+          <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
+            <Phone className="w-7 h-7 text-purple-400" />
           </div>
           <h3 className="font-semibold text-white mb-2">Multi-Línea</h3>
           <p className="text-sm text-[var(--text-muted)]">
@@ -393,8 +417,8 @@ export default function WhatsAppPage() {
           </p>
         </div>
         <div className="card text-center">
-          <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center mx-auto mb-4">
-            <Bot className="w-7 h-7 text-purple-400" />
+          <div className="w-14 h-14 rounded-xl bg-orange-500/20 flex items-center justify-center mx-auto mb-4">
+            <Bot className="w-7 h-7 text-orange-400" />
           </div>
           <h3 className="font-semibold text-white mb-2">Asistente por Línea</h3>
           <p className="text-sm text-[var(--text-muted)]">Cada línea puede tener su propio asistente IA</p>
@@ -403,64 +427,169 @@ export default function WhatsAppPage() {
 
       {/* Modal: Create/Edit Line */}
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => { setShowModal(false); setCloudSetupInfo(null); }}>
+          <div className="modal-content max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-white">
                 {editingLine ? 'Editar' : 'Nueva'} Línea de WhatsApp
               </h3>
-              <button onClick={() => setShowModal(false)} className="btn-icon"><X className="w-5 h-5" /></button>
+              <button onClick={() => { setShowModal(false); setCloudSetupInfo(null); }} className="btn-icon"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="input-label">Nombre de la línea *</label>
-                <input 
-                  type="text" value={lineForm.label}
-                  onChange={e => setLineForm({...lineForm, label: e.target.value})}
-                  className="input" placeholder="Ej: Ventas, Soporte, Personal"
-                />
+            {/* Cloud Setup Info (shown after creating a Cloud API line) */}
+            {cloudSetupInfo ? (
+              <div className="space-y-4">
+                <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
+                  <h4 className="text-blue-400 font-semibold mb-3 flex items-center gap-2"><Cloud className="w-5 h-5" /> ¡Línea Cloud API creada!</h4>
+                  <p className="text-sm text-gray-300 mb-4">{cloudSetupInfo.instructions}</p>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Webhook URL</label>
+                      <div className="flex gap-2">
+                        <input type="text" readOnly value={cloudSetupInfo.webhookUrl} className="input flex-1 text-sm font-mono" />
+                        <button onClick={() => { navigator.clipboard.writeText(cloudSetupInfo.webhookUrl); }} className="btn-secondary text-sm"><Copy className="w-4 h-4" /></button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Verify Token</label>
+                      <div className="flex gap-2">
+                        <input type="text" readOnly value={cloudSetupInfo.webhookVerifyToken} className="input flex-1 text-sm font-mono" />
+                        <button onClick={() => { navigator.clipboard.writeText(cloudSetupInfo.webhookVerifyToken); }} className="btn-secondary text-sm"><Copy className="w-4 h-4" /></button>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4 p-3 rounded-lg bg-gray-800/50 text-xs text-gray-400 space-y-1">
+                    <p>📌 <strong className="text-gray-300">Suscríbete a estos eventos:</strong> messages</p>
+                    <p>📌 Asegúrate de que tu app de Meta esté en modo <strong className="text-gray-300">Live</strong></p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-2">
+                  <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener" className="btn-secondary flex-1 text-sm justify-center">
+                    <ExternalLink className="w-4 h-4" /> Ir a Meta Developers
+                  </a>
+                  <button onClick={() => { setShowModal(false); resetForm(); }} className="btn-primary flex-1 text-sm">
+                    ✅ Listo, ya configuré
+                  </button>
+                </div>
               </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Connection Type Selector */}
+                {!editingLine && (
+                  <div>
+                    <label className="input-label">Tipo de conexión</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setLineForm({...lineForm, connectionType: 'waha'})}
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${lineForm.connectionType === 'waha' ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <QrCode className={`w-5 h-5 ${lineForm.connectionType === 'waha' ? 'text-emerald-400' : 'text-gray-500'}`} />
+                          <span className={`font-semibold ${lineForm.connectionType === 'waha' ? 'text-white' : 'text-gray-400'}`}>QR Code</span>
+                        </div>
+                        <p className="text-xs text-gray-500">Escanea con tu celular. Gratis, usa tu número personal.</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLineForm({...lineForm, connectionType: 'cloud_api'})}
+                        className={`p-4 rounded-xl border-2 text-left transition-all ${lineForm.connectionType === 'cloud_api' ? 'border-blue-500 bg-blue-500/10' : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Cloud className={`w-5 h-5 ${lineForm.connectionType === 'cloud_api' ? 'text-blue-400' : 'text-gray-500'}`} />
+                          <span className={`font-semibold ${lineForm.connectionType === 'cloud_api' ? 'text-white' : 'text-gray-400'}`}>Cloud API</span>
+                        </div>
+                        <p className="text-xs text-gray-500">API oficial de Meta. Números verificados, sin riesgo de ban.</p>
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-              <div>
-                <label className="input-label">Asistente IA asignado</label>
-                <select 
-                  value={lineForm.assistantId}
-                  onChange={e => setLineForm({...lineForm, assistantId: e.target.value})}
-                  className="input"
-                >
-                  <option value="">— Usar asistente activo por defecto —</option>
-                  {assistants.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500 mt-1">Cada línea puede responder con un asistente diferente</p>
-              </div>
-
-              {teamMembers.length > 0 && (
                 <div>
-                  <label className="input-label">Asignada a miembro del equipo</label>
-                  <select
-                    value={lineForm.assignedTo}
-                    onChange={e => setLineForm({...lineForm, assignedTo: e.target.value})}
+                  <label className="input-label">Nombre de la línea *</label>
+                  <input 
+                    type="text" value={lineForm.label}
+                    onChange={e => setLineForm({...lineForm, label: e.target.value})}
+                    className="input" placeholder="Ej: Ventas, Soporte, Personal"
+                  />
+                </div>
+
+                {/* Cloud API Fields */}
+                {lineForm.connectionType === 'cloud_api' && (
+                  <div className="space-y-3 p-4 rounded-xl bg-blue-500/5 border border-blue-500/20">
+                    <h4 className="text-sm font-semibold text-blue-400 flex items-center gap-2"><Cloud className="w-4 h-4" /> Configuración Cloud API</h4>
+                    <div>
+                      <label className="input-label">Phone Number ID *</label>
+                      <input type="text" value={lineForm.cloudPhoneNumberId}
+                        onChange={e => setLineForm({...lineForm, cloudPhoneNumberId: e.target.value})}
+                        className="input font-mono text-sm" placeholder="Ej: 123456789012345"
+                      />
+                    </div>
+                    <div>
+                      <label className="input-label">Access Token permanente *</label>
+                      <input type="password" value={lineForm.cloudAccessToken}
+                        onChange={e => setLineForm({...lineForm, cloudAccessToken: e.target.value})}
+                        className="input font-mono text-sm" placeholder="Ej: EAAxxxxxxxx..."
+                      />
+                    </div>
+                    <div>
+                      <label className="input-label">Business Account ID <span className="text-gray-600">(opcional)</span></label>
+                      <input type="text" value={lineForm.cloudBusinessId}
+                        onChange={e => setLineForm({...lineForm, cloudBusinessId: e.target.value})}
+                        className="input font-mono text-sm" placeholder="Ej: 987654321012345"
+                      />
+                    </div>
+                    <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noopener"
+                      className="text-xs text-blue-400 hover:underline flex items-center gap-1">
+                      <ExternalLink className="w-3 h-3" /> ¿Cómo obtener estos datos?
+                    </a>
+                  </div>
+                )}
+
+                <div>
+                  <label className="input-label">Asistente IA asignado</label>
+                  <select 
+                    value={lineForm.assistantId}
+                    onChange={e => setLineForm({...lineForm, assistantId: e.target.value})}
                     className="input"
                   >
-                    <option value="">— Sin asignar (admin) —</option>
-                    {teamMembers.map((m: any) => (
-                      <option key={m.id} value={m.id}>{m.name || m.email} ({m.role})</option>
+                    <option value="">— Usar asistente activo por defecto —</option>
+                    {assistants.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                   </select>
+                  <p className="text-xs text-gray-500 mt-1">Cada línea puede responder con un asistente diferente</p>
                 </div>
-              )}
 
-              <button 
-                onClick={handleSaveLine}
-                disabled={!lineForm.label.trim()}
-                className="btn-primary w-full"
-              >
-                {editingLine ? 'Actualizar' : 'Crear'} Línea
-              </button>
-            </div>
+                {teamMembers.length > 0 && (
+                  <div>
+                    <label className="input-label">Asignada a miembro del equipo</label>
+                    <select
+                      value={lineForm.assignedTo}
+                      onChange={e => setLineForm({...lineForm, assignedTo: e.target.value})}
+                      className="input"
+                    >
+                      <option value="">— Sin asignar (admin) —</option>
+                      {teamMembers.map((m: any) => (
+                        <option key={m.id} value={m.id}>{m.name || m.email} ({m.role})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleSaveLine}
+                  disabled={!lineForm.label.trim() || savingLine || (lineForm.connectionType === 'cloud_api' && (!lineForm.cloudPhoneNumberId || !lineForm.cloudAccessToken))}
+                  className="btn-primary w-full"
+                >
+                  {savingLine ? <div className="loading-spinner w-4 h-4" /> : lineForm.connectionType === 'cloud_api' ? <Cloud className="w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
+                  {savingLine ? 'Verificando...' : editingLine ? 'Actualizar' : lineForm.connectionType === 'cloud_api' ? 'Conectar Cloud API' : 'Crear Línea'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

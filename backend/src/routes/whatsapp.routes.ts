@@ -25,7 +25,7 @@ const getWahaHeaders = () => {
 // Si el usuario manda 3 líneas rápido, espera y responde UNA vez
 // MEJORADO: Lock de procesamiento para evitar respuestas duplicadas
 // ====================================================
-const BUFFER_WAIT_MS = 5000; // Esperar 5 segundos por más mensajes (antes 3s)
+const BUFFER_WAIT_MS = 3000; // Esperar 3 segundos por más mensajes (optimizado)
 
 // 🔑 Tracking de errores de API Key de OpenAI por usuario
 
@@ -103,12 +103,22 @@ const resolveLidToPhone = async (session: string, lidChatId: string, payload?: a
   const lidClean = lidChatId.replace('@lid', '').replace('@c.us', '').replace('@s.whatsapp.net', '');
   log(`🔍 Resolviendo LID: ${lidChatId} → buscando número real...`);
 
-  // 2. Check payload for real phone in _data fields
+  // 2. Check payload for real phone in _data fields and NOWEB key fields
   const possiblePhones = [
+    // NOWEB engine: key.remoteJid often has real phone
+    payload?.key?.remoteJid?.replace?.('@s.whatsapp.net', '').replace?.('@c.us', ''),
+    payload?.key?.participant?.replace?.('@s.whatsapp.net', '').replace?.('@c.us', ''),
+    // Standard _data fields
     payload?._data?.from?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
     payload?._data?.id?.remote?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+    payload?._data?.id?.participant?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
     payload?._data?.chat?.id?._serialized?.replace?.('@c.us', ''),
     payload?.chat?.id?.replace?.('@c.us', ''),
+    // NOWEB: chatId sometimes has real number
+    payload?.chatId?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+    payload?._data?.chatId?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
+    // participant field (for non-group chats too)
+    payload?.participant?.replace?.('@c.us', '').replace?.('@s.whatsapp.net', ''),
     payload?._data?.notifyName, // sometimes contains phone
   ].filter(Boolean);
 
@@ -206,7 +216,7 @@ const stopPresence = async (session: string, chatId: string): Promise<void> => {
 
 // ⚡ Delay natural REDUCIDO (0.8s - 2s máx para respuesta rápida)
 const humanDelay = (textLength: number): Promise<void> => {
-  const ms = Math.min(Math.max(textLength * 10, 800), 2000);
+  const ms = Math.min(Math.max(textLength * 6, 400), 1200);
   return new Promise(r => setTimeout(r, ms));
 };
 
@@ -2264,7 +2274,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
       // ═══ PASO 2: GENERAR Y ENVIAR TEXTO IA (después de la media) ═══
       if (mediaSent) {
-        await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500)); // Pausa natural 1.5-3s
+        await new Promise(r => setTimeout(r, 600 + Math.random() * 600)); // Pausa rápida 0.6-1.2s
         await setPresence(sessionName, from, 'typing');
       }
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
@@ -2337,7 +2347,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           }
 
           // Execute transfer to target line
-          await new Promise(r => setTimeout(r, 2000)); // Pause before transfer
+          await new Promise(r => setTimeout(r, 1000)); // Pause before transfer
           await executeLineTransfer(
             targetPhone,
             from,
@@ -2383,7 +2393,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           }
 
           // PASO 2: Pausa natural + enviar texto IA DESPUÉS de la media
-          await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500));
+          await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
           await setPresence(sessionName, from, 'typing');
           await humanDelay(cleanResponse.length);
           await stopPresence(sessionName, from);
@@ -3647,12 +3657,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
       setTimeout(() => recentlyProcessed.delete(contentDedupKey), 15000);
     }
 
-    const from = payload?.from || payload?.chatId || '';
+    const from = payload?.from || payload?.chatId || payload?.key?.remoteJid || '';
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
-    // 🔍 DETECT @lid FORMAT (WAHA Plus Linked IDs)
-    const isLid = from.includes('@lid');
+    // 🔍 DETECT @lid FORMAT (WAHA Plus Linked IDs / NOWEB engine)
+    const isLid = from.includes('@lid') || (
+      !from.includes('@g.us') && !from.includes('@c.us') && !from.includes('@s.whatsapp.net') &&
+      from.replace(/\D/g, '').length > 13
+    );
     if (isLid) {
       log(`🔑 Detectado formato LID: ${from} — resolviendo número real...`);
       log(`🔑 Payload keys: ${Object.keys(payload || {}).join(', ')}`);

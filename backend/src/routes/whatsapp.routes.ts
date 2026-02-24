@@ -4646,6 +4646,7 @@ router.get('/webhook-cloud', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
+  console.log(`☁️ [CLOUD VERIFY] mode=${mode} token=${token ? token.toString().substring(0, 10) + '...' : 'null'} challenge=${challenge ? 'yes' : 'no'}`);
   
   if (mode === 'subscribe' && token && challenge) {
     prisma.whatsappLine.findFirst({ where: { cloudWebhookVerifyToken: token as string } })
@@ -4666,15 +4667,21 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
     res.status(200).json({ success: true }); // Respond fast to Meta
     
     const body = req.body;
-    if (!body?.entry?.[0]?.changes?.[0]?.value) return;
+    console.log(`☁️ [CLOUD WEBHOOK] Recibido:`, JSON.stringify(body).substring(0, 500));
+    
+    if (!body?.entry?.[0]?.changes?.[0]?.value) { console.log(`☁️ [CLOUD] Sin entry/changes/value — ignorando`); return; }
     const value = body.entry[0].changes[0].value;
     const phoneNumberId = value.metadata?.phone_number_id;
-    if (!phoneNumberId) return;
+    if (!phoneNumberId) { console.log(`☁️ [CLOUD] Sin phone_number_id en metadata`); return; }
+    
+    console.log(`☁️ [CLOUD] Phone Number ID: ${phoneNumberId} | Mensajes: ${value.messages?.length || 0} | Statuses: ${value.statuses?.length || 0}`);
     
     const line = await prisma.whatsappLine.findFirst({
       where: { cloudPhoneNumberId: phoneNumberId, connectionType: 'cloud_api' }
     });
-    if (!line) { console.warn(`☁️ Línea no encontrada: ${phoneNumberId}`); return; }
+    if (!line) { console.warn(`☁️ [CLOUD] ❌ Línea NO encontrada para phoneNumberId: ${phoneNumberId} — Verifica que coincida con el cloudPhoneNumberId guardado en la DB`); return; }
+    
+    console.log(`☁️ [CLOUD] ✅ Línea encontrada: ${line.label} (${line.id}) → userId: ${line.userId}`);
     
     const userId = line.userId;
     const whatsappLineId = line.id;
@@ -4683,7 +4690,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
     // Process statuses
     for (const status of (value.statuses || [])) {
       if (status.status === 'failed') {
-        log(`☁️ Msg falló → ${status.recipient_id}: ${status.errors?.[0]?.message || 'Unknown'}`);
+        console.log(`☁️ [CLOUD] Msg falló → ${status.recipient_id}: ${status.errors?.[0]?.message || 'Unknown'}`);
       }
     }
     
@@ -4693,7 +4700,9 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const msgType = msg.type;
       const msgId = msg.id;
       
-      if (msgId && recentlyProcessed.has(msgId)) continue;
+      console.log(`☁️ [CLOUD] 📩 Mensaje de ${from} | tipo: ${msgType} | id: ${msgId}`);
+      
+      if (msgId && recentlyProcessed.has(msgId)) { console.log(`☁️ [CLOUD] ⏭️ Duplicado, ignorando`); continue; }
       if (msgId) { recentlyProcessed.add(msgId); setTimeout(() => recentlyProcessed.delete(msgId), 60000); }
       
       // Mark read
@@ -4758,7 +4767,9 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         conv = await prisma.conversation.create({
           data: { userId, recipientId, recipientName: senderName, lastMessage: messageBody, stage: 'new', whatsappLineId }
         });
-        log(`☁️ Nueva conv: ${senderName} (${recipientId})`);
+        console.log(`☁️ [CLOUD] 🆕 Nueva conversación creada: ${senderName} (${recipientId}) → convId: ${conv.id}`);
+      } else {
+        console.log(`☁️ [CLOUD] 📂 Conversación existente: ${conv.id} (${recipientId})`);
       }
       
       // Save message
@@ -4772,6 +4783,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         }
       });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: displayContent, recipientName: senderName } });
+      console.log(`☁️ [CLOUD] ✅ Mensaje guardado: "${displayContent?.substring(0, 50)}" → conv: ${conv.id}`);
       
       if (conv.aiPaused) { log(`☁️ IA pausada → ${senderName}`); continue; }
       

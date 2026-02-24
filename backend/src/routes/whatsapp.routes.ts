@@ -1103,7 +1103,15 @@ El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
    - El cliente confirma fecha, hora y lo que quiere reservar → accion = "crear_reserva"
    - Llena también: fecha_reserva, hora_reserva, tipo_reserva (qué se reserva: mesa, habitación, cancha, sala, turno, etc.), num_personas (cuántas personas), duracion_reserva (tiempo estimado en minutos si aplica)
 
-⚠️ IMPORTANTE: Solo usa la accion UNA VEZ cuando se confirma. Si "pedido" ya dice "creado", "cita" dice "creada", o "reserva" dice "creada" en la memoria guardada, NO vuelvas a poner la accion.
+⚠️ IMPORTANTE: Solo usa la accion de CREAR una vez cuando se confirma. Si "pedido" ya dice "creado", "cita" dice "creada", o "reserva" dice "creada" en la memoria guardada, NO vuelvas a poner la accion de crear.
+
+🔄 ACTUALIZAR REGISTROS EXISTENTES:
+Si el cliente ya tiene un pedido/cita/reserva CREADO y pide CAMBIAR algo (fecha, hora, dirección, producto, cantidad, etc.):
+- accion = "actualizar_pedido" → Cuando cambia datos de un pedido ya creado
+- accion = "actualizar_cita" → Cuando cambia fecha/hora de una cita ya creada
+- accion = "actualizar_reserva" → Cuando cambia datos de una reserva ya creada
+Actualiza los campos correspondientes con los nuevos valores y pon la accion de actualizar.
+Ejemplos: "cambié de opinión, quiero el buzo rojo" → actualizar_pedido, "mejor a las 3pm" → actualizar_cita, "seremos 6 personas" → actualizar_reserva
 
 === ⚠️⚠️⚠️ BLOQUE DE MEMORIA - SUPER IMPORTANTE ⚠️⚠️⚠️ ===
 
@@ -1948,6 +1956,185 @@ REGLAS DE TRANSFERENCIA:
                   }
                 } catch (resErr: any) {
                   console.error('❌ Error creando reserva:', resErr.message);
+                }
+              }
+
+              // ═══ 🔄 ACTUALIZAR PEDIDO EXISTENTE ═══
+              if (actionToTake === 'actualizar_pedido' && merged.pedido === 'creado') {
+                try {
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingOrder = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'order', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingOrder) {
+                    // Recalcular datos del pedido
+                    const productoDesc = merged.producto_servicio || merged.detalles_producto || '';
+                    const updateOrderData: any = {
+                      notes: `📦 PEDIDO ACTUALIZADO\n` +
+                             `━━━━━━━━━━━━━━━\n` +
+                             `🛍️ Producto/Servicio: ${productoDesc || 'N/A'}\n` +
+                             (merged.detalles_producto ? `📋 Detalles: ${merged.detalles_producto}\n` : '') +
+                             `📦 Cantidad: ${merged.cantidad || '1'}\n` +
+                             (merged.precio ? `💰 Precio: $${merged.precio}\n` : '') +
+                             `💵 Total: $${merged.total || '0'}\n` +
+                             `💳 Pago: ${merged.metodo_pago || 'Por definir'}\n` +
+                             `━━━━━━━━━━━━━━━\n` +
+                             (merged.direccion ? `📍 Dirección: ${merged.direccion}\n` : '') +
+                             (merged.barrio ? `🏘️ Barrio: ${merged.barrio}\n` : '') +
+                             (merged.ciudad ? `🏙️ Ciudad: ${merged.ciudad}\n` : '') +
+                             `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
+                             `━━━━━━━━━━━━━━━`,
+                      total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || existingOrder.total,
+                      status: 'pending'
+                    };
+                    if (merged.direccion) updateOrderData.address = [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ');
+                    if (merged.nombre) updateOrderData.clientName = merged.nombre;
+                    
+                    // Actualizar fecha si cambió
+                    if (merged.fecha_entrega) {
+                      const fechaStr = merged.fecha_entrega.toLowerCase();
+                      const hoy = new Date();
+                      let newDate = new Date(existingOrder.date);
+                      if (fechaStr.includes('hoy')) newDate = hoy;
+                      else if (fechaStr.includes('mañana') || fechaStr.includes('manana')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 1); }
+                      else if (fechaStr.includes('pasado')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 2); }
+                      else { const parsed = new Date(merged.fecha_entrega); if (!isNaN(parsed.getTime())) newDate = parsed; }
+                      updateOrderData.date = newDate;
+                    }
+
+                    await prisma.appointment.update({ where: { id: existingOrder.id }, data: updateOrderData });
+                    merged.pedido = 'creado'; // Mantener como creado
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`🔄🛒 PEDIDO ACTUALIZADO: ${existingOrder.id} | ${merged.nombre || clientName}`);
+                  } else {
+                    log(`⚠️ No se encontró pedido para actualizar de ${phoneCleanU}`);
+                  }
+                } catch (upErr: any) {
+                  console.error('❌ Error actualizando pedido:', upErr.message);
+                }
+              }
+
+              // ═══ 🔄 ACTUALIZAR CITA EXISTENTE ═══
+              if (actionToTake === 'actualizar_cita' && merged.cita === 'creada') {
+                try {
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingAppt = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'appointment', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingAppt) {
+                    const updateApptData: any = { status: 'pending' };
+                    
+                    // Actualizar fecha si cambió
+                    if (merged.fecha_cita) {
+                      const fechaStr = merged.fecha_cita.toLowerCase();
+                      const hoy = new Date();
+                      let newDate = new Date(existingAppt.date);
+                      if (fechaStr.includes('hoy')) newDate = hoy;
+                      else if (fechaStr.includes('mañana') || fechaStr.includes('manana')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 1); }
+                      else if (fechaStr.includes('pasado')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 2); }
+                      else { const parsed = new Date(merged.fecha_cita); if (!isNaN(parsed.getTime())) newDate = parsed; }
+                      updateApptData.date = newDate;
+                    }
+                    
+                    // Actualizar hora si cambió
+                    if (merged.hora_cita) {
+                      const timeMatch = merged.hora_cita.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+                      if (timeMatch) {
+                        let h = parseInt(timeMatch[1]);
+                        const m = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                        const mer = (timeMatch[3] || '').toLowerCase().replace('.', '');
+                        if (mer === 'pm' && h < 12) h += 12;
+                        if (mer === 'am' && h === 12) h = 0;
+                        updateApptData.time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                      }
+                    }
+                    
+                    if (merged.nombre) updateApptData.clientName = merged.nombre;
+                    if (merged.direccion) updateApptData.address = merged.direccion;
+                    
+                    const tipoCita = merged.tipo_cita || 'cita';
+                    updateApptData.notes = `📅 ${tipoCita.toUpperCase()} — ACTUALIZADA\n` +
+                      `━━━━━━━━━━━━━━━\n` +
+                      `👤 Cliente: ${merged.nombre || existingAppt.clientName}\n` +
+                      `📱 Teléfono: ${phoneCleanU}\n` +
+                      `🗓️ Fecha: ${(updateApptData.date || existingAppt.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
+                      `🕐 Hora: ${updateApptData.time || existingAppt.time}\n` +
+                      `📋 Tipo: ${tipoCita}\n` +
+                      `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
+                      `━━━━━━━━━━━━━━━`;
+
+                    await prisma.appointment.update({ where: { id: existingAppt.id }, data: updateApptData });
+                    merged.cita = 'creada';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`🔄📅 CITA ACTUALIZADA: ${existingAppt.id} | ${merged.nombre || clientName}`);
+                  } else {
+                    log(`⚠️ No se encontró cita para actualizar de ${phoneCleanU}`);
+                  }
+                } catch (upErr: any) {
+                  console.error('❌ Error actualizando cita:', upErr.message);
+                }
+              }
+
+              // ═══ 🔄 ACTUALIZAR RESERVA EXISTENTE ═══
+              if (actionToTake === 'actualizar_reserva' && merged.reserva === 'creada') {
+                try {
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingRes = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'reservation', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingRes) {
+                    const updateResData: any = { status: 'pending' };
+                    
+                    if (merged.fecha_reserva) {
+                      const fechaStr = merged.fecha_reserva.toLowerCase();
+                      const hoy = new Date();
+                      let newDate = new Date(existingRes.date);
+                      if (fechaStr.includes('hoy')) newDate = hoy;
+                      else if (fechaStr.includes('mañana') || fechaStr.includes('manana')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 1); }
+                      else if (fechaStr.includes('pasado')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 2); }
+                      else { const parsed = new Date(merged.fecha_reserva); if (!isNaN(parsed.getTime())) newDate = parsed; }
+                      updateResData.date = newDate;
+                    }
+                    
+                    if (merged.hora_reserva) {
+                      const timeMatch = merged.hora_reserva.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+                      if (timeMatch) {
+                        let h = parseInt(timeMatch[1]);
+                        const m = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+                        const mer = (timeMatch[3] || '').toLowerCase().replace('.', '');
+                        if (mer === 'pm' && h < 12) h += 12;
+                        if (mer === 'am' && h === 12) h = 0;
+                        updateResData.time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                      }
+                    }
+                    
+                    if (merged.nombre) updateResData.clientName = merged.nombre;
+                    const tipoRes = merged.tipo_reserva || 'reserva';
+                    const numPers = merged.num_personas || '';
+                    
+                    updateResData.notes = `🏨 RESERVA ACTUALIZADA — ${tipoRes.toUpperCase()}\n` +
+                      `━━━━━━━━━━━━━━━\n` +
+                      `👤 Cliente: ${merged.nombre || existingRes.clientName}\n` +
+                      `📱 Teléfono: ${phoneCleanU}\n` +
+                      `🗓️ Fecha: ${(updateResData.date || existingRes.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
+                      `🕐 Hora: ${updateResData.time || existingRes.time}\n` +
+                      (numPers ? `👥 Personas: ${numPers}\n` : '') +
+                      `📋 Tipo: ${tipoRes}\n` +
+                      `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
+                      `━━━━━━━━━━━━━━━`;
+
+                    await prisma.appointment.update({ where: { id: existingRes.id }, data: updateResData });
+                    merged.reserva = 'creada';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`🔄🏨 RESERVA ACTUALIZADA: ${existingRes.id} | ${merged.nombre || clientName}`);
+                  } else {
+                    log(`⚠️ No se encontró reserva para actualizar de ${phoneCleanU}`);
+                  }
+                } catch (upErr: any) {
+                  console.error('❌ Error actualizando reserva:', upErr.message);
                 }
               }
               

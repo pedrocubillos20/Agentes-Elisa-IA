@@ -193,8 +193,9 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
   const [selectedSound, setSelectedSoundState] = useState<SoundType>('coins');
   const [enabled, setEnabledState] = useState(true);
   const [toasts, setToasts] = useState<NotificationToast[]>([]);
-  const [lastApptCount, setLastApptCount] = useState<number | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const apptSnapshotRef = useRef<Map<string, string>>(new Map()); // id → updatedAt
+  const firstLoadRef = useRef(true);
 
   // Cargar preferencias
   useEffect(() => {
@@ -235,11 +236,11 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
     }
   }, [enabled, selectedSound]);
 
-  // 🔄 POLLING: Detectar nuevas citas/pedidos/reservas
+  // 🔄 POLLING: Detectar nuevas citas/pedidos/reservas Y actualizaciones
   useEffect(() => {
     if (!userId || !initialized) return;
 
-    const checkNewAppointments = async () => {
+    const checkAppointments = async () => {
       try {
         const token = localStorage.getItem('token');
         const lineId = localStorage.getItem('selectedLineId') || '';
@@ -250,35 +251,65 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
         });
         if (!res.ok) return;
         const data = await res.json();
-        const appts = data.appointments || [];
-        const currentCount = appts.length;
+        const appts: any[] = data.appointments || [];
 
-        if (lastApptCount !== null && currentCount > lastApptCount) {
-          // 🆕 Nuevas citas detectadas
-          const diff = currentCount - lastApptCount;
-          const newest = appts[0]; // La más reciente
-          const typeMap: Record<string, { emoji: string; label: string; type: 'appointment' | 'order' | 'reservation' }> = {
-            appointment: { emoji: '📅', label: 'Nueva Cita', type: 'appointment' },
-            order: { emoji: '🛒', label: 'Nuevo Pedido', type: 'order' },
-            reservation: { emoji: '🏨', label: 'Nueva Reserva', type: 'reservation' },
-          };
-          const info = typeMap[newest?.type] || typeMap.appointment;
-          
-          triggerNotification({
-            type: info.type,
-            title: info.label,
-            subtitle: `${newest?.clientName || 'Cliente'} — ${newest?.date ? new Date(newest.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''} ${newest?.time || ''}`,
-            emoji: info.emoji
-          });
+        // Construir snapshot actual: id → updatedAt
+        const currentSnapshot = new Map<string, string>();
+        appts.forEach((a: any) => currentSnapshot.set(a.id, a.updatedAt || a.createdAt));
+
+        if (firstLoadRef.current) {
+          // Primera carga: guardar snapshot sin notificar
+          apptSnapshotRef.current = currentSnapshot;
+          firstLoadRef.current = false;
+          return;
         }
-        setLastApptCount(currentCount);
+
+        const prevSnapshot = apptSnapshotRef.current;
+        const typeMap: Record<string, { emoji: string; newLabel: string; updateLabel: string; type: 'appointment' | 'order' | 'reservation' }> = {
+          appointment: { emoji: '📅', newLabel: 'Nueva Cita', updateLabel: 'Cita Actualizada', type: 'appointment' },
+          order: { emoji: '🛒', newLabel: 'Nuevo Pedido', updateLabel: 'Pedido Actualizado', type: 'order' },
+          reservation: { emoji: '🏨', newLabel: 'Nueva Reserva', updateLabel: 'Reserva Actualizada', type: 'reservation' },
+        };
+
+        // Detectar NUEVOS (IDs que no existían antes)
+        for (const appt of appts) {
+          if (!prevSnapshot.has(appt.id)) {
+            const info = typeMap[appt.type] || typeMap.appointment;
+            triggerNotification({
+              type: info.type,
+              title: info.newLabel,
+              subtitle: `${appt.clientName || 'Cliente'} — ${appt.date ? new Date(appt.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''} ${appt.time || ''}`,
+              emoji: info.emoji
+            });
+            break; // Solo notificar el más reciente para no spamear
+          }
+        }
+
+        // Detectar ACTUALIZADOS (mismo ID pero diferente updatedAt)
+        for (const appt of appts) {
+          const prevUpdated = prevSnapshot.get(appt.id);
+          const currentUpdated = appt.updatedAt || appt.createdAt;
+          if (prevUpdated && prevUpdated !== currentUpdated) {
+            const info = typeMap[appt.type] || typeMap.appointment;
+            triggerNotification({
+              type: info.type,
+              title: `🔄 ${info.updateLabel}`,
+              subtitle: `${appt.clientName || 'Cliente'} — ${appt.date ? new Date(appt.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''} ${appt.time || ''}`,
+              emoji: '🔄'
+            });
+            break;
+          }
+        }
+
+        // Actualizar snapshot
+        apptSnapshotRef.current = currentSnapshot;
       } catch {}
     };
 
-    checkNewAppointments();
-    const interval = setInterval(checkNewAppointments, 15000); // Cada 15 seg
+    checkAppointments();
+    const interval = setInterval(checkAppointments, 15000); // Cada 15 seg
     return () => clearInterval(interval);
-  }, [userId, initialized, lastApptCount, triggerNotification]);
+  }, [userId, initialized, triggerNotification]);
 
   // Pedir permiso de notificaciones browser
   useEffect(() => {

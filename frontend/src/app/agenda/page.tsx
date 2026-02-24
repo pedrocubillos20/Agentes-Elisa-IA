@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, Clock, Plus, ChevronLeft, ChevronRight, User, Phone, MapPin, Package, Check, X, Edit2, Trash2 } from 'lucide-react';
+import { SoundPicker, useNotifications } from '../../components/NotificationSounds';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -35,7 +36,14 @@ export default function AgendaPage() {
     fetchAll();
     const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
-    return () => window.removeEventListener('lineChanged', onLineChanged);
+
+    // 🔄 Auto-refresh cada 10s para detectar nuevas citas/pedidos
+    const pollInterval = setInterval(() => fetchAll(), 10000);
+
+    return () => {
+      window.removeEventListener('lineChanged', onLineChanged);
+      clearInterval(pollInterval);
+    };
   }, []);
 
   const fetchAll = async () => {
@@ -236,9 +244,12 @@ export default function AgendaPage() {
             <p className="text-[var(--text-muted)]">Citas, pedidos y reservas</p>
           </div>
         </div>
-        <button onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary">
-          <Plus className="w-4 h-4" />Nueva Cita/Pedido/Reserva
-        </button>
+        <div className="flex items-center gap-3">
+          <SoundPicker compact />
+          <button onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary">
+            <Plus className="w-4 h-4" />Nueva Cita/Pedido/Reserva
+          </button>
+        </div>
       </div>
 
       {/* Stats */}

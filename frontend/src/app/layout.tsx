@@ -14,6 +14,7 @@ import Paywall from '../components/Paywall';
 import LiveChat from '../components/LiveChat';
 import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
 import InstallApp from '../components/InstallApp';
+import { NotificationProvider } from '../components/NotificationSounds';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573213815105';
@@ -239,6 +240,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="app-background" />
         <div className="grid-pattern" />
 
+        <NotificationProvider userId={user?.id}>
         <LineContext.Provider value={{ selectedLine, lines, switchLine, refreshLines: fetchLines }}>
           <div id="bizonne-wrapper" className="min-h-screen flex">
             {sidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
@@ -714,6 +716,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {user && !isAuthPage && (
           <LiveChat user={user} />
         )}
+        </NotificationProvider>
       </body>
     </html>
   );

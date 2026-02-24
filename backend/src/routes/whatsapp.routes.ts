@@ -25,7 +25,7 @@ const getWahaHeaders = () => {
 // Si el usuario manda 3 líneas rápido, espera y responde UNA vez
 // MEJORADO: Lock de procesamiento para evitar respuestas duplicadas
 // ====================================================
-const BUFFER_WAIT_MS = 3000; // Esperar 3 segundos por más mensajes (optimizado)
+const BUFFER_WAIT_MS = 2000; // Esperar 2 segundos por más mensajes
 
 // 🔑 Tracking de errores de API Key de OpenAI por usuario
 
@@ -433,6 +433,41 @@ const sendCloudText = async (phoneNumberId: string, accessToken: string, to: str
   } catch (e: any) { console.error('❌ Cloud sendText:', e.message); return false; }
 };
 
+// ☁️ Enviar respuesta dividida en párrafos (más natural, simula "escribiendo")
+const sendCloudSplitMessages = async (phoneNumberId: string, accessToken: string, to: string, fullText: string): Promise<boolean> => {
+  // Dividir por doble salto de línea en párrafos
+  const paragraphs = fullText.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
+  
+  // Si es un solo párrafo o muy corto, enviar normal
+  if (paragraphs.length <= 1 || fullText.length < 100) {
+    return sendCloudText(phoneNumberId, accessToken, to, fullText);
+  }
+  
+  // Limitar a máximo 4 mensajes para no spamear
+  const chunks: string[] = [];
+  if (paragraphs.length <= 4) {
+    chunks.push(...paragraphs);
+  } else {
+    // Agrupar párrafos en máximo 4 chunks
+    const perChunk = Math.ceil(paragraphs.length / 4);
+    for (let i = 0; i < paragraphs.length; i += perChunk) {
+      chunks.push(paragraphs.slice(i, i + perChunk).join('\n\n'));
+    }
+  }
+  
+  let allSent = true;
+  for (let i = 0; i < chunks.length; i++) {
+    if (i > 0) {
+      // Delay entre mensajes: 800ms-1.5s basado en longitud
+      const delay = Math.min(Math.max(chunks[i].length * 4, 800), 1500);
+      await new Promise(r => setTimeout(r, delay));
+    }
+    const sent = await sendCloudText(phoneNumberId, accessToken, to, chunks[i]);
+    if (!sent) allSent = false;
+  }
+  return allSent;
+};
+
 const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: string, media: any, caption?: string): Promise<boolean> => {
   try {
     const cleanTo = to.replace(/\D/g, '');
@@ -522,6 +557,13 @@ const getLineInfo = async (lineId: string | null | undefined) => {
 const unifiedSendText = async (sessionName: string, chatId: string, text: string, whatsappLineId?: string | null): Promise<boolean> => {
   const li = await getLineInfo(whatsappLineId);
   if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudText(li.pnid, li.token, chatId.replace(/@.*/g, ''), text);
+  return sendWahaMessage(sessionName, chatId, text);
+};
+
+// 🤖 Para respuestas de IA: divide en párrafos para Cloud API
+const unifiedSendAIResponse = async (sessionName: string, chatId: string, text: string, whatsappLineId?: string | null): Promise<boolean> => {
+  const li = await getLineInfo(whatsappLineId);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudSplitMessages(li.pnid, li.token, chatId.replace(/@.*/g, ''), text);
   return sendWahaMessage(sessionName, chatId, text);
 };
 
@@ -2325,7 +2367,7 @@ const executeLineTransfer = async (
 
 // ====================================================
 // 🔥 PROCESAR MENSAJES AGRUPADOS
-// Se ejecuta después de 3 seg sin nuevos mensajes
+// Se ejecuta después de 2 seg sin nuevos mensajes
 // Combina todas las líneas y genera UNA respuesta
 // ====================================================
 const processBufferedMessages = async (bufferKey: string) => {
@@ -2356,6 +2398,10 @@ const processBufferedMessages = async (bufferKey: string) => {
 
   log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
 
+  // ☁️ Detectar si es Cloud API (skip typing/presence que no funciona)
+  const lineInfo = await getLineInfo(whatsappLineId);
+  const isCloudAPI = lineInfo?.type === 'cloud_api';
+
   try {
     // 🔗 Buscar asistente específico de la línea primero
     let assistant = null;
@@ -2370,11 +2416,13 @@ const processBufferedMessages = async (bufferKey: string) => {
     const mediaItems = (assistant?.mediaItems as any[]) || [];
     const matchedMedia = findMediaTrigger(combinedMessage, mediaItems);
 
-    // ⌨️🎙️ Typing/Recording (refrescar porque ya pasaron 5 seg)
-    if (isVoiceMode) {
-      await setPresence(sessionName, from, 'recording');
-    } else {
-      await setPresence(sessionName, from, 'typing');
+    // ⌨️🎙️ Typing/Recording (solo WAHA — Cloud API no soporta)
+    if (!isCloudAPI) {
+      if (isVoiceMode) {
+        await setPresence(sessionName, from, 'recording');
+      } else {
+        await setPresence(sessionName, from, 'typing');
+      }
     }
 
     if (matchedMedia) {
@@ -2413,11 +2461,15 @@ const processBufferedMessages = async (bufferKey: string) => {
 
       // ═══ PASO 2: GENERAR Y ENVIAR TEXTO IA (después de la media) ═══
       if (mediaSent) {
-        await new Promise(r => setTimeout(r, 600 + Math.random() * 600)); // Pausa rápida 0.6-1.2s
-        await setPresence(sessionName, from, 'typing');
+        if (!isCloudAPI) {
+          await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
+          await setPresence(sessionName, from, 'typing');
+        } else {
+          await new Promise(r => setTimeout(r, 300)); // Pausa mínima Cloud API
+        }
       }
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
-      await stopPresence(sessionName, from);
+      if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
         // 🔄 Check for transfer in media+AI path
@@ -2430,8 +2482,8 @@ const processBufferedMessages = async (bufferKey: string) => {
           .replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
         
         if (cleanAiResponse) {
-          await humanDelay(cleanAiResponse.length);
-          await unifiedSendText(sessionName, from, cleanAiResponse, whatsappLineId);
+          if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
+          await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
           await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
         }
 
@@ -2449,7 +2501,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     } else {
       // 🤖 Respuesta IA con mensaje combinado
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
-      await stopPresence(sessionName, from);
+      if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
         // 🔊 CHECK: ¿Responder con voz?
@@ -2477,8 +2529,8 @@ const processBufferedMessages = async (bufferKey: string) => {
 
           // Send farewell message from current line
           if (farewellMessage) {
-            await humanDelay(farewellMessage.length);
-            const sent = await unifiedSendText(sessionName, from, farewellMessage, whatsappLineId);
+            if (!isCloudAPI) await humanDelay(farewellMessage.length);
+            const sent = await unifiedSendAIResponse(sessionName, from, farewellMessage, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: farewellMessage, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: farewellMessage } });
@@ -2532,12 +2584,16 @@ const processBufferedMessages = async (bufferKey: string) => {
           }
 
           // PASO 2: Pausa natural + enviar texto IA DESPUÉS de la media
-          await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
-          await setPresence(sessionName, from, 'typing');
-          await humanDelay(cleanResponse.length);
-          await stopPresence(sessionName, from);
+          if (!isCloudAPI) {
+            await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
+            await setPresence(sessionName, from, 'typing');
+            await humanDelay(cleanResponse.length);
+            await stopPresence(sessionName, from);
+          } else {
+            await new Promise(r => setTimeout(r, 300));
+          }
 
-          const sent = await unifiedSendText(sessionName, from, cleanResponse, whatsappLineId);
+          const sent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
           if (sent) {
             await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
             await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
@@ -2549,11 +2605,11 @@ const processBufferedMessages = async (bufferKey: string) => {
 
         } else {
           // ═══ FLUJO NORMAL SIN TRIGGER: Solo texto ═══
-          await humanDelay(cleanResponse.length);
+          if (!isCloudAPI) await humanDelay(cleanResponse.length);
         
           if (shouldVoice && assistant?.elevenLabsKey && assistant?.selectedVoice) {
             // 🔊 MODO VOZ: Enviar texto + audio
-            const sent = await unifiedSendText(sessionName, from, cleanResponse, whatsappLineId);
+            const sent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
@@ -2571,8 +2627,8 @@ const processBufferedMessages = async (bufferKey: string) => {
               console.error('⚠️ Error TTS (no crítico):', voiceErr.message);
             }
           } else {
-            // 📝 MODO TEXTO: Normal
-            const sent = await unifiedSendText(sessionName, from, cleanResponse, whatsappLineId);
+            // 📝 MODO TEXTO: Normal (Cloud API usa mensajes divididos por párrafo)
+            const sent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });

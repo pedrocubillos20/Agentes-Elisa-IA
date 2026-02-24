@@ -14,7 +14,7 @@ import Paywall from '../components/Paywall';
 import LiveChat from '../components/LiveChat';
 import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
 import InstallApp from '../components/InstallApp';
-import { NotificationProvider } from '../components/NotificationSounds';
+import { NotificationProvider, NotificationBellBadge } from '../components/NotificationSounds';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573213815105';
@@ -460,7 +460,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </button>
                   <button className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
                     <Bell className="w-5 h-5" />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[var(--accent-primary)] rounded-full animate-pulse" />
+                    <NotificationBellBadge />
                   </button>
                   <div className="lg:hidden flex items-center gap-2">
                     <img src="/bizonne.png" alt="Bizonne" className="w-9 h-9 rounded-lg" />

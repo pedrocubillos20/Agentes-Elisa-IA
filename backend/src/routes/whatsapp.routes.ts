@@ -4910,21 +4910,36 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
     res.status(200).json({ success: true }); // Respond fast to Meta
     
     const body = req.body;
-    console.log(`☁️ [CLOUD WEBHOOK] Recibido:`, JSON.stringify(body).substring(0, 500));
-    
-    if (!body?.entry?.[0]?.changes?.[0]?.value) { console.log(`☁️ [CLOUD] Sin entry/changes/value — ignorando`); return; }
+    if (!body?.entry?.[0]?.changes?.[0]?.value) return;
     const value = body.entry[0].changes[0].value;
     const phoneNumberId = value.metadata?.phone_number_id;
-    if (!phoneNumberId) { console.log(`☁️ [CLOUD] Sin phone_number_id en metadata`); return; }
+    if (!phoneNumberId) return;
     
-    console.log(`☁️ [CLOUD] Phone Number ID: ${phoneNumberId} | Mensajes: ${value.messages?.length || 0} | Statuses: ${value.statuses?.length || 0}`);
+    const msgCount = value.messages?.length || 0;
+    const statusCount = value.statuses?.length || 0;
+    
+    // Solo loggear cuando hay mensajes (no status de lectura)
+    if (msgCount > 0) {
+      console.log(`☁️ [CLOUD] Phone: ${phoneNumberId} | Mensajes: ${msgCount}`);
+    }
+    // Status de error sí se loggean
+    const failedStatuses = (value.statuses || []).filter((s: any) => s.status === 'failed');
+    if (failedStatuses.length > 0) {
+      console.log(`☁️ [CLOUD] ⚠️ ${failedStatuses.length} status(es) fallidos`);
+    }
+    
+    // Si solo son statuses normales (delivered/read), procesar silenciosamente
+    if (msgCount === 0 && failedStatuses.length === 0) {
+      // Solo procesar failed statuses, ignorar read/delivered silenciosamente
+      return;
+    }
     
     const line = await prisma.whatsappLine.findFirst({
       where: { cloudPhoneNumberId: phoneNumberId, connectionType: 'cloud_api' }
     });
-    if (!line) { console.warn(`☁️ [CLOUD] ❌ Línea NO encontrada para phoneNumberId: ${phoneNumberId} — Verifica que coincida con el cloudPhoneNumberId guardado en la DB`); return; }
+    if (!line) { console.warn(`☁️ [CLOUD] ❌ Línea NO encontrada para phoneNumberId: ${phoneNumberId}`); return; }
     
-    console.log(`☁️ [CLOUD] ✅ Línea encontrada: ${line.label} (${line.id}) → userId: ${line.userId}`);
+    if (msgCount > 0) console.log(`☁️ [CLOUD] ✅ Línea: ${line.label} → ${msgCount} mensaje(s)`);
     
     const userId = line.userId;
     const whatsappLineId = line.id;

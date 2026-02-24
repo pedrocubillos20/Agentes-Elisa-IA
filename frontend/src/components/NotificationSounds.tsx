@@ -258,22 +258,31 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
         appts.forEach((a: any) => currentSnapshot.set(a.id, a.updatedAt || a.createdAt));
 
         if (firstLoadRef.current) {
-          // Primera carga: guardar snapshot sin notificar
           apptSnapshotRef.current = currentSnapshot;
           firstLoadRef.current = false;
           return;
         }
 
         const prevSnapshot = apptSnapshotRef.current;
+        
+        // Leer IDs ya notificados de localStorage para no repetir
+        let notifiedIds: Set<string>;
+        try {
+          notifiedIds = new Set(JSON.parse(localStorage.getItem('bizonne_notified_appts') || '[]'));
+        } catch { notifiedIds = new Set(); }
+
         const typeMap: Record<string, { emoji: string; newLabel: string; updateLabel: string; type: 'appointment' | 'order' | 'reservation' }> = {
           appointment: { emoji: '📅', newLabel: 'Nueva Cita', updateLabel: 'Cita Actualizada', type: 'appointment' },
           order: { emoji: '🛒', newLabel: 'Nuevo Pedido', updateLabel: 'Pedido Actualizado', type: 'order' },
           reservation: { emoji: '🏨', newLabel: 'Nueva Reserva', updateLabel: 'Reserva Actualizada', type: 'reservation' },
         };
 
+        let didNotify = false;
+
         // Detectar NUEVOS (IDs que no existían antes)
         for (const appt of appts) {
-          if (!prevSnapshot.has(appt.id)) {
+          const notifKey = `new_${appt.id}`;
+          if (!prevSnapshot.has(appt.id) && !notifiedIds.has(notifKey) && !didNotify) {
             const info = typeMap[appt.type] || typeMap.appointment;
             triggerNotification({
               type: info.type,
@@ -281,25 +290,36 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
               subtitle: `${appt.clientName || 'Cliente'} — ${appt.date ? new Date(appt.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''} ${appt.time || ''}`,
               emoji: info.emoji
             });
-            break; // Solo notificar el más reciente para no spamear
+            notifiedIds.add(notifKey);
+            didNotify = true;
+            break;
           }
         }
 
         // Detectar ACTUALIZADOS (mismo ID pero diferente updatedAt)
-        for (const appt of appts) {
-          const prevUpdated = prevSnapshot.get(appt.id);
-          const currentUpdated = appt.updatedAt || appt.createdAt;
-          if (prevUpdated && prevUpdated !== currentUpdated) {
-            const info = typeMap[appt.type] || typeMap.appointment;
-            triggerNotification({
-              type: info.type,
-              title: `🔄 ${info.updateLabel}`,
-              subtitle: `${appt.clientName || 'Cliente'} — ${appt.date ? new Date(appt.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''} ${appt.time || ''}`,
-              emoji: '🔄'
-            });
-            break;
+        if (!didNotify) {
+          for (const appt of appts) {
+            const prevUpdated = prevSnapshot.get(appt.id);
+            const currentUpdated = appt.updatedAt || appt.createdAt;
+            const notifKey = `upd_${appt.id}_${currentUpdated}`;
+            if (prevUpdated && prevUpdated !== currentUpdated && !notifiedIds.has(notifKey)) {
+              const info = typeMap[appt.type] || typeMap.appointment;
+              triggerNotification({
+                type: info.type,
+                title: `🔄 ${info.updateLabel}`,
+                subtitle: `${appt.clientName || 'Cliente'} — ${appt.date ? new Date(appt.date).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' }) : ''} ${appt.time || ''}`,
+                emoji: '🔄'
+              });
+              notifiedIds.add(notifKey);
+              didNotify = true;
+              break;
+            }
           }
         }
+
+        // Guardar IDs notificados (máx 100 para no crecer indefinido)
+        const notifiedArr = Array.from(notifiedIds).slice(-100);
+        try { localStorage.setItem('bizonne_notified_appts', JSON.stringify(notifiedArr)); } catch {}
 
         // Actualizar snapshot
         apptSnapshotRef.current = currentSnapshot;
@@ -307,7 +327,7 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
     };
 
     checkAppointments();
-    const interval = setInterval(checkAppointments, 15000); // Cada 15 seg
+    const interval = setInterval(checkAppointments, 15000);
     return () => clearInterval(interval);
   }, [userId, initialized, triggerNotification]);
 
@@ -491,5 +511,19 @@ export function SoundPicker({ compact = false }: { compact?: boolean }) {
         ))}
       </div>
     </div>
+  );
+}
+
+// =============================
+// 🔔 BELL BADGE (for navbar)
+// =============================
+
+export function NotificationBellBadge() {
+  const { toasts } = useNotifications();
+  if (toasts.length === 0) return null;
+  return (
+    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[var(--accent-primary)] text-white text-[10px] font-bold rounded-full animate-pulse">
+      {toasts.length}
+    </span>
   );
 }

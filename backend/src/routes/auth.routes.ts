@@ -30,7 +30,7 @@ const sendEmail = async (to: string, subject: string, html: string): Promise<boo
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'Bizonne <onboarding@resend.dev>',
+        from: 'Bizonne <no-reply@bizonne.com>',
         to: [to],
         subject,
         html

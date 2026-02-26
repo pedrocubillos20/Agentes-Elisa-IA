@@ -514,4 +514,77 @@ router.put('/:id/group-settings', async (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/conversations/:id — Solo admin y gerente pueden eliminar
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    // Verificar rol: solo admin (dueño) o gerente pueden eliminar
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId }, 
+      select: { id: true, parentUserId: true, role: true } 
+    });
+    if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+
+    const isOwner = !user.parentUserId; // Admin = dueño de la cuenta
+    const isManager = user.role === 'manager';
+
+    if (!isOwner && !isManager) {
+      res.status(403).json({ error: 'Solo administradores y gerentes pueden eliminar conversaciones.' });
+      return;
+    }
+
+    const ownerId = user.parentUserId || user.id;
+    const { id } = req.params;
+
+    // Verificar que la conversación pertenece al workspace
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, userId: ownerId }
+    });
+
+    if (!conversation) {
+      res.status(404).json({ error: 'Conversación no encontrada' });
+      return;
+    }
+
+    // Eliminar (messages se eliminan en cascada por la relación onDelete: Cascade)
+    await prisma.conversation.delete({ where: { id } });
+
+    console.log(`🗑️ Conversación "${conversation.recipientName || conversation.recipientId}" eliminada por ${isOwner ? 'admin' : 'gerente'} (${userId})`);
+    res.json({ success: true, message: 'Conversación eliminada correctamente' });
+  } catch (e: any) {
+    console.error('Error eliminando conversación:', e.message);
+    res.status(500).json({ error: 'Error al eliminar conversación' });
+  }
+});
+
+// GET /api/conversations/export-contacts — Exportar contactos de conversaciones
+router.get('/export-contacts', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const { lineId } = req.query;
+    const where: any = { userId: ownerId };
+    if (lineId) where.whatsappLineId = lineId as string;
+
+    const convs = await prisma.conversation.findMany({ where, orderBy: { updatedAt: 'desc' } });
+    const exportData = convs.map(c => {
+      const ctx = (c as any).contextData || {};
+      return {
+        nombre: c.recipientName || ctx.nombre || '',
+        telefono: c.recipientId?.replace('@c.us', '').replace('@s.whatsapp.net', '') || '',
+        etapa: c.stage || '',
+        ultimo_mensaje: c.lastMessage?.slice(0, 100) || '',
+        fecha: c.updatedAt?.toISOString().split('T')[0] || ''
+      };
+    });
+    res.json({ data: exportData, count: exportData.length });
+  } catch (error) {
+    console.error('Error export contacts:', error);
+    res.status(500).json({ error: 'Error al exportar' });
+  }
+});
+
 export default router;

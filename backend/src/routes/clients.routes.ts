@@ -47,6 +47,97 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/clients/export — Exportar clientes como JSON (frontend lo convierte a Excel)
+router.get('/export', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const { lineId } = req.query;
+    const where: any = { userId: ownerId };
+    if (lineId) where.whatsappLineId = lineId as string;
+
+    const clients = await prisma.client.findMany({ where, orderBy: { createdAt: 'desc' } });
+    const exportData = clients.map(c => ({
+      nombre: c.name || '',
+      telefono: c.phone || '',
+      email: c.email || '',
+      direccion: c.address || '',
+      notas: c.notes || '',
+      tags: (c.tags || []).join(', '),
+      estado: c.status || '',
+      total_compras: c.totalPurchases || 0,
+      fecha_registro: c.createdAt?.toISOString().split('T')[0] || ''
+    }));
+    res.json({ data: exportData, count: exportData.length });
+  } catch (error) {
+    console.error('Error export:', error);
+    res.status(500).json({ error: 'Error al exportar' });
+  }
+});
+
+// POST /api/clients/import — Importar clientes desde JSON [{nombre, telefono, email?}]
+router.post('/import', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    
+    // Verificar rol (admin o manager)
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true, role: true } });
+    const isAdminOrManager = !user?.parentUserId || user?.role === 'manager';
+    if (!isAdminOrManager) { res.status(403).json({ error: 'Solo admin y gerente pueden importar' }); return; }
+
+    const { contacts, lineId } = req.body;
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      res.status(400).json({ error: 'Se requiere array de contactos' }); return;
+    }
+
+    let imported = 0, skipped = 0, errors = 0;
+    for (const c of contacts) {
+      try {
+        const name = (c.nombre || c.name || c.Nombre || c.Name || '').trim();
+        const phone = (c.telefono || c.phone || c.Telefono || c.Phone || c.celular || c.Celular || '').toString().trim().replace(/[^0-9+]/g, '');
+        const email = (c.email || c.Email || c.correo || c.Correo || '').trim();
+        
+        if (!phone) { skipped++; continue; }
+        
+        // Check duplicado
+        const exists = await prisma.client.findFirst({
+          where: { userId: ownerId, phone: { endsWith: phone.slice(-10) } }
+        });
+        
+        if (exists) {
+          // Actualizar nombre si estaba vacío
+          if (!exists.name && name) {
+            await prisma.client.update({ where: { id: exists.id }, data: { name } });
+          }
+          skipped++;
+          continue;
+        }
+        
+        await prisma.client.create({
+          data: {
+            userId: ownerId,
+            name: name || `Contacto ${phone.slice(-4)}`,
+            phone,
+            email: email || null,
+            status: 'lead',
+            tags: ['importado'],
+            whatsappLineId: lineId || null
+          }
+        });
+        imported++;
+      } catch (e) { errors++; }
+    }
+    
+    res.json({ imported, skipped, errors, total: contacts.length });
+  } catch (error) {
+    console.error('Error import:', error);
+    res.status(500).json({ error: 'Error al importar' });
+  }
+});
+
 // GET /api/clients/stats
 router.get('/stats', async (req: Request, res: Response) => {
   try {

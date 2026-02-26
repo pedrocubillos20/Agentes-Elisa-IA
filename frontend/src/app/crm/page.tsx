@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
   Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText,
-  Flame, TrendingUp, Target, Star, ArrowUpRight, Filter
+  Flame, TrendingUp, Target, Star, ArrowUpRight, Filter, Download, Upload
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -351,6 +351,71 @@ export default function CRMPage() {
     } catch (e) { console.error(e); }
   };
 
+  // 📤 Exportar contactos a CSV
+  const exportClients = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const lineId = selectedLine?.id || '';
+      const res = await fetch(`${API_URL}/api/clients/export?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const { data } = await res.json();
+      if (!data?.length) { alert('No hay clientes para exportar'); return; }
+      const headers = Object.keys(data[0]);
+      const csv = [headers.join(','), ...data.map((r: any) => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','))].join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `clientes_${new Date().toISOString().split('T')[0]}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert('Error al exportar'); }
+  };
+
+  // 📥 Importar contactos desde CSV/Excel
+  const importClients = async (file: File) => {
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) { alert('Archivo vacío o sin datos'); return; }
+      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+      const contacts = lines.slice(1).map(line => {
+        const values = line.match(/(?:\"[^\"]*\"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
+        const obj: any = {};
+        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
+        return obj;
+      }).filter(c => c.telefono || c.phone || c.celular);
+      
+      if (contacts.length === 0) { alert('No se encontraron contactos válidos. El archivo debe tener columnas: nombre, telefono'); return; }
+      
+      const token = localStorage.getItem('token');
+      const lineId = selectedLine?.id || '';
+      const res = await fetch(`${API_URL}/api/clients/import`, { 
+        method: 'POST', 
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts, lineId })
+      });
+      const result = await res.json();
+      if (res.ok) {
+        alert(`✅ Importación completa:\n• ${result.imported} nuevos\n• ${result.skipped} duplicados\n• ${result.errors} errores`);
+        fetchData();
+      } else { alert(result.error || 'Error al importar'); }
+    } catch { alert('Error al leer archivo'); }
+  };
+
+  // 💬 Enviar mensaje directo a cliente
+  const sendMessageToClient = async (phone: string, name: string) => {
+    const message = prompt(`Enviar mensaje a ${name}:`);
+    if (!message) return;
+    try {
+      const token = localStorage.getItem('token');
+      const lineId = selectedLine?.id || '';
+      const res = await fetch(`${API_URL}/api/whatsapp/send`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: phone, message, lineId })
+      });
+      if (res.ok) alert(`✅ Mensaje enviado a ${name}`);
+      else alert('❌ Error al enviar mensaje');
+    } catch { alert('Error de conexión'); }
+  };
+
   const handleDelete = async (type: 'client' | 'product', id: string) => {
     if (!confirm('¿Eliminar?')) return;
     const token = localStorage.getItem('token');
@@ -683,40 +748,57 @@ export default function CRMPage() {
 
       {/* CLIENTES */}
       {activeTab === 'clients' && (
-        <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm))
-              .map((client) => (
-                <div key={client.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
-                        <span className="text-sm font-semibold text-cyan-400">{client.name?.[0] || '?'}</span>
-                      </div>
-                      <div>
-                        <p className="font-medium text-white">{client.name}</p>
-                        <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Phone className="w-3 h-3" />{client.phone}</p>
-                        {client.email && <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Mail className="w-3 h-3" />{client.email}</p>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => { setEditingItem(client); setClientForm({ ...client, tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /></button>
-                      <button onClick={() => handleDelete('client', client.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
-                    </div>
-                  </div>
-                  {client.totalPurchases > 0 && (
-                    <p className="mt-2 text-xs text-emerald-400">💰 ${client.totalPurchases.toLocaleString()}</p>
-                  )}
-                </div>
-              ))}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Import/Export toolbar */}
+          <div className="flex items-center gap-2 mb-3 flex-shrink-0 flex-wrap">
+            <button onClick={exportClients} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
+              <Download className="w-3.5 h-3.5" /> Exportar CSV
+            </button>
+            <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all cursor-pointer">
+              <Upload className="w-3.5 h-3.5" /> Importar CSV
+              <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importClients(e.target.files[0]); e.target.value = ''; }} />
+            </label>
+            <span className="text-[10px] text-[var(--text-muted)]">{clients.length} clientes</span>
           </div>
-          {clients.length === 0 && (
-            <div className="text-center py-12 text-[var(--text-muted)]">
-              <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>No hay clientes</p>
-              <button onClick={() => setShowClientModal(true)} className="btn-primary mt-4"><Plus className="w-4 h-4" /> Agregar</button>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm))
+                .map((client) => (
+                  <div key={client.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                          <span className="text-sm font-semibold text-cyan-400">{client.name?.[0] || '?'}</span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">{client.name}</p>
+                          <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Phone className="w-3 h-3" />{client.phone}</p>
+                          {client.email && <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Mail className="w-3 h-3" />{client.email}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => sendMessageToClient(client.phone, client.name)} className="p-1.5 hover:bg-emerald-500/10 rounded-lg" title="Enviar mensaje">
+                          <Send className="w-3.5 h-3.5 text-emerald-400" />
+                        </button>
+                        <button onClick={() => { setEditingItem(client); setClientForm({ ...client, tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /></button>
+                        <button onClick={() => handleDelete('client', client.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
+                      </div>
+                    </div>
+                    {client.totalPurchases > 0 && (
+                      <p className="mt-2 text-xs text-emerald-400">💰 ${client.totalPurchases.toLocaleString()}</p>
+                    )}
+                  </div>
+                ))}
             </div>
-          )}
+            {clients.length === 0 && (
+              <div className="text-center py-12 text-[var(--text-muted)]">
+                <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No hay clientes</p>
+                <button onClick={() => setShowClientModal(true)} className="btn-primary mt-4"><Plus className="w-4 h-4" /> Agregar</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

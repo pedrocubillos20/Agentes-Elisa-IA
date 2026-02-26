@@ -1435,18 +1435,21 @@ REGLAS DE TRANSFERENCIA:
             }
             
             // 📅 FALLBACK: Detectar citas confirmadas en la respuesta de la IA
-            if (savedContext.cita !== 'creada') {
+            if (savedContext.cita !== 'creada' && savedContext.pedido !== 'creado') {
+              // ⚠️ No crear cita si es contexto de PEDIDO (tiene producto, talla, color, etc.)
+              const isOrderContext = !!(savedContext.producto_servicio || savedContext.tipo || savedContext.talla || savedContext.color || savedContext.total || savedContext.direccion);
+              
               const confirmPatterns = [
-                /(?:agendamos|queda agendad|confirmad|perfecto.*(?:mañana|lunes|martes|miércoles|jueves|viernes|sábado|domingo))/i,
+                /(?:agendamos|queda agendad).*(?:cita|reunión|demo|consulta|asesoría)/i,
                 /(?:reunión|demostración|cita|demo).*(?:para|el|mañana|a las)/i,
                 /(?:nos vemos|te espero|te esperamos).*(?:mañana|lunes|martes|miércoles|jueves|viernes|sábado|domingo)/i,
-                /(?:a las\s+\d{1,2}[:\s]*\d{0,2}\s*(?:am|pm|a\.m|p\.m)?)/i
+                /(?:cita|reunión|demo).*(?:a las\s+\d{1,2}[:\s]*\d{0,2}\s*(?:am|pm|a\.m|p\.m)?)/i
               ];
               
               const replyHasConfirm = confirmPatterns.some(p => p.test(replyLower));
               const clientConfirmed = lastMsgLower.includes('sí') || lastMsgLower.includes('si') || lastMsgLower.includes('ok') || lastMsgLower.includes('claro') || lastMsgLower.includes('dale') || lastMsgLower.includes('perfecto') || lastMsgLower.includes('listo');
               
-              if (replyHasConfirm && clientConfirmed) {
+              if (replyHasConfirm && clientConfirmed && !isOrderContext) {
                 try {
                   // Extraer hora de la conversación
                   const horaMatch = (fullConversation + ' ' + reply).match(/(?:a las|las)\s+(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
@@ -1578,7 +1581,18 @@ REGLAS DE TRANSFERENCIA:
               log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
               
               // 🛒 CREAR PEDIDO AUTOMÁTICO CON FECHA DE ENTREGA
+              // ✅ VALIDACIÓN: Solo crear pedido cuando el cliente envió datos COMPLETOS
+              const hasName = !!(merged.nombre);
+              const hasPhone = !!(merged.telefono || merged.celular);
+              const hasAddress = !!(merged.direccion || merged.ciudad || merged.barrio);
+              const hasProduct = !!(merged.producto_servicio || merged.tipo || merged.color || merged.talla);
+              const dataComplete = hasName && hasAddress && hasProduct;
+              
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
+                if (!dataComplete) {
+                  log(`⏳ Pedido pendiente - Faltan datos: ${!hasName ? 'nombre ' : ''}${!hasAddress ? 'dirección/ciudad ' : ''}${!hasProduct ? 'producto ' : ''}`);
+                  // No crear el pedido aún, esperar a que el cliente complete datos
+                } else {
                 try {
                   // Parsear fecha de entrega si existe
                   let deliveryDate = new Date();
@@ -1687,6 +1701,59 @@ REGLAS DE TRANSFERENCIA:
                   }
                 } catch (orderErr: any) {
                   console.error('❌ Error creando pedido:', orderErr.message);
+                }
+                } // close else (dataComplete)
+              }
+              
+              // 🔔 AUTO-DETECTAR: Si no hubo acción crear_pedido pero los datos están completos, crear pedido
+              if (actionToTake !== 'crear_pedido' && merged.pedido !== 'creado' && dataComplete) {
+                // Verificar si la IA confirmó/resumió el pedido en su respuesta
+                const orderConfirmPatterns = [
+                  /(?:he registrado|pedido registrado|confirmar.*pedido|proceder|resumen final|información.*registrada)/i,
+                  /(?:gracias por los datos|datos.*completos|todo listo|pedido.*confirmado)/i,
+                  /(?:procederé|vamos a.*confirmar|queda.*registrad)/i
+                ];
+                const aiConfirmedOrder = orderConfirmPatterns.some(p => p.test(reply));
+                
+                if (aiConfirmedOrder) {
+                  try {
+                    let deliveryDate = new Date();
+                    if (merged.fecha_entrega) {
+                      const fechaStr = merged.fecha_entrega.toLowerCase();
+                      const hoy = new Date();
+                      if (fechaStr.includes('mañana') || fechaStr.includes('manana')) {
+                        deliveryDate = new Date(hoy); deliveryDate.setDate(deliveryDate.getDate() + 1);
+                      } else if (fechaStr.includes('pasado')) {
+                        deliveryDate = new Date(hoy); deliveryDate.setDate(deliveryDate.getDate() + 2);
+                      } else {
+                        const parsed = new Date(merged.fecha_entrega);
+                        if (!isNaN(parsed.getTime())) deliveryDate = parsed;
+                      }
+                    }
+                    
+                    let productoDesc = merged.producto_servicio || '';
+                    if (!productoDesc) {
+                      const legacyParts = [merged.tipo, merged.color, merged.talla, merged.calidad].filter(Boolean);
+                      if (legacyParts.length > 0) productoDesc = legacyParts.join(' - ');
+                    }
+                    
+                    const orderData = {
+                      userId: ownerId, type: 'order',
+                      clientName: merged.nombre || clientName || 'Cliente WhatsApp',
+                      clientPhone: clientPhone.replace('@c.us', ''),
+                      date: deliveryDate, time: '14:00', duration: 300, status: 'pending',
+                      notes: `📦 PEDIDO WHATSAPP (Auto-detectado)\n━━━━━━━━━━━━━━━\n🛍️ Producto: ${productoDesc || 'N/A'}\n💵 Total: $${merged.total || '0'}\n💳 Pago: ${merged.metodo_pago || 'Por definir'}\n━━━━━━━━━━━━━━━\n📍 ${[merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ')}\n📞 ${merged.telefono || merged.celular || clientPhone.replace('@c.us', '')}\n━━━━━━━━━━━━━━━`,
+                      total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+                      address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',
+                      whatsappLineId: whatsappLineId || null
+                    };
+                    await prisma.appointment.create({ data: orderData });
+                    merged.pedido = 'creado';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`🛒🔔 Pedido AUTO-DETECTADO (datos completos + confirmación IA): ${merged.nombre}`);
+                  } catch (autoOrderErr: any) {
+                    console.error('⚠️ Error auto-pedido:', autoOrderErr.message);
+                  }
                 }
               }
               
@@ -2760,12 +2827,23 @@ const processBufferedMessages = async (bufferKey: string) => {
               if (imgSent) sentCount++;
               if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
             }
-            await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${responseMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
+            // Save each catalog image as message so they show in conversation
+            for (let j = 0; j < responseMedia.images.length; j++) {
+              const img = responseMedia.images[j];
+              if (img.url) {
+                await prisma.message.create({ data: { 
+                  conversationId: convId, 
+                  content: j === 0 ? `📂 ${responseMedia.name} (${sentCount} fotos)` : `📷 ${img.name || `Foto ${j+1}`}`, 
+                  fromMe: true, userId, role: 'assistant', 
+                  mediaType: 'image', mediaUrl: img.url 
+                } });
+              }
+            }
             log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
           } else {
             const sent = await unifiedSendMedia(sessionName, from, responseMedia, responseMedia.caption || '', whatsappLineId);
             if (sent) {
-              await prisma.message.create({ data: { conversationId: convId, content: `📎 [${responseMedia.type}: ${responseMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: responseMedia.type } });
+              await prisma.message.create({ data: { conversationId: convId, content: `📎 [${responseMedia.type}: ${responseMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: responseMedia.type, mediaUrl: responseMedia.url || null } });
               log(`📎 Media enviada por trigger de respuesta: ${responseMedia.name}`);
             }
           }

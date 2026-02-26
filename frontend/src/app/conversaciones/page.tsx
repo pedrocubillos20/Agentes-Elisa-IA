@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Search, Send, X, Trash2,
-  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap
+  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap,
+  Download, Upload
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -435,6 +436,50 @@ export default function ConversacionesPage() {
   // ====================================================
   // 📢 ENVÍO MASIVO — Usa /send-bulk con delays en backend + media
   // ====================================================
+  // 📤 Exportar contactos de conversaciones
+  const exportContacts = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const lineId = getLineId();
+      const res = await fetch(`${API_URL}/api/conversations/export-contacts?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const { data } = await res.json();
+      if (!data?.length) { alert('No hay contactos para exportar'); return; }
+      const headers = Object.keys(data[0]);
+      const csv = [headers.join(','), ...data.map((r: any) => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','))].join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `contactos_whatsapp_${new Date().toISOString().split('T')[0]}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert('Error al exportar'); }
+  };
+
+  // 📥 Importar contactos desde CSV al CRM
+  const importContacts = async (file: File) => {
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) { alert('Archivo vacío'); return; }
+      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+      const contacts = lines.slice(1).map(line => {
+        const values = line.match(/(?:\"[^\"]*\"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
+        const obj: any = {};
+        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
+        return obj;
+      }).filter(c => c.telefono || c.phone || c.celular);
+      if (contacts.length === 0) { alert('No se encontraron contactos. Columnas requeridas: nombre, telefono'); return; }
+      const token = localStorage.getItem('token');
+      const lineId = getLineId();
+      const res = await fetch(`${API_URL}/api/clients/import`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts, lineId })
+      });
+      const result = await res.json();
+      if (res.ok) alert(`✅ Importados: ${result.imported} nuevos, ${result.skipped} duplicados`);
+      else alert(result.error || 'Error');
+    } catch { alert('Error al leer archivo'); }
+  };
+
   const sendMassMessage = async () => {
     if ((!massText.trim() && !massMediaFile) || filterStage === 'all') return;
     setSendingMass(true);
@@ -600,6 +645,13 @@ export default function ConversacionesPage() {
           <button onClick={() => setShowMassMessage(true)} disabled={filterStage === 'all'} className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50" title={filterStage === 'all' ? 'Selecciona una etapa primero' : 'Mensaje masivo'}>
             <Megaphone className="w-4 h-4" />
           </button>
+          <button onClick={exportContacts} className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos CSV">
+            <Download className="w-4 h-4" />
+          </button>
+          <label className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">
+            <Upload className="w-4 h-4" />
+            <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importContacts(e.target.files[0]); e.target.value = ''; }} />
+          </label>
         </div>
       </div>
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Users, Plus, Shield, Trash2, Edit3, X, Eye, EyeOff,
+  Users, Plus, Shield, Edit3, X, Eye, EyeOff,
   CheckCircle, AlertCircle, UserPlus, Crown, Briefcase, Headphones,
   MessageSquare, BarChart3, Calendar, Bot, Smartphone, Settings, Package, Loader2, Phone
 } from 'lucide-react';
@@ -10,11 +10,13 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 const ROLES = [
-  { id: 'manager', label: 'Gerente', icon: Crown, color: '#a855f7', desc: 'Acceso completo' },
+  { id: 'manager', label: 'Gerente', icon: Crown, color: '#a855f7', desc: 'Acceso completo, crea y edita equipo' },
   { id: 'agent', label: 'Vendedor', icon: Briefcase, color: '#3b82f6', desc: 'Ventas, CRM, Agenda' },
-  { id: 'support', label: 'Soporte', icon: Headphones, color: '#10b981', desc: 'Conversaciones y CRM' },
-  { id: 'viewer', label: 'Observador', icon: Eye, color: '#6b7280', desc: 'Solo dashboard' }
+  { id: 'support', label: 'Soporte', icon: Headphones, color: '#10b981', desc: 'Atención al cliente' },
+  { id: 'viewer', label: 'Observador', icon: Eye, color: '#6b7280', desc: 'Solo lectura' }
 ];
+
+const MAX_TEAM_MEMBERS = 5;
 
 const PERMS = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
@@ -106,6 +108,7 @@ export default function EquipoPage() {
   const handleCreate = async () => {
     if (!form.email || !form.password) { setMessage({ type: 'error', text: 'Email y contraseña son requeridos' }); return; }
     if (form.password.length < 6) { setMessage({ type: 'error', text: 'La contraseña debe tener al menos 6 caracteres' }); return; }
+    if (members.length >= MAX_TEAM_MEMBERS) { setMessage({ type: 'error', text: `Máximo ${MAX_TEAM_MEMBERS} miembros en el equipo` }); return; }
     setSaving(true);
     const token = localStorage.getItem('token');
     try {
@@ -239,9 +242,12 @@ export default function EquipoPage() {
             <p className="text-[var(--text-muted)]">Gestiona sub-usuarios, roles y permisos</p>
           </div>
         </div>
-        <button onClick={() => setShowCreate(true)} className="btn-primary">
-          <Plus className="w-4 h-4" /> Agregar Miembro
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setShowCreate(true)} disabled={members.length >= MAX_TEAM_MEMBERS} className="btn-primary disabled:opacity-40">
+            <Plus className="w-4 h-4" /> Agregar Miembro
+          </button>
+          <span className="text-xs text-[var(--text-muted)]">{members.length}/{MAX_TEAM_MEMBERS}</span>
+        </div>
       </div>
 
       {/* Mensaje */}
@@ -435,9 +441,6 @@ export default function EquipoPage() {
                     <button onClick={() => handleToggleActive(member)} className="p-2 rounded-lg transition-all" style={{ color: member.isActive ? '#10b981' : '#ef4444' }}>
                       {member.isActive ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
                     </button>
-                    <button onClick={() => handleDelete(member)} className="p-2 rounded-lg text-red-400 hover:bg-red-500/20 transition-all">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
 
@@ -529,16 +532,35 @@ export default function EquipoPage() {
       {/* Info Card */}
       <div className="card" style={{ background: 'rgba(59, 130, 246, 0.05)', borderColor: 'rgba(59, 130, 246, 0.2)' }}>
         <h4 className="font-semibold mb-3 flex items-center gap-2" style={{ color: '#3b82f6' }}>
-          <Shield className="w-4 h-4" />Cómo funciona
+          <Shield className="w-4 h-4" />Jerarquía y Permisos
         </h4>
-        <div className="text-sm text-[var(--text-muted)] space-y-2">
-          <p>• <strong className="text-white">Vendedor:</strong> Ve conversaciones, CRM, agenda y productos. Ideal para equipo de ventas.</p>
-          <p>• <strong className="text-white">Soporte:</strong> Solo conversaciones y CRM. Para atención al cliente.</p>
-          <p>• <strong className="text-white">Gerente:</strong> Acceso completo. Para jefes de área.</p>
-          <p>• <strong className="text-white">Líneas:</strong> Asigna qué líneas de WhatsApp puede ver cada miembro.</p>
-          <p>• <strong className="text-white">Asignar chats:</strong> Desde Conversaciones puedes asignar cada chat a un miembro.</p>
-          <p>• Cada sub-usuario inicia sesión con su email y contraseña propios.</p>
-          <p>• <strong className="text-white">&quot;..&quot;</strong> pausa la IA (hablar con humano) • <strong className="text-white">&quot;.&quot;</strong> reactiva la IA.</p>
+        <div className="text-sm text-[var(--text-muted)] space-y-3">
+          <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+            <p className="text-xs font-semibold text-purple-400 mb-1">👑 Administrador (Dueño)</p>
+            <p className="text-xs">Acceso total. Ve todos los números, crea gerentes y equipo.</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+            <p className="text-xs font-semibold text-purple-400 mb-1">👔 Gerente</p>
+            <p className="text-xs">Acceso completo. Puede crear/editar vendedores y soporte. Ve números completos. Transfiere chats a vendedor o soporte.</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+            <p className="text-xs font-semibold text-blue-400 mb-1">💼 Vendedor</p>
+            <p className="text-xs">Ve conversaciones asignadas, CRM, agenda y productos. <strong className="text-amber-400">No ve los números completos</strong> (primeros 6 dígitos ocultos). Solo puede transferir chats a Soporte.</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+            <p className="text-xs font-semibold text-emerald-400 mb-1">🎧 Soporte</p>
+            <p className="text-xs">Solo conversaciones y CRM. <strong className="text-amber-400">No ve los números completos</strong>. Atiende chats transferidos por vendedores.</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/3 border border-white/5">
+            <p className="text-xs font-semibold text-gray-400 mb-1">👁️ Observador</p>
+            <p className="text-xs">Solo ve el dashboard. Sin acceso a conversaciones ni datos.</p>
+          </div>
+          <div className="border-t border-white/5 pt-3 space-y-1">
+            <p className="text-[10px]">• Máximo <strong className="text-white">{MAX_TEAM_MEMBERS} miembros</strong> en el equipo.</p>
+            <p className="text-[10px]">• <strong className="text-white">Asignar chats:</strong> Desde Conversaciones puedes asignar cada chat a un miembro.</p>
+            <p className="text-[10px]">• Cada sub-usuario inicia sesión con su email y contraseña propios.</p>
+            <p className="text-[10px]">• <strong className="text-white">&quot;..&quot;</strong> pausa la IA (hablar con humano) • <strong className="text-white">&quot;.&quot;</strong> reactiva la IA.</p>
+          </div>
         </div>
       </div>
     </div>

@@ -355,7 +355,7 @@ export default function CRMPage() {
   const exportClients = async () => {
     try {
       const token = localStorage.getItem('token');
-      const lineId = selectedLine?.id || '';
+      const lineId = getLineId();
       const res = await fetch(`${API_URL}/api/clients/export?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const { data } = await res.json();
       if (!data?.length) { alert('No hay clientes para exportar'); return; }
@@ -385,7 +385,7 @@ export default function CRMPage() {
       if (contacts.length === 0) { alert('No se encontraron contactos válidos. El archivo debe tener columnas: nombre, telefono'); return; }
       
       const token = localStorage.getItem('token');
-      const lineId = selectedLine?.id || '';
+      const lineId = getLineId();
       const res = await fetch(`${API_URL}/api/clients/import`, { 
         method: 'POST', 
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -405,7 +405,7 @@ export default function CRMPage() {
     if (!message) return;
     try {
       const token = localStorage.getItem('token');
-      const lineId = selectedLine?.id || '';
+      const lineId = getLineId();
       const res = await fetch(`${API_URL}/api/whatsapp/send`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },

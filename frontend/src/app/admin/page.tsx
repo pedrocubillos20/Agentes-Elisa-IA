@@ -17,7 +17,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'users' | 'payments' | 'discounts'>('users');
+  const [tab, setTab] = useState<'users' | 'payments' | 'discounts' | 'audit'>('users');
   const [search, setSearch] = useState('');
   const [filterPlan, setFilterPlan] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -27,6 +27,10 @@ export default function AdminPage() {
   const [actionLoading, setActionLoading] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [addonLoading, setAddonLoading] = useState('');
+  const [auditData, setAuditData] = useState<any>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<any>(null);
 
   // Discount codes state
   const [discounts, setDiscounts] = useState<any[]>([]);
@@ -297,6 +301,7 @@ export default function AdminPage() {
           { id: 'users' as const, label: 'Usuarios', icon: Users, count: totalUsers },
           { id: 'payments' as const, label: 'Pagos', icon: CreditCard, count: payments.length },
           { id: 'discounts' as const, label: 'Descuentos', icon: Tag, count: discounts.length },
+          { id: 'audit' as const, label: 'Auditoría DB', icon: Shield, count: 0 },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition ${tab === t.id ? 'border-emerald-400 text-emerald-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
@@ -720,6 +725,89 @@ export default function AdminPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== AUDITORÍA DB ===== */}
+      {tab === 'audit' && (
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <button 
+              onClick={async () => {
+                setAuditLoading(true);
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`${API_URL}/api/subscription/admin/audit`, { headers: { 'Authorization': `Bearer ${token}` } });
+                  if (res.ok) setAuditData(await res.json());
+                  else alert('Error al auditar');
+                } catch { alert('Error de conexión'); }
+                setAuditLoading(false);
+              }}
+              disabled={auditLoading}
+              className="px-5 py-2.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-lg font-bold text-sm hover:bg-blue-500/30 disabled:opacity-50"
+            >
+              {auditLoading ? '🔍 Analizando...' : '🔍 Ejecutar Auditoría'}
+            </button>
+            <button 
+              onClick={async () => {
+                if (!confirm('¿Estás seguro de ejecutar la limpieza? Esto eliminará registros huérfanos permanentemente.')) return;
+                setCleanupLoading(true);
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`${API_URL}/api/subscription/admin/cleanup`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                  if (res.ok) { 
+                    const data = await res.json();
+                    setCleanupResult(data); 
+                    setAuditData(null);
+                  } else alert('Error al limpiar');
+                } catch { alert('Error de conexión'); }
+                setCleanupLoading(false);
+              }}
+              disabled={cleanupLoading}
+              className="px-5 py-2.5 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg font-bold text-sm hover:bg-red-500/30 disabled:opacity-50"
+            >
+              {cleanupLoading ? '🧹 Limpiando...' : '🧹 Ejecutar Limpieza'}
+            </button>
+          </div>
+
+          {auditData && (
+            <div className="space-y-3">
+              <div className={`p-4 rounded-xl border ${auditData.status?.includes('✅') ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
+                <h3 className="font-bold text-white text-lg">{auditData.status}</h3>
+                <div className="mt-2 grid grid-cols-4 gap-3 text-sm">
+                  <div><span className="text-gray-500">Usuarios:</span> <span className="text-white font-bold">{auditData.totals?.users}</span></div>
+                  <div><span className="text-gray-500">Líneas:</span> <span className="text-white font-bold">{auditData.totals?.lines}</span></div>
+                  <div><span className="text-gray-500">Conversaciones:</span> <span className="text-white font-bold">{auditData.totals?.conversations}</span></div>
+                  <div><span className="text-gray-500">Media:</span> <span className="text-white font-bold">{auditData.totals?.mediaFiles}</span></div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {Object.entries(auditData.orphans || {}).map(([key, val]: [string, any]) => (
+                  <div key={key} className={`p-3 rounded-xl border ${val.count > 0 ? 'border-red-500/20 bg-red-500/5' : 'border-white/5 bg-white/[0.02]'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{key}</span>
+                      <span className={`text-sm font-bold ${val.count > 0 ? 'text-red-400' : 'text-emerald-400'}`}>{val.count}</span>
+                    </div>
+                    {val.description && <p className="text-[10px] text-gray-600 mt-1">{val.description}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {cleanupResult && (
+            <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5">
+              <h3 className="font-bold text-emerald-400 mb-2">{cleanupResult.message}</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {Object.entries(cleanupResult.cleaned || {}).map(([key, val]: [string, any]) => (
+                  <div key={key} className="text-sm">
+                    <span className="text-gray-400">{key}:</span> <span className={`font-bold ${val > 0 ? 'text-amber-400' : 'text-gray-600'}`}>{val}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

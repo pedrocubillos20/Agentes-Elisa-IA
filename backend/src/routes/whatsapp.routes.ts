@@ -3077,9 +3077,31 @@ router.delete('/lines/:id', async (req: Request, res: Response) => {
       } catch {}
     }
     
+    // ✅ LIMPIEZA EN CASCADA — Eliminar todo lo vinculado a esta línea
+    
+    // 1. Eliminar mensajes programados de esta línea
+    const deletedScheduled = await prisma.scheduledMessage.deleteMany({ where: { whatsappLineId: id, userId: ownerId } });
+    
+    // 2. Eliminar conversaciones y sus mensajes (cascade) de esta línea
+    const deletedConversations = await prisma.conversation.deleteMany({ where: { whatsappLineId: id, userId: ownerId } });
+    
+    // 3. Desvincular asistente de esta línea (no eliminar, podría reasignarse)
+    await prisma.assistant.updateMany({ where: { whatsappLineId: id, userId: ownerId }, data: { whatsappLineId: null, isActive: false } });
+    
+    // 4. Desvincular productos de esta línea
+    await prisma.product.updateMany({ where: { whatsappLineId: id, userId: ownerId }, data: { whatsappLineId: null } });
+    
+    // 5. Desvincular clientes de esta línea
+    await prisma.client.updateMany({ where: { whatsappLineId: id, userId: ownerId }, data: { whatsappLineId: null } });
+    
+    // 6. Desvincular citas de esta línea
+    await prisma.appointment.updateMany({ where: { whatsappLineId: id, userId: ownerId }, data: { whatsappLineId: null } });
+    
+    // 7. Eliminar la línea
     await prisma.whatsappLine.delete({ where: { id } });
-    log(`🗑️ Línea eliminada: ${line.id} (${line.sessionName})`);
-    res.json({ success: true });
+    
+    log(`🗑️ Línea eliminada: ${line.id} (${line.sessionName}) — ${deletedConversations.count} convs, ${deletedScheduled.count} programados limpiados`);
+    res.json({ success: true, cleaned: { conversations: deletedConversations.count, scheduled: deletedScheduled.count } });
   } catch (e: any) {
     console.error('Error eliminando línea:', e.message);
     res.status(500).json({ error: e.message });

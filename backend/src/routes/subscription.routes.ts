@@ -1656,4 +1656,213 @@ router.post('/admin/addon', async (req: Request, res: Response) => {
   }
 });
 
+// ===== ADMIN: AUDITORÍA Y LIMPIEZA DE BASE DE DATOS =====
+
+// GET /api/subscription/admin/audit — Ver datos huérfanos sin eliminar
+router.get('/admin/audit', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const isAdmin = await isSuperAdmin(userId);
+    if (!isAdmin) { res.status(403).json({ error: 'Solo administradores' }); return; }
+
+    // 1. Líneas de WhatsApp existentes
+    const allLines = await prisma.whatsappLine.findMany({ select: { id: true } });
+    const lineIds = new Set(allLines.map(l => l.id));
+
+    // 2. Conversaciones con whatsappLineId apuntando a líneas que ya no existen
+    const allConvs = await prisma.conversation.findMany({ 
+      where: { whatsappLineId: { not: null } }, 
+      select: { id: true, whatsappLineId: true, recipientName: true, userId: true } 
+    });
+    const orphanConvs = allConvs.filter(c => c.whatsappLineId && !lineIds.has(c.whatsappLineId));
+
+    // 3. Mensajes programados con línea inexistente
+    const allScheduled = await prisma.scheduledMessage.findMany({ 
+      where: { whatsappLineId: { not: null } }, 
+      select: { id: true, whatsappLineId: true, targetName: true } 
+    });
+    const orphanScheduled = allScheduled.filter(s => s.whatsappLineId && !lineIds.has(s.whatsappLineId));
+
+    // 4. Asistentes vinculados a líneas inexistentes
+    const allAssistants = await prisma.assistant.findMany({ 
+      where: { whatsappLineId: { not: null } }, 
+      select: { id: true, whatsappLineId: true, name: true } 
+    });
+    const orphanAssistants = allAssistants.filter(a => a.whatsappLineId && !lineIds.has(a.whatsappLineId));
+
+    // 5. Pagos pendientes con más de 24h (nunca se completaron)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const stalePendingPayments = await prisma.payment.count({
+      where: { status: 'pending', createdAt: { lt: oneDayAgo } }
+    });
+
+    // 6. MediaFiles sin usuario (usuario eliminado)
+    const allUsers = await prisma.user.findMany({ select: { id: true } });
+    const userIds = new Set(allUsers.map(u => u.id));
+    const allMedia = await prisma.mediaFile.findMany({ select: { id: true, userId: true, fileName: true, fileSize: true } });
+    const orphanMedia = allMedia.filter(m => !userIds.has(m.userId));
+
+    // 7. Mensajes huérfanos (conversación eliminada)
+    const allConvIds = new Set((await prisma.conversation.findMany({ select: { id: true } })).map(c => c.id));
+    const orphanMessageCount = await prisma.message.count({
+      where: { conversationId: { notIn: Array.from(allConvIds) } }
+    }).catch(() => 0); // Puede fallar si hay muchos
+
+    // 8. Productos con línea inexistente
+    const orphanProducts = await prisma.product.count({
+      where: { whatsappLineId: { not: null, notIn: Array.from(lineIds) } }
+    }).catch(() => 0);
+
+    // 9. Clientes con línea inexistente
+    const orphanClients = await prisma.client.count({
+      where: { whatsappLineId: { not: null, notIn: Array.from(lineIds) } }
+    }).catch(() => 0);
+
+    // 10. WebhookLogs antiguos (>30 días)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const oldWebhookLogs = await prisma.webhookLog.count({
+      where: { createdAt: { lt: thirtyDaysAgo } }
+    }).catch(() => 0);
+
+    const totalOrphans = orphanConvs.length + orphanScheduled.length + orphanAssistants.length 
+      + stalePendingPayments + orphanMedia.length + orphanMessageCount + orphanProducts + orphanClients + oldWebhookLogs;
+
+    res.json({
+      status: totalOrphans === 0 ? '✅ Base de datos limpia' : `⚠️ ${totalOrphans} registros huérfanos encontrados`,
+      orphans: {
+        conversations: { count: orphanConvs.length, items: orphanConvs.slice(0, 10) },
+        scheduledMessages: { count: orphanScheduled.length },
+        assistants: { count: orphanAssistants.length, items: orphanAssistants },
+        stalePendingPayments: { count: stalePendingPayments, description: 'Pagos pendientes >24h' },
+        mediaFiles: { count: orphanMedia.length, totalBytes: orphanMedia.reduce((s, m) => s + m.fileSize, 0) },
+        orphanMessages: { count: orphanMessageCount },
+        productsWithDeletedLine: { count: orphanProducts },
+        clientsWithDeletedLine: { count: orphanClients },
+        oldWebhookLogs: { count: oldWebhookLogs, description: 'Logs >30 días' }
+      },
+      totals: {
+        users: allUsers.length,
+        lines: allLines.length,
+        conversations: allConvs.length,
+        mediaFiles: allMedia.length
+      }
+    });
+  } catch (error: any) {
+    console.error('Error audit:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/subscription/admin/cleanup — Ejecutar limpieza de datos huérfanos
+router.post('/admin/cleanup', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const isAdmin = await isSuperAdmin(userId);
+    if (!isAdmin) { res.status(403).json({ error: 'Solo administradores' }); return; }
+
+    const cleaned: Record<string, number> = {};
+    const allLines = await prisma.whatsappLine.findMany({ select: { id: true } });
+    const lineIds = new Set(allLines.map(l => l.id));
+    const lineIdsArray = Array.from(lineIds);
+
+    // 1. Limpiar conversaciones huérfanas (línea eliminada)
+    if (lineIdsArray.length > 0) {
+      const r1 = await prisma.conversation.deleteMany({ 
+        where: { whatsappLineId: { not: null, notIn: lineIdsArray } } 
+      });
+      cleaned.orphanConversations = r1.count;
+    }
+
+    // 2. Limpiar mensajes programados huérfanos
+    if (lineIdsArray.length > 0) {
+      const r2 = await prisma.scheduledMessage.deleteMany({ 
+        where: { whatsappLineId: { not: null, notIn: lineIdsArray } } 
+      });
+      cleaned.orphanScheduledMessages = r2.count;
+    }
+
+    // 3. Desvincular asistentes de líneas eliminadas
+    if (lineIdsArray.length > 0) {
+      const r3 = await prisma.assistant.updateMany({ 
+        where: { whatsappLineId: { not: null, notIn: lineIdsArray } },
+        data: { whatsappLineId: null, isActive: false }
+      });
+      cleaned.unlinkedAssistants = r3.count;
+    }
+
+    // 4. Desvincular productos de líneas eliminadas
+    if (lineIdsArray.length > 0) {
+      const r4 = await prisma.product.updateMany({ 
+        where: { whatsappLineId: { not: null, notIn: lineIdsArray } },
+        data: { whatsappLineId: null }
+      });
+      cleaned.unlinkedProducts = r4.count;
+    }
+
+    // 5. Desvincular clientes de líneas eliminadas
+    if (lineIdsArray.length > 0) {
+      const r5 = await prisma.client.updateMany({ 
+        where: { whatsappLineId: { not: null, notIn: lineIdsArray } },
+        data: { whatsappLineId: null }
+      });
+      cleaned.unlinkedClients = r5.count;
+    }
+
+    // 6. Eliminar pagos pendientes >24h (nunca se completaron)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const r6 = await prisma.payment.deleteMany({ 
+      where: { status: 'pending', createdAt: { lt: oneDayAgo } } 
+    });
+    cleaned.stalePendingPayments = r6.count;
+
+    // 7. Eliminar MediaFiles de usuarios que ya no existen
+    const allUsers = await prisma.user.findMany({ select: { id: true } });
+    const userIds = new Set(allUsers.map(u => u.id));
+    const orphanMedia = await prisma.mediaFile.findMany({ 
+      where: { userId: { notIn: Array.from(userIds) } } 
+    });
+    if (orphanMedia.length > 0) {
+      await prisma.mediaFile.deleteMany({ where: { id: { in: orphanMedia.map(m => m.id) } } });
+    }
+    cleaned.orphanMediaFiles = orphanMedia.length;
+
+    // 8. Eliminar WebhookLogs >30 días
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const r8 = await prisma.webhookLog.deleteMany({ 
+      where: { createdAt: { lt: thirtyDaysAgo } } 
+    });
+    cleaned.oldWebhookLogs = r8.count;
+
+    // 9. Recalcular storageUsed para cada usuario
+    let storageFixed = 0;
+    for (const user of allUsers) {
+      const mediaSum = await prisma.mediaFile.aggregate({
+        where: { userId: user.id },
+        _sum: { fileSize: true }
+      });
+      const realStorage = mediaSum._sum.fileSize || 0;
+      const currentUser = await prisma.user.findUnique({ where: { id: user.id }, select: { storageUsed: true } });
+      if (currentUser && currentUser.storageUsed !== realStorage) {
+        await prisma.user.update({ where: { id: user.id }, data: { storageUsed: realStorage } });
+        storageFixed++;
+      }
+    }
+    cleaned.storageRecalculated = storageFixed;
+
+    const totalCleaned = Object.values(cleaned).reduce((a, b) => a + b, 0);
+    console.log(`🧹 Limpieza completada: ${totalCleaned} registros procesados`, cleaned);
+    
+    res.json({
+      success: true,
+      message: totalCleaned === 0 ? '✅ Base de datos ya estaba limpia' : `🧹 ${totalCleaned} registros limpiados`,
+      cleaned
+    });
+  } catch (error: any) {
+    console.error('Error cleanup:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

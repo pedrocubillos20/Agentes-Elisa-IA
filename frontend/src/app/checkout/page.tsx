@@ -35,6 +35,7 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [prices, setPrices] = useState<any>(null);
+  const [trm, setTrm] = useState<any>(null);
 
   const planInfo = PLANS[plan] || PLANS.starter;
   const PlanIcon = planInfo.icon;
@@ -48,15 +49,16 @@ export default function CheckoutPage() {
       const res = await fetch(`${API_URL}/api/payments/plans`);
       const data = await res.json();
       setPrices(data.plans);
+      if (data.trm) setTrm(data.trm);
     } catch { console.error('Error fetching prices'); }
   };
 
   const getPrice = () => {
-    if (!prices) return { cop: 0, usd: 0, label: '' };
+    if (!prices) return { cop: 0, usd: 0, label: '', copWithCard: 0 };
     const p = prices.find((x: any) => x.id === plan);
-    if (!p) return { cop: 0, usd: 0, label: '' };
+    if (!p) return { cop: 0, usd: 0, label: '', copWithCard: 0 };
     const pr = p.periods.find((x: any) => x.period === period);
-    return pr || { cop: 0, usd: 0, label: '' };
+    return pr || { cop: 0, usd: 0, label: '', copWithCard: 0 };
   };
 
   const price = getPrice();
@@ -173,6 +175,14 @@ export default function CheckoutPage() {
                   <span className="text-gray-400">Total a pagar</span>
                   <span className="text-lg font-bold text-white">${price.cop?.toLocaleString('es-CO')} COP</span>
                 </div>
+                {price.copWithCard && price.copWithCard !== price.cop && (
+                  <p className="text-[10px] text-gray-600 mt-1 text-right">💳 Con tarjeta: ${price.copWithCard?.toLocaleString('es-CO')} COP (+5%)</p>
+                )}
+                {trm && (
+                  <p className="text-[10px] text-gray-600 mt-2 text-center">
+                    Fuente: {trm.source} - {trm.date} · TRM: 1 USD ≈ ${trm.rate?.toLocaleString('es-CO')} COP
+                  </p>
+                )}
               </div>
             </div>
 

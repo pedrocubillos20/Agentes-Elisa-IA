@@ -553,3 +553,35 @@ model GhlSyncLog {
   @@index([integrationId])
   @@index([userId, createdAt(sort: Desc)])
 }
+
+// ===== COMPRAS / PAGOS WOMPI =====
+model Purchase {
+  id                String    @id @default(cuid())
+  reference         String    @unique              // Referencia única BIZ-xxxx
+  plan              String                         // starter, business
+  period            String                         // monthly, semiannual, annual
+  amountCents       Int                            // Monto en centavos COP
+  currency          String    @default("COP")
+  
+  buyerEmail        String?                        // Email del comprador
+  buyerName         String?
+  
+  status            String    @default("pending")  // pending, approved, declined, voided, error
+  wompiTransactionId String?                       // ID transacción Wompi
+  wompiStatus       String?                        // Estado Wompi raw
+  paymentMethod     String?                        // CARD, PSE, NEQUI, etc.
+  
+  registrationToken String?   @unique              // Token para registrarse
+  tokenUsed         Boolean   @default(false)      // Ya se usó el token?
+  userId            String?                        // Usuario creado (después de registro)
+  
+  expiresAt         DateTime?                      // Expiración del token
+  paidAt            DateTime?                      // Fecha de pago aprobado
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([reference])
+  @@index([registrationToken])
+  @@index([buyerEmail])
+  @@index([status])
+}

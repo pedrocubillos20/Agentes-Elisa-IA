@@ -20,6 +20,7 @@ import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes'
 import mediaRoutes from './routes/media.routes';
 import ghlRoutes from './routes/ghl.routes';
 import aiConfigRoutes from './routes/ai-config.routes';
+import paymentsRoutes from './routes/payments.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -78,6 +79,7 @@ app.use((req, res, next) => {
 
 // ===== PUBLIC ROUTES =====
 app.use('/api/auth', authRoutes);
+app.use('/api/payments', paymentsRoutes); // Público — Wompi checkout + webhooks
 
 // ===== WEBHOOKS (public, rate limited) =====
 app.post('/api/webhook/whatsapp', rateLimit(200, 1000), (req, res, next) => {

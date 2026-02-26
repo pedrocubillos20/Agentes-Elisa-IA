@@ -53,12 +53,17 @@ router.get('/stats', async (req: Request, res: Response) => {
       prisma.conversation.count({ where })
     ]);
     res.json({ stats: stats.map(s => ({ stage: s.stage || 'new', count: s._count.id })), total });
-  } catch (error) {
-    res.status(500).json({ error: 'Error' });
-  }
+  } catch (error) { res.status(500).json({ error: 'Error' }); }
 });
 
-// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD v3
+// ═══════════════════════════════════════════════════════════════
+// GET /api/conversations/dashboard - ENTERPRISE DASHBOARD v3.1
+// 
+// FIX v3.1: Queries en BATCHES secuenciales de 5 para evitar
+// P2024 "Timed out fetching connection from pool"
+// Antes: 18 queries simultáneas con connection_limit=5 = cascading timeout
+// Ahora: 4 batches de ~5 queries = estable
+// ═══════════════════════════════════════════════════════════════
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -101,38 +106,69 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const convWhere: any = { userId: ownerId };
     if (lineId) convWhere.whatsappLineId = lineId as string;
 
-    // ===== MAIN QUERIES =====
+    // ═══════════════════════════════════════════════════
+    // BATCH 1: Core counts (5 queries)
+    // ═══════════════════════════════════════════════════
     const [
-      totalConversations, totalMessages,
-      rangeMessages, prevRangeMessages,
-      todayMessages, yesterdayMessages,
-      rangeNewConvs, prevRangeNewConvs,
-      rangeConvertedConvs, prevRangeConverted,
-      stageStats,
-      aiPausedCount, convertedTotal,
-      atRiskConvs,
-      totalAppointments, pendingAppointments,
-      rangeMsgsFromMe, rangeMsgsIncoming,
-      oldestUnresponded,
-      lines
+      totalConversations,
+      totalMessages,
+      rangeMessages,
+      prevRangeMessages,
+      todayMessages
     ] = await Promise.all([
       prisma.conversation.count({ where: convWhere }),
       prisma.message.count({ where: { conversation: convWhere } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: prevRangeStart, lt: prevRangeEnd } } }),
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: todayStart } } }),
+    ]);
+
+    // ═══════════════════════════════════════════════════
+    // BATCH 2: Conversation counts + stages (5 queries)
+    // ═══════════════════════════════════════════════════
+    const [
+      yesterdayMessages,
+      rangeNewConvs,
+      prevRangeNewConvs,
+      rangeConvertedConvs,
+      stageStats
+    ] = await Promise.all([
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: yesterdayStart, lt: todayStart } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
       prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
+    ]);
+
+    // ═══════════════════════════════════════════════════
+    // BATCH 3: Advanced counts (5 queries)
+    // ═══════════════════════════════════════════════════
+    const [
+      prevRangeConverted,
+      aiPausedCount,
+      convertedTotal,
+      atRiskConvs,
+      totalAppointments
+    ] = await Promise.all([
+      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
       prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] } } }),
       prisma.conversation.count({ 
         where: { ...convWhere, updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) }, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } } 
       }),
       prisma.appointment.count({ where: { userId: ownerId, ...(lineId ? { whatsappLineId: lineId as string } : {}) } }),
+    ]);
+
+    // ═══════════════════════════════════════════════════
+    // BATCH 4: WhatsApp stats + oldest + lines (5 queries)
+    // ═══════════════════════════════════════════════════
+    const [
+      pendingAppointments,
+      rangeMsgsFromMe,
+      rangeMsgsIncoming,
+      oldestUnresponded,
+      lines
+    ] = await Promise.all([
       prisma.appointment.count({ where: { userId: ownerId, status: 'pending', ...(lineId ? { whatsappLineId: lineId as string } : {}) } }),
       prisma.message.count({ where: { conversation: convWhere, fromMe: true, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.message.count({ where: { conversation: convWhere, fromMe: false, timestamp: { gte: rangeStart, lte: rangeEnd } } }),
@@ -143,10 +179,12 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       prisma.whatsappLine.findMany({ where: { userId: ownerId }, select: { id: true, label: true, phone: true, status: true } })
     ]);
 
-    // ===== ADVANCED METRICS (raw SQL for performance) =====
+    // ═══════════════════════════════════════════════════
+    // ADVANCED METRICS (raw SQL — sequential, no pool pressure)
+    // ═══════════════════════════════════════════════════
     const lineFilter = lineId ? `AND c."whatsappLineId" = '${lineId}'` : '';
 
-    // 1. FRT - First Response Time (avg minutes from first incoming to first outgoing msg)
+    // 1. FRT - First Response Time
     let avgFRT = 0;
     let slaCompliance = 0;
     try {
@@ -182,7 +220,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       }
     } catch (e) { console.error('FRT query error:', e); }
 
-    // 2. Contact Rate - % conversations with at least one outgoing message
+    // 2. Contact Rate
     let contactRate = 0;
     try {
       const contactResult = await prisma.$queryRawUnsafe(`
@@ -198,7 +236,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       }
     } catch (e) { console.error('Contact rate error:', e); }
 
-    // 3. Cycle Time - avg days from creation to conversion
+    // 3. Cycle Time
     let avgCycleTime = 0;
     try {
       const cycleResult = await prisma.$queryRawUnsafe(`
@@ -211,11 +249,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       if (cycleResult?.[0]) avgCycleTime = Math.round((cycleResult[0].avg_days || 0) * 10) / 10;
     } catch (e) { console.error('Cycle time error:', e); }
 
-    // 4. AI Automation Rate - % conversations resolved without human intervention
+    // 4. AI Automation Rate
     const aiAutoRate = totalConversations > 0 
       ? Math.round(((totalConversations - aiPausedCount) / totalConversations) * 100) : 0;
 
-    // 5. Conversion funnel (stage-to-stage)
+    // 5. Conversion funnel
     const stageOrder = ['new', 'saludo', 'interesado', 'interested'];
     const midStages = stageStats
       .filter(s => !['converted','convertido','confirmado','lost','perdido','new','saludo'].includes(s.stage))
@@ -231,7 +269,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       }
     }
 
-    // ===== CHART DATA =====
+    // ═══════════════════════════════════════════════════
+    // CHART DATA (sequential — 2 queries)
+    // ═══════════════════════════════════════════════════
     const dailyMsgsRaw = await (lineId
       ? prisma.$queryRaw`
           SELECT m."timestamp"::date as day, COUNT(*)::int as count
@@ -270,7 +310,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     if (Array.isArray(dailyConvsRaw)) dailyConvsRaw.forEach((r: any) => { const k = new Date(r.day).toISOString().split('T')[0]; if (dailyMap[k]) dailyMap[k].convs = Number(r.count) || 0; });
     const chartData = Object.entries(dailyMap).sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({ day, msgs: v.msgs, convs: v.convs }));
 
-    // ===== LISTS =====
+    // ═══════════════════════════════════════════════════
+    // LISTS (1 batch of 2 queries)
+    // ═══════════════════════════════════════════════════
     const [recentMessages, topLeadsRaw] = await Promise.all([
       prisma.message.findMany({
         where: { conversation: convWhere, fromMe: false }, orderBy: { timestamp: 'desc' }, take: 8,
@@ -283,7 +325,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       })
     ]);
 
-    // ===== GROWTH CALCULATIONS =====
+    // ═══════════════════════════════════════════════════
+    // GROWTH CALCULATIONS
+    // ═══════════════════════════════════════════════════
     const msgGrowth = prevRangeMessages > 0 ? (((rangeMessages - prevRangeMessages) / prevRangeMessages) * 100).toFixed(1) : rangeMessages > 0 ? '100' : '0';
     const convGrowth = prevRangeNewConvs > 0 ? (((rangeNewConvs - prevRangeNewConvs) / prevRangeNewConvs) * 100).toFixed(1) : rangeNewConvs > 0 ? '100' : '0';
     const convertedGrowth = prevRangeConverted > 0 ? (((rangeConvertedConvs - prevRangeConverted) / prevRangeConverted) * 100).toFixed(1) : rangeConvertedConvs > 0 ? '100' : '0';
@@ -306,8 +350,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 
     const funnelData = stageStats.map(s => ({ stage: s.stage || 'new', count: s._count.id }));
 
-    // === EXTRA METRICS ===
-    // Abandonment rate: conversations with only incoming msgs (no response) in range
+    // === EXTRA METRICS (sequential to avoid pool pressure) ===
     let abandonmentRate = 0;
     try {
       const abandonResult = await prisma.$queryRawUnsafe(`
@@ -326,7 +369,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       }
     } catch (e) { console.error('Abandon rate error:', e); }
 
-    // Hourly distribution (for bar chart)
+    // Hourly distribution
     let hourlyData: Array<{hour: number; count: number}> = [];
     try {
       const hourlyResult = await prisma.$queryRawUnsafe(`
@@ -342,9 +385,8 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       hourlyData = Object.entries(hourMap).map(([h, c]) => ({ hour: Number(h), count: c }));
     } catch (e) { console.error('Hourly error:', e); }
 
-    // AI transfer rate (aiPaused = transferred to human)
+    // AI metrics
     const aiTransferRate = totalConversations > 0 ? Math.round((aiPausedCount / totalConversations) * 100) : 0;
-    // AI resolved without human
     const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - aiPausedCount, 0) : 0;
     const aiResolvedRate = convertedTotal > 0 ? Math.round((aiResolvedCount / Math.max(convertedTotal, 1)) * 100) : 0;
 
@@ -425,20 +467,16 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
     const { id } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
     
-    // Usar ownerId para soportar team members
     const ownerId = await getOwnerId(userId!);
 
     const conversation = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
     if (!conversation) { res.status(404).json({ error: 'No encontrada' }); return; }
 
-    // Obtener los ÚLTIMOS N mensajes (no los primeros)
-    // Primero obtenemos en orden descendente, luego revertimos para mostrar asc
     const messages = await prisma.message.findMany({
       where: { conversationId: id }, 
       orderBy: { timestamp: 'desc' }, 
       take: limit
     });
-    // Revertir para que estén en orden cronológico (asc)
     messages.reverse();
     
     res.json({ messages });
@@ -480,7 +518,7 @@ router.put('/:id/ai-pause', async (req: Request, res: Response) => {
 });
 
 // ====================================================
-// ⚙️ PUT /api/conversations/:id/group-settings — Configurar IA del grupo
+// ⚙️ PUT /api/conversations/:id/group-settings
 // ====================================================
 router.put('/:id/group-settings', async (req: Request, res: Response) => {
   try {
@@ -514,20 +552,19 @@ router.put('/:id/group-settings', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/conversations/:id — Solo admin y gerente pueden eliminar
+// DELETE /api/conversations/:id
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    // Verificar rol: solo admin (dueño) o gerente pueden eliminar
     const user = await prisma.user.findUnique({ 
       where: { id: userId }, 
       select: { id: true, parentUserId: true, role: true } 
     });
     if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
 
-    const isOwner = !user.parentUserId; // Admin = dueño de la cuenta
+    const isOwner = !user.parentUserId;
     const isManager = user.role === 'manager';
 
     if (!isOwner && !isManager) {
@@ -538,7 +575,6 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const ownerId = user.parentUserId || user.id;
     const { id } = req.params;
 
-    // Verificar que la conversación pertenece al workspace
     const conversation = await prisma.conversation.findFirst({
       where: { id, userId: ownerId }
     });
@@ -548,7 +584,6 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Eliminar (messages se eliminan en cascada por la relación onDelete: Cascade)
     await prisma.conversation.delete({ where: { id } });
 
     console.log(`🗑️ Conversación "${conversation.recipientName || conversation.recipientId}" eliminada por ${isOwner ? 'admin' : 'gerente'} (${userId})`);
@@ -559,7 +594,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/conversations/export-contacts — Exportar contactos de conversaciones
+// GET /api/conversations/export-contacts
 router.get('/export-contacts', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;

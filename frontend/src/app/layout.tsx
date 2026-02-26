@@ -142,9 +142,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         if (saved) {
           setSelectedLine(saved);
         } else if (fetchedLines.length > 0) {
+          // Si el usuario solo tiene acceso a 1 línea, auto-seleccionarla
           setSelectedLine(fetchedLines[0]);
           localStorage.setItem('selectedLineId', fetchedLines[0].id);
         }
+        // Si solo tiene 1 línea, cerrar dropdown automáticamente
+        if (fetchedLines.length <= 1) setLineDropdownOpen(false);
       }
     } catch (e) { console.error('Error fetching lines:', e); }
   };
@@ -318,8 +321,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="px-3 py-3 border-b border-[var(--border-primary)]">
                   <div className="relative">
                     <button
-                      onClick={() => setLineDropdownOpen(!lineDropdownOpen)}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--border-primary)] transition-all"
+                      onClick={() => lines.length > 1 && setLineDropdownOpen(!lineDropdownOpen)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--border-primary)] transition-all ${lines.length <= 1 ? 'cursor-default' : 'cursor-pointer'}`}
                     >
                       <div className={`relative flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
                         selectedLine?.status === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
@@ -333,7 +336,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                         <p className="text-sm font-semibold text-white truncate">{selectedLine?.label || 'Seleccionar línea'}</p>
                         <p className="text-xs text-[var(--text-muted)] truncate">{selectedLine?.phone ? `+${selectedLine.phone}` : 'Sin número'}</p>
                       </div>
-                      <ChevronDown className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${lineDropdownOpen ? 'rotate-180' : ''}`} />
+                      {lines.length > 1 && <ChevronDown className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${lineDropdownOpen ? 'rotate-180' : ''}`} />}
                     </button>
 
                     {lineDropdownOpen && (

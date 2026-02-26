@@ -2927,18 +2927,53 @@ const processBufferedMessages = async (bufferKey: string) => {
 // 📱 WHATSAPP LINES CRUD (Multi-línea)
 // ====================================================
 
-// GET /lines — Listar líneas del usuario
+// GET /lines — Listar líneas del usuario (respeta allowedLines para sub-usuarios)
 router.get('/lines', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
     
-    const lines = await prisma.whatsappLine.findMany({
+    // Obtener todas las líneas del admin
+    let lines = await prisma.whatsappLine.findMany({
       where: { userId: ownerId },
       orderBy: { createdAt: 'asc' }
     });
     
+    // 🔒 Filtrar por allowedLines si es sub-usuario
+    // Doble verificación: por ownerId Y por role/parentUserId
+    const currentUser = await prisma.user.findUnique({ 
+      where: { id: userId }, 
+      select: { permissions: true, name: true, email: true, role: true, parentUserId: true } 
+    });
+    const isSubUser = userId !== ownerId || currentUser?.parentUserId != null || currentUser?.role !== 'admin';
+    
+    if (isSubUser) {
+      // Parsear permissions robustamente
+      let perms: any = currentUser?.permissions;
+      if (typeof perms === 'string') {
+        try { perms = JSON.parse(perms); } catch { perms = {}; }
+      }
+      if (typeof perms === 'string') {
+        try { perms = JSON.parse(perms); } catch { perms = {}; }
+      }
+      
+      const allowedLines = perms?.allowedLines;
+      
+      console.log(`🔍 Sub-usuario ${currentUser?.name || currentUser?.email} (${userId})`);
+      console.log(`   - permissions type: ${typeof currentUser?.permissions}`);
+      console.log(`   - allowedLines: ${JSON.stringify(allowedLines)}`);
+      console.log(`   - Total lineas admin: ${lines.length}`);
+      
+      if (allowedLines && Array.isArray(allowedLines) && allowedLines.length > 0 && !allowedLines.includes('all')) {
+        const before = lines.length;
+        lines = lines.filter((l: any) => allowedLines.includes(l.id));
+        console.log(`   🔒 Filtrado: ${before} -> ${lines.length} lineas`);
+      } else {
+        console.log(`   ✅ Acceso a todas las lineas`);
+      }
+    }
+
     // Actualizar status de cada línea consultando WAHA (skip Cloud API)
     const updatedLines = await Promise.all(lines.map(async (line) => {
       // Cloud API lines don't need WAHA status check

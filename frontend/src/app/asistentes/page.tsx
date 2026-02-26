@@ -742,6 +742,19 @@ export default function AsistentesPage() {
               </label>
             </div>
 
+            {/* 🛒 Order Bump: Productos del catálogo */}
+            <div className="p-3 rounded-xl border border-emerald-500/15 bg-emerald-500/5 mb-4">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">📦</span>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-400">¿Necesitas más productos en tu catálogo? Amplía tu límite.</p>
+                </div>
+                <a href="/subscription#addons" className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all whitespace-nowrap">
+                  +10 Productos — $20 USD
+                </a>
+              </div>
+            </div>
+
             {/* Media Grid */}
             {mediaItems.length > 0 ? (
               <div className="space-y-4">

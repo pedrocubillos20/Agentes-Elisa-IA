@@ -32,7 +32,7 @@ const PLAN_FEATURES: Record<string, { included: string[]; excluded: string[] }> 
       'Estadísticas por sub-usuario',
       'Permisos personalizados',
       'Integraciones API',
-      'Soporte prioritario'
+      'Soporte prioritario (6 meses incluidos)'
     ],
     excluded: []
   },
@@ -831,8 +831,8 @@ export default function SubscriptionPage() {
                   <h4 className="text-sm font-bold text-white">Línea Adicional</h4>
                 </div>
                 <p className="text-[11px] text-gray-400 mb-3 flex-1">+1 número de WhatsApp con su propio asistente IA</p>
-                <div className="text-lg font-black text-cyan-400 mb-1">$10 USD</div>
-                <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(10 * exchangeRate))} COP · Pago único</div>
+                <div className="text-lg font-black text-cyan-400 mb-1">$39 USD</div>
+                <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(39 * exchangeRate))} COP · Pago único</div>
                 {subStatus?.effectiveLimits?.extraLinesPurchased > 0 && (
                   <div className="text-[10px] text-emerald-400 mb-2">✅ {subStatus.effectiveLimits.extraLinesPurchased} línea(s) extra comprada(s)</div>
                 )}
@@ -858,8 +858,8 @@ export default function SubscriptionPage() {
                   <h4 className="text-sm font-bold text-white">+10 Productos</h4>
                 </div>
                 <p className="text-[11px] text-gray-400 mb-3 flex-1">Amplía tu catálogo con 10 productos adicionales</p>
-                <div className="text-lg font-black text-emerald-400 mb-1">$10 USD</div>
-                <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(10 * exchangeRate))} COP · Pago único</div>
+                <div className="text-lg font-black text-emerald-400 mb-1">$20 USD</div>
+                <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(20 * exchangeRate))} COP · Pago único</div>
                 {subStatus?.effectiveLimits?.extraProductsPurchased > 0 && (
                   <div className="text-[10px] text-emerald-400 mb-2">✅ +{subStatus.effectiveLimits.extraProductsPurchased * 10} productos extra</div>
                 )}
@@ -891,7 +891,12 @@ export default function SubscriptionPage() {
                 <p className="text-[11px] text-gray-400 mb-3 flex-1">Soporte directo por WhatsApp con respuesta en menos de 2h</p>
                 {subStatus?.hasPrioritySupport ? (
                   <>
-                    <div className="text-[10px] text-emerald-400 mb-3 font-bold">✅ Activo</div>
+                    <div className="text-[10px] text-emerald-400 mb-1 font-bold">✅ Activo</div>
+                    {subStatus?.prioritySupportExpiresAt && (
+                      <div className="text-[9px] text-gray-500 mb-2">
+                        Vence: {new Date(subStatus.prioritySupportExpiresAt).toLocaleDateString('es-CO')}
+                      </div>
+                    )}
                     <a
                       href="https://wa.me/573213815105?text=Hola!%20Necesito%20soporte%20prioritario%20🚀"
                       target="_blank" rel="noopener noreferrer"
@@ -902,8 +907,8 @@ export default function SubscriptionPage() {
                   </>
                 ) : (
                   <>
-                    <div className="text-lg font-black text-amber-400 mb-1">$15 USD</div>
-                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(15 * exchangeRate))} COP · Por 1 año</div>
+                    <div className="text-lg font-black text-amber-400 mb-1">$35 USD</div>
+                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(35 * exchangeRate))} COP · Cada 6 meses</div>
                     <button
                       onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('priority_support')}
                       disabled={!!paymentLoading}
@@ -917,7 +922,7 @@ export default function SubscriptionPage() {
                         <>📞 Activar Soporte</>
                       )}
                     </button>
-                    <p className="text-[9px] text-gray-500 mt-1.5 text-center">Gratis en Business e Implementación</p>
+                    <p className="text-[9px] text-gray-500 mt-1.5 text-center">Business incluye 6 meses gratis · Renovable</p>
                   </>
                 )}
               </div>

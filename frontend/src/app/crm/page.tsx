@@ -283,6 +283,10 @@ export default function CRMPage() {
         body: JSON.stringify({ ...productForm, price: parseFloat(productForm.price) || 0, stock: parseInt(productForm.stock) || 0, lineId: getLineId() })
       });
       if (res.ok) { fetchAll(); setShowProductModal(false); resetForms(); }
+      else if (res.status === 403) {
+        const err = await res.json();
+        alert(err.error || 'Límite de productos alcanzado. Compra más productos en Suscripción.');
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -305,6 +309,11 @@ export default function CRMPage() {
     revenue: clients.reduce((sum, c) => sum + (c.totalPurchases || 0), 0),
     products: products.length
   };
+
+  // Límites de productos
+  const baseProdLimits: Record<string, number> = { trial: 10, starter: 10, business: 20 };
+  const maxProducts = user?.effectiveLimits?.maxProducts || baseProdLimits[user?.plan || 'trial'] || 10;
+  const canAddProduct = products.length < maxProducts;
 
   // Verificar plan
   if (user && user.plan === 'starter' && !user.parentUserId) {
@@ -340,7 +349,12 @@ export default function CRMPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => activeTab === 'products' ? setShowProductModal(true) : setShowClientModal(true)} className="btn-primary py-1.5 px-3 text-sm">
+          <button onClick={() => {
+            if (activeTab === 'products') {
+              if (!canAddProduct) { alert(`Has alcanzado el límite de ${maxProducts} productos. Compra más en Suscripción.`); return; }
+              setShowProductModal(true);
+            } else setShowClientModal(true);
+          }} className={`btn-primary py-1.5 px-3 text-sm ${activeTab === 'products' && !canAddProduct ? 'opacity-50' : ''}`}>
             <Plus className="w-4 h-4" /> Nuevo
           </button>
         </div>
@@ -543,6 +557,39 @@ export default function CRMPage() {
       {/* PRODUCTOS */}
       {activeTab === 'products' && (
         <div className="flex-1 overflow-y-auto">
+          {/* 📦 Product limit & order bump */}
+          <div className="mb-4 flex items-center justify-between">
+            <span className="text-sm text-[var(--text-muted)]">{products.length}/{maxProducts} productos</span>
+          </div>
+          
+          {/* Order bump: comprar más productos */}
+          {!canAddProduct ? (
+            <div className="mb-4 p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">📦</span>
+                <div className="flex-1">
+                  <h4 className="text-sm font-bold text-white">Límite de productos alcanzado</h4>
+                  <p className="text-xs text-gray-400">Tu plan permite hasta {maxProducts} productos. Amplía tu catálogo.</p>
+                </div>
+                <a href="/subscription#addons" className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all whitespace-nowrap">
+                  +10 Productos — $20 USD
+                </a>
+              </div>
+            </div>
+          ) : products.length >= maxProducts - 3 && products.length > 0 ? (
+            <div className="mb-4 p-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">📦</span>
+                <div className="flex-1">
+                  <p className="text-xs text-gray-400">Te quedan {maxProducts - products.length} productos disponibles</p>
+                </div>
+                <a href="/subscription#addons" className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all whitespace-nowrap">
+                  +10 Productos — $20 USD
+                </a>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
             {products.filter(p => !searchTerm || p.name?.toLowerCase().includes(searchTerm.toLowerCase()))
               .map((product) => (

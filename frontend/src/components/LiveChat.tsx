@@ -167,7 +167,7 @@ const KNOWLEDGE_BASE: KBEntry[] = [
   {
     keywords: ['plan', 'precio', 'suscripción', 'suscripcion', 'pagar', 'pago', 'starter', 'business'],
     question: '¿Cuáles son los planes?',
-    answer: 'Bizonne tiene 2 planes:\n\n⭐ **Starter — $30 USD/mes**\n• 2 líneas de WhatsApp\n• CRM + Agenda + Productos\n• Soporte por chat en vivo\n\n👑 **Business — $50 USD/mes**\n• 5 líneas de WhatsApp\n• Todo Starter + Equipo + Asignación de chats\n• Soporte prioritario por WhatsApp\n\n🛠️ **Implementación — $299 USD (pago único)**\n• Nosotros configuramos todo tu negocio\n• Incluye soporte prioritario por WhatsApp',
+    answer: 'Bizonne tiene 2 planes:\n\n⭐ **Starter — $30 USD/mes**\n• 2 líneas de WhatsApp\n• CRM + Agenda + Productos\n• Soporte por chat en vivo\n\n👑 **Business — $50 USD/mes**\n• 5 líneas de WhatsApp\n• Todo Starter + Equipo + Asignación de chats\n• Soporte prioritario por WhatsApp (6 meses incluidos, luego $35 USD/6 meses)\n\n🛠️ **Implementación — $299 USD (pago único)**\n• Nosotros configuramos todo tu negocio\n• Incluye soporte prioritario permanente',
     category: 'suscripcion'
   },
   {
@@ -476,7 +476,7 @@ export default function LiveChat({ user }: LiveChatProps) {
                   Obtén respuestas inmediatas de un experto humano por WhatsApp. Resolución garantizada en menos de 2 horas.
                 </p>
                 <div className="flex items-center justify-between">
-                  <span className="text-lg font-black text-amber-400">$15 USD<span className="text-[10px] text-gray-500 font-normal">/año</span></span>
+                  <span className="text-lg font-black text-amber-400">$35 USD<span className="text-[10px] text-gray-500 font-normal">/6 meses</span></span>
                   <a
                     href="/subscription"
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold rounded-lg hover:brightness-110 transition-all"
@@ -486,7 +486,7 @@ export default function LiveChat({ user }: LiveChatProps) {
                   </a>
                 </div>
                 <p className="text-[9px] text-gray-500 mt-1.5">
-                  ✅ Incluido gratis en plan Business y Servicio de Implementación
+                  ✅ Business incluye 6 meses gratis · Renovable cada 6 meses
                 </p>
                 <button onClick={() => setShowUpsell(false)} className="text-[9px] text-gray-600 mt-1 hover:text-gray-400">
                   Ahora no
@@ -523,15 +523,15 @@ export default function LiveChat({ user }: LiveChatProps) {
                 <div className="space-y-1">
                   <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
                     <span>📞 Soporte Prioritario WhatsApp</span>
-                    <span className="text-amber-400 font-bold">$15 USD/año</span>
+                    <span className="text-amber-400 font-bold">$35 USD/6m</span>
                   </a>
                   <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
                     <span>📱 Línea WhatsApp adicional</span>
-                    <span className="text-cyan-400 font-bold">$10 USD</span>
+                    <span className="text-cyan-400 font-bold">$39 USD</span>
                   </a>
                   <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
                     <span>📦 +10 productos catálogo</span>
-                    <span className="text-cyan-400 font-bold">$10 USD</span>
+                    <span className="text-cyan-400 font-bold">$20 USD</span>
                   </a>
                   <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
                     <span>🛠️ Implementación completa</span>

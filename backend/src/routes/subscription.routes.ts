@@ -24,7 +24,7 @@ const PLANS: Record<string, any> = {
     annual: 420,
     maxLines: 5,
     maxProducts: 20,
-    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Hasta 20 productos de catálogo', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Estadísticas por sub-usuario', 'Permisos personalizados', 'Integraciones API', 'Soporte prioritario'],
+    features: ['Todo de Starter +', '5 líneas de WhatsApp', 'Hasta 20 productos de catálogo', 'Equipo completo (roles)', 'Asignación de chats a vendedores', 'Dashboard para directivos', 'Estadísticas por sub-usuario', 'Permisos personalizados', 'Integraciones API', 'Soporte prioritario (6 meses incluidos)'],
     notIncluded: []
   }
 };
@@ -42,13 +42,13 @@ const IMPLEMENTATION_ADDON = {
     'Capacitación de uso de la plataforma',
     'Soporte prioritario por WhatsApp'
   ],
-  extras: { extraLinesCost: 10, extraProductsCost: 10 }
+  extras: { extraLinesCost: 39, extraProductsCost: 20 }
 };
 
-// ===== ADD-ON: SOPORTE PRIORITARIO (Recurring Upsell) =====
+// ===== ADD-ON: SOPORTE PRIORITARIO (Semestral - Renovable cada 6 meses) =====
 const PRIORITY_SUPPORT_ADDON = {
   name: 'Soporte Prioritario',
-  annualPrice: 15, // $15 USD por año (mientras licencia activa)
+  semiannualPrice: 35, // $35 USD por 6 meses (renovable)
   features: [
     'Soporte directo por WhatsApp',
     'Respuesta en menos de 2 horas',
@@ -59,8 +59,8 @@ const PRIORITY_SUPPORT_ADDON = {
 };
 
 // ===== ADD-ONS INDIVIDUALES (Pago único) =====
-const ADDON_EXTRA_LINE = { price: 10, name: 'Línea Adicional WhatsApp' };     // +1 línea
-const ADDON_EXTRA_PRODUCTS = { price: 10, name: '+10 Productos Catálogo' };   // +10 productos
+const ADDON_EXTRA_LINE = { price: 39, name: 'Línea Adicional WhatsApp' };     // +1 línea ($39 USD - almacenamiento + consumo)
+const ADDON_EXTRA_PRODUCTS = { price: 20, name: '+10 Productos Catálogo' };   // +10 productos
 const ADDON_AI_CONFIG = { price: 20, name: 'Configuración IA (PDF → Base de Conocimiento)' }; // AI auto-config
 
 const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
@@ -265,9 +265,9 @@ router.get('/plans', async (req: Request, res: Response) => {
       id: 'priority_support',
       name: PRIORITY_SUPPORT_ADDON.name,
       type: 'annual_addon',
-      priceUsd: PRIORITY_SUPPORT_ADDON.annualPrice,
-      priceCop: Math.round(PRIORITY_SUPPORT_ADDON.annualPrice * rate),
-      priceCopWithCard: Math.round(PRIORITY_SUPPORT_ADDON.annualPrice * rate * (1 + CARD_SURCHARGE)),
+      priceUsd: PRIORITY_SUPPORT_ADDON.semiannualPrice,
+      priceCop: Math.round(PRIORITY_SUPPORT_ADDON.semiannualPrice * rate),
+      priceCopWithCard: Math.round(PRIORITY_SUPPORT_ADDON.semiannualPrice * rate * (1 + CARD_SURCHARGE)),
       features: PRIORITY_SUPPORT_ADDON.features
     };
 
@@ -335,10 +335,46 @@ router.get('/status', async (req: Request, res: Response) => {
     });
 
     // Verificar si tiene soporte prioritario
+    // Business incluye 6 meses gratis desde activación, luego debe pagar $35/6meses
     const hasPrioritySupportAddon = await prisma.payment.findFirst({
-      where: { userId, plan: 'priority_support', status: 'approved' }
+      where: { userId, plan: 'priority_support', status: 'approved' },
+      orderBy: { createdAt: 'desc' }
     });
-    const hasPrioritySupport = (subscription?.plan === 'business') || !!hasImplementation || !!hasPrioritySupportAddon;
+    
+    let hasPrioritySupport = false;
+    let prioritySupportExpiresAt: Date | null = null;
+    
+    // Check paid addon (valid for 6 months from payment)
+    if (hasPrioritySupportAddon) {
+      const addonExpiry = new Date(hasPrioritySupportAddon.createdAt);
+      addonExpiry.setMonth(addonExpiry.getMonth() + 6);
+      if (addonExpiry.getTime() > Date.now()) {
+        hasPrioritySupport = true;
+        prioritySupportExpiresAt = addonExpiry;
+      }
+    }
+    
+    // Business plan: 6 meses gratis desde la primera suscripción business
+    if (!hasPrioritySupport && subscription?.plan === 'business') {
+      const firstBusinessPayment = await prisma.payment.findFirst({
+        where: { userId, plan: 'business', status: 'approved' },
+        orderBy: { createdAt: 'asc' }
+      });
+      if (firstBusinessPayment) {
+        const businessSupportExpiry = new Date(firstBusinessPayment.createdAt);
+        businessSupportExpiry.setMonth(businessSupportExpiry.getMonth() + 6);
+        if (businessSupportExpiry.getTime() > Date.now()) {
+          hasPrioritySupport = true;
+          prioritySupportExpiresAt = businessSupportExpiry;
+        }
+      }
+    }
+    
+    // Implementación incluye soporte prioritario permanente
+    if (!!hasImplementation) {
+      hasPrioritySupport = true;
+      prioritySupportExpiresAt = null; // permanente
+    }
 
     // Verificar si compró Configuración IA
     const hasAiConfig = await prisma.payment.findFirst({
@@ -391,6 +427,7 @@ router.get('/status', async (req: Request, res: Response) => {
       periodEnd,
       hasImplementation: !!hasImplementation,
       hasPrioritySupport,
+      prioritySupportExpiresAt,
       hasAiConfig: !!hasAiConfig,
       effectiveLimits,
       subscription: subscription ? {
@@ -609,14 +646,14 @@ router.post('/create-payment', async (req: Request, res: Response) => {
     const isUpgrade = paymentType === 'upgrade';
     
     if (plan === 'priority_support') {
-      // Compra del addon de soporte prioritario (anual)
+      // Compra del addon de soporte prioritario (semestral - renovable cada 6 meses)
       const existingSub = await prisma.subscription.findUnique({ where: { userId } });
       if (!existingSub || existingSub.status !== 'active') {
         res.status(400).json({ error: 'Necesitas un plan activo para comprar soporte prioritario.' });
         return;
       }
       
-      const priceAddon = PRIORITY_SUPPORT_ADDON.annualPrice;
+      const priceAddon = PRIORITY_SUPPORT_ADDON.semiannualPrice;
       const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true, name: true } });
       if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
       
@@ -632,7 +669,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
 
       await prisma.payment.create({
         data: {
-          userId, type: 'addon', plan: 'priority_support', period: 'annual',
+          userId, type: 'addon', plan: 'priority_support', period: 'semiannual',
           amountUsd: priceAddon, amountCop: copAmount,
           exchangeRate: rate, cardSurcharge: 0, totalCop: copAmount,
           status: 'pending', wompiReference: reference
@@ -640,7 +677,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       });
 
       res.json({
-        plan: 'priority_support', period: 'annual',
+        plan: 'priority_support', period: 'semiannual',
         amountUsd: priceAddon, amountCop: copAmount,
         amountInCents, reference, signature,
         publicKey: WOMPI_PUBLIC_KEY, currency: 'COP',

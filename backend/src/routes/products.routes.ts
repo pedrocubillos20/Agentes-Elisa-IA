@@ -60,6 +60,30 @@ router.post('/', async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
+    
+    // === VERIFICAR LÍMITE DE PRODUCTOS ===
+    const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
+    const baseLimits: Record<string, number> = { trial: 10, starter: 10, business: 20 };
+    const baseMax = baseLimits[owner?.plan || 'trial'] || 10;
+    
+    // Contar productos extra comprados
+    const extraProductsPurchased = await prisma.payment.count({
+      where: { userId: ownerId, plan: 'extra_products', status: 'approved' }
+    });
+    const maxProducts = baseMax + (extraProductsPurchased * 10);
+    
+    const currentCount = await prisma.product.count({ where: { userId: ownerId } });
+    if (currentCount >= maxProducts) {
+      res.status(403).json({ 
+        error: `Has alcanzado el límite de ${maxProducts} productos de tu plan. Compra más productos para expandir tu catálogo.`,
+        limit: maxProducts,
+        current: currentCount,
+        needsUpgrade: true
+      });
+      return;
+    }
+    // === FIN VERIFICACIÓN ===
+
     const { name, description, price, category, image, stock, lineId } = req.body;
 
     const product = await prisma.product.create({

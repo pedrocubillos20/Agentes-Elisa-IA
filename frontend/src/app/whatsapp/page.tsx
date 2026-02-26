@@ -254,8 +254,8 @@ export default function WhatsAppPage() {
               </p>
             </div>
             <div className="flex gap-2 flex-shrink-0">
-              <a href="/subscription" className="btn-primary text-sm">
-                📱 Comprar línea extra — $10 USD
+              <a href="/subscription#addons" className="btn-primary text-sm">
+                📱 Comprar línea extra — $39 USD
               </a>
               {!isBusiness && (
                 <a href="/subscription" className="btn-secondary text-sm">
@@ -263,6 +263,24 @@ export default function WhatsAppPage() {
                 </a>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🛒 Order Bump: Línea Adicional (siempre visible) */}
+      {canAddMore && lines.length > 0 && (
+        <div className="card p-4 border-cyan-500/20 bg-cyan-500/5">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📱</span>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold text-white">¿Necesitas más líneas de WhatsApp?</h4>
+              <p className="text-xs text-gray-400">
+                {lines.length}/{maxLines} líneas usadas · Agrega una línea adicional con su propio asistente IA
+              </p>
+            </div>
+            <a href="/subscription#addons" className="px-4 py-2 rounded-lg text-xs font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 transition-all whitespace-nowrap">
+              +1 Línea — $39 USD
+            </a>
           </div>
         </div>
       )}

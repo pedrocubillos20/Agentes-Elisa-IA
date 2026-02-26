@@ -1663,8 +1663,8 @@ router.get('/admin/audit', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const isAdmin = await isSuperAdmin(userId);
-    if (!isAdmin) { res.status(403).json({ error: 'Solo administradores' }); return; }
+    const adminCheck = await isAdmin(userId);
+    if (!adminCheck) { res.status(403).json({ error: 'Solo administradores' }); return; }
 
     // 1. Líneas de WhatsApp existentes
     const allLines = await prisma.whatsappLine.findMany({ select: { id: true } });
@@ -1759,8 +1759,8 @@ router.post('/admin/cleanup', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const isAdmin = await isSuperAdmin(userId);
-    if (!isAdmin) { res.status(403).json({ error: 'Solo administradores' }); return; }
+    const adminCheck = await isAdmin(userId);
+    if (!adminCheck) { res.status(403).json({ error: 'Solo administradores' }); return; }
 
     const cleaned: Record<string, number> = {};
     const allLines = await prisma.whatsappLine.findMany({ select: { id: true } });

@@ -10,7 +10,7 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 interface Stage { id: string; label: string; color: string; }
-interface Conversation { id: string; recipientId: string; recipientName: string; lastMessage: string; stage: string; updatedAt: string; aiPaused: boolean; }
+interface Conversation { id: string; recipientId: string; recipientName: string; lastMessage: string; stage: string; updatedAt: string; aiPaused: boolean; contextData?: Record<string, any>; }
 
 // ❌ Sin etapas por defecto — se cargan de la base de conocimiento de cada línea
 const DEFAULT_STAGES: Stage[] = [];

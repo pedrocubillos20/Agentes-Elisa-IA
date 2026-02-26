@@ -44,6 +44,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [showApiKeyGuide, setShowApiKeyGuide] = useState(false);
   const [showWallpaper, setShowWallpaper] = useState(false);
   const [showInstall, setShowInstall] = useState(false);
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [globalResults, setGlobalResults] = useState<any[]>([]);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   // 🎨 Aplicar fondo guardado al montar
   useEffect(() => {
@@ -150,6 +154,44 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     localStorage.setItem('selectedLineId', line.id);
     setLineDropdownOpen(false);
     window.dispatchEvent(new CustomEvent('lineChanged', { detail: { lineId: line.id, line } }));
+  };
+
+  // 🔍 Global search
+  const handleGlobalSearch = async (query: string) => {
+    setGlobalSearch(query);
+    if (query.length < 2) { setGlobalResults([]); setGlobalSearchOpen(false); return; }
+    setSearchLoading(true);
+    setGlobalSearchOpen(true);
+    try {
+      const token = localStorage.getItem('token');
+      const lineId = selectedLine?.id || '';
+      const [convsRes, clientsRes, productsRes] = await Promise.all([
+        fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/clients?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/products?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+      ]);
+      const q = query.toLowerCase();
+      const results: any[] = [];
+      if (convsRes.ok) {
+        const convs = (await convsRes.json()).conversations || [];
+        convs.filter((c: any) => 
+          c.recipientName?.toLowerCase().includes(q) || c.recipientId?.includes(q) || c.lastMessage?.toLowerCase().includes(q) ||
+          (c.contextData && JSON.stringify(c.contextData).toLowerCase().includes(q))
+        ).slice(0, 5).forEach((c: any) => results.push({ type: 'conversation', id: c.id, name: c.recipientName || c.recipientId, sub: c.lastMessage?.slice(0, 50) || c.stage, href: `/conversaciones?id=${c.id}`, icon: '💬' }));
+      }
+      if (clientsRes.ok) {
+        const clients = (await clientsRes.json()).clients || [];
+        clients.filter((c: any) => c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.email?.toLowerCase().includes(q))
+          .slice(0, 3).forEach((c: any) => results.push({ type: 'client', id: c.id, name: c.name, sub: c.phone, href: '/crm', icon: '👤' }));
+      }
+      if (productsRes.ok) {
+        const prods = (await productsRes.json()).products || [];
+        prods.filter((p: any) => p.name?.toLowerCase().includes(q) || p.category?.toLowerCase().includes(q))
+          .slice(0, 3).forEach((p: any) => results.push({ type: 'product', id: p.id, name: p.name, sub: `$${p.price?.toLocaleString()} · ${p.category || 'Sin categoría'}`, href: '/crm', icon: '📦' }));
+      }
+      setGlobalResults(results);
+    } catch { setGlobalResults([]); }
+    setSearchLoading(false);
   };
 
   const handleLogout = () => {
@@ -494,7 +536,49 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="hidden md:flex flex-1 max-w-md mx-4">
                   <div className="relative w-full">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-                    <input type="text" placeholder="Buscar..." className="input pl-11 py-2.5 bg-white/5 border-transparent text-sm" />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar conversaciones, clientes, productos..." 
+                      value={globalSearch}
+                      onChange={(e) => handleGlobalSearch(e.target.value)}
+                      onFocus={() => globalResults.length > 0 && setGlobalSearchOpen(true)}
+                      className="input pl-11 py-2.5 bg-white/5 border-transparent text-sm w-full" 
+                    />
+                    {searchLoading && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-[var(--accent-primary)]/30 border-t-[var(--accent-primary)] rounded-full animate-spin" />
+                    )}
+                    {/* Search Results Dropdown */}
+                    {globalSearchOpen && globalResults.length > 0 && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setGlobalSearchOpen(false)} />
+                        <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl overflow-hidden animate-fade-in max-h-80 overflow-y-auto">
+                          <div className="p-2 border-b border-[var(--border-primary)]">
+                            <p className="px-2 text-[10px] uppercase tracking-wider text-[var(--text-muted)] font-semibold">{globalResults.length} resultados</p>
+                          </div>
+                          {globalResults.map((r, i) => (
+                            <a key={i} href={r.href} onClick={() => { setGlobalSearchOpen(false); setGlobalSearch(''); }}
+                              className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-all border-b border-[var(--border-primary)]/50 last:border-0">
+                              <span className="text-lg">{r.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-white truncate">{r.name}</p>
+                                <p className="text-[10px] text-[var(--text-muted)] truncate">{r.sub}</p>
+                              </div>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                                r.type === 'conversation' ? 'bg-emerald-500/20 text-emerald-400' : r.type === 'client' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-purple-500/20 text-purple-400'
+                              }`}>{r.type === 'conversation' ? 'Chat' : r.type === 'client' ? 'Cliente' : 'Producto'}</span>
+                            </a>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {globalSearchOpen && globalSearch.length >= 2 && globalResults.length === 0 && !searchLoading && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setGlobalSearchOpen(false)} />
+                        <div className="absolute top-full left-0 right-0 mt-2 z-50 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl p-6 text-center">
+                          <p className="text-sm text-[var(--text-muted)]">Sin resultados para "{globalSearch}"</p>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">

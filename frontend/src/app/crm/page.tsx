@@ -394,7 +394,7 @@ export default function CRMPage() {
       const result = await res.json();
       if (res.ok) {
         alert(`✅ Importación completa:\n• ${result.imported} nuevos\n• ${result.skipped} duplicados\n• ${result.errors} errores`);
-        fetchData();
+        fetchAll();
       } else { alert(result.error || 'Error al importar'); }
     } catch { alert('Error al leer archivo'); }
   };

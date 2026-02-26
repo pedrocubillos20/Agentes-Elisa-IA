@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { 
-  MessageSquare, Search, Send, X,
+  MessageSquare, Search, Send, X, Trash2,
   Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap
 } from 'lucide-react';
 
@@ -56,6 +56,13 @@ const canSeeFullPhone = (): boolean => {
   return role === 'manager' || role === 'admin';
 };
 
+// Helper: Verificar si el usuario puede eliminar conversaciones (solo admin/gerente)
+const canDeleteConversation = (): boolean => {
+  const { role, isSubUser } = getCurrentUserRole();
+  if (!isSubUser) return true; // Admin (dueño) siempre puede
+  return role === 'manager' || role === 'admin';
+};
+
 const STAGE_COLORS: Record<string, string> = {
   blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
@@ -77,6 +84,7 @@ export default function ConversacionesPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<any>(null); // conversation to delete
   const [filterStage, setFilterStage] = useState('all');
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -524,6 +532,34 @@ export default function ConversacionesPage() {
     if (massFileInputRef.current) massFileInputRef.current.value = '';
   };
 
+  // 🗑️ Eliminar conversación (solo admin/gerente)
+  const deleteConversation = async (conv: any) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${conv.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setConversations(prev => prev.filter(c => c.id !== conv.id));
+        if (selectedConv?.id === conv.id) {
+          setSelectedConv(null);
+          setMessages([]);
+        }
+        setDeleteConfirm(null);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Error al eliminar');
+        setDeleteConfirm(null);
+      }
+    } catch (e) {
+      console.error('Error eliminando:', e);
+      alert('Error al eliminar conversación');
+      setDeleteConfirm(null);
+    }
+  };
+
   const filteredConversations = conversations.filter(c => {
     const matchSearch = !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm);
     const matchStage = filterStage === 'all' || c.stage === filterStage;
@@ -579,7 +615,7 @@ export default function ConversacionesPage() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {filteredConversations.map((conv) => (
-              <div key={conv.id} onClick={() => setSelectedConv(conv)} className={`p-2.5 border-b border-[var(--border-primary)] cursor-pointer hover:bg-white/5 transition-all ${selectedConv?.id === conv.id ? 'bg-[var(--accent-primary)]/10 border-l-2 border-l-[var(--accent-primary)]' : ''}`}>
+              <div key={conv.id} onClick={() => setSelectedConv(conv)} className={`group p-2.5 border-b border-[var(--border-primary)] cursor-pointer hover:bg-white/5 transition-all ${selectedConv?.id === conv.id ? 'bg-[var(--accent-primary)]/10 border-l-2 border-l-[var(--accent-primary)]' : ''}`}>
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
                     <span className="text-xs font-bold text-[var(--accent-primary)]">{conv.recipientName?.[0] || '?'}</span>
@@ -598,6 +634,16 @@ export default function ConversacionesPage() {
                       </span>
                     )}
                   </div>
+                  {/* 🗑️ Delete button - solo admin/gerente */}
+                  {canDeleteConversation() && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirm(conv); }}
+                      className="p-1.5 rounded-lg opacity-40 hover:opacity-100 hover:bg-red-500/20 transition-all flex-shrink-0"
+                      title="Eliminar conversación"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -949,6 +995,42 @@ export default function ConversacionesPage() {
             <button onClick={sendMassMessage} disabled={sendingMass || (!massText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
               {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${conversations.filter(c => c.stage === filterStage).length} contactos`}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🗑️ Modal de confirmación de eliminación */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-6 w-full max-w-sm border border-red-500/30" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">¿Eliminar conversación?</h3>
+                <p className="text-xs text-[var(--text-muted)]">Esta acción no se puede deshacer</p>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[var(--bg-tertiary)] mb-4">
+              <p className="text-sm text-white font-medium">{deleteConfirm.recipientName || deleteConfirm.groupName || 'Sin nombre'}</p>
+              <p className="text-xs text-[var(--text-muted)]">{deleteConfirm.recipientId}</p>
+              <p className="text-xs text-red-400 mt-1">Se eliminarán todos los mensajes de esta conversación.</p>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteConfirm(null)} 
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-white/5 text-[var(--text-muted)] hover:bg-white/10 border border-[var(--border-primary)]"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={() => deleteConversation(deleteConfirm)} 
+                className="flex-1 py-2.5 rounded-lg text-sm font-bold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
+              >
+                🗑️ Sí, eliminar
+              </button>
+            </div>
           </div>
         </div>
       )}

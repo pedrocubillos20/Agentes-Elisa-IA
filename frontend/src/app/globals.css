@@ -611,3 +611,183 @@ body {
   background-position: center;
   background-attachment: fixed;
 }
+
+/* ============================================
+   📱 MOBILE RESPONSIVE OVERRIDES
+   Auditoría completa - Feb 2026
+   ============================================ */
+
+/* Force proper mobile rendering */
+html, body {
+  overflow-x: hidden !important;
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}
+
+/* Mobile-specific safe area for notched phones */
+@supports (padding: env(safe-area-inset-top)) {
+  body { padding-top: env(safe-area-inset-top); }
+}
+
+/* ===== MOBILE LAYOUT (< 768px) ===== */
+@media (max-width: 767px) {
+  /* Reduce main padding on mobile */
+  #bizonne-wrapper main > div.flex-1 {
+    padding: 12px !important;
+  }
+  
+  /* Sidebar overlay improvements */
+  aside.sidebar {
+    width: 280px !important;
+  }
+  
+  /* Header compact */
+  header {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    height: 56px !important;
+  }
+  
+  /* Cards and containers */
+  .card {
+    padding: 12px !important;
+  }
+  
+  /* Input fields */
+  .input, input, select, textarea {
+    font-size: 16px !important; /* Prevents iOS zoom on focus */
+  }
+  
+  /* Buttons */
+  .btn-primary, .btn-secondary {
+    min-height: 44px; /* Touch target */
+    min-width: 44px;
+  }
+  
+  /* Tables responsive */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Modals */
+  .fixed.inset-0 > div {
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100vh - 48px) !important;
+    overflow-y: auto !important;
+    margin: 12px !important;
+  }
+
+  /* Hide desktop-only elements */
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+/* ===== CONVERSATION PAGE MOBILE ===== */
+@media (max-width: 1023px) {
+  /* Make conversation list full width on tablet/mobile when no chat selected */
+  .conv-list-panel {
+    width: 100% !important;
+    flex-shrink: 1 !important;
+  }
+  
+  /* Hide list when chat is open on mobile */
+  .conv-list-panel.conv-hidden-mobile {
+    display: none !important;
+  }
+  
+  /* Chat panel full width on mobile */
+  .conv-chat-panel {
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+  
+  /* Details panel always hidden on mobile/tablet */
+  .conv-details-panel {
+    display: none !important;
+  }
+}
+
+/* ===== CRM PIPELINE MOBILE ===== */
+@media (max-width: 767px) {
+  .pipeline-scroll {
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    padding-bottom: 8px;
+  }
+  
+  .pipeline-scroll > * {
+    min-width: 280px;
+    scroll-snap-align: start;
+    flex-shrink: 0;
+  }
+  
+  .pipeline-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+  
+  .pipeline-scroll::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.05);
+    border-radius: 4px;
+  }
+  
+  .pipeline-scroll::-webkit-scrollbar-thumb {
+    background: rgba(16, 185, 129, 0.3);
+    border-radius: 4px;
+  }
+}
+
+/* ===== DASHBOARD MOBILE ===== */
+@media (max-width: 639px) {
+  /* Stats grid - 2 cols on mobile instead of 6 */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* ===== TOUCH IMPROVEMENTS ===== */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets */
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  
+  /* Remove hover effects that cause sticky on touch */
+  .hover\:bg-white\/5:active {
+    background: rgba(255, 255, 255, 0.05);
+  }
+  
+  /* Smooth scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Prevent text selection on interactive elements */
+  button, [role="button"], nav a {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* ===== PULL-TO-REFRESH PREVENTION ===== */
+body {
+  overscroll-behavior-y: contain;
+}
+
+/* ===== PWA STANDALONE MODE ===== */
+@media all and (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Scrollbar hide utility */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }

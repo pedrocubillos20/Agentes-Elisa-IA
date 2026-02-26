@@ -312,13 +312,13 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="max-w-[1440px] mx-auto space-y-4">
+    <div className="max-w-[1440px] mx-auto space-y-3 md:space-y-4">
 
       {/* ══════ HEADER ══════ */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-xs text-[var(--text-muted)]">{line ? `${line.label||''} · +${line.phone}` : 'Todas las líneas'}</p>
+          <h1 className="text-lg md:text-2xl font-bold text-white">Dashboard</h1>
+          <p className="text-[10px] md:text-xs text-[var(--text-muted)]">{line ? `${line.label||''} · +${line.phone}` : 'Todas las líneas'}</p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/conversaciones" className="btn-secondary py-2 px-3 text-xs flex items-center gap-1.5"><MessageSquare className="w-3.5 h-3.5"/>Chats</Link>

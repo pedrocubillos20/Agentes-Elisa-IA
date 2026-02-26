@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Search, Send, X, Trash2,
   Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap,
-  Download, Upload
+  Download, Upload, ChevronLeft
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -707,19 +707,19 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col gap-3 overflow-hidden">
+    <div className="h-[calc(100vh-120px)] md:h-[calc(100vh-120px)] flex flex-col gap-2 md:gap-3 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <MessageSquare className="w-6 h-6 text-[var(--accent-primary)]" />
+      <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
+        <div className="flex items-center gap-2 md:gap-3">
+          <MessageSquare className="w-5 h-5 md:w-6 md:h-6 text-[var(--accent-primary)]" />
           <div>
-            <h1 className="text-xl font-bold text-white">Conversaciones</h1>
-            <p className="text-xs text-[var(--text-muted)]">{conversations.length} chats</p>
+            <h1 className="text-base md:text-xl font-bold text-white">Conversaciones</h1>
+            <p className="text-[10px] md:text-xs text-[var(--text-muted)]">{conversations.length} chats</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="input py-1.5 px-3 text-sm bg-[var(--bg-secondary)]">
-            <option value="all">📊 Todas ({conversations.length})</option>
+        <div className="flex items-center gap-1 md:gap-2">
+          <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="input py-1.5 px-2 md:px-3 text-xs md:text-sm bg-[var(--bg-secondary)] max-w-[140px] md:max-w-none">
+            <option value="all">Todas ({conversations.length})</option>
             {stageStats.map(stage => (
               <option key={stage.id} value={stage.id}>{stage.label} ({stage.count})</option>
             ))}
@@ -727,10 +727,10 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
           <button onClick={() => setShowMassMessage(true)} disabled={filterStage === 'all'} className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50" title={filterStage === 'all' ? 'Selecciona una etapa primero' : 'Mensaje masivo'}>
             <Megaphone className="w-4 h-4" />
           </button>
-          <button onClick={exportContacts} className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos Excel">
+          <button onClick={exportContacts} className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos Excel">
             <Download className="w-4 h-4" />
           </button>
-          <label className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">
+          <label className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">
             <Upload className="w-4 h-4" />
             <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importContacts(e.target.files[0]); e.target.value = ''; }} />
           </label>
@@ -740,7 +740,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       {/* Main */}
       <div className="flex-1 flex gap-3 min-h-0 overflow-hidden">
         {/* Lista */}
-        <div className="w-64 flex-shrink-0 flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] overflow-hidden">
+        <div className={`conv-list-panel w-full lg:w-64 lg:flex-shrink-0 flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] overflow-hidden ${selectedConv ? 'hidden lg:flex' : 'flex'}`}>
           <div className="p-2 border-b border-[var(--border-primary)]">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
@@ -786,11 +786,14 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         </div>
 
         {/* Chat */}
-        <div className="flex-1 flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] overflow-hidden min-w-0">
+        <div className={`conv-chat-panel flex-1 flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] overflow-hidden min-w-0 ${selectedConv ? 'flex' : 'hidden lg:flex'}`}>
           {selectedConv ? (
             <>
               <div className="p-3 border-b border-[var(--border-primary)] flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
+                  <button onClick={() => setSelectedConv(null)} className="lg:hidden p-1.5 -ml-1 mr-1 rounded-lg hover:bg-white/10 text-[var(--text-muted)]">
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
                   <div className="w-9 h-9 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
                     <span className="text-sm font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || '?'}</span>
                   </div>

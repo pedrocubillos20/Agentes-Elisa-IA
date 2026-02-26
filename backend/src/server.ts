@@ -33,6 +33,7 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:3001',
     'https://crm.bizonne.com',
+    'https://crmauto.bizonne.com',
     'https://agentes-elisa-ia.vercel.app',
     process.env.FRONTEND_URL || ''
   ].filter(Boolean),

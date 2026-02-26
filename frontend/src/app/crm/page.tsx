@@ -582,14 +582,14 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col gap-4 overflow-hidden max-w-full">
+    <div className="h-[calc(100vh-110px)] md:h-[calc(100vh-120px)] flex flex-col gap-2 md:gap-4 overflow-hidden max-w-full">
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <LayoutGrid className="w-6 h-6 text-[var(--accent-primary)]" />
+        <div className="flex items-center gap-2 md:gap-3">
+          <LayoutGrid className="w-5 h-5 md:w-6 md:h-6 text-[var(--accent-primary)]" />
           <div>
-            <h1 className="text-xl font-bold text-white">CRM Pipeline</h1>
-            <p className="text-xs text-[var(--text-muted)]">{stats.total} en pipeline • {stats.clients} clientes</p>
+            <h1 className="text-base md:text-xl font-bold text-white">CRM Pipeline</h1>
+            <p className="text-[10px] md:text-xs text-[var(--text-muted)]">{stats.total} en pipeline • {stats.clients} clientes</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -605,14 +605,14 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-3 flex-shrink-0">
+      <div className="flex items-center gap-1.5 md:gap-2 border-b border-[var(--border-primary)] pb-3 flex-shrink-0 overflow-x-auto scrollbar-hide">
         {(['pipeline', 'leads', 'clients', 'products'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-1.5 rounded-lg text-xs md:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
               activeTab === tab ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
             }`}>
-            {tab === 'pipeline' ? <LayoutGrid className="w-4 h-4" /> : tab === 'leads' ? <Target className="w-4 h-4" /> : tab === 'clients' ? <Users className="w-4 h-4" /> : <Package className="w-4 h-4" />}
-            {tab === 'pipeline' ? 'Pipeline' : tab === 'leads' ? `Leads (${hotLeads.length} 🔥)` : tab === 'clients' ? 'Clientes' : 'Productos'}
+            {tab === 'pipeline' ? <LayoutGrid className="w-3.5 h-3.5 md:w-4 md:h-4" /> : tab === 'leads' ? <Target className="w-3.5 h-3.5 md:w-4 md:h-4" /> : tab === 'clients' ? <Users className="w-3.5 h-3.5 md:w-4 md:h-4" /> : <Package className="w-3.5 h-3.5 md:w-4 md:h-4" />}
+            {tab === 'pipeline' ? 'Pipeline' : tab === 'leads' ? `Leads (${hotLeads.length})` : tab === 'clients' ? 'Clientes' : 'Productos'}
           </button>
         ))}
         {activeTab === 'pipeline' && (

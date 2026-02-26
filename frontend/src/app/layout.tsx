@@ -245,7 +245,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   if (loading) {
     return (
       <html lang="es">
-        <head><title>Bizonne CRM</title><link rel="icon" href="/bizonne.png" /></head>
+        <head><title>Bizonne CRM</title><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" /><link rel="icon" href="/bizonne.png" /></head>
         <body>
           <div className="app-background" />
           <div className="grid-pattern" />
@@ -262,7 +262,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   if (isAuthPage) {
     return (
       <html lang="es">
-        <head><title>Bizonne CRM</title><link rel="icon" href="/bizonne.png" /></head>
+        <head><title>Bizonne CRM</title><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" /><link rel="icon" href="/bizonne.png" /></head>
         <body>
           <div className="app-background" />
           <div className="grid-pattern" />
@@ -276,6 +276,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <head>
         <title>{selectedLine ? `${selectedLine.label} — Bizonne` : 'Bizonne CRM'}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <link rel="icon" href="/bizonne.png" />
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#10b981" />
@@ -534,7 +535,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* Main */}
             <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
-              <header className="sticky top-0 z-30 h-16 px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
+              <header className="sticky top-0 z-30 h-14 md:h-16 px-3 md:px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
                     <Menu className="w-6 h-6" />
@@ -620,7 +621,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </div>
                 </div>
               </header>
-              <div className="flex-1 p-6 lg:p-8 overflow-y-auto overflow-x-hidden">
+              <div className="flex-1 p-3 md:p-6 lg:p-8 overflow-y-auto overflow-x-hidden">
                 {/* 🔑 BANNER DE ERROR API KEY */}
                 {apiKeyError && pathname !== '/configuracion' && (
                   <div className="mb-6 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10 p-4">

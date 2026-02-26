@@ -110,7 +110,8 @@ export default function CRMPage() {
   const massFileInputRef = useRef<HTMLInputElement>(null);
 
   const [editingItem, setEditingItem] = useState<any>(null);
-  const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', status: 'lead', tags: '' });
+  const [showClientMass, setShowClientMass] = useState(false);
+  const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', address: '', notes: '', status: 'lead', tags: '' });
   const [productForm, setProductForm] = useState({ name: '', description: '', price: '', stock: '', category: '' });
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
@@ -351,7 +352,7 @@ export default function CRMPage() {
     } catch (e) { console.error(e); }
   };
 
-  // 📤 Exportar contactos a CSV
+  // 📤 Exportar clientes como Excel profesional
   const exportClients = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -359,11 +360,81 @@ export default function CRMPage() {
       const res = await fetch(`${API_URL}/api/clients/export?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const { data } = await res.json();
       if (!data?.length) { alert('No hay clientes para exportar'); return; }
-      const headers = Object.keys(data[0]);
-      const csv = [headers.join(','), ...data.map((r: any) => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','))].join('\n');
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+
+      const columns = [
+        { key: 'nombre', label: 'Nombre' },
+        { key: 'telefono', label: 'Teléfono' },
+        { key: 'email', label: 'Email' },
+        { key: 'direccion', label: 'Dirección' },
+        { key: 'notas', label: 'Notas' },
+        { key: 'tags', label: 'Etiquetas' },
+        { key: 'estado', label: 'Estado' },
+        { key: 'total_compras', label: 'Total Compras $' },
+        { key: 'fecha_registro', label: 'Fecha Registro' }
+      ];
+      const statusColors: Record<string, string> = {
+        'active': '#27ae60', 'lead': '#3498db', 'inactive': '#e74c3c', 'vip': '#9b59b6'
+      };
+      const esc = (v: string) => v.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const colLen = columns.length;
+      const dateStr = new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+      let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+<x:Name>Clientes</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>
+td,th{padding:6px 10px;font-family:Calibri,Arial;font-size:11pt;border:1px solid #d5d5d5}
+th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:center}
+.re{background:#f8f9fa}.ro{background:#fff}
+.tt td{background:#0f3460;color:#00d4aa;font-size:16pt;font-weight:bold;border:none;padding:12px}
+.st td{background:#0f3460;color:#aaa;font-size:10pt;border:none;padding:4px 12px}
+.sp td{border:none;height:6px}
+</style></head><body><table>
+<tr class="tt"><td colspan="${colLen}">👥 Clientes — BizonneCRM</td></tr>
+<tr class="st"><td colspan="${colLen}">Exportado: ${dateStr} · Total: ${data.length} clientes</td></tr>
+<tr class="sp"><td colspan="${colLen}"></td></tr>
+<tr>${columns.map((c: any) => `<th>${c.label}</th>`).join('')}</tr>`;
+
+      data.forEach((row: any, i: number) => {
+        html += `<tr class="${i % 2 === 0 ? 're' : 'ro'}">`;
+        columns.forEach((col: any) => {
+          let val = esc((row[col.key] ?? '').toString());
+          let s = '';
+          if (col.key === 'estado' && val) {
+            const bg = statusColors[val] || '#95a5a6';
+            s = `background:${bg};color:#fff;font-weight:bold;text-align:center`;
+          } else if (col.key === 'total_compras' && val && val !== '0') {
+            s = 'font-weight:bold;color:#27ae60;text-align:right';
+            val = `$${Number(val).toLocaleString('es-CO')}`;
+          } else if (col.key === 'telefono') { s = 'color:#2980b9;mso-number-format:\@'; }
+          else if (col.key === 'nombre') { s = 'font-weight:bold'; }
+          else if (col.key === 'tags' && val) { s = 'color:#9b59b6;font-style:italic'; }
+          html += `<td style="${s}">${val}</td>`;
+        });
+        html += '</tr>';
+      });
+
+      const totalV = data.reduce((s: number, r: any) => s + (Number(r.total_compras) || 0), 0);
+      const activos = data.filter((r: any) => r.estado === 'active').length;
+      const leads = data.filter((r: any) => r.estado === 'lead').length;
+
+      html += `<tr class="sp"><td colspan="${colLen}"></td></tr>
+<tr><td colspan="2" style="background:#0f3460;color:#00d4aa;font-weight:bold">📊 Resumen</td>
+<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:center">✅ ${activos} activos</td>
+<td colspan="2" style="background:#3498db;color:#fff;font-weight:bold;text-align:center">🔵 ${leads} leads</td>
+<td colspan="2" style="background:#0f3460;color:#aaa">Total: ${data.length} clientes</td>
+<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:right">$${totalV.toLocaleString('es-CO')}</td>
+<td style="background:#0f3460"></td>
+</tr></table></body></html>`;
+
+      const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `clientes_${new Date().toISOString().split('T')[0]}.csv`; a.click();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Clientes_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
+      a.click();
       URL.revokeObjectURL(url);
     } catch { alert('Error al exportar'); }
   };
@@ -399,6 +470,44 @@ export default function CRMPage() {
     } catch { alert('Error al leer archivo'); }
   };
 
+  // 💬 Enviar mensaje masivo a todos los clientes
+  const sendClientMassMessage = async () => {
+    if (!massMessageText.trim() && !massMediaFile) return;
+    const filteredClients = clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm));
+    if (!filteredClients.length) { alert('No hay clientes para enviar'); return; }
+    setSendingMass(true);
+    const token = localStorage.getItem('token');
+    setMassTotal(filteredClients.length);
+    setMassSentCount(0);
+    try {
+      let mediaUrl: string | null = null;
+      let mediaType: string | null = null;
+      if (massMediaFile) {
+        mediaUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(massMediaFile);
+        });
+        if (massMediaFile.type.startsWith('image/')) mediaType = 'image';
+        else if (massMediaFile.type.startsWith('audio/')) mediaType = 'audio';
+        else if (massMediaFile.type.startsWith('video/')) mediaType = 'video';
+        else mediaType = 'document';
+      }
+      const contacts = filteredClients.map(c => ({ phone: c.phone, name: c.name }));
+      const res = await fetch(`${API_URL}/api/whatsapp/send-bulk`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contacts, message: massMessageText || null, whatsappLineId: getLineId(), ...(mediaUrl && { mediaUrl, mediaType }) })
+      });
+      if (res.ok) {
+        let count = 0;
+        const iv = setInterval(() => { count++; setMassSentCount(Math.min(count, filteredClients.length)); if (count >= filteredClients.length) clearInterval(iv); }, 3500);
+        setTimeout(() => { clearInterval(iv); setMassSentCount(filteredClients.length); alert(`✅ Mensaje masivo enviado a ${filteredClients.length} clientes`); setSendingMass(false); setShowClientMass(false); setMassMessageText(''); setMassMediaFile(null); setMassMediaPreview(null); setMassSentCount(0); setMassTotal(0); }, Math.min(filteredClients.length * 3500 + 2000, 60000));
+      } else throw new Error('Error');
+    } catch { alert('❌ Error al enviar'); setSendingMass(false); }
+  };
+
   // 💬 Enviar mensaje directo a cliente
   const sendMessageToClient = async (phone: string, name: string) => {
     const message = prompt(`Enviar mensaje a ${name}:`);
@@ -425,7 +534,7 @@ export default function CRMPage() {
 
   const resetForms = () => {
     setEditingItem(null);
-    setClientForm({ name: '', phone: '', email: '', status: 'lead', tags: '' });
+    setClientForm({ name: '', phone: '', email: '', address: '', notes: '', status: 'lead', tags: '' });
     setProductForm({ name: '', description: '', price: '', stock: '', category: '' });
   };
 
@@ -752,12 +861,15 @@ export default function CRMPage() {
           {/* Import/Export toolbar */}
           <div className="flex items-center gap-2 mb-3 flex-shrink-0 flex-wrap">
             <button onClick={exportClients} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
-              <Download className="w-3.5 h-3.5" /> Exportar CSV
+              <Download className="w-3.5 h-3.5" /> Exportar Excel
             </button>
             <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all cursor-pointer">
               <Upload className="w-3.5 h-3.5" /> Importar CSV
-              <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importClients(e.target.files[0]); e.target.value = ''; }} />
+              <input type="file" accept=".csv,.txt,.xls,.xlsx" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importClients(e.target.files[0]); e.target.value = ''; }} />
             </label>
+            <button onClick={() => { setShowClientMass(true); setMassMessageText(''); setMassMediaFile(null); setMassMediaPreview(null); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-all" disabled={clients.length === 0}>
+              <Send className="w-3.5 h-3.5" /> Mensaje Masivo ({clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length})
+            </button>
             <span className="text-[10px] text-[var(--text-muted)]">{clients.length} clientes</span>
           </div>
 
@@ -765,29 +877,42 @@ export default function CRMPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm))
                 .map((client) => (
-                  <div key={client.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
+                  <div key={client.id} className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
                     <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
                           <span className="text-sm font-semibold text-cyan-400">{client.name?.[0] || '?'}</span>
                         </div>
-                        <div>
-                          <p className="font-medium text-white">{client.name}</p>
-                          <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Phone className="w-3 h-3" />{client.phone}</p>
-                          {client.email && <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Mail className="w-3 h-3" />{client.email}</p>}
+                        <div className="min-w-0">
+                          <p className="font-medium text-white truncate">{client.name}</p>
+                          <p className="text-xs text-[var(--text-muted)] flex items-center gap-1"><Phone className="w-3 h-3 flex-shrink-0" />{client.phone}</p>
+                          {client.email && <p className="text-xs text-[var(--text-muted)] flex items-center gap-1 truncate"><Mail className="w-3 h-3 flex-shrink-0" />{client.email}</p>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         <button onClick={() => sendMessageToClient(client.phone, client.name)} className="p-1.5 hover:bg-emerald-500/10 rounded-lg" title="Enviar mensaje">
                           <Send className="w-3.5 h-3.5 text-emerald-400" />
                         </button>
-                        <button onClick={() => { setEditingItem(client); setClientForm({ ...client, tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /></button>
+                        <button onClick={() => { setEditingItem(client); setClientForm({ ...client, address: client.address || '', notes: client.notes || '', tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /></button>
                         <button onClick={() => handleDelete('client', client.id)} className="p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5 text-red-400" /></button>
                       </div>
                     </div>
-                    {client.totalPurchases > 0 && (
-                      <p className="mt-2 text-xs text-emerald-400">💰 ${client.totalPurchases.toLocaleString()}</p>
-                    )}
+                    {/* Info extra del cliente */}
+                    <div className="mt-2 space-y-1">
+                      {client.address && <p className="text-xs text-[var(--text-muted)] truncate">📍 {client.address}</p>}
+                      {client.notes && <p className="text-xs text-amber-400/80 truncate">📝 {client.notes}</p>}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {client.status && (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${client.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : client.status === 'lead' ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-500/20 text-gray-400'}`}>
+                            {client.status === 'active' ? '✅ Activo' : client.status === 'lead' ? '🔵 Lead' : client.status}
+                          </span>
+                        )}
+                        {client.totalPurchases > 0 && <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium">💰 ${client.totalPurchases.toLocaleString()}</span>}
+                        {client.tags?.length > 0 && client.tags.map((t: string, i: number) => (
+                          <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-400">{t}</span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -957,9 +1082,85 @@ export default function CRMPage() {
               <input type="text" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} placeholder="Nombre *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
               <input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} placeholder="Teléfono *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
               <input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} placeholder="Email" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <input type="text" value={clientForm.address} onChange={(e) => setClientForm({ ...clientForm, address: e.target.value })} placeholder="Dirección completa" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <textarea value={clientForm.notes} onChange={(e) => setClientForm({ ...clientForm, notes: e.target.value })} placeholder="Notas (producto, talla, color, etc.)" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[60px] resize-none focus:outline-none focus:border-[var(--accent-primary)]" />
               <input type="text" value={clientForm.tags} onChange={(e) => setClientForm({ ...clientForm, tags: e.target.value })} placeholder="Etiquetas (VIP, Frecuente)" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+              <select value={clientForm.status} onChange={(e) => setClientForm({ ...clientForm, status: e.target.value })} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)]">
+                <option value="lead">🔵 Lead</option>
+                <option value="active">✅ Activo</option>
+                <option value="inactive">⬜ Inactivo</option>
+                <option value="vip">⭐ VIP</option>
+              </select>
               <button onClick={handleSaveClient} className="btn-primary w-full py-2">{editingItem ? 'Actualizar' : 'Guardar'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Mensaje Masivo Clientes */}
+      {showClientMass && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !sendingMass && setShowClientMass(false)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white">📩 Mensaje Masivo — Clientes</h3>
+              <button onClick={() => !sendingMass && setShowClientMass(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-sm text-[var(--text-muted)] mb-3">
+              Enviar a: <strong className="text-white">{clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length} clientes</strong>
+              {searchTerm && <span className="text-amber-400"> (filtrado: &quot;{searchTerm}&quot;)</span>}
+            </p>
+            <textarea 
+              value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} 
+              placeholder="Escribe tu mensaje..." disabled={sendingMass}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50" 
+            />
+            <div className="mb-3">
+              <input ref={massFileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleMassFileSelect} className="hidden" />
+              {massMediaFile ? (
+                <div className="flex items-center gap-2 p-2 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-primary)]">
+                  {massMediaPreview ? (
+                    <img src={massMediaPreview} alt="" className="w-12 h-12 rounded object-cover" />
+                  ) : (
+                    <div className="w-12 h-12 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                      {massMediaFile.type.startsWith('audio/') ? <Mic className="w-5 h-5 text-[var(--accent-primary)]" /> : <FileText className="w-5 h-5 text-[var(--accent-primary)]" />}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{massMediaFile.name}</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">{(massMediaFile.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <button onClick={removeMassMedia} className="p-1 hover:bg-white/10 rounded" disabled={sendingMass}>
+                    <X className="w-4 h-4 text-red-400" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'image/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Image className="w-3.5 h-3.5" /> Imagen
+                  </button>
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'audio/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Mic className="w-3.5 h-3.5" /> Audio
+                  </button>
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = '*/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Paperclip className="w-3.5 h-3.5" /> Archivo
+                  </button>
+                </div>
+              )}
+            </div>
+            {sendingMass && massTotal > 0 && (
+              <div className="mb-3">
+                <div className="flex justify-between text-xs text-[var(--text-muted)] mb-1">
+                  <span>Enviando...</span>
+                  <span>{massSentCount}/{massTotal}</span>
+                </div>
+                <div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2">
+                  <div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} />
+                </div>
+              </div>
+            )}
+            <button onClick={sendClientMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length} clientes`}
+            </button>
           </div>
         </div>
       )}

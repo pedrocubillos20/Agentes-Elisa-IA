@@ -109,12 +109,26 @@ router.post('/import', async (req: Request, res: Response) => {
         
         if (exists) {
           // Actualizar nombre si estaba vacío
-          if (!exists.name && name) {
-            await prisma.client.update({ where: { id: exists.id }, data: { name } });
+          // Actualizar datos si estaban vacíos
+          const updateData: any = {};
+          if (!exists.name && name) updateData.name = name;
+          if (!exists.email && email) updateData.email = email;
+          const addr = (c.direccion || c.address || '').trim();
+          if (!exists.address && addr) updateData.address = addr;
+          const nts = (c.notas || c.notes || '').trim();
+          if (!exists.notes && nts) updateData.notes = nts;
+          if (Object.keys(updateData).length > 0) {
+            await prisma.client.update({ where: { id: exists.id }, data: updateData });
           }
           skipped++;
           continue;
         }
+        
+        const address = (c.direccion || c.address || c.Direccion || c.Address || '').trim();
+        const notes = (c.notas || c.notes || c.Notas || c.Notes || '').trim();
+        const tags = (c.tags || c.etiquetas || c.Tags || '').toString().split(',').map((t: string) => t.trim()).filter(Boolean);
+        const status = (c.estado || c.status || c.Estado || 'lead').toString().trim().toLowerCase();
+        const totalPurchases = parseFloat((c.total_compras || c.totalPurchases || c.total || '0').toString().replace(/[^0-9.]/g, '')) || 0;
         
         await prisma.client.create({
           data: {
@@ -122,8 +136,11 @@ router.post('/import', async (req: Request, res: Response) => {
             name: name || `Contacto ${phone.slice(-4)}`,
             phone,
             email: email || null,
-            status: 'lead',
-            tags: ['importado'],
+            address: address || null,
+            notes: notes || null,
+            status: ['active', 'lead', 'inactive', 'vip'].includes(status) ? status : 'lead',
+            tags: tags.length > 0 ? tags : ['importado'],
+            totalPurchases,
             whatsappLineId: lineId || null
           }
         });

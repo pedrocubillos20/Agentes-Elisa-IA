@@ -576,7 +576,20 @@ router.get('/export-contacts', async (req: Request, res: Response) => {
         nombre: c.recipientName || ctx.nombre || '',
         telefono: c.recipientId?.replace('@c.us', '').replace('@s.whatsapp.net', '') || '',
         etapa: c.stage || '',
-        ultimo_mensaje: c.lastMessage?.slice(0, 100) || '',
+        ciudad: ctx.ciudad || '',
+        barrio: ctx.barrio || '',
+        direccion: ctx.direccion || '',
+        producto: ctx.producto_servicio || ctx.producto || '',
+        talla: ctx.talla || '',
+        color: ctx.color || '',
+        calidad: ctx.calidad || '',
+        bordado: ctx.bordado || '',
+        total: ctx.total || ctx.precio || '',
+        metodo_pago: ctx.metodo_pago || '',
+        fecha_entrega: ctx.fecha_entrega || '',
+        envio: ctx.envio || '',
+        email: ctx.email || '',
+        notas: ctx.notas || '',
         fecha: c.updatedAt?.toISOString().split('T')[0] || ''
       };
     });

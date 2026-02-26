@@ -436,7 +436,7 @@ export default function ConversacionesPage() {
   // ====================================================
   // 📢 ENVÍO MASIVO — Usa /send-bulk con delays en backend + media
   // ====================================================
-  // 📤 Exportar contactos de conversaciones
+  // 📤 Exportar contactos de conversaciones como XLSX profesional
   const exportContacts = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -444,14 +444,96 @@ export default function ConversacionesPage() {
       const res = await fetch(`${API_URL}/api/conversations/export-contacts?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const { data } = await res.json();
       if (!data?.length) { alert('No hay contactos para exportar'); return; }
-      const headers = Object.keys(data[0]);
-      const csv = [headers.join(','), ...data.map((r: any) => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','))].join('\n');
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+
+      const columns = [
+        { key: 'nombre', label: 'Nombre' },
+        { key: 'telefono', label: 'Teléfono' },
+        { key: 'etapa', label: 'Etapa' },
+        { key: 'ciudad', label: 'Ciudad' },
+        { key: 'barrio', label: 'Barrio' },
+        { key: 'direccion', label: 'Dirección' },
+        { key: 'producto', label: 'Producto' },
+        { key: 'talla', label: 'Talla' },
+        { key: 'color', label: 'Color' },
+        { key: 'calidad', label: 'Calidad' },
+        { key: 'total', label: 'Total $' },
+        { key: 'metodo_pago', label: 'Método Pago' },
+        { key: 'fecha_entrega', label: 'Fecha Entrega' },
+        { key: 'envio', label: 'Envío' },
+        { key: 'fecha', label: 'Última Actividad' }
+      ];
+
+      const stageColors: Record<string, string> = {
+        'Confirmado': '#27ae60', 'Interesado': '#f39c12', 'En Cotización': '#3498db',
+        'Nuevo Contacto': '#9b59b6', 'Pendiente Color': '#e67e22', 'Pendiente Talla': '#e67e22',
+        'Pendiente Ciudad': '#e67e22', 'Pendiente Calidad': '#e67e22', 'No Interesado': '#e74c3c'
+      };
+
+      const esc = (v: string) => v.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const colLen = columns.length;
+      const dateStr = new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+      let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+<x:Name>Contactos</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+<style>
+td,th{padding:6px 10px;font-family:Calibri,Arial;font-size:11pt;border:1px solid #d5d5d5}
+th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:center}
+.re{background:#f8f9fa}.ro{background:#fff}
+.tt td{background:#0f3460;color:#00d4aa;font-size:16pt;font-weight:bold;border:none;padding:12px}
+.st td{background:#0f3460;color:#aaa;font-size:10pt;border:none;padding:4px 12px}
+.sp td{border:none;height:6px}
+</style></head><body><table>
+<tr class="tt"><td colspan="${colLen}">📋 Contactos WhatsApp — BizonneCRM</td></tr>
+<tr class="st"><td colspan="${colLen}">Exportado: ${dateStr} · Total: ${data.length} contactos</td></tr>
+<tr class="sp"><td colspan="${colLen}"></td></tr>
+<tr>${columns.map((c: any) => `<th>${c.label}</th>`).join('')}</tr>`;
+
+      data.forEach((row: any, i: number) => {
+        html += `<tr class="${i % 2 === 0 ? 're' : 'ro'}">`;
+        columns.forEach((col: any) => {
+          let val = esc((row[col.key] || '').toString());
+          let s = '';
+          if (col.key === 'etapa' && val) {
+            const bg = stageColors[val] || '#95a5a6';
+            s = `background:${bg};color:#fff;font-weight:bold;text-align:center`;
+          } else if (col.key === 'total' && val) {
+            const num = val.replace(/[^0-9]/g, '');
+            val = num ? `$${Number(num).toLocaleString('es-CO')}` : val;
+            s = 'font-weight:bold;color:#27ae60;text-align:right';
+          } else if (col.key === 'telefono') { s = 'color:#2980b9;mso-number-format:\@'; }
+          else if (col.key === 'nombre') { s = 'font-weight:bold'; }
+          html += `<td style="${s}">${val}</td>`;
+        });
+        html += '</tr>';
+      });
+
+      const conf = data.filter((r: any) => r.etapa === 'Confirmado').length;
+      const inter = data.filter((r: any) => r.etapa === 'Interesado').length;
+      const totalV = data.reduce((s: number, r: any) => { const n = (r.total||'').toString().replace(/[^0-9]/g,''); return s + (n ? Number(n) : 0); }, 0);
+
+      html += `<tr class="sp"><td colspan="${colLen}"></td></tr>
+<tr><td colspan="2" style="background:#0f3460;color:#00d4aa;font-weight:bold">📊 Resumen</td>
+<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:center">✅ ${conf} confirmados</td>
+<td colspan="2" style="background:#f39c12;color:#fff;font-weight:bold;text-align:center">🟡 ${inter} interesados</td>
+<td colspan="3" style="background:#0f3460;color:#aaa">Total: ${data.length} contactos</td>
+<td colspan="2" style="background:#0f3460;color:#aaa">Pendientes: ${data.length - conf - inter}</td>
+<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:right">$${totalV.toLocaleString('es-CO')}</td>
+<td colspan="${colLen - 11 > 0 ? colLen - 11 : 1}" style="background:#0f3460"></td>
+</tr></table></body></html>`;
+
+      const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `contactos_whatsapp_${new Date().toISOString().split('T')[0]}.csv`; a.click();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Contactos_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
+      a.click();
       URL.revokeObjectURL(url);
     } catch { alert('Error al exportar'); }
   };
+
 
   // 📥 Importar contactos desde CSV al CRM
   const importContacts = async (file: File) => {
@@ -645,7 +727,7 @@ export default function ConversacionesPage() {
           <button onClick={() => setShowMassMessage(true)} disabled={filterStage === 'all'} className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50" title={filterStage === 'all' ? 'Selecciona una etapa primero' : 'Mensaje masivo'}>
             <Megaphone className="w-4 h-4" />
           </button>
-          <button onClick={exportContacts} className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos CSV">
+          <button onClick={exportContacts} className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos Excel">
             <Download className="w-4 h-4" />
           </button>
           <label className="p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">

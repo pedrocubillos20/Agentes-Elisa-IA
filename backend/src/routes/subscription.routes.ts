@@ -32,7 +32,7 @@ const PLANS: Record<string, any> = {
 // ===== ADD-ON: IMPLEMENTACIÓN (Order Bump / Upsell) =====
 const IMPLEMENTATION_ADDON = {
   name: 'Bizonne Implementación',
-  price: 100,
+  price: 299,
   features: [
     'Configuración completa del asistente IA',
     'Entrenamiento con tu base de conocimiento',

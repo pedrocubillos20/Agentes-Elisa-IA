@@ -167,13 +167,13 @@ const KNOWLEDGE_BASE: KBEntry[] = [
   {
     keywords: ['plan', 'precio', 'suscripción', 'suscripcion', 'pagar', 'pago', 'starter', 'business'],
     question: '¿Cuáles son los planes?',
-    answer: 'Bizonne tiene 2 planes:\n\n⭐ **Starter — $30 USD/mes**\n• 2 líneas de WhatsApp\n• CRM + Agenda + Productos\n• Soporte por chat en vivo\n\n👑 **Business — $50 USD/mes**\n• 5 líneas de WhatsApp\n• Todo Starter + Equipo + Asignación de chats\n• Soporte prioritario por WhatsApp\n\n🛠️ **Implementación — $100 USD (pago único)**\n• Nosotros configuramos todo tu negocio\n• Incluye soporte prioritario por WhatsApp',
+    answer: 'Bizonne tiene 2 planes:\n\n⭐ **Starter — $30 USD/mes**\n• 2 líneas de WhatsApp\n• CRM + Agenda + Productos\n• Soporte por chat en vivo\n\n👑 **Business — $50 USD/mes**\n• 5 líneas de WhatsApp\n• Todo Starter + Equipo + Asignación de chats\n• Soporte prioritario por WhatsApp\n\n🛠️ **Implementación — $299 USD (pago único)**\n• Nosotros configuramos todo tu negocio\n• Incluye soporte prioritario por WhatsApp',
     category: 'suscripcion'
   },
   {
     keywords: ['implementación', 'implementacion', 'configurar todo', 'servicio'],
     question: '¿Qué incluye la implementación?',
-    answer: 'El servicio de implementación ($100 USD pago único) incluye:\n\n🛠️ Configuramos tu asistente IA con toda la info de tu negocio\n📦 Cargamos tus productos con precios\n📋 Configuramos las etapas del CRM\n📅 Configuramos la agenda de citas\n🔗 Conectamos tu WhatsApp\n📱 Soporte prioritario por WhatsApp incluido\n\nTú solo vendes, nosotros hacemos todo lo técnico.',
+    answer: 'El servicio de implementación ($299 USD pago único) incluye:\n\n🛠️ Configuramos tu asistente IA con toda la info de tu negocio\n📦 Cargamos tus productos con precios\n📋 Configuramos las etapas del CRM\n📅 Configuramos la agenda de citas\n🔗 Conectamos tu WhatsApp\n📱 Soporte prioritario por WhatsApp incluido\n\nTú solo vendes, nosotros hacemos todo lo técnico.',
     category: 'suscripcion'
   },
   // PROBLEMAS COMUNES
@@ -535,7 +535,7 @@ export default function LiveChat({ user }: LiveChatProps) {
                   </a>
                   <a href="/subscription" className="flex items-center justify-between text-[10px] text-gray-300 hover:text-white">
                     <span>🛠️ Implementación completa</span>
-                    <span className="text-orange-400 font-bold">$100 USD</span>
+                    <span className="text-orange-400 font-bold">$299 USD</span>
                   </a>
                 </div>
                 <a href="/subscription" className="block text-center text-[9px] text-amber-400 mt-1.5 hover:underline">

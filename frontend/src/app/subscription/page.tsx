@@ -942,8 +942,8 @@ export default function SubscriptionPage() {
                   </>
                 ) : (
                   <>
-                    <div className="text-lg font-black text-orange-400 mb-1">$100 USD</div>
-                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(100 * exchangeRate))} COP · Pago único</div>
+                    <div className="text-lg font-black text-orange-400 mb-1">$299 USD</div>
+                    <div className="text-[10px] text-gray-500 mb-3">≈ {formatCOP(Math.round(299 * exchangeRate))} COP · Pago único</div>
                     <button
                       onClick={() => isTrial ? window.scrollTo({ top: 0, behavior: 'smooth' }) : handlePayment('implementation')}
                       disabled={!!paymentLoading}
@@ -1048,37 +1048,6 @@ export default function SubscriptionPage() {
           </div>
         </div>
 
-        {/* Payment History */}
-        {subStatus?.payments?.length > 0 && (
-          <div className="mt-16 max-w-3xl mx-auto">
-            <h3 className="text-xl font-bold mb-6">Historial de Pagos</h3>
-            <div className="space-y-3">
-              {subStatus.payments.map((p: any) => (
-                <div key={p.id} className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                  <div>
-                    <span className="font-semibold">{p.plan === 'starter' ? 'Starter' : 'Business'}</span>
-                    <span className="text-gray-500 text-sm ml-2">({p.period})</span>
-                    {p.discountCode && (
-                      <span className="ml-2 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold">
-                        🏷️ {p.discountCode} {p.discountPercent ? `(-${p.discountPercent}%)` : ''}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-emerald-400 font-bold">{formatCOP(p.amountCop)}</div>
-                    {p.discountAmount && (
-                      <div className="text-purple-400 text-[10px]">Ahorraste {formatCOP(p.discountAmount)}</div>
-                    )}
-                    <div className="text-gray-500 text-xs">{new Date(p.date).toLocaleDateString('es-CO')}</div>
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded-full ${p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
-                    {p.status === 'approved' ? '✓ Aprobado' : p.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

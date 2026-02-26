@@ -530,7 +530,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </aside>
 
             {/* Main */}
-            <main className="flex-1 flex flex-col min-h-screen">
+            <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
               <header className="sticky top-0 z-30 h-16 px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
@@ -617,7 +617,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </div>
                 </div>
               </header>
-              <div className="flex-1 p-6 lg:p-8 overflow-auto">
+              <div className="flex-1 p-6 lg:p-8 overflow-y-auto overflow-x-hidden">
                 {/* 🔑 BANNER DE ERROR API KEY */}
                 {apiKeyError && pathname !== '/configuracion' && (
                   <div className="mb-6 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10 p-4">

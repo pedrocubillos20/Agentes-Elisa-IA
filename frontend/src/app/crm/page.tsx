@@ -587,7 +587,7 @@ export default function CRMPage() {
 
       {/* 🔥 LEADS CALIFICADOS */}
       {activeTab === 'leads' && (
-        <div className="flex-1 flex flex-col gap-3 min-h-0 overflow-x-hidden">
+        <div className="flex-1 flex flex-col gap-3 min-h-0 w-full" style={{ maxWidth: '100%' }}>
           {/* Score Summary */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-shrink-0">
             <button onClick={() => setLeadFilter('all')} className={`px-3 py-2 rounded-xl border text-center transition-all ${leadFilter === 'all' ? 'border-[var(--accent-primary)]/50 bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
@@ -609,72 +609,74 @@ export default function CRMPage() {
           </div>
 
           {/* Leads List */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 space-y-2">
-            {filteredLeads
-              .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()))
-              .map((conv) => {
-                const ls = conv.leadScore;
-                const stage = stages.find(s => s.id === conv.stage);
-                const ctx = conv.contextData || {};
-                const ctxEntries = Object.entries(ctx).filter(([_, v]) => v && String(v).trim() !== '');
-                return (
-                  <div key={conv.id} className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all overflow-hidden">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      {/* Score Badge */}
-                      <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${
-                        ls.score >= 70 ? 'bg-red-500/20 border border-red-500/30' : ls.score >= 40 ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-blue-500/20 border border-blue-500/30'
-                      }`}>
-                        <span className="text-sm">{ls.emoji}</span>
-                        <span className={`text-[9px] font-black ${ls.color}`}>{ls.score}</span>
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0 overflow-hidden">
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-white text-sm truncate">{conv.recipientName || conv.recipientId}</p>
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border flex-shrink-0 whitespace-nowrap ${STAGE_COLORS[stage?.color || 'blue']}`}>
-                            {stage?.label || conv.stage}
-                          </span>
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <div className="space-y-2">
+              {filteredLeads
+                .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()))
+                .map((conv) => {
+                  const ls = conv.leadScore;
+                  const stage = stages.find(s => s.id === conv.stage);
+                  const ctx = conv.contextData || {};
+                  const ctxEntries = Object.entries(ctx).filter(([_, v]) => v && String(v).trim() !== '');
+                  return (
+                    <div key={conv.id} className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
+                      {/* Main row */}
+                      <div className="flex items-center gap-3" style={{ width: '100%' }}>
+                        {/* Score Badge */}
+                        <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${
+                          ls.score >= 70 ? 'bg-red-500/20 border border-red-500/30' : ls.score >= 40 ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-blue-500/20 border border-blue-500/30'
+                        }`}>
+                          <span className="text-sm">{ls.emoji}</span>
+                          <span className={`text-[9px] font-black ${ls.color}`}>{ls.score}</span>
                         </div>
-                        <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">{conv.lastMessage || 'Sin mensajes'}</p>
-                      </div>
 
-                      {/* Score bar compact */}
-                      <div className="flex-shrink-0 w-20 hidden sm:block">
-                        <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${
-                            ls.score >= 70 ? 'bg-red-500' : ls.score >= 40 ? 'bg-amber-500' : 'bg-blue-500'
-                          }`} style={{ width: `${ls.score}%` }} />
+                        {/* Info - w-0 forces truncation */}
+                        <div className="w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white text-sm truncate">{conv.recipientName || conv.recipientId}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border flex-shrink-0 whitespace-nowrap ${STAGE_COLORS[stage?.color || 'blue']}`}>
+                              {stage?.label || conv.stage}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">{conv.lastMessage || 'Sin mensajes'}</p>
+                          {/* Context data inline */}
+                          {ctxEntries.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {ctxEntries.slice(0, 3).map(([k, v]) => (
+                                <span key={k} className="inline-block px-1.5 py-0.5 rounded bg-white/5 text-[9px] text-gray-400">
+                                  {k}: <span className="text-white">{String(v).slice(0, 12)}</span>
+                                </span>
+                              ))}
+                              {ctxEntries.length > 3 && <span className="text-[9px] text-gray-500">+{ctxEntries.length - 3}</span>}
+                            </div>
+                          )}
                         </div>
-                        <p className="text-[8px] text-gray-500 truncate mt-0.5 text-right">{ls.reasons[0]}</p>
-                      </div>
 
-                      {/* Action */}
-                      <a href={`/conversaciones?id=${conv.id}`} className="p-1.5 rounded-lg hover:bg-white/10 transition-all flex-shrink-0" title="Ver conversación">
-                        <ArrowUpRight className="w-4 h-4 text-[var(--accent-primary)]" />
-                      </a>
+                        {/* Score bar */}
+                        <div className="flex-shrink-0 w-16 hidden sm:block">
+                          <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${
+                              ls.score >= 70 ? 'bg-red-500' : ls.score >= 40 ? 'bg-amber-500' : 'bg-blue-500'
+                            }`} style={{ width: `${ls.score}%` }} />
+                          </div>
+                          <p className="text-[8px] text-gray-500 truncate mt-0.5 text-right">{ls.reasons[0]}</p>
+                        </div>
+
+                        {/* Action */}
+                        <a href={`/conversaciones?id=${conv.id}`} className="p-1.5 rounded-lg hover:bg-white/10 transition-all flex-shrink-0" title="Ver conversación">
+                          <ArrowUpRight className="w-4 h-4 text-[var(--accent-primary)]" />
+                        </a>
+                      </div>
                     </div>
-
-                    {/* Context data - row below */}
-                    {ctxEntries.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2 ml-14 overflow-hidden">
-                        {ctxEntries.slice(0, 3).map(([k, v]) => (
-                          <span key={k} className="px-1.5 py-0.5 rounded bg-white/5 text-[9px] text-gray-400 truncate max-w-[150px]">
-                            {k}: <span className="text-white">{String(v).slice(0, 15)}</span>
-                          </span>
-                        ))}
-                        {ctxEntries.length > 3 && <span className="text-[9px] text-gray-500">+{ctxEntries.length - 3}</span>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            {filteredLeads.length === 0 && (
-              <div className="text-center py-12 text-[var(--text-muted)]">
-                <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>No hay leads {leadFilter !== 'all' ? `${leadFilter === 'hot' ? 'calientes' : leadFilter === 'warm' ? 'tibios' : 'fríos'}` : ''}</p>
-              </div>
-            )}
+                  );
+                })}
+              {filteredLeads.length === 0 && (
+                <div className="text-center py-12 text-[var(--text-muted)]">
+                  <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>No hay leads {leadFilter !== 'all' ? `${leadFilter === 'hot' ? 'calientes' : leadFilter === 'warm' ? 'tibios' : 'fríos'}` : ''}</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -122,16 +122,19 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
   color: var(--text-secondary);
   font-weight: 500;
   font-size: 14px;
   transition: all 0.2s ease;
+  position: relative;
 }
 
 .nav-item:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); }
+.nav-item:hover > div:first-child { transform: scale(1.08); }
 .nav-item.active { color: var(--accent-primary); background: rgba(16, 185, 129, 0.1); }
+.nav-item.active > div:first-child { box-shadow: 0 0 12px rgba(16, 185, 129, 0.2); }
 
 /* ========== CARDS ========== */
 .card {

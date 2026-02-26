@@ -211,18 +211,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const implementationLocked = ['assistants', 'config', 'integrations'];
 
   const allNavigation = [
-    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, perm: 'dashboard' },
-    { name: 'Conversaciones', href: '/conversaciones', icon: MessageSquare, perm: 'conversations' },
-    { name: 'WhatsApp', href: '/whatsapp', icon: Smartphone, perm: 'whatsapp' },
-    { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants', featureKey: 'assistants' },
-    { name: 'CRM', href: '/crm', icon: Users, perm: 'crm' },
-    { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda' },
-    { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations' },
-    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', featureKey: 'team' },
-    { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config' },
-    { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config' },
-    { name: 'Integraciones', href: '/integraciones', icon: Code, perm: 'config', featureKey: 'integrations' },
-    { name: 'Guía', href: '/guia', icon: BookOpen, perm: 'dashboard' },
+    { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, perm: 'dashboard', color: 'from-emerald-500/20 to-emerald-600/10 text-emerald-400' },
+    { name: 'Conversaciones', href: '/conversaciones', icon: MessageSquare, perm: 'conversations', color: 'from-cyan-500/20 to-cyan-600/10 text-cyan-400' },
+    { name: 'WhatsApp', href: '/whatsapp', icon: Smartphone, perm: 'whatsapp', color: 'from-green-500/20 to-green-600/10 text-green-400' },
+    { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants', featureKey: 'assistants', color: 'from-violet-500/20 to-violet-600/10 text-violet-400' },
+    { name: 'CRM', href: '/crm', icon: Users, perm: 'crm', color: 'from-amber-500/20 to-amber-600/10 text-amber-400' },
+    { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', color: 'from-rose-500/20 to-rose-600/10 text-rose-400' },
+    { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations', color: 'from-orange-500/20 to-orange-600/10 text-orange-400' },
+    { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', featureKey: 'team', color: 'from-blue-500/20 to-blue-600/10 text-blue-400' },
+    { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config', color: 'from-gray-500/20 to-gray-600/10 text-gray-400' },
+    { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config', color: 'from-yellow-500/20 to-yellow-600/10 text-yellow-400' },
+    { name: 'Integraciones', href: '/integraciones', icon: Code, perm: 'config', featureKey: 'integrations', color: 'from-pink-500/20 to-pink-600/10 text-pink-400' },
+    { name: 'Guía', href: '/guia', icon: BookOpen, perm: 'dashboard', color: 'from-teal-500/20 to-teal-600/10 text-teal-400' },
   ];
 
   const navigation = allNavigation.filter(item => {
@@ -379,10 +379,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {/* Collapsed line indicator */}
               {lines.length > 0 && sidebarCollapsed && (
                 <div className="px-2 py-3 border-b border-[var(--border-primary)] flex justify-center">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                     selectedLine?.status === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
                   }`}>
-                    <Phone className="w-4 h-4" />
+                    <Phone className="w-5 h-5" />
                   </div>
                 </div>
               )}
@@ -431,7 +431,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   if (item.locked) {
                     return (
                       <div key={item.name} className={`nav-item opacity-40 cursor-not-allowed ${sidebarCollapsed ? 'justify-center px-0' : ''}`} title={sidebarCollapsed ? item.name : "Configurado por el equipo de implementación"}>
-                        <item.icon className="w-5 h-5" />
+                        <div className={`flex items-center justify-center rounded-xl bg-gradient-to-br ${item.color} ${sidebarCollapsed ? 'w-10 h-10' : 'w-8 h-8'}`}>
+                          <item.icon className={`${sidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'}`} />
+                        </div>
                         {!sidebarCollapsed && <span className="flex-1">{item.name}</span>}
                         {!sidebarCollapsed && <Lock className="w-3.5 h-3.5 text-amber-400/70" />}
                       </div>
@@ -439,7 +441,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   }
                   return (
                     <Link key={item.name} href={item.href} onClick={() => setSidebarOpen(false)} className={`nav-item ${isActive ? 'active' : ''} ${sidebarCollapsed ? 'justify-center px-0' : ''}`} title={sidebarCollapsed ? item.name : ''}>
-                      <item.icon className={`w-5 h-5 ${isActive ? 'text-[var(--accent-primary)]' : ''}`} />
+                      <div className={`flex items-center justify-center rounded-xl bg-gradient-to-br ${isActive ? item.color : 'from-white/5 to-white/[0.02] text-[var(--text-muted)]'} ${sidebarCollapsed ? 'w-10 h-10' : 'w-8 h-8'} transition-all group-hover:scale-105`}>
+                        <item.icon className={`${sidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'}`} />
+                      </div>
                       {!sidebarCollapsed && <span className="flex-1">{item.name}</span>}
                       {!sidebarCollapsed && isActive && <ChevronRight className="w-4 h-4 text-[var(--accent-primary)]" />}
                     </Link>
@@ -451,9 +455,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className={`${sidebarCollapsed ? 'px-2 py-3' : 'p-4'} border-t border-[var(--border-primary)]`}>
                 {sidebarCollapsed ? (
                   <div className="flex flex-col items-center gap-2">
-                    <div className="avatar w-9 h-9 text-xs">{user?.name?.[0] || 'U'}</div>
-                    <button onClick={handleLogout} className="p-2 text-[var(--text-muted)] hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Cerrar sesión">
-                      <LogOut className="w-4 h-4" />
+                    <div className="avatar w-10 h-10 text-sm font-bold">{user?.name?.[0] || 'U'}</div>
+                    <button onClick={handleLogout} className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-red-500/15 to-red-600/5 text-red-400 hover:from-red-500/25 hover:to-red-600/15 transition-all" title="Cerrar sesión">
+                      <LogOut className="w-4.5 h-4.5" />
                     </button>
                   </div>
                 ) : (
@@ -469,7 +473,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                       </div>
                     </div>
                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-[var(--text-muted)] hover:text-white hover:bg-white/5 rounded-xl transition-all">
-                      <LogOut className="w-5 h-5" /><span className="font-medium">Cerrar Sesión</span>
+                      <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-red-500/15 to-red-600/5 text-red-400">
+                        <LogOut className="w-4 h-4" />
+                      </div>
+                      <span className="font-medium">Cerrar Sesión</span>
                     </button>
                   </>
                 )}
@@ -503,11 +510,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     setSidebarCollapsed(next);
                     try { localStorage.setItem('bizonne_sidebar_collapsed', String(next)); } catch {}
                   }}
-                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--border-primary)] transition-all text-[var(--text-muted)] hover:text-white"
+                  className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all ${
+                    sidebarCollapsed 
+                      ? 'bg-[var(--accent-primary)]/15 border border-[var(--accent-primary)]/25 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/25' 
+                      : 'bg-white/5 hover:bg-white/10 border border-[var(--border-primary)] text-[var(--text-muted)] hover:text-white'
+                  }`}
                   title={sidebarCollapsed ? 'Expandir menú' : 'Colapsar menú'}
                 >
                   {sidebarCollapsed ? (
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="w-5 h-5" />
                   ) : (
                     <>
                       <Menu className="w-4 h-4" />

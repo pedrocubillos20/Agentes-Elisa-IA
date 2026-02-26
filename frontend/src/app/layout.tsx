@@ -35,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [lines, setLines] = useState<any[]>([]);
   const [selectedLine, setSelectedLine] = useState<any>(null);
   const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
@@ -48,6 +49,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setTimeout(() => applyWallpaper(loadSavedWallpaper()), 100);
+      // Load sidebar state
+      try { const sc = localStorage.getItem('bizonne_sidebar_collapsed'); if (sc === 'true') setSidebarCollapsed(true); } catch {}
       // 📱 Registrar Service Worker para PWA
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -246,24 +249,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {sidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
             {/* Sidebar */}
-            <aside className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-72 sidebar flex flex-col transform transition-all duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+            <aside className={`fixed lg:sticky top-0 left-0 z-50 h-screen sidebar flex flex-col transform transition-all duration-300 ${sidebarCollapsed ? 'w-[68px]' : 'w-72'} ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
               
               {/* Logo */}
-              <div className="h-16 flex items-center justify-between px-5 border-b border-[var(--border-primary)]">
-                <Link href="/dashboard" className="flex items-center gap-3">
-                  <img src="/bizonne.png" alt="Bizonne" className="logo-img" />
-                  <div className="text-xl font-bold">
-                    <span className="text-white">Bizonne</span>
-                    <span className="text-[var(--accent-primary)] font-light">CRM</span>
-                  </div>
-                </Link>
+              <div className="h-16 flex items-center justify-between px-3 border-b border-[var(--border-primary)]">
+                {!sidebarCollapsed ? (
+                  <Link href="/dashboard" className="flex items-center gap-3 px-2">
+                    <img src="/bizonne.png" alt="Bizonne" className="logo-img" />
+                    <div className="text-xl font-bold">
+                      <span className="text-white">Bizonne</span>
+                      <span className="text-[var(--accent-primary)] font-light">CRM</span>
+                    </div>
+                  </Link>
+                ) : (
+                  <Link href="/dashboard" className="mx-auto">
+                    <img src="/bizonne.png" alt="Bizonne" className="logo-img" />
+                  </Link>
+                )}
                 <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
               {/* ===== WORKSPACE LINE SELECTOR ===== */}
-              {lines.length > 0 && (
+              {lines.length > 0 && !sidebarCollapsed && (
                 <div className="px-3 py-3 border-b border-[var(--border-primary)]">
                   <div className="relative">
                     <button
@@ -325,8 +334,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
               )}
 
+              {/* Collapsed line indicator */}
+              {lines.length > 0 && sidebarCollapsed && (
+                <div className="px-2 py-3 border-b border-[var(--border-primary)] flex justify-center">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                    selectedLine?.status === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                  }`}>
+                    <Phone className="w-4 h-4" />
+                  </div>
+                </div>
+              )}
+
               {/* Plan badge */}
-              {user?.plan && (
+              {user?.plan && !sidebarCollapsed && (
                 <div className="px-4 pt-3">
                   {user.isBlocked ? (
                     <div className="flex flex-col gap-2">
@@ -363,47 +383,58 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               )}
 
               {/* Nav */}
-              <nav className="flex-1 p-4 space-y-1 overflow-y-auto sidebar-scroll">
+              <nav className={`flex-1 ${sidebarCollapsed ? 'px-2 py-4' : 'p-4'} space-y-1 overflow-y-auto sidebar-scroll`}>
                 {navigation.map((item) => {
                   const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
                   if (item.locked) {
                     return (
-                      <div key={item.name} className="nav-item opacity-40 cursor-not-allowed" title="Configurado por el equipo de implementación">
+                      <div key={item.name} className={`nav-item opacity-40 cursor-not-allowed ${sidebarCollapsed ? 'justify-center px-0' : ''}`} title={sidebarCollapsed ? item.name : "Configurado por el equipo de implementación"}>
                         <item.icon className="w-5 h-5" />
-                        <span className="flex-1">{item.name}</span>
-                        <Lock className="w-3.5 h-3.5 text-amber-400/70" />
+                        {!sidebarCollapsed && <span className="flex-1">{item.name}</span>}
+                        {!sidebarCollapsed && <Lock className="w-3.5 h-3.5 text-amber-400/70" />}
                       </div>
                     );
                   }
                   return (
-                    <Link key={item.name} href={item.href} onClick={() => setSidebarOpen(false)} className={`nav-item ${isActive ? 'active' : ''}`}>
+                    <Link key={item.name} href={item.href} onClick={() => setSidebarOpen(false)} className={`nav-item ${isActive ? 'active' : ''} ${sidebarCollapsed ? 'justify-center px-0' : ''}`} title={sidebarCollapsed ? item.name : ''}>
                       <item.icon className={`w-5 h-5 ${isActive ? 'text-[var(--accent-primary)]' : ''}`} />
-                      <span className="flex-1">{item.name}</span>
-                      {isActive && <ChevronRight className="w-4 h-4 text-[var(--accent-primary)]" />}
+                      {!sidebarCollapsed && <span className="flex-1">{item.name}</span>}
+                      {!sidebarCollapsed && isActive && <ChevronRight className="w-4 h-4 text-[var(--accent-primary)]" />}
                     </Link>
                   );
                 })}
               </nav>
 
               {/* User */}
-              <div className="p-4 border-t border-[var(--border-primary)]">
-                <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-white/5">
-                  <div className="avatar">{user?.name?.[0] || 'U'}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white truncate">{user?.name || 'Usuario'}</p>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`inline-block w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-emerald-400' : 'bg-blue-400'}`} />
-                      <p className="text-xs text-[var(--text-muted)] truncate">{roleLabel}</p>
-                    </div>
+              <div className={`${sidebarCollapsed ? 'px-2 py-3' : 'p-4'} border-t border-[var(--border-primary)]`}>
+                {sidebarCollapsed ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="avatar w-9 h-9 text-xs">{user?.name?.[0] || 'U'}</div>
+                    <button onClick={handleLogout} className="p-2 text-[var(--text-muted)] hover:text-white hover:bg-white/5 rounded-lg transition-all" title="Cerrar sesión">
+                      <LogOut className="w-4 h-4" />
+                    </button>
                   </div>
-                </div>
-                <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-[var(--text-muted)] hover:text-white hover:bg-white/5 rounded-xl transition-all">
-                  <LogOut className="w-5 h-5" /><span className="font-medium">Cerrar Sesión</span>
-                </button>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-white/5">
+                      <div className="avatar">{user?.name?.[0] || 'U'}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{user?.name || 'Usuario'}</p>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`inline-block w-1.5 h-1.5 rounded-full ${isAdmin ? 'bg-emerald-400' : 'bg-blue-400'}`} />
+                          <p className="text-xs text-[var(--text-muted)] truncate">{roleLabel}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-[var(--text-muted)] hover:text-white hover:bg-white/5 rounded-xl transition-all">
+                      <LogOut className="w-5 h-5" /><span className="font-medium">Cerrar Sesión</span>
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Soporte WhatsApp para addon de implementación */}
-              {hasImplementation && (
+              {hasImplementation && !sidebarCollapsed && (
                 <div className="px-4 pb-2">
                   <a href="https://wa.me/573118083993?text=Hola%2C%20necesito%20soporte%20con%20mi%20implementación" target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-500/15 border border-green-500/25 hover:bg-green-500/25 transition-all cursor-pointer">
@@ -413,11 +444,35 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
               )}
 
-              <div className="px-4 pb-4">
-                <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20">
-                  <img src="/bizonne.png" alt="Bizonne" className="w-5 h-5 rounded" />
-                  <span className="text-xs text-[var(--accent-primary)] font-medium">Powered by Bizonne</span>
+              {!sidebarCollapsed && (
+                <div className="px-4 pb-2">
+                  <div className="flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20">
+                    <img src="/bizonne.png" alt="Bizonne" className="w-5 h-5 rounded" />
+                    <span className="text-xs text-[var(--accent-primary)] font-medium">Powered by Bizonne</span>
+                  </div>
                 </div>
+              )}
+
+              {/* 📌 Toggle collapse button */}
+              <div className={`${sidebarCollapsed ? 'px-2' : 'px-4'} pb-4`}>
+                <button 
+                  onClick={() => {
+                    const next = !sidebarCollapsed;
+                    setSidebarCollapsed(next);
+                    try { localStorage.setItem('bizonne_sidebar_collapsed', String(next)); } catch {}
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--border-primary)] transition-all text-[var(--text-muted)] hover:text-white"
+                  title={sidebarCollapsed ? 'Expandir menú' : 'Colapsar menú'}
+                >
+                  {sidebarCollapsed ? (
+                    <ChevronRight className="w-4 h-4" />
+                  ) : (
+                    <>
+                      <Menu className="w-4 h-4" />
+                      <span className="text-xs font-medium">Ocultar menú</span>
+                    </>
+                  )}
+                </button>
               </div>
             </aside>
 

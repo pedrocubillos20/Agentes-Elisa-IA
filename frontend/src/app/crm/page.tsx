@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
-  Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText
+  Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText,
+  Flame, TrendingUp, Target, Star, ArrowUpRight, Filter
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -13,6 +14,65 @@ interface Conversation { id: string; recipientId: string; recipientName: string;
 
 // ❌ Sin etapas por defecto — se cargan de la base de conocimiento de cada línea
 const DEFAULT_STAGES: Stage[] = [];
+
+// 🔥 LEAD SCORING — Calificar leads automáticamente
+const ADVANCED_STAGES = ['confirmado', 'realizo_pedido', 'despachado', 'cotizado', 'en_cotizacion', 'agendamiento', 'pendiente_pago'];
+const MID_STAGES = ['interesado', 'pendiente_color', 'pendiente_talla', 'pendiente_calidad', 'pendiente_ciudad', 'pendiente_datos'];
+const COLD_STAGES = ['nuevo_contacto', 'saludo', 'new'];
+
+const calculateLeadScore = (conv: any, stages: Stage[]): { score: number; label: string; color: string; emoji: string; reasons: string[] } => {
+  let score = 0;
+  const reasons: string[] = [];
+
+  // 1. Stage progression (0-35 pts)
+  const stageIndex = stages.findIndex(s => s.id === conv.stage);
+  const stageTotal = stages.length || 1;
+  if (stageIndex >= 0) {
+    const stageProgress = ((stageIndex + 1) / stageTotal) * 35;
+    score += stageProgress;
+    if (stageProgress > 20) reasons.push('Avanzado en embudo');
+  }
+  // Bonus for advanced stages
+  if (ADVANCED_STAGES.some(s => conv.stage?.toLowerCase().includes(s))) { score += 15; reasons.push('Etapa de cierre'); }
+  else if (MID_STAGES.some(s => conv.stage?.toLowerCase().includes(s))) { score += 8; reasons.push('Etapa intermedia'); }
+
+  // 2. Context data completeness (0-25 pts)
+  const ctx = conv.contextData || {};
+  const ctxKeys = Object.keys(ctx).filter(k => ctx[k] && String(ctx[k]).trim() !== '');
+  if (ctxKeys.length >= 5) { score += 25; reasons.push('Datos completos'); }
+  else if (ctxKeys.length >= 3) { score += 15; reasons.push(`${ctxKeys.length} datos recopilados`); }
+  else if (ctxKeys.length >= 1) { score += 5; reasons.push('Datos parciales'); }
+
+  // Key data fields bonus
+  if (ctx.telefono || ctx.phone || ctx.celular) { score += 5; }
+  if (ctx.nombre || ctx.name) { score += 3; }
+  if (ctx.direccion || ctx.address || ctx.ciudad || ctx.city) { score += 3; }
+  if (ctx.total || ctx.precio || ctx.price || ctx.cantidad || ctx.quantity) { score += 5; reasons.push('Tiene datos de compra'); }
+  if (ctx.metodo_pago || ctx.payment) { score += 5; reasons.push('Método de pago definido'); }
+
+  // 3. Recent activity (0-15 pts)
+  if (conv.updatedAt) {
+    const hoursAgo = (Date.now() - new Date(conv.updatedAt).getTime()) / (1000 * 60 * 60);
+    if (hoursAgo < 1) { score += 15; reasons.push('Activo hace minutos'); }
+    else if (hoursAgo < 6) { score += 12; }
+    else if (hoursAgo < 24) { score += 8; reasons.push('Activo hoy'); }
+    else if (hoursAgo < 72) { score += 4; }
+  }
+
+  // 4. Has messages (0-5 pts)
+  if (conv.lastMessage && conv.lastMessage.length > 10) { score += 5; }
+
+  // 5. AI not paused = actively being worked (0-5 pts)
+  if (!conv.aiPaused) { score += 3; }
+
+  // Cap at 100
+  score = Math.min(100, Math.round(score));
+
+  // Classify
+  if (score >= 70) return { score, label: 'Caliente', color: 'text-red-400', emoji: '🔥', reasons };
+  if (score >= 40) return { score, label: 'Tibio', color: 'text-amber-400', emoji: '🟡', reasons };
+  return { score, label: 'Frío', color: 'text-blue-400', emoji: '🔵', reasons };
+};
 
 const STAGE_COLORS: Record<string, string> = {
   blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
@@ -26,7 +86,7 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 export default function CRMPage() {
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'clients' | 'products'>('pipeline');
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'leads' | 'clients' | 'products'>('pipeline');
   const [stages, setStages] = useState<Stage[]>(DEFAULT_STAGES);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [clients, setClients] = useState<any[]>([]);
@@ -35,6 +95,7 @@ export default function CRMPage() {
   const [user, setUser] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStage, setSelectedStage] = useState('');
+  const [leadFilter, setLeadFilter] = useState<'all' | 'hot' | 'warm' | 'cold'>('all');
   
   const [showMassMessage, setShowMassMessage] = useState(false);
   const [showClientModal, setShowClientModal] = useState(false);
@@ -315,6 +376,15 @@ export default function CRMPage() {
   const maxProducts = user?.effectiveLimits?.maxProducts || baseProdLimits[user?.plan || 'trial'] || 10;
   const canAddProduct = products.length < maxProducts;
 
+  // 🔥 Lead Scoring
+  const scoredLeads = conversations
+    .map(conv => ({ ...conv, leadScore: calculateLeadScore(conv, stages) }))
+    .sort((a, b) => b.leadScore.score - a.leadScore.score);
+  const hotLeads = scoredLeads.filter(l => l.leadScore.score >= 70);
+  const warmLeads = scoredLeads.filter(l => l.leadScore.score >= 40 && l.leadScore.score < 70);
+  const coldLeads = scoredLeads.filter(l => l.leadScore.score < 40);
+  const filteredLeads = leadFilter === 'hot' ? hotLeads : leadFilter === 'warm' ? warmLeads : leadFilter === 'cold' ? coldLeads : scoredLeads;
+
   // Verificar plan
   if (user && user.plan === 'starter' && !user.parentUserId) {
     return (
@@ -362,13 +432,13 @@ export default function CRMPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-[var(--border-primary)] pb-3 flex-shrink-0">
-        {(['pipeline', 'clients', 'products'] as const).map(tab => (
+        {(['pipeline', 'leads', 'clients', 'products'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === tab ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
             }`}>
-            {tab === 'pipeline' ? <LayoutGrid className="w-4 h-4" /> : tab === 'clients' ? <Users className="w-4 h-4" /> : <Package className="w-4 h-4" />}
-            {tab === 'pipeline' ? 'Pipeline' : tab === 'clients' ? 'Clientes' : 'Productos'}
+            {tab === 'pipeline' ? <LayoutGrid className="w-4 h-4" /> : tab === 'leads' ? <Target className="w-4 h-4" /> : tab === 'clients' ? <Users className="w-4 h-4" /> : <Package className="w-4 h-4" />}
+            {tab === 'pipeline' ? 'Pipeline' : tab === 'leads' ? `Leads (${hotLeads.length} 🔥)` : tab === 'clients' ? 'Clientes' : 'Productos'}
           </button>
         ))}
         {activeTab === 'pipeline' && (
@@ -510,6 +580,103 @@ export default function CRMPage() {
               </div>
             )}
             </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 🔥 LEADS CALIFICADOS */}
+      {activeTab === 'leads' && (
+        <div className="flex-1 flex flex-col gap-3 overflow-hidden">
+          {/* Score Summary */}
+          <div className="grid grid-cols-4 gap-3 flex-shrink-0">
+            <button onClick={() => setLeadFilter('all')} className={`p-3 rounded-xl border text-center transition-all ${leadFilter === 'all' ? 'border-[var(--accent-primary)]/50 bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
+              <div className="text-2xl font-black text-white">{scoredLeads.length}</div>
+              <div className="text-xs text-[var(--text-muted)]">Total</div>
+            </button>
+            <button onClick={() => setLeadFilter('hot')} className={`p-3 rounded-xl border text-center transition-all ${leadFilter === 'hot' ? 'border-red-500/50 bg-red-500/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
+              <div className="text-2xl font-black text-red-400">🔥 {hotLeads.length}</div>
+              <div className="text-xs text-red-400/70">Calientes</div>
+            </button>
+            <button onClick={() => setLeadFilter('warm')} className={`p-3 rounded-xl border text-center transition-all ${leadFilter === 'warm' ? 'border-amber-500/50 bg-amber-500/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
+              <div className="text-2xl font-black text-amber-400">🟡 {warmLeads.length}</div>
+              <div className="text-xs text-amber-400/70">Tibios</div>
+            </button>
+            <button onClick={() => setLeadFilter('cold')} className={`p-3 rounded-xl border text-center transition-all ${leadFilter === 'cold' ? 'border-blue-500/50 bg-blue-500/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
+              <div className="text-2xl font-black text-blue-400">🔵 {coldLeads.length}</div>
+              <div className="text-xs text-blue-400/70">Fríos</div>
+            </button>
+          </div>
+
+          {/* Leads List */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="space-y-2">
+              {filteredLeads
+                .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()))
+                .map((conv) => {
+                  const ls = conv.leadScore;
+                  const stage = stages.find(s => s.id === conv.stage);
+                  const ctx = conv.contextData || {};
+                  const ctxEntries = Object.entries(ctx).filter(([_, v]) => v && String(v).trim() !== '');
+                  return (
+                    <div key={conv.id} className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
+                      <div className="flex items-center gap-3">
+                        {/* Score Badge */}
+                        <div className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${
+                          ls.score >= 70 ? 'bg-red-500/20 border border-red-500/30' : ls.score >= 40 ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-blue-500/20 border border-blue-500/30'
+                        }`}>
+                          <span className="text-lg">{ls.emoji}</span>
+                          <span className={`text-[10px] font-black ${ls.color}`}>{ls.score}</span>
+                        </div>
+
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-white text-sm truncate">{conv.recipientName || conv.recipientId}</p>
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${STAGE_COLORS[stage?.color || 'blue']}`}>
+                              {stage?.label || conv.stage}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">{conv.lastMessage || 'Sin mensajes'}</p>
+                          {/* Context data preview */}
+                          {ctxEntries.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {ctxEntries.slice(0, 4).map(([k, v]) => (
+                                <span key={k} className="px-1.5 py-0.5 rounded bg-white/5 text-[9px] text-gray-400">
+                                  {k}: <span className="text-white">{String(v).slice(0, 20)}</span>
+                                </span>
+                              ))}
+                              {ctxEntries.length > 4 && <span className="text-[9px] text-gray-500">+{ctxEntries.length - 4} más</span>}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Score bar + reasons */}
+                        <div className="flex-shrink-0 text-right w-36">
+                          <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden mb-1">
+                            <div className={`h-full rounded-full transition-all ${
+                              ls.score >= 70 ? 'bg-red-500' : ls.score >= 40 ? 'bg-amber-500' : 'bg-blue-500'
+                            }`} style={{ width: `${ls.score}%` }} />
+                          </div>
+                          {ls.reasons.slice(0, 2).map((r, i) => (
+                            <p key={i} className="text-[9px] text-gray-500 truncate">{r}</p>
+                          ))}
+                        </div>
+
+                        {/* Action */}
+                        <a href={`/conversaciones?id=${conv.id}`} className="p-2 rounded-lg hover:bg-white/10 transition-all flex-shrink-0" title="Ver conversación">
+                          <ArrowUpRight className="w-4 h-4 text-[var(--accent-primary)]" />
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            {filteredLeads.length === 0 && (
+              <div className="text-center py-12 text-[var(--text-muted)]">
+                <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>No hay leads {leadFilter !== 'all' ? `${leadFilter === 'hot' ? 'calientes' : leadFilter === 'warm' ? 'tibios' : 'fríos'}` : ''}</p>
+              </div>
             )}
           </div>
         </div>

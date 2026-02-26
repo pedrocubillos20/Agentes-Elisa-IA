@@ -408,7 +408,7 @@ export default function CRMPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col gap-4 overflow-hidden">
+    <div className="h-[calc(100vh-120px)] flex flex-col gap-4 overflow-hidden max-w-full">
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
@@ -587,7 +587,7 @@ export default function CRMPage() {
 
       {/* 🔥 LEADS CALIFICADOS */}
       {activeTab === 'leads' && (
-        <div className="flex-1 flex flex-col gap-3 min-h-0">
+        <div className="flex-1 flex flex-col gap-3 min-h-0 overflow-x-hidden">
           {/* Score Summary */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 flex-shrink-0">
             <button onClick={() => setLeadFilter('all')} className={`px-3 py-2 rounded-xl border text-center transition-all ${leadFilter === 'all' ? 'border-[var(--accent-primary)]/50 bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
@@ -609,7 +609,7 @@ export default function CRMPage() {
           </div>
 
           {/* Leads List */}
-          <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 space-y-2">
             {filteredLeads
               .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()))
               .map((conv) => {
@@ -618,8 +618,8 @@ export default function CRMPage() {
                 const ctx = conv.contextData || {};
                 const ctxEntries = Object.entries(ctx).filter(([_, v]) => v && String(v).trim() !== '');
                 return (
-                  <div key={conv.id} className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
-                    <div className="flex items-center gap-3">
+                  <div key={conv.id} className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all overflow-hidden">
+                    <div className="flex items-center gap-3 overflow-hidden">
                       {/* Score Badge */}
                       <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${
                         ls.score >= 70 ? 'bg-red-500/20 border border-red-500/30' : ls.score >= 40 ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-blue-500/20 border border-blue-500/30'
@@ -629,10 +629,10 @@ export default function CRMPage() {
                       </div>
 
                       {/* Info */}
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 overflow-hidden">
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-white text-sm truncate">{conv.recipientName || conv.recipientId}</p>
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border flex-shrink-0 ${STAGE_COLORS[stage?.color || 'blue']}`}>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium border flex-shrink-0 whitespace-nowrap ${STAGE_COLORS[stage?.color || 'blue']}`}>
                             {stage?.label || conv.stage}
                           </span>
                         </div>
@@ -657,9 +657,9 @@ export default function CRMPage() {
 
                     {/* Context data - row below */}
                     {ctxEntries.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2 ml-14">
+                      <div className="flex flex-wrap gap-1 mt-2 ml-14 overflow-hidden">
                         {ctxEntries.slice(0, 3).map(([k, v]) => (
-                          <span key={k} className="px-1.5 py-0.5 rounded bg-white/5 text-[9px] text-gray-400">
+                          <span key={k} className="px-1.5 py-0.5 rounded bg-white/5 text-[9px] text-gray-400 truncate max-w-[150px]">
                             {k}: <span className="text-white">{String(v).slice(0, 15)}</span>
                           </span>
                         ))}

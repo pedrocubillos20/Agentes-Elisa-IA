@@ -1,15 +1,19 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
   BookOpen, Smartphone, Bot, Users, Calendar, MessageSquare,
   ChevronRight, ChevronDown, CheckCircle, Circle, ArrowRight,
   Wifi, Settings, Zap, Shield, Star, HelpCircle, Phone,
   BarChart3, Tag, UserPlus, FileText, Image, Mic,
-  Target, Layers, Bell, Send, ExternalLink, Copy, Check
+  Target, Layers, Bell, Send, ExternalLink, Copy, Check,
+  Flame, TrendingUp, Download, Upload, Package, Search,
+  Filter, Sparkles, Brain, Clock, AlertTriangle, RefreshCw,
+  LayoutGrid, Paintbrush, Key, CreditCard, Crown, Lock,
+  Rocket, MessageCircle, Hash, Globe, Database, Code
 } from 'lucide-react';
 
-const SUPPORT_WHATSAPP = '573213815105'; // Número de soporte
+const SUPPORT_WHATSAPP = '573213815105';
 
 interface StepProps {
   number: number;
@@ -21,9 +25,10 @@ interface StepProps {
   isOpen: boolean;
   onToggle: () => void;
   isCompleted?: boolean;
+  isNew?: boolean;
 }
 
-function Step({ number, title, description, icon: Icon, color, children, isOpen, onToggle, isCompleted }: StepProps) {
+function Step({ number, title, description, icon: Icon, color, children, isOpen, onToggle, isCompleted, isNew }: StepProps) {
   return (
     <div className={`rounded-2xl border transition-all ${isOpen ? `bg-${color}-500/5 border-${color}-500/30 shadow-lg` : 'bg-white/[0.04] border-white/10 hover:border-white/20 backdrop-blur-sm'}`}>
       <button onClick={onToggle} className="w-full flex items-center gap-4 p-5 text-left">
@@ -40,44 +45,46 @@ function Step({ number, title, description, icon: Icon, color, children, isOpen,
           <div className="flex items-center gap-2">
             <span className={`text-xs font-bold uppercase tracking-wider ${isCompleted ? 'text-emerald-400' : `text-${color}-400`}`}>Paso {number}</span>
             {isCompleted && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full">Completado</span>}
+            {isNew && <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full animate-pulse">✨ Nuevo</span>}
           </div>
           <h3 className="text-lg font-bold text-white mt-0.5">{title}</h3>
           <p className="text-sm text-gray-500 mt-0.5">{description}</p>
         </div>
         <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
-      
       {isOpen && (
         <div className="px-5 pb-6 pt-0">
-          <div className="ml-16 space-y-4">
-            {children}
-          </div>
+          <div className="ml-16 space-y-4">{children}</div>
         </div>
       )}
     </div>
   );
 }
 
-function SubStep({ icon: Icon, title, description }: { icon: any; title: string; description: string }) {
+function SubStep({ icon: Icon, title, description, isNew }: { icon: any; title: string; description: string; isNew?: boolean }) {
   return (
     <div className="flex items-start gap-3 p-3 rounded-xl bg-white/[0.06] border border-white/[0.08]">
       <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
         <Icon className="w-4 h-4 text-gray-400" />
       </div>
-      <div>
-        <p className="text-sm font-semibold text-white">{title}</p>
+      <div className="flex-1">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-white">{title}</p>
+          {isNew && <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full">Nuevo</span>}
+        </div>
         <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{description}</p>
       </div>
     </div>
   );
 }
 
-function InfoBox({ type = 'info', children }: { type?: 'info' | 'warning' | 'tip' | 'example'; children: React.ReactNode }) {
-  const styles = {
-    info: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', icon: HelpCircle, color: 'text-blue-400', label: 'ℹ️ Información' },
-    warning: { bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: Bell, color: 'text-amber-400', label: '⚠️ Importante' },
-    tip: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: Zap, color: 'text-emerald-400', label: '💡 Tip' },
-    example: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', icon: FileText, color: 'text-purple-400', label: '📋 Ejemplo' }
+function InfoBox({ type = 'info', children }: { type?: 'info' | 'warning' | 'tip' | 'example' | 'important'; children: React.ReactNode }) {
+  const styles: Record<string, any> = {
+    info: { bg: 'bg-blue-500/10', border: 'border-blue-500/20', color: 'text-blue-400', label: 'ℹ️ Información' },
+    warning: { bg: 'bg-amber-500/10', border: 'border-amber-500/20', color: 'text-amber-400', label: '⚠️ Importante' },
+    tip: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', color: 'text-emerald-400', label: '💡 Tip' },
+    example: { bg: 'bg-purple-500/10', border: 'border-purple-500/20', color: 'text-purple-400', label: '📋 Ejemplo' },
+    important: { bg: 'bg-red-500/10', border: 'border-red-500/20', color: 'text-red-400', label: '🔴 Crítico' }
   };
   const s = styles[type];
   return (
@@ -101,12 +108,28 @@ function CodeBlock({ text }: { text: string }) {
   );
 }
 
+function NeedHelpBanner({ step, context }: { step: string; context: string }) {
+  return (
+    <div className="flex items-start gap-3 p-4 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/5 border border-amber-500/20">
+      <div className="w-9 h-9 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+        <Zap className="w-5 h-5 text-amber-400" />
+      </div>
+      <div className="flex-1">
+        <p className="text-sm font-bold text-white mb-1">¿Necesitas ayuda con este paso?</p>
+        <p className="text-xs text-gray-400 mb-2">Nuestro equipo configura todo por ti. Agenda una videollamada gratis.</p>
+        <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(`¡Hola! Necesito ayuda con: ${step}. ${context}. Quiero agendar una videollamada 🚀`)}`}
+          target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-lg text-xs hover:brightness-110 transition-all">
+          <Phone className="w-3.5 h-3.5" /> Solicitar Implementación
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function GuiaPage() {
   const [openStep, setOpenStep] = useState(0);
-
-  const toggleStep = (index: number) => {
-    setOpenStep(openStep === index ? -1 : index);
-  };
+  const toggleStep = (index: number) => { setOpenStep(openStep === index ? -1 : index); };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -118,364 +141,268 @@ export default function GuiaPage() {
         <h1 className="text-3xl md:text-4xl font-black text-white mb-3">
           Guía de <span className="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">Bizonne</span>
         </h1>
-        <p className="text-gray-400 text-lg max-w-xl mx-auto">
-          Configura tu asistente de IA paso a paso y empieza a automatizar tu negocio por WhatsApp
-        </p>
-        <div className="flex items-center justify-center gap-4 mt-6">
-          <span className="text-xs text-gray-600 flex items-center gap-1.5">
-            <Circle className="w-3 h-3" /> 5 pasos
-          </span>
+        <p className="text-gray-400 text-lg max-w-xl mx-auto">Configura tu asistente de IA paso a paso y empieza a automatizar tu negocio por WhatsApp</p>
+        <div className="flex items-center justify-center gap-4 mt-6 flex-wrap">
+          <span className="text-xs text-gray-600 flex items-center gap-1.5"><Circle className="w-3 h-3" /> 5 pasos</span>
           <span className="text-xs text-gray-600">•</span>
-          <span className="text-xs text-gray-600 flex items-center gap-1.5">
-            <Circle className="w-3 h-3" /> ~15 minutos
-          </span>
+          <span className="text-xs text-gray-600 flex items-center gap-1.5"><Clock className="w-3 h-3" /> ~15 minutos</span>
+          <span className="text-xs text-gray-600">•</span>
+          <span className="text-xs text-amber-400 flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> Actualizado</span>
         </div>
       </div>
 
-      {/* Steps */}
+      {/* Key concept */}
+      <div className="rounded-2xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 p-5">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+            <Brain className="w-6 h-6 text-blue-400" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white mb-1">🧠 La Base de Conocimiento es el cerebro de todo</h3>
+            <p className="text-sm text-gray-400 leading-relaxed">
+              Todo en Bizonne se configura desde la <strong className="text-white">Base de Conocimiento</strong> de tu asistente IA: 
+              las etapas del pipeline, los triggers automáticos, el CRM, agendamiento, pedidos y reservas. 
+              <strong className="text-blue-300"> Un prompt preciso con toda la información = un asistente perfecto.</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="space-y-4">
-        
         {/* ===== PASO 1: CONECTAR WHATSAPP ===== */}
-        <Step
-          number={1}
-          title="Conectar WhatsApp"
-          description="Vincula tu número de WhatsApp para que el asistente pueda responder"
-          icon={Smartphone}
-          color="emerald"
-          isOpen={openStep === 0}
-          onToggle={() => toggleStep(0)}>
-          
-          <SubStep icon={ArrowRight} title="1. Ve a la sección WhatsApp" 
-            description="En el menú lateral haz click en 'WhatsApp'. Verás tu panel de líneas." />
-          
-          <SubStep icon={Wifi} title="2. Escanea el código QR" 
-            description="Haz click en 'Conectar' y te aparecerá un código QR. Abre WhatsApp en tu celular → Menú (⋮) → Dispositivos vinculados → Vincular dispositivo → Escanea el QR." />
-          
-          <SubStep icon={CheckCircle} title="3. Confirma la conexión" 
-            description="Espera unos segundos y verás el estado cambiar a 'Conectado' en verde. ¡Tu línea ya está lista!" />
-
-          <InfoBox type="tip">
-            <strong>Multi-línea:</strong> Si tienes el plan Business puedes agregar líneas ilimitadas con el botón <strong>+ Nueva Línea</strong>. Cada línea puede tener su propio asistente IA y número de WhatsApp.
-          </InfoBox>
-
-          <InfoBox type="warning">
-            No cierres sesión en tu celular. La conexión se mantiene mientras tu WhatsApp esté vinculado. Si pierdes conexión, simplemente vuelve a escanear el QR.
-          </InfoBox>
-
+        <Step number={1} title="Conectar WhatsApp" description="Vincula tu número de WhatsApp para que el asistente pueda responder"
+          icon={Smartphone} color="emerald" isOpen={openStep === 0} onToggle={() => toggleStep(0)}>
+          <SubStep icon={ArrowRight} title="1. Ve a la sección WhatsApp" description="En el menú lateral haz click en 'WhatsApp'. Verás tu panel de líneas. Si no tienes línea, haz click en '+ Nueva Línea'." />
+          <SubStep icon={Wifi} title="2. Escanea el código QR" description="Haz click en 'Conectar' y te aparecerá un código QR. Abre WhatsApp en tu celular → Menú (⋮) → Dispositivos vinculados → Vincular dispositivo → Escanea el QR." />
+          <SubStep icon={CheckCircle} title="3. Confirma la conexión" description="Espera unos segundos y verás el estado cambiar a 'Conectado' en verde. ¡Tu línea ya está lista!" />
+          <InfoBox type="tip"><strong>Multi-línea:</strong> Con el plan Business puedes agregar líneas ilimitadas. Cada línea tiene su propio asistente IA y número de WhatsApp.</InfoBox>
+          <InfoBox type="warning">No cierres sesión en tu celular. Si pierdes conexión, simplemente vuelve a escanear el QR.</InfoBox>
           <div className="pt-2">
             <Link href="/whatsapp" className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-sm font-semibold hover:bg-emerald-500/30 transition">
               <Smartphone className="w-4 h-4" /> Ir a WhatsApp <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+          <NeedHelpBanner step="Conectar WhatsApp" context="No logro vincular mi número" />
         </Step>
 
-        {/* ===== PASO 2: CONFIGURAR ASISTENTE IA ===== */}
-        <Step
-          number={2}
-          title="Configurar el Asistente de IA"
-          description="Personaliza cómo responde tu agente virtual con toda la información de tu negocio"
-          icon={Bot}
-          color="blue"
-          isOpen={openStep === 1}
-          onToggle={() => toggleStep(1)}>
-          
-          <SubStep icon={ArrowRight} title="1. Ve a Asistentes IA" 
-            description="En el menú lateral haz click en 'Asistentes IA'. Verás el editor del asistente." />
-          
-          <SubStep icon={FileText} title="2. Escribe la Base de Conocimiento" 
-            description="Este es el cerebro de tu asistente. Escribe TODO sobre tu negocio: productos, precios, métodos de pago, horarios, envíos, promociones, etc." />
-
-          <InfoBox type="info">
-            Puedes usar formato <strong>Markdown</strong> (recomendado) o <strong>JSON</strong>. El formato Markdown es más fácil de escribir y entender.
-          </InfoBox>
-
+        {/* ===== PASO 2: BASE DE CONOCIMIENTO ===== */}
+        <Step number={2} title="Configurar el Asistente de IA" description="La base de conocimiento define TODO: pipeline, triggers, CRM, agendamiento, pedidos"
+          icon={Bot} color="blue" isOpen={openStep === 1} onToggle={() => toggleStep(1)}>
+          <InfoBox type="important"><strong>Este es el paso más importante.</strong> La base de conocimiento define cómo responde el bot, las etapas del CRM, qué datos recopila, cuándo envía multimedia, triggers, agendamiento y pedidos. Mientras más preciso y completo, mejor funciona todo.</InfoBox>
+          <SubStep icon={ArrowRight} title="1. Ve a Asistentes IA" description="En el menú lateral haz click en 'Asistentes IA'. Verás el editor con pestañas: Base de Conocimiento, Multimedia, Auto-Aprendizaje y Voz." />
+          <SubStep icon={FileText} title="2. Escribe la Base de Conocimiento" description="Escribe TODO sobre tu negocio: identidad, productos, precios, pagos, horarios, envíos, etapas del pipeline, triggers y reglas. Este es el cerebro completo del asistente." />
           <InfoBox type="example">
-            <p className="mb-2"><strong>Ejemplo de Base de Conocimiento (adaptable a cualquier negocio):</strong></p>
+            <p className="mb-2"><strong>Ejemplo de Base de Conocimiento COMPLETA:</strong></p>
             <CodeBlock text={`# MI NEGOCIO - ASISTENTE VIRTUAL
 
 ## 🎭 IDENTIDAD
 Eres el asistente virtual de **[Tu Negocio]**.
-
-**Tu personalidad:**
 - Vendedor estratégico y directo
 - Hablas natural, humano y cercano
 - Siempre usas emojis
-- Respuestas cortas en líneas separadas
-- Orientado a cerrar ventas / agendar citas
+- Respuestas cortas, orientado a cerrar ventas
 
 ## 🛍️ PRODUCTOS / SERVICIOS Y PRECIOS
-- [Producto/Servicio A] → $XX.XXX
-- [Producto/Servicio B] → $XX.XXX
-- [Producto/Servicio C] → $XX.XXX
+- [Producto A] → $XX.XXX
+- [Producto B] → $XX.XXX
+(Incluye variantes, tallas, colores, planes)
 
 ## 📦 ENVÍOS / ENTREGAS
 - Envío nacional: $12.000 (3-5 días)
 - Envío gratis en compras +$200.000
-- (O si es servicio: agenda de citas disponibles)
 
 ## 💳 MÉTODOS DE PAGO
-- Efectivo / Nequi / Daviplata
-- Transferencia bancaria
-- Tarjeta (+5% recargo)
-- Contra-entrega
+- Nequi / Daviplata / Transferencia / Contra-entrega
 
-## 🎯 ETAPAS DEL PIPELINE
-- Nuevo Contacto → Cliente escribió
-- Interesado → Preguntando por producto/servicio
+## 🎯 ETAPAS DEL PIPELINE (CRM)
+- Nuevo Contacto → Cliente acaba de escribir
+- Interesado → Preguntando por producto
 - En Cotización → Revisando precios
-- Realizó Pedido → Confirmó compra/cita
+- Pendiente Datos → Falta info (talla, color, ciudad)
+- Realizó Pedido → Confirmó compra
 - Confirmado → Todo listo
 - Perdido → No le interesó
 
+## 🔄 TRIGGERS AUTOMÁTICOS
+- Saludo → Presentarse y preguntar en qué ayudar
+- Precio → Enviar catálogo de precios
+- Pedido confirmado → Pedir datos de envío
+- "catálogo" → Enviar imágenes de productos
+
+## 📅 AGENDAMIENTO (si aplica)
+- Horarios: Lunes a Viernes 9am-6pm
+- Tipos: Consulta / Asesoría / Reunión
+- Pedir: fecha, hora, nombre, teléfono
+
+## 📊 DATOS A RECOPILAR
+- nombre, teléfono, ciudad (obligatorios)
+- dirección, producto, talla, color, método_pago
+
 ## ⚠️ REGLAS
 - NUNCA inventar precios
-- SIEMPRE pedir nombre del cliente
-- Guiar hacia la compra/cita paso a paso`} />
+- SIEMPRE pedir nombre primero
+- Guiar paso a paso hacia la compra/cita`} />
           </InfoBox>
-
-          <SubStep icon={Target} title="3. Configura las Etapas del CRM" 
-            description="Las etapas definen el flujo de venta. El asistente detecta automáticamente en qué etapa está cada cliente y lo mueve por el embudo." />
-
-          <InfoBox type="tip">
-            Puedes hacer click en <strong>"Detectar Etapas"</strong> en el CRM y el sistema leerá tu base de conocimiento para crear las etapas automáticamente. O puedes definirlas manualmente.
-          </InfoBox>
-
-          <SubStep icon={Image} title="4. Agrega Multimedia (opcional)" 
-            description="Ve a la pestaña 'Multimedia' para subir imágenes de productos, catálogos o videos. El bot puede enviarlos cuando un cliente pregunte." />
-
-          <SubStep icon={Mic} title="5. Voz con ElevenLabs (opcional)" 
-            description="En la pestaña 'Voz' puedes conectar ElevenLabs para que el asistente envíe notas de voz con una voz personalizada." />
-
-          <SubStep icon={Settings} title="6. Asigna el asistente a una línea" 
-            description="Ve a WhatsApp → en la tarjeta de tu línea verás un ícono de lápiz. Edita la línea y selecciona el asistente que acabas de configurar." />
-
-          <InfoBox type="warning">
-            <strong>Importante:</strong> Después de escribir tu base de conocimiento, haz click en <strong>"Guardar Todo"</strong> (botón verde arriba a la derecha). Sin guardar, los cambios se pierden.
-          </InfoBox>
-
+          <SubStep icon={Target} title="3. Define Etapas del Pipeline" description="Las etapas en la base de conocimiento se detectan automáticamente. El CRM las usa para organizar conversaciones." isNew />
+          <SubStep icon={Zap} title="4. Define Triggers Automáticos" description="Acciones automáticas: enviar imagen al preguntar catálogo, mover etapa al confirmar pedido, etc." isNew />
+          <SubStep icon={Image} title="5. Multimedia (opcional)" description="Sube imágenes, catálogos, PDFs o videos en la pestaña 'Multimedia'. El bot los envía cuando un cliente pregunta." />
+          <SubStep icon={Mic} title="6. Voz con ElevenLabs (opcional)" description="Conecta ElevenLabs para notas de voz con voz humana personalizada." />
+          <SubStep icon={Brain} title="7. Auto-Aprendizaje" description="El asistente analiza conversaciones reales y sugiere mejoras. Aprueba o rechaza cada sugerencia." isNew />
+          <SubStep icon={Settings} title="8. Asigna asistente a la línea" description="Ve a WhatsApp → edita tu línea → selecciona el asistente configurado." />
+          <InfoBox type="warning"><strong>Después de escribir la base de conocimiento, haz click en "Guardar Todo"</strong> (botón verde). Sin guardar, los cambios se pierden.</InfoBox>
           <div className="pt-2">
             <Link href="/asistentes" className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-500/20 border border-blue-500/30 text-blue-300 rounded-xl text-sm font-semibold hover:bg-blue-500/30 transition">
               <Bot className="w-4 h-4" /> Ir a Asistentes IA <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+          <NeedHelpBanner step="Configurar Asistente IA" context="No sé cómo escribir la base de conocimiento" />
         </Step>
 
-        {/* ===== PASO 3: CRM Y EMBUDO ===== */}
-        <Step
-          number={3}
-          title="CRM y Embudo de Ventas"
-          description="Gestiona tus clientes, pipeline y seguimiento automático"
-          icon={Users}
-          color="purple"
-          isOpen={openStep === 2}
-          onToggle={() => toggleStep(2)}>
-
-          <SubStep icon={Layers} title="1. Entiende el Pipeline" 
-            description="El CRM muestra todos tus chats organizados por etapas. Cada contacto se mueve automáticamente según la conversación con el bot." />
-
+        {/* ===== PASO 3: CRM + LEAD SCORING ===== */}
+        <Step number={3} title="CRM, Pipeline y Lead Scoring" description="Pipeline automático, leads 🔥🟡🔵, clientes, productos, mensajes masivos y exportación"
+          icon={Target} color="purple" isOpen={openStep === 2} onToggle={() => toggleStep(2)} isNew>
+          <InfoBox type="info">El CRM se alimenta de la <strong>Base de Conocimiento</strong>. Etapas, datos y calificación de leads — todo se genera desde tu configuración del asistente.</InfoBox>
+          <SubStep icon={Layers} title="1. Pipeline Automático" description="Conversaciones organizadas por etapas. El bot mueve cada contacto automáticamente por el embudo según la conversación." isNew />
+          <SubStep icon={Sparkles} title="2. Detectar Etapas" description="Click en 'Detectar Etapas' en el CRM. Lee la base de conocimiento y crea etapas automáticamente. También se sincronizan cada 60 segundos." isNew />
           <InfoBox type="example">
-            <p className="mb-2"><strong>Flujo automático del Pipeline (ejemplo genérico):</strong></p>
+            <p className="mb-2"><strong>Flujo del Pipeline:</strong></p>
             <div className="space-y-1.5 text-xs">
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gray-400" /> <strong>Nuevo Contacto</strong> → Cliente acaba de escribir</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-400" /> <strong>Interesado</strong> → Ya dio su nombre, preguntando por el producto/servicio</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> <strong>En Cotización</strong> → Preguntando precios, opciones, detalles</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-400" /> <strong>Pendiente Datos</strong> → Falta información para completar</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-orange-400" /> <strong>Realizó Pedido</strong> → Confirmó que quiere comprar/agendar</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-pink-400" /> <strong>Pendiente Pago</strong> → Eligiendo método de pago</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> <strong>Confirmado</strong> → Pedido o cita completa</div>
-              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-400" /> <strong>Perdido</strong> → No le interesó o no respondió</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gray-400" /> <strong>Nuevo Contacto</strong> → Acaba de escribir</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-400" /> <strong>Interesado</strong> → Preguntando</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-cyan-400" /> <strong>Cotización</strong> → Revisando precios</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-400" /> <strong>Pendiente</strong> → Falta info</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-orange-400" /> <strong>Pedido</strong> → Confirmó compra</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /> <strong>Confirmado</strong> → Listo</div>
+              <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-400" /> <strong>Perdido</strong> → No interesó</div>
             </div>
-            <p className="text-[10px] text-gray-500 mt-2 italic">💡 Estas etapas se adaptan a tu negocio. Puedes personalizarlas desde el CRM.</p>
+            <p className="text-[10px] text-gray-500 mt-2 italic">💡 Se adaptan a TU negocio según la base de conocimiento.</p>
           </InfoBox>
-
-          <SubStep icon={Target} title="2. Detectar Etapas automáticamente" 
-            description="Haz click en 'Detectar Etapas' en el CRM. El sistema lee tu base de conocimiento del asistente y crea las etapas del embudo automáticamente." />
-
-          <SubStep icon={Users} title="3. Pestaña 'Clientes'" 
-            description="Aquí se guardan los contactos como clientes formales con nombre, teléfono, email, dirección y notas. Puedes crear clientes manualmente o se crean desde las conversaciones." />
-
-          <SubStep icon={Tag} title="4. Pestaña 'Productos'" 
-            description="Si vendes productos, agrégalos aquí con nombre, precio, imagen y stock. El asistente puede consultarlos para dar información precisa." />
-
-          <SubStep icon={BarChart3} title="5. Filtrar y buscar" 
-            description="Usa los filtros de etapas arriba del pipeline para ver solo los clientes en cierta fase. La barra de búsqueda encuentra contactos por nombre." />
-
-          <InfoBox type="tip">
-            Activa el <strong>Auto-refresh</strong> (botón verde arriba a la derecha) para que el pipeline se actualice solo cada pocos segundos sin recargar la página.
-          </InfoBox>
-
+          <SubStep icon={Flame} title="3. Lead Scoring (🔥 Caliente / 🟡 Tibio / 🔵 Frío)" description="Puntuación 0-100 basada en: avance en embudo, datos recopilados, actividad reciente y completitud. Prioriza leads calientes para cerrar." isNew />
+          <SubStep icon={Users} title="4. Clientes" description="Contactos formales con nombre, teléfono, email, dirección, notas y etiquetas (VIP, Frecuente)." />
+          <SubStep icon={Send} title="5. Mensajes Masivos" description="Envía texto, imágenes, audios o archivos a todos los contactos de una etapa o a todos tus clientes." isNew />
+          <SubStep icon={Download} title="6. Exportar a Excel" description="Descarga clientes como Excel profesional con colores y resumen." isNew />
+          <SubStep icon={Upload} title="7. Importar CSV" description="Sube CSV con columnas: nombre, telefono. Detecta duplicados automáticamente." isNew />
+          <SubStep icon={Package} title="8. Productos" description="Nombre, descripción, precio, stock y categoría. El asistente consulta precios automáticamente." />
+          <SubStep icon={RefreshCw} title="9. Auto-refresh" description="Pipeline se actualiza cada 15s. Etapas cada 60s. Indicador verde confirma que está activo." isNew />
           <div className="pt-2">
             <Link href="/crm" className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-500/20 border border-purple-500/30 text-purple-300 rounded-xl text-sm font-semibold hover:bg-purple-500/30 transition">
-              <Users className="w-4 h-4" /> Ir al CRM <ArrowRight className="w-4 h-4" />
+              <LayoutGrid className="w-4 h-4" /> Ir al CRM <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+          <NeedHelpBanner step="CRM y Pipeline" context="Necesito ayuda con el embudo de ventas" />
         </Step>
 
         {/* ===== PASO 4: CONVERSACIONES ===== */}
-        <Step
-          number={4}
-          title="Gestionar Conversaciones"
-          description="Monitorea los chats, pausa la IA y responde manualmente cuando necesites"
-          icon={MessageSquare}
-          color="cyan"
-          isOpen={openStep === 3}
-          onToggle={() => toggleStep(3)}>
-
-          <SubStep icon={MessageSquare} title="1. Panel de Conversaciones" 
-            description="Aquí ves todos los chats en tiempo real. A la izquierda la lista de contactos, a la derecha el chat completo con el historial de mensajes." />
-
-          <SubStep icon={Bot} title="2. Pausar/Reactivar IA" 
-            description="Si necesitas responder personalmente, haz click en 'Pausar IA' en el chat. El bot dejará de responder y tú puedes escribir directamente. Cuando termines, reactívalo." />
-
-          <SubStep icon={UserPlus} title="3. Asignar a un vendedor" 
-            description="Con el plan Business puedes asignar chats a miembros de tu equipo. El vendedor asignado recibirá las notificaciones de ese chat." />
-
-          <SubStep icon={Send} title="4. Enviar mensajes manuales" 
-            description="Escribe en el campo de texto abajo del chat y presiona Enter o el botón de enviar. Puedes enviar texto, imágenes y archivos." />
-
-          <InfoBox type="info">
-            Los mensajes del bot aparecen con un ícono de robot 🤖 y los mensajes manuales con tu avatar. El cliente no distingue quién escribe.
-          </InfoBox>
-
+        <Step number={4} title="Gestionar Conversaciones" description="Chats en tiempo real, pausar IA, responder manualmente, asignar vendedores"
+          icon={MessageSquare} color="cyan" isOpen={openStep === 3} onToggle={() => toggleStep(3)}>
+          <SubStep icon={MessageSquare} title="1. Panel de Conversaciones" description="Lista de contactos a la izquierda, chat completo a la derecha. Notificaciones en tiempo real." />
+          <SubStep icon={Bot} title="2. Pausar/Reactivar IA" description="Click en 'Pausar IA' para responder personalmente. Reactiva cuando termines." />
+          <SubStep icon={UserPlus} title="3. Asignar vendedor" description="Plan Business: asigna chats a miembros del equipo con notificaciones." />
+          <SubStep icon={Send} title="4. Mensajes manuales" description="Envía texto, imágenes, audios, videos y archivos desde el chat." />
+          <SubStep icon={Database} title="5. Datos recopilados" description="Panel derecho muestra datos que el bot recopiló automáticamente." isNew />
+          <InfoBox type="info">Mensajes del bot = ícono 🤖. Mensajes manuales = tu avatar. <strong>El cliente no distingue quién escribe.</strong></InfoBox>
           <div className="pt-2">
             <Link href="/conversaciones" className="inline-flex items-center gap-2 px-5 py-2.5 bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 rounded-xl text-sm font-semibold hover:bg-cyan-500/30 transition">
               <MessageSquare className="w-4 h-4" /> Ir a Conversaciones <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+          <NeedHelpBanner step="Conversaciones" context="Necesito ayuda con la gestión de chats" />
         </Step>
 
-        {/* ===== PASO 5: AGENDA Y CITAS ===== */}
-        <Step
-          number={5}
-          title="Agenda y Citas"
-          description="Programa citas, seguimientos y pedidos con tu calendario integrado"
-          icon={Calendar}
-          color="orange"
-          isOpen={openStep === 4}
-          onToggle={() => toggleStep(4)}>
-
-          <SubStep icon={Calendar} title="1. Crear citas" 
-            description="Haz click en '+ Nueva Cita'. Selecciona el cliente, tipo de cita (consulta, pedido, seguimiento), fecha, hora y notas." />
-
-          <SubStep icon={Bell} title="2. Estados de citas" 
-            description="Las citas pueden estar: Pendiente (amarillo), Confirmada (verde), Completada (azul) o Cancelada (rojo). Actualiza el estado según avance." />
-
-          <SubStep icon={Users} title="3. Vincular con CRM" 
-            description="Al crear una cita puedes vincularla a un cliente del CRM. Así tienes el historial completo: chat + datos + citas en un solo lugar." />
-
-          <InfoBox type="tip">
-            El asistente de IA puede programar citas automáticamente si lo configuras en la base de conocimiento. Incluye frases como: "Si el cliente quiere agendar, pide fecha y hora preferida".
-          </InfoBox>
-
-          <div className="pt-2">
+        {/* ===== PASO 5: AGENDA Y PROGRAMADOS ===== */}
+        <Step number={5} title="Agenda, Citas y Programados" description="Citas automáticas por IA, seguimientos y mensajes programados"
+          icon={Calendar} color="orange" isOpen={openStep === 4} onToggle={() => toggleStep(4)}>
+          <SubStep icon={Calendar} title="1. Crear citas" description="+ Nueva Cita → cliente, tipo (consulta, pedido, seguimiento), fecha, hora, notas." />
+          <SubStep icon={Bot} title="2. Citas automáticas por IA" description="Si defines agendamiento en la base de conocimiento, el bot crea citas automáticamente." isNew />
+          <SubStep icon={Bell} title="3. Estados" description="Pendiente (amarillo), Confirmada (verde), Completada (azul), Cancelada (rojo)." />
+          <SubStep icon={Clock} title="4. Mensajes Programados" description="Crea mensajes que se envían automáticamente en fecha/hora específica. Ideal para seguimientos y campañas." isNew />
+          <SubStep icon={Users} title="5. Vincular con CRM" description="Citas se vinculan a clientes: historial completo en un solo lugar." />
+          <InfoBox type="tip">Incluye en la base de conocimiento: <strong>"Si el cliente quiere agendar, pide fecha y hora preferida"</strong>.</InfoBox>
+          <div className="flex gap-3 pt-2 flex-wrap">
             <Link href="/agenda" className="inline-flex items-center gap-2 px-5 py-2.5 bg-orange-500/20 border border-orange-500/30 text-orange-300 rounded-xl text-sm font-semibold hover:bg-orange-500/30 transition">
-              <Calendar className="w-4 h-4" /> Ir a Agenda <ArrowRight className="w-4 h-4" />
+              <Calendar className="w-4 h-4" /> Agenda <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link href="/programados" className="inline-flex items-center gap-2 px-5 py-2.5 bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-xl text-sm font-semibold hover:bg-amber-500/30 transition">
+              <Clock className="w-4 h-4" /> Programados <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+          <NeedHelpBanner step="Agenda y Citas" context="Necesito configurar agendamiento automático" />
         </Step>
 
         {/* ===== FUNCIONES ADICIONALES ===== */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-sm p-6">
-          <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4">
-            <Star className="w-5 h-5 text-amber-400" /> Funciones Adicionales
-          </h3>
+          <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4"><Star className="w-5 h-5 text-amber-400" /> Funciones Adicionales</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield className="w-4 h-4 text-blue-400" />
-                <span className="text-sm font-semibold text-white">Equipo y Roles</span>
+            {[
+              { icon: BarChart3, color: 'emerald', title: 'Dashboard Analítico', desc: 'Métricas en tiempo real: mensajes, pipeline, lead scoring, actividad por hora y tendencias.', href: '/dashboard', isNew: true },
+              { icon: Shield, color: 'blue', title: 'Equipo y Roles', desc: 'Invita vendedores, soporte y gerentes. Permisos por rol.', href: '/equipo' },
+              { icon: Brain, color: 'purple', title: 'Auto-Aprendizaje', desc: 'El asistente sugiere mejoras basadas en conversaciones reales.', href: '/asistentes', isNew: true },
+              { icon: Key, color: 'cyan', title: 'Config IA Avanzada', desc: 'API Key de OpenAI, modelo, temperatura y tokens.', href: '/ai-config', isNew: true },
+              { icon: Paintbrush, color: 'pink', title: 'Personalización', desc: 'Fondo de pantalla, app PWA instalable en celular y escritorio.' },
+              { icon: Globe, color: 'indigo', title: 'Integraciones', desc: 'Webhooks, APIs y servicios externos.', href: '/integraciones' },
+            ].map((f, i) => (
+              <div key={i} className="p-4 rounded-xl bg-white/5 border border-white/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <f.icon className={`w-4 h-4 text-${f.color}-400`} />
+                  <span className="text-sm font-semibold text-white">{f.title}</span>
+                  {f.isNew && <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full">Nuevo</span>}
+                </div>
+                <p className="text-xs text-gray-500">{f.desc}</p>
+                {f.href && <Link href={f.href} className={`text-[10px] text-${f.color}-400 mt-2 inline-block hover:underline`}>Ir →</Link>}
               </div>
-              <p className="text-xs text-gray-500">Invita vendedores, soporte y gerentes. Asigna permisos por rol para controlar qué puede ver cada uno.</p>
-              <Link href="/equipo" className="text-[10px] text-blue-400 mt-2 inline-block hover:underline">Ir a Equipo →</Link>
-            </div>
-            <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-              <div className="flex items-center gap-2 mb-2">
-                <BarChart3 className="w-4 h-4 text-emerald-400" />
-                <span className="text-sm font-semibold text-white">Dashboard</span>
+            ))}
+          </div>
+        </div>
+
+        {/* How it all works */}
+        <div className="rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/5 to-cyan-500/5 p-6">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2 mb-4"><Sparkles className="w-5 h-5 text-emerald-400" /> ¿Cómo funciona todo junto?</h3>
+          <div className="space-y-3 text-sm text-gray-300 leading-relaxed">
+            {[
+              ['1️⃣', 'Escribes la **Base de Conocimiento** con toda la info de tu negocio.'],
+              ['2️⃣', 'El **Asistente IA** responde automáticamente por WhatsApp.'],
+              ['3️⃣', 'Las **Etapas del Pipeline** se generan de la base de conocimiento.'],
+              ['4️⃣', 'El **Lead Scoring** califica cada lead (🔥🟡🔵) automáticamente.'],
+              ['5️⃣', 'Los **Datos del Cliente** se recopilan según lo que definas.'],
+              ['6️⃣', 'Tú solo **monitoreas el dashboard**, revisas leads calientes y cierras ventas.'],
+            ].map(([emoji, text], i) => (
+              <div key={i} className="flex items-start gap-3">
+                <span className="text-lg">{emoji}</span>
+                <p dangerouslySetInnerHTML={{ __html: text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-white">$1</strong>') }} />
               </div>
-              <p className="text-xs text-gray-500">Ve métricas en tiempo real: mensajes, conversaciones, embudo de ventas y actividad semanal.</p>
-              <Link href="/dashboard" className="text-[10px] text-emerald-400 mt-2 inline-block hover:underline">Ir a Dashboard →</Link>
-            </div>
-            <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-              <div className="flex items-center gap-2 mb-2">
-                <Zap className="w-4 h-4 text-purple-400" />
-                <span className="text-sm font-semibold text-white">Auto-Aprendizaje</span>
-              </div>
-              <p className="text-xs text-gray-500">El asistente sugiere mejoras basadas en conversaciones reales. Aprueba o rechaza sugerencias desde la pestaña Auto-Aprendizaje.</p>
-            </div>
-            <div className="p-4 rounded-xl bg-white/5 border border-white/5">
-              <div className="flex items-center gap-2 mb-2">
-                <Settings className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-semibold text-white">Configuración</span>
-              </div>
-              <p className="text-xs text-gray-500">Personaliza tu perfil, cambia contraseña y conecta tu API Key de OpenAI para el funcionamiento del asistente.</p>
-              <Link href="/configuracion" className="text-[10px] text-gray-400 mt-2 inline-block hover:underline">Ir a Configuración →</Link>
-            </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* ===== 🚀 BANNER IMPLEMENTACIÓN PROFESIONAL ===== */}
+      {/* ===== BANNER IMPLEMENTACIÓN ===== */}
       <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-rose-500/10">
-        {/* Efecto decorativo */}
         <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-amber-500/20 to-transparent rounded-full blur-3xl" />
         <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr from-orange-500/15 to-transparent rounded-full blur-3xl" />
-        
         <div className="relative p-6 md:p-8">
-          <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center border border-amber-500/30">
-                  <Zap className="w-5 h-5 text-amber-400" />
-                </div>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">Servicio Premium</span>
-              </div>
-              
-              <h3 className="text-xl md:text-2xl font-black text-white mb-2">
-                ¿No tienes tiempo o no sabes cómo configurar tu asistente?
-              </h3>
-              <p className="text-gray-400 text-sm leading-relaxed mb-4">
-                Nuestro equipo de expertos configura <strong className="text-white">toda la plataforma por ti</strong>. 
-                Te creamos el asistente de IA perfecto para tu negocio, con tu embudo de ventas, 
-                multimedia y toda la automatización funcionando.
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Asistente IA configurado a tu medida</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Pipeline y CRM personalizado</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Multimedia y catálogos incluidos</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Capacitación por videollamada</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Soporte prioritario 30 días</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-gray-300">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                  <span>Garantía de funcionamiento</span>
-                </div>
-              </div>
-
-              <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('¡Hola! Me interesa el servicio de implementación de Bizonne para mi negocio. Quiero agendar una videollamada para conocer los detalles y garantías 🚀')}`}
-                target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.02]">
-                <Phone className="w-5 h-5" /> Agendar Videollamada Gratis
-                <ArrowRight className="w-4 h-4" />
-              </a>
-              <p className="text-[10px] text-gray-600 mt-2">Te contactamos por WhatsApp para programar la reunión. Sin compromiso.</p>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/30 to-orange-500/30 flex items-center justify-center border border-amber-500/30">
+              <Zap className="w-5 h-5 text-amber-400" />
             </div>
+            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">Servicio Premium</span>
           </div>
+          <h3 className="text-xl md:text-2xl font-black text-white mb-2">¿No tienes tiempo o no sabes cómo configurar?</h3>
+          <p className="text-gray-400 text-sm leading-relaxed mb-4">
+            Nuestro equipo configura <strong className="text-white">toda la plataforma por ti</strong>: asistente IA, pipeline, triggers, multimedia y toda la automatización.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
+            {['Asistente IA a tu medida', 'Pipeline personalizado', 'Triggers y automatización', 'Multimedia incluida', 'Capacitación videollamada', 'Soporte 30 días', 'Base de conocimiento optimizada', 'Garantía de funcionamiento'].map((item, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-gray-300">
+                <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" /><span>{item}</span>
+              </div>
+            ))}
+          </div>
+          <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('¡Hola! Me interesa la implementación de Bizonne para mi negocio. Quiero agendar una videollamada 🚀')}`}
+            target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold rounded-xl text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-amber-500/30 hover:scale-[1.02]">
+            <Phone className="w-5 h-5" /> Agendar Videollamada Gratis <ArrowRight className="w-4 h-4" />
+          </a>
+          <p className="text-[10px] text-gray-600 mt-2">Sin compromiso. Te contactamos por WhatsApp.</p>
         </div>
       </div>
 
@@ -487,18 +414,15 @@ Eres el asistente virtual de **[Tu Negocio]**.
           </div>
           <div className="flex-1 text-center md:text-left">
             <h3 className="text-xl font-bold text-white mb-1">¿Necesitas ayuda?</h3>
-            <p className="text-gray-400 text-sm">
-              Nuestro equipo de soporte está disponible para ayudarte con la configuración. Escríbenos por WhatsApp y te guiamos paso a paso.
-            </p>
+            <p className="text-gray-400 text-sm">Escríbenos por WhatsApp o usa el Chat en Vivo.</p>
           </div>
           <div className="flex gap-3 flex-shrink-0">
-            <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Necesito ayuda con mi cuenta de Bizonne 🤖')}`}
+            <a href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent('Hola! Necesito ayuda con Bizonne 🤖')}`}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-5 py-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl font-bold text-sm hover:bg-emerald-500/30 transition">
               <Phone className="w-4 h-4" /> WhatsApp
             </a>
-            <button
-              onClick={() => window.dispatchEvent(new Event('openLiveChat'))}
+            <button onClick={() => window.dispatchEvent(new Event('openLiveChat'))}
               className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-bold text-sm hover:brightness-110 transition-all hover:shadow-lg hover:shadow-cyan-500/30">
               <MessageSquare className="w-4 h-4" /> Chat en Vivo
             </button>

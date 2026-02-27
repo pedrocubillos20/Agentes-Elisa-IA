@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import Paywall from '../components/Paywall';
 import LiveChat from '../components/LiveChat';
+import OnboardingWizard from '../components/OnboardingWizard';
 import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
 import InstallApp from '../components/InstallApp';
 import { NotificationProvider, NotificationBellBadge } from '../components/NotificationSounds';
@@ -40,6 +41,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [selectedLine, setSelectedLine] = useState<any>(null);
   const [lineDropdownOpen, setLineDropdownOpen] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
   const [apiKeyError, setApiKeyError] = useState<any>(null);
   const [showApiKeyGuide, setShowApiKeyGuide] = useState(false);
   const [showWallpaper, setShowWallpaper] = useState(false);
@@ -68,6 +71,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   useEffect(() => { checkAuth(); }, [pathname]);
   useEffect(() => { if (user && !isAuthPage) fetchLines(); }, [user]);
+  
+  // 🧙 Verificar si necesita onboarding
+  useEffect(() => {
+    if (user && !isAuthPage) {
+      const setupDone = localStorage.getItem('bizonne_setup_complete');
+      const setupSkipped = localStorage.getItem('bizonne_setup_skipped');
+      
+      if (!setupDone) {
+        const skipTime = setupSkipped ? parseInt(setupSkipped) : 0;
+        const hoursSinceSkip = (Date.now() - skipTime) / (1000 * 60 * 60);
+        
+        if (!setupSkipped || hoursSinceSkip > 24) {
+          setShowOnboarding(true);
+        }
+      }
+    }
+  }, [user]);
   
   // 🔑 Verificar errores de API Key cada 30s
   useEffect(() => {
@@ -291,7 +311,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
         <NotificationProvider userId={user?.id}>
         <LineContext.Provider value={{ selectedLine, lines, switchLine, refreshLines: fetchLines }}>
-          <div id="bizonne-wrapper" className="min-h-screen flex">
+          <div id="bizonne-wrapper" className="h-[100dvh] flex overflow-hidden">
             {sidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
             {/* Sidebar */}
@@ -534,7 +554,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </aside>
 
             {/* Main */}
-            <main className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
+            <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
               <header className="sticky top-0 z-30 h-14 md:h-16 px-3 md:px-6 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-primary)]/80 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 text-[var(--text-muted)] hover:text-white">
@@ -621,7 +641,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </div>
                 </div>
               </header>
-              <div className="flex-1 p-3 md:p-6 lg:p-8 overflow-y-auto overflow-x-hidden">
+              <div className="flex-1 p-3 md:p-6 lg:p-8 overflow-y-auto overflow-x-hidden overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {/* 🔑 BANNER DE ERROR API KEY */}
                 {apiKeyError && pathname !== '/configuracion' && (
                   <div className="mb-6 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10 p-4">
@@ -870,6 +890,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {user && !isAuthPage && (
           <LiveChat user={user} />
         )}
+
+        {/* ===== ONBOARDING WIZARD ===== */}
+        {showOnboarding && user && !isAuthPage && (
+          <OnboardingWizard
+            user={user}
+            onComplete={() => {
+              setShowOnboarding(false);
+              setSetupComplete(true);
+            }}
+          />
+        )}
+
         </NotificationProvider>
       </body>
     </html>

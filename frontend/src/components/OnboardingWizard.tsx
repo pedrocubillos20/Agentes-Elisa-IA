@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
-  Smartphone, Bot, Users, Calendar, CheckCircle, Circle, ArrowRight,
-  Wifi, Settings, Zap, Shield, Star, Phone, BookOpen, Sparkles,
-  Rocket, Target, MessageSquare, ChevronRight, Loader2, RefreshCw,
-  Crown, AlertTriangle, X, PartyPopper, Gift, Trophy
+  Smartphone, Bot, CheckCircle, Circle, ArrowRight,
+  Zap, Shield, Phone, Sparkles,
+  Rocket, ChevronRight, Loader2, RefreshCw,
+  AlertTriangle, Trophy, Key, MessageSquare, DollarSign
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -15,9 +16,7 @@ const SUPPORT_WHATSAPP = '573213815105';
 interface SetupStatus {
   whatsappConnected: boolean;
   assistantConfigured: boolean;
-  knowledgeBaseReady: boolean;
-  stagesDetected: boolean;
-  firstConversation: boolean;
+  apiKeyConnected: boolean;
 }
 
 interface OnboardingWizardProps {
@@ -26,12 +25,11 @@ interface OnboardingWizardProps {
 }
 
 export default function OnboardingWizard({ user, onComplete }: OnboardingWizardProps) {
+  const router = useRouter();
   const [status, setStatus] = useState<SetupStatus>({
     whatsappConnected: false,
     assistantConfigured: false,
-    knowledgeBaseReady: false,
-    stagesDetected: false,
-    firstConversation: false,
+    apiKeyConnected: false,
   });
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
@@ -41,7 +39,7 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
 
   useEffect(() => {
     checkSetupStatus();
-    const interval = setInterval(checkSetupStatus, 15000); // Check every 15s
+    const interval = setInterval(checkSetupStatus, 15000);
     setTimeout(() => setAnimateIn(true), 100);
     return () => clearInterval(interval);
   }, []);
@@ -51,54 +49,43 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      const [linesRes, assistantsRes, stagesRes, convsRes] = await Promise.all([
+      const [linesRes, assistantRes, authRes] = await Promise.all([
         fetch(`${API_URL}/api/whatsapp/lines`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/assistants`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/stages?lineId=${localStorage.getItem('selectedLineId') || ''}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations?lineId=${localStorage.getItem('selectedLineId') || ''}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } }),
       ]);
 
       const linesData = linesRes.ok ? await linesRes.json() : { lines: [] };
-      const assistantsData = assistantsRes.ok ? await assistantsRes.json() : { assistants: [] };
-      const stagesData = stagesRes.ok ? await stagesRes.json() : { stages: [] };
-      const convsData = convsRes.ok ? await convsRes.json() : { conversations: [] };
+      const assistantData = assistantRes.ok ? await assistantRes.json() : { assistant: null };
+      const authData = authRes.ok ? await authRes.json() : { user: {} };
 
       const lines = linesData.lines || [];
-      const assistants = assistantsData.assistants || assistantsData || [];
-      const stages = stagesData.stages || [];
-      const conversations = convsData.conversations || [];
+
+      // FIX: API returns { assistant: {...} } not { assistants: [...] }
+      const assistant = assistantData.assistant || assistantData;
+      const assistantConfigured = !!(assistant && assistant.context && assistant.context.length > 50);
 
       const whatsappConnected = lines.some((l: any) => l.status === 'connected' || l.status === 'ready');
-      const assistantConfigured = Array.isArray(assistants) ? assistants.some((a: any) => a.context && a.context.length > 100) : false;
-      const knowledgeBaseReady = assistantConfigured; // Same check - KB is the context
-      const stagesDetected = stages.length >= 2;
-      const firstConversation = conversations.length > 0;
+      const apiKeyConnected = !!(authData.user?.apiKeyConnected);
 
-      const newStatus = {
-        whatsappConnected,
-        assistantConfigured,
-        knowledgeBaseReady,
-        stagesDetected,
-        firstConversation,
-      };
-
+      const newStatus = { whatsappConnected, assistantConfigured, apiKeyConnected };
       setStatus(newStatus);
 
       // Auto-advance to the first incomplete step
-      const steps = [whatsappConnected, assistantConfigured, stagesDetected];
-      const firstIncomplete = steps.findIndex(s => !s);
+      const stepsComplete = [whatsappConnected, assistantConfigured, apiKeyConnected];
+      const firstIncomplete = stepsComplete.findIndex(s => !s);
       if (firstIncomplete >= 0) {
         setCurrentStep(firstIncomplete);
       }
 
-      // Check if all required steps are complete (first 3 are mandatory)
-      if (whatsappConnected && assistantConfigured && stagesDetected) {
+      // All 3 steps complete → celebration → redirect to conversations
+      if (whatsappConnected && assistantConfigured && apiKeyConnected) {
         setShowCelebration(true);
-        // Save completion flag
         localStorage.setItem('bizonne_setup_complete', 'true');
         setTimeout(() => {
           onComplete();
-        }, 5000); // Show celebration for 5 seconds
+          router.push('/conversaciones');
+        }, 5000);
       }
     } catch (e) {
       console.error('Error checking setup:', e);
@@ -113,16 +100,17 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
     checkSetupStatus();
   };
 
-  const completedCount = [status.whatsappConnected, status.assistantConfigured, status.stagesDetected].filter(Boolean).length;
+  const completedCount = [status.whatsappConnected, status.assistantConfigured, status.apiKeyConnected].filter(Boolean).length;
   const totalSteps = 3;
   const progressPct = (completedCount / totalSteps) * 100;
 
-  // Celebration screen
+  // ═══════════════════════════════════════════
+  // 🎉 CELEBRATION SCREEN
+  // ═══════════════════════════════════════════
   if (showCelebration) {
     return (
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-xl">
         <div className="text-center max-w-lg p-8 animate-fade-in">
-          {/* Confetti effect */}
           <div className="relative">
             <div className="absolute -top-20 left-1/2 -translate-x-1/2 text-8xl animate-bounce">🎉</div>
             <div className="absolute -top-10 left-10 text-4xl animate-pulse delay-100">🎊</div>
@@ -135,41 +123,41 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
             <Trophy className="w-12 h-12 text-emerald-400" />
           </div>
           
-          <h1 className="text-4xl md:text-5xl font-black text-white mb-4">
-            ¡Felicitaciones! 🎉
-          </h1>
+          <h1 className="text-4xl md:text-5xl font-black text-white mb-4">¡Felicitaciones! 🎉</h1>
           <h2 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent mb-4">
-            Completaste la configuración
+            ¡Tu agente de IA está listo!
           </h2>
           <p className="text-gray-400 text-lg mb-6">
-            Tu asistente de IA está listo para atender clientes 24/7 por WhatsApp. 
-            ¡Empieza a vender más con inteligencia artificial!
+            Tu asistente de IA está activo y listo para atender clientes 24/7 por WhatsApp.<br />
+            ¡Disfruta de tu agente IA! 🚀
           </p>
 
-          <div className="flex items-center justify-center gap-3 mb-8">
+          <div className="flex items-center justify-center gap-3 mb-8 flex-wrap">
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
               <CheckCircle className="w-5 h-5 text-emerald-400" />
               <span className="text-sm text-emerald-300">WhatsApp conectado</span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
               <CheckCircle className="w-5 h-5 text-blue-400" />
-              <span className="text-sm text-blue-300">Asistente IA activo</span>
+              <span className="text-sm text-blue-300">Asistente IA configurado</span>
             </div>
             <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
               <CheckCircle className="w-5 h-5 text-purple-400" />
-              <span className="text-sm text-purple-300">CRM configurado</span>
+              <span className="text-sm text-purple-300">OpenAI conectado</span>
             </div>
           </div>
 
           <div className="flex items-center justify-center gap-1.5 text-sm text-gray-500">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Redirigiendo al dashboard...
+            <Loader2 className="w-4 h-4 animate-spin" /> Redirigiendo a conversaciones...
           </div>
         </div>
       </div>
     );
   }
 
+  // ═══════════════════════════════════════════
+  // ⏳ LOADING
+  // ═══════════════════════════════════════════
   if (loading) {
     return (
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-[#0a0a12]">
@@ -181,6 +169,9 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
     );
   }
 
+  // ═══════════════════════════════════════════
+  // 📋 STEPS DEFINITION
+  // ═══════════════════════════════════════════
   const steps = [
     {
       id: 'whatsapp',
@@ -193,11 +184,13 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
       btnText: 'Ir a WhatsApp',
       instructions: [
         'Haz click en "Ir a WhatsApp" para abrir el panel de líneas',
+        'Si no tienes línea, haz click en "+ Nueva Línea"',
         'Haz click en "Conectar" en tu línea de WhatsApp',
         'Abre WhatsApp en tu celular → Menú (⋮) → Dispositivos vinculados',
         'Escanea el código QR que aparece en pantalla',
         'Espera a que el estado cambie a "Conectado" (verde)',
       ],
+      extraInfo: null,
     },
     {
       id: 'assistant',
@@ -216,31 +209,36 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
         'Haz click en "Guardar Todo" (botón verde arriba a la derecha)',
         'Asigna el asistente a tu línea de WhatsApp en la sección WhatsApp',
       ],
+      extraInfo: null,
     },
     {
-      id: 'stages',
-      title: 'Pipeline y CRM',
-      description: 'Las etapas del embudo se generan automáticamente desde la base de conocimiento',
-      icon: Target,
+      id: 'apikey',
+      title: 'Conectar cuenta de OpenAI',
+      description: 'Conecta tu API Key de OpenAI para que el asistente funcione con inteligencia artificial',
+      icon: Key,
       color: 'purple',
-      completed: status.stagesDetected,
-      href: '/crm',
-      btnText: 'Ir al CRM',
+      completed: status.apiKeyConnected,
+      href: '/configuracion',
+      btnText: 'Ir a Configuración',
       instructions: [
-        'Primero asegúrate de que la base de conocimiento incluya las etapas del embudo',
-        'Ve al CRM y haz click en "Detectar Etapas"',
-        'El sistema leerá la base de conocimiento y creará las etapas automáticamente',
-        'Las conversaciones se organizarán por etapas en el pipeline',
-        'Los leads se clasifican automáticamente: 🔥 Caliente, 🟡 Tibio, 🔵 Frío',
+        'Ve a platform.openai.com/api-keys e inicia sesión con tu cuenta de Google (o crea una cuenta gratis)',
+        'Haz click en "Create new secret key" y copia la API Key que te genera',
+        'Vuelve a Bizonne → Configuración → pega la API Key en el campo "Nueva API Key"',
+        'Haz click en "Guardar API Key" y espera la verificación',
+        'Si la key es válida, verás "API Key configurada" en verde ✅',
       ],
+      extraInfo: 'openai',
     },
   ];
 
+  // ═══════════════════════════════════════════
+  // 🖥️ MAIN RENDER
+  // ═══════════════════════════════════════════
   return (
     <div className="fixed inset-0 z-[200] bg-[#0a0a12] overflow-y-auto">
       <div className={`max-w-3xl mx-auto px-4 py-8 transition-all duration-700 ${animateIn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
         
-        {/* Header */}
+        {/* ═══ HEADER ═══ */}
         <div className="text-center mb-10">
           <div className="w-20 h-20 bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 rounded-3xl mx-auto mb-5 flex items-center justify-center border border-emerald-500/20 shadow-lg shadow-emerald-500/10">
             <Rocket className="w-10 h-10 text-emerald-400" />
@@ -291,7 +289,7 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
           </button>
         </div>
 
-        {/* Steps */}
+        {/* ═══ STEPS ═══ */}
         <div className="space-y-4 mb-8">
           {steps.map((step, index) => {
             const Icon = step.icon;
@@ -334,7 +332,7 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
                   </div>
                   
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-xs font-bold uppercase tracking-wider ${
                         step.completed ? 'text-emerald-400' : isLocked ? 'text-gray-600' : `text-${step.color}-400`
                       }`}>
@@ -377,6 +375,42 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
                           </div>
                         ))}
                       </div>
+
+                      {/* OpenAI extra info */}
+                      {step.extraInfo === 'openai' && (
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-500/5 border border-blue-500/15">
+                            <Sparkles className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-semibold text-white mb-1">¿No tienes cuenta de OpenAI?</p>
+                              <p className="text-xs text-gray-400 mb-2">
+                                Créala gratis en segundos. Inicia sesión con tu cuenta de Google o email.
+                              </p>
+                              <a
+                                href="https://platform.openai.com/api-keys"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold"
+                              >
+                                <Key className="w-3.5 h-3.5" /> Ir a platform.openai.com →
+                              </a>
+                            </div>
+                          </div>
+
+                          <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/15">
+                            <DollarSign className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-semibold text-white mb-1">💰 ¿Cuánto cuesta OpenAI?</p>
+                              <p className="text-xs text-gray-400 leading-relaxed">
+                                ¡Es super barato! Puedes recargar <strong className="text-emerald-300">desde $5 USD en adelante</strong>. 
+                                Con $5 USD puedes tener miles de conversaciones con tus clientes. 
+                                El cobro es por uso real — solo pagas por los mensajes que el asistente envía. 
+                                La mayoría de negocios gastan menos de <strong className="text-emerald-300">$10 USD al mes</strong>.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Action button */}
                       <div className="flex items-center gap-3 pt-2">
@@ -421,7 +455,24 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
           })}
         </div>
 
-        {/* Implementation Banner */}
+        {/* ═══ WHAT HAPPENS AFTER ═══ */}
+        <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-r from-cyan-500/5 to-blue-500/5 p-6 mb-8">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+              <MessageSquare className="w-6 h-6 text-cyan-400" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white mb-1">¿Qué pasa después de completar los 3 pasos?</h3>
+              <p className="text-sm text-gray-400 leading-relaxed">
+                Al completar la configuración, tu asistente de IA empezará a <strong className="text-white">responder automáticamente</strong> por WhatsApp. 
+                Te redirigiremos a <strong className="text-cyan-300">Conversaciones</strong> donde podrás ver los chats en tiempo real, 
+                pausar la IA cuando quieras y gestionar todo tu negocio. ¡Disfruta de tu agente IA! 🚀
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ═══ IMPLEMENTATION BANNER ═══ */}
         <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-rose-500/10 mb-8">
           <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-amber-500/20 to-transparent rounded-full blur-3xl" />
           <div className="absolute bottom-0 left-0 w-32 h-32 bg-gradient-to-tr from-orange-500/15 to-transparent rounded-full blur-3xl" />
@@ -473,7 +524,7 @@ export default function OnboardingWizard({ user, onComplete }: OnboardingWizardP
           </div>
         </div>
 
-        {/* Skip for later (only for returning users or admins) */}
+        {/* Skip for later */}
         <div className="text-center pb-8">
           <button
             onClick={() => {

@@ -111,7 +111,6 @@ export default function CheckoutPage() {
   // ═══════════════════════════════════════════
   return (
     <div style={{
-      minHeight: '100vh',
       minHeight: '100dvh',
       background: 'linear-gradient(180deg, #0a0a1a 0%, #0f1b2d 100%)',
     }}>

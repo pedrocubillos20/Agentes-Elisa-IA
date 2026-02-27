@@ -256,8 +256,21 @@ const sendWahaMedia = async (session: string, chatId: string, media: any, captio
       else return false;
     }
 
-    // NOWEB: ALWAYS download external URLs and send as base64 (NOWEB can't fetch URLs)
+    // WEBJS: Can send URLs directly OR base64
+    // Try URL-based sending first (more efficient), fallback to base64
     if (!isBase64 && media.url) {
+      // WEBJS: Try sending URL directly first (saves bandwidth)
+      try {
+        const urlBody: any = { session, chatId, file: { url: media.url, filename: media.name || 'file' } };
+        if (caption) urlBody.caption = caption;
+        const endpointMap: Record<string, string> = { image: '/api/sendImage', video: '/api/sendVideo' };
+        const ep = endpointMap[media.type] || '/api/sendFile';
+        const urlRes = await fetch(`${WAHA_API_URL}${ep}`, { method: 'POST', headers: getWahaHeaders(), body: JSON.stringify(urlBody) });
+        if (urlRes.ok) { log(`✅ ${media.type} enviado OK via URL directa (${ep})`); return true; }
+        log(`⚠️ URL directa falló (${urlRes.status}), descargando como base64...`);
+      } catch {}
+
+      // Fallback: Download and send as base64
       try {
         log(`📤 ${media.type}: descargando para enviar como base64...`);
         const mediaRes = await fetch(media.url);
@@ -294,7 +307,7 @@ const sendWahaMedia = async (session: string, chatId: string, media: any, captio
       return false;
     }
 
-    // NOWEB: sendFile works reliably for all media types
+    // WEBJS: sendFile works reliably for all media types
     const body: any = { session, chatId, file: fileData };
     if (caption) body.caption = caption;
 
@@ -3480,10 +3493,11 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
         body: JSON.stringify({
           name: line.sessionName,
           start: true,
-          config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] }
+          engine: 'WEBJS',
+          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }] }
         })
       });
-      log(`📱 Sesión WAHA creada: ${line.sessionName}`);
+      log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName}`);
     } else {
       const data = await check.json() as any;
       if (['STOPPED', 'FAILED'].includes(data.status)) {
@@ -3492,7 +3506,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
       // Actualizar webhooks
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
-        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] } })
+        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }] } })
       });
     }
     
@@ -3581,6 +3595,17 @@ router.get('/lines/:id/qr', async (req: Request, res: Response) => {
             res.json({ qr: null, available: false, connected: true, phone });
             return;
           }
+          // WEBJS: If status is SCAN_QR_CODE but qr endpoint failed, try screenshot
+          if (data.status === 'SCAN_QR_CODE' && !qrData) {
+            try {
+              const sr = await fetch(`${WAHA_API_URL}/api/screenshot?session=${line.sessionName}`, { headers: getWahaHeaders() });
+              if (sr.ok && sr.headers.get('content-type')?.includes('image')) {
+                const buf = Buffer.from(await sr.arrayBuffer());
+                qrData = `data:image/png;base64,${buf.toString('base64')}`;
+                log(`📱 QR obtenido via screenshot (WEBJS): ${line.sessionName}`);
+              }
+            } catch {}
+          }
         }
       } catch {}
     }
@@ -3665,13 +3690,14 @@ router.post('/connect', async (req: Request, res: Response) => {
         body: JSON.stringify({
           name: sessionName,
           start: true,
+          engine: 'WEBJS',
           config: {
-            webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }]
+            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }]
           }
         })
       });
       const createData = await createRes.json().catch(() => ({}));
-      log(`📱 Sesión creada: ${sessionName} (status: ${(createData as any).status || 'unknown'})`);
+      log(`📱 Sesión creada (WEBJS): ${sessionName} (status: ${(createData as any).status || 'unknown'})`);
       res.json({ success: true, message: 'Sesión creada', session: sessionName });
     } else {
       const data = await check.json() as any;
@@ -3707,7 +3733,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
     const sessionName = session.name;
     const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
     
-    // Actualizar configuración de la sesión con SOLO 'message' (no message.any)
+    // Actualizar configuración de la sesión con eventos WEBJS completos
     const updateRes = await fetch(`${WAHA_API_URL}/api/sessions/${sessionName}`, {
       method: 'PUT',
       headers: getWahaHeaders(),
@@ -3715,7 +3741,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
         config: {
           webhooks: [{ 
             url: webhookUrl, 
-            events: ['message', 'session.status']
+            events: ['message', 'message.any', 'session.status']
           }]
         }
       })
@@ -3729,7 +3755,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
       message: updateRes.ok ? 'Webhooks reconfigurados' : 'Error al reconfigurar',
       session: sessionName,
       webhookUrl,
-      events: ['message', 'session.status']
+      events: ['message', 'message.any', 'session.status']
     });
   } catch (e: any) {
     console.error('❌ Error reconfigurando:', e.message);
@@ -3811,8 +3837,9 @@ router.post('/send', async (req: Request, res: Response) => {
     if (!userId || !to || (!message && !mediaUrl)) { res.status(400).json({ error: 'Faltan datos' }); return; }
     const ownerId = await getOwnerId(userId);
     const cleanNumber = to.replace(/\D/g, '');
-    // LID numbers (>13 digits) need @lid suffix, regular phones use @c.us
-    const chatId = to.includes('@') ? to : cleanNumber.length > 13 ? `${cleanNumber}@lid` : `${cleanNumber}@c.us`;
+    // WEBJS: Always use @c.us (WEBJS doesn't use @lid)
+    // Keep @lid fallback only for legacy NOWEB sessions
+    const chatId = to.includes('@') ? to : `${cleanNumber}@c.us`;
 
     // 🔗 DETERMINAR SESIÓN/LÍNEA CORRECTA
     let sessionName: string | null = null;
@@ -4376,7 +4403,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
-    if (!event || event !== 'message') { res.json({ success: true }); return; }
+    if (!event || (event !== 'message' && event !== 'message.any')) { res.json({ success: true }); return; }
     
     // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):
     // - Guardar en DB si fue enviado manualmente desde el celular
@@ -4476,7 +4503,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
-    // 🔍 DETECT @lid FORMAT (WAHA Plus Linked IDs / NOWEB engine)
+    // 🔍 DETECT @lid FORMAT (NOWEB engine only — WEBJS uses @c.us with real phone numbers)
+    // Keep this for backward compatibility if NOWEB sessions still exist
     const isLid = from.includes('@lid') || (
       !from.includes('@g.us') && !from.includes('@c.us') && !from.includes('@s.whatsapp.net') &&
       from.replace(/\D/g, '').length > 13
@@ -5224,12 +5252,16 @@ export const startWahaSyncCron = () => {
             const data = await r.json() as any;
             const wahaStatus = data.status;
             const newStatus = ['WORKING', 'CONNECTED'].includes(wahaStatus) ? 'connected' : 'disconnected';
-            if (newStatus !== line.status) {
+            // WEBJS: Extract real phone from me.id (e.g. "573115184512@c.us")
+            const mePhone = data.me?.id?.replace('@c.us', '').replace('@s.whatsapp.net', '') || null;
+            const updateData: any = { status: newStatus };
+            if (mePhone && !line.phone) updateData.phone = mePhone;
+            if (newStatus !== line.status || (mePhone && !line.phone)) {
               await prisma.whatsappLine.update({
                 where: { id: line.id },
-                data: { status: newStatus }
+                data: updateData
               });
-              console.log(`🔄 Línea ${line.phone || line.sessionName}: ${line.status} → ${newStatus}`);
+              console.log(`🔄 Línea ${mePhone || line.phone || line.sessionName}: ${line.status} → ${newStatus}${mePhone && !line.phone ? ` (phone: ${mePhone})` : ''}`);
             }
           } else {
             // Session doesn't exist in WAHA → mark disconnected

@@ -225,12 +225,23 @@ const humanDelay = (textLength: number): Promise<void> => {
 const findMediaTrigger = (message: string, mediaItems: any[]): any | null => {
   if (!mediaItems?.length) return null;
   const norm = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Build all matches with word count for priority (more words = more specific = higher priority)
+  let bestMatch: any = null;
+  let bestWordCount = 0;
   for (const item of mediaItems) {
     if (!item.trigger) continue;
     const triggers = item.trigger.split(',').map((t: string) => t.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')).filter(Boolean);
-    for (const t of triggers) { if (t && norm.includes(t)) return item; }
+    for (const t of triggers) {
+      if (!t) continue;
+      const words = t.split(/\s+/).filter(Boolean);
+      const allMatch = words.every((w: string) => norm.includes(w));
+      if (allMatch && words.length > bestWordCount) {
+        bestMatch = item;
+        bestWordCount = words.length;
+      }
+    }
   }
-  return null;
+  return bestMatch;
 };
 
 // ===== SEND MEDIA via WAHA =====

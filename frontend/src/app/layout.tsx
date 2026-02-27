@@ -16,6 +16,7 @@ import OnboardingWizard from '../components/OnboardingWizard';
 import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
 import InstallApp from '../components/InstallApp';
 import { NotificationProvider, NotificationBellBadge } from '../components/NotificationSounds';
+import { PushNotificationManager } from '../components/PushNotificationManager';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573213815105';
@@ -632,6 +633,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   >
                     <Download className="w-4 h-4" />
                   </button>
+                  <PushNotificationManager compact />
                   <button className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
                     <Bell className="w-5 h-5" />
                     <NotificationBellBadge />

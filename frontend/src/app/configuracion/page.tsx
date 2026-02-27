@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Settings, Key, User, Shield, Save, CheckCircle, XCircle, Eye, EyeOff } from 'lucide-react';
+import { PushNotificationManager } from '../../components/PushNotificationManager';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -204,6 +205,11 @@ export default function ConfiguracionPage() {
             <li>4. Copia y pega aquí</li>
           </ol>
         </div>
+      </div>
+
+      {/* Push Notifications Card */}
+      <div className="card">
+        <PushNotificationManager />
       </div>
 
       {/* Footer */}

@@ -8,7 +8,7 @@ import {
   LayoutDashboard, MessageSquare, Settings, Bot, LogOut, Menu, X,
   Smartphone, Users, Calendar, Bell, Search, ChevronRight, Shield, CreditCard,
   ChevronDown, Wifi, Phone, Plus, Check, BookOpen, HelpCircle, Sparkles, Rocket,
-  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key, Paintbrush, Download
+  ExternalLink, Code, Lock, Zap, Clock, AlertTriangle, Key, Paintbrush, Download, LayoutGrid
 } from 'lucide-react';
 import Paywall from '../components/Paywall';
 import LiveChat from '../components/LiveChat';
@@ -241,6 +241,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants', featureKey: 'assistants', color: 'from-violet-500/20 to-violet-600/10 text-violet-400' },
     { name: 'CRM', href: '/crm', icon: Users, perm: 'crm', color: 'from-amber-500/20 to-amber-600/10 text-amber-400' },
     { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', color: 'from-rose-500/20 to-rose-600/10 text-rose-400' },
+    { name: 'Recursos', href: '/recursos', icon: LayoutGrid, perm: 'agenda', color: 'from-purple-500/20 to-purple-600/10 text-purple-400' },
     { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations', color: 'from-orange-500/20 to-orange-600/10 text-orange-400' },
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', featureKey: 'team', color: 'from-blue-500/20 to-blue-600/10 text-blue-400' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config', color: 'from-gray-500/20 to-gray-600/10 text-gray-400' },

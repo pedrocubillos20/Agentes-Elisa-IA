@@ -22,6 +22,8 @@ import ghlRoutes from './routes/ghl.routes';
 import aiConfigRoutes from './routes/ai-config.routes';
 import pushRoutes from './routes/push.routes';
 import paymentsRoutes from './routes/payments.routes';
+import gcalRoutes, { handleGCalCallback } from './routes/google-calendar.routes';
+import resourcesRoutes from './routes/resources.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -82,6 +84,7 @@ app.use((req, res, next) => {
 // ===== PUBLIC ROUTES =====
 app.use('/api/auth', authRoutes);
 app.use('/api/payments', paymentsRoutes); // Público — Wompi checkout + webhooks
+app.get('/api/gcal/callback', handleGCalCallback); // Google Calendar OAuth callback (public)
 
 // ===== WEBHOOKS (public, rate limited) =====
 app.post('/api/webhook/whatsapp', rateLimit(200, 1000), (req, res, next) => {
@@ -165,6 +168,8 @@ app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
 app.use('/api/ghl', authMiddleware, subscriptionMiddleware, apiRL, ghlRoutes);
 app.use('/api/ai-config', authMiddleware, subscriptionMiddleware, apiRL, aiConfigRoutes);
 app.use('/api/push', authMiddleware, pushRoutes);
+app.use('/api/gcal', authMiddleware, gcalRoutes);
+app.use('/api/resources', authMiddleware, subscriptionMiddleware, apiRL, resourcesRoutes);
 app.use('/api/v1', apiPublicRoutes);
 
 // ===== HEALTH + MONITORING =====

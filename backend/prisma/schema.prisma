@@ -35,6 +35,13 @@ model User {
   resetCode       String?                              // Código de 6 dígitos
   resetCodeExpires DateTime?                           // Expira en 15 minutos
   
+  // === GOOGLE CALENDAR ===
+  googleAccessToken   String?   @db.Text
+  googleRefreshToken  String?   @db.Text
+  googleTokenExpiry   DateTime?
+  googleCalendarId    String?
+  googleCalendarEmail String?
+  
   // === LEGACY COLUMNS (exist in DB) ===
   apiKeyEncrypted       String?
   evolutionInstanceKey  String?
@@ -63,6 +70,8 @@ model User {
   webhooks        UserWebhook[]
   mediaFiles      MediaFile[]
   pushSubscriptions PushSubscription[]
+  resources       Resource[]
+  businessSchedules BusinessSchedule[]
   ghlIntegration  GhlIntegration?
 
   @@index([parentUserId])
@@ -213,6 +222,9 @@ model Appointment {
   products        Json?
   total           Float?
   whatsappLineId  String?
+  googleEventId   String?
+  resourceId      String?
+  resourceName    String?
   
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -599,5 +611,39 @@ model PushSubscription {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, endpoint])
+  @@index([userId])
+}
+
+model Resource {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  type        String   @default("generic")
+  capacity    Int      @default(1)
+  isActive    Boolean  @default(true)
+  order       Int      @default(0)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model BusinessSchedule {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayOfWeek     Int
+  isOpen        Boolean  @default(true)
+  startTime     String   @default("08:00")
+  endTime       String   @default("18:00")
+  slotDuration  Int      @default(60)
+  breakStart    String?
+  breakEnd      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, dayOfWeek])
   @@index([userId])
 }

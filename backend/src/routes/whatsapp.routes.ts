@@ -1245,6 +1245,121 @@ REGLAS DE TRANSFERENCIA:
     }
 
 
+    // 📅 INYECTAR DISPONIBILIDAD REAL — Para que la IA ofrezca horarios reales
+    try {
+      const resources = await prisma.resource.findMany({
+        where: { userId: ownerId, isActive: true },
+        orderBy: { order: 'asc' }
+      });
+      const schedules = await prisma.businessSchedule.findMany({
+        where: { userId: ownerId },
+        orderBy: { dayOfWeek: 'asc' }
+      });
+
+      if (schedules.length > 0 || resources.length > 0) {
+        const today = new Date();
+        const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        
+        // Generate availability for today and next 3 days
+        const availabilityLines: string[] = [];
+        availabilityLines.push('=== 📅 DISPONIBILIDAD EN TIEMPO REAL (OBLIGATORIO CONSULTAR) ===');
+        
+        if (resources.length > 0) {
+          availabilityLines.push(`🏪 Recursos disponibles: ${resources.map(r => r.name).join(', ')} (${resources.length} total)`);
+        }
+
+        // Show schedule summary
+        const openDays = schedules.filter(s => s.isOpen);
+        if (openDays.length > 0) {
+          availabilityLines.push(`🕐 Horario: ${openDays.map(s => `${dayNames[s.dayOfWeek]}: ${s.startTime}-${s.endTime}`).join(' | ')}`);
+          availabilityLines.push(`⏱️ Duración por turno: ${openDays[0].slotDuration} min`);
+        }
+
+        // Check availability for today + next 3 days
+        for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
+          const checkDate = new Date(today);
+          checkDate.setDate(checkDate.getDate() + dayOffset);
+          const dateStr = checkDate.toISOString().split('T')[0];
+          const dayOfWeek = checkDate.getDay();
+          const daySchedule = schedules.find(s => s.dayOfWeek === dayOfWeek);
+
+          if (!daySchedule || !daySchedule.isOpen) {
+            availabilityLines.push(`❌ ${dayNames[dayOfWeek]} ${dateStr}: CERRADO`);
+            continue;
+          }
+
+          // Get appointments for this day
+          const dayStart = new Date(dateStr + 'T00:00:00');
+          const dayEnd = new Date(dateStr + 'T23:59:59');
+          const dayAppts = await prisma.appointment.findMany({
+            where: { userId: ownerId, date: { gte: dayStart, lte: dayEnd }, status: { notIn: ['cancelled'] } },
+            select: { time: true, duration: true, resourceId: true }
+          });
+
+          // Generate slots
+          const slotDur = daySchedule.slotDuration || 60;
+          const [sH, sM] = daySchedule.startTime.split(':').map(Number);
+          const [eH, eM] = daySchedule.endTime.split(':').map(Number);
+          const startMin = sH * 60 + sM;
+          const endMin = eH * 60 + eM;
+          let bStartMin = -1, bEndMin = -1;
+          if (daySchedule.breakStart && daySchedule.breakEnd) {
+            const [bsH, bsM] = daySchedule.breakStart.split(':').map(Number);
+            const [beH, beM] = daySchedule.breakEnd.split(':').map(Number);
+            bStartMin = bsH * 60 + bsM;
+            bEndMin = beH * 60 + beM;
+          }
+
+          const totalCap = resources.length || 1;
+          const freeSlots: string[] = [];
+          const fullSlots: string[] = [];
+
+          for (let m = startMin; m + slotDur <= endMin; m += slotDur) {
+            if (bStartMin >= 0 && m >= bStartMin && m < bEndMin) continue;
+            // Skip past hours for today
+            if (dayOffset === 0) {
+              const nowMin = today.getHours() * 60 + today.getMinutes();
+              if (m <= nowMin) continue;
+            }
+            const h = Math.floor(m / 60);
+            const min = m % 60;
+            const slot = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+
+            const overlapping = dayAppts.filter(a => {
+              if (!a.time) return false;
+              const [aH, aM] = a.time.split(':').map(Number);
+              const aStart = aH * 60 + aM;
+              const aEnd = aStart + (a.duration || slotDur);
+              return aStart < m + slotDur && aEnd > m;
+            });
+
+            const freeCount = totalCap - overlapping.length;
+            if (freeCount > 0) {
+              if (resources.length > 0) {
+                const freeR = resources.filter(r => !overlapping.some(a => a.resourceId === r.id));
+                freeSlots.push(`${slot}(${freeR.map(r => r.name).join(',')})`);
+              } else {
+                freeSlots.push(slot);
+              }
+            } else {
+              fullSlots.push(slot);
+            }
+          }
+
+          const label = dayOffset === 0 ? 'HOY' : dayOffset === 1 ? 'MAÑANA' : dayNames[dayOfWeek];
+          availabilityLines.push(`📅 ${label} ${dateStr}: ✅ Libres: ${freeSlots.length > 0 ? freeSlots.join(' | ') : 'NINGUNO'} ${fullSlots.length > 0 ? `| ❌ Llenos: ${fullSlots.join(',')}` : ''}`);
+        }
+
+        availabilityLines.push('⚠️ REGLAS: Solo ofrece horarios DISPONIBLES (✅). NUNCA ofrezcas horarios llenos (❌). Si no hay disponibilidad, sugiere otro día. Cuando confirmen cita/reserva, usa la acción correspondiente.');
+
+        promptParts.push(availabilityLines.join('\n'));
+        log(`📅 Disponibilidad inyectada: ${resources.length} recursos, ${schedules.length} horarios`);
+      }
+    } catch (availErr: any) {
+      log(`⚠️ Error cargando disponibilidad: ${availErr.message}`);
+    }
+
+
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
 
@@ -1839,7 +1954,7 @@ REGLAS DE TRANSFERENCIA:
                   const nombreCliente = merged.nombre || clientName || 'Cliente WhatsApp';
                   const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
 
-                  const appointmentData = {
+                  const appointmentData: any = {
                     userId: ownerId,
                     type: 'appointment',
                     clientName: nombreCliente,
@@ -1859,6 +1974,53 @@ REGLAS DE TRANSFERENCIA:
                     address: merged.direccion || merged.ciudad || '',
                     whatsappLineId: whatsappLineId || null
                   };
+
+                  // 🔗 AUTO-ASIGNAR RECURSO — Verificar disponibilidad real
+                  try {
+                    const activeResources = await prisma.resource.findMany({
+                      where: { userId: ownerId, isActive: true },
+                      orderBy: { order: 'asc' }
+                    });
+                    if (activeResources.length > 0) {
+                      const daySchedule = await prisma.businessSchedule.findFirst({
+                        where: { userId: ownerId, dayOfWeek: citaDate.getDay() }
+                      });
+                      const slotDur = daySchedule?.slotDuration || 60;
+                      const dateStr = citaDate.toISOString().split('T')[0];
+                      const dayStart = new Date(dateStr + 'T00:00:00');
+                      const dayEnd = new Date(dateStr + 'T23:59:59');
+                      
+                      const conflicting = await prisma.appointment.findMany({
+                        where: { userId: ownerId, date: { gte: dayStart, lte: dayEnd }, status: { notIn: ['cancelled'] } },
+                        select: { time: true, duration: true, resourceId: true }
+                      });
+                      
+                      const [tH, tM] = citaTime.split(':').map(Number);
+                      const reqStart = tH * 60 + tM;
+                      const overlapping = conflicting.filter(a => {
+                        if (!a.time) return false;
+                        const [aH, aM] = a.time.split(':').map(Number);
+                        const aStart = aH * 60 + aM;
+                        const aEnd = aStart + (a.duration || slotDur);
+                        return aStart < reqStart + slotDur && aEnd > reqStart;
+                      });
+                      
+                      const occupiedIds = overlapping.map(a => a.resourceId).filter(Boolean);
+                      const freeResource = activeResources.find(r => !occupiedIds.includes(r.id));
+                      
+                      if (freeResource) {
+                        appointmentData.resourceId = freeResource.id;
+                        appointmentData.resourceName = freeResource.name;
+                        appointmentData.duration = slotDur;
+                        log(`🔗 Recurso asignado: ${freeResource.name} (${freeResource.id})`);
+                      } else {
+                        log(`⚠️ Sin recursos libres para ${citaTime} — cita creada sin recurso`);
+                      }
+                    }
+                  } catch (resErr: any) {
+                    log(`⚠️ Error asignando recurso: ${resErr.message}`);
+                  }
+
                   await prisma.appointment.create({ data: appointmentData });
                   
                   // Marcar cita como creada
@@ -1973,7 +2135,7 @@ REGLAS DE TRANSFERENCIA:
                   const nombreClienR = merged.nombre || clientName || 'Cliente WhatsApp';
                   const phoneCleanR = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
 
-                  const reservaData = {
+                  const reservaData: any = {
                     userId: ownerId,
                     type: 'reservation',
                     clientName: nombreClienR,
@@ -2000,6 +2162,52 @@ REGLAS DE TRANSFERENCIA:
                     address: merged.direccion || merged.ciudad || '',
                     whatsappLineId: whatsappLineId || null
                   };
+
+                  // 🔗 AUTO-ASIGNAR RECURSO — Verificar disponibilidad real
+                  try {
+                    const activeResources = await prisma.resource.findMany({
+                      where: { userId: ownerId, isActive: true },
+                      orderBy: { order: 'asc' }
+                    });
+                    if (activeResources.length > 0) {
+                      const daySchedule = await prisma.businessSchedule.findFirst({
+                        where: { userId: ownerId, dayOfWeek: reservaDate.getDay() }
+                      });
+                      const slotDur = daySchedule?.slotDuration || duracionReserva;
+                      const dateStr = reservaDate.toISOString().split('T')[0];
+                      const dayStart = new Date(dateStr + 'T00:00:00');
+                      const dayEnd = new Date(dateStr + 'T23:59:59');
+                      
+                      const conflicting = await prisma.appointment.findMany({
+                        where: { userId: ownerId, date: { gte: dayStart, lte: dayEnd }, status: { notIn: ['cancelled'] } },
+                        select: { time: true, duration: true, resourceId: true }
+                      });
+                      
+                      const [tH, tM] = reservaTime.split(':').map(Number);
+                      const reqStart = tH * 60 + tM;
+                      const overlapping = conflicting.filter(a => {
+                        if (!a.time) return false;
+                        const [aH, aM] = a.time.split(':').map(Number);
+                        const aStart = aH * 60 + aM;
+                        const aEnd = aStart + (a.duration || slotDur);
+                        return aStart < reqStart + duracionReserva && aEnd > reqStart;
+                      });
+                      
+                      const occupiedIds = overlapping.map(a => a.resourceId).filter(Boolean);
+                      const freeResource = activeResources.find(r => !occupiedIds.includes(r.id));
+                      
+                      if (freeResource) {
+                        reservaData.resourceId = freeResource.id;
+                        reservaData.resourceName = freeResource.name;
+                        log(`🔗 Recurso asignado a reserva: ${freeResource.name}`);
+                      } else {
+                        log(`⚠️ Sin recursos libres para reserva ${reservaTime} — creada sin recurso`);
+                      }
+                    }
+                  } catch (resErr: any) {
+                    log(`⚠️ Error asignando recurso reserva: ${resErr.message}`);
+                  }
+
                   await prisma.appointment.create({ data: reservaData });
                   
                   // Marcar reserva como creada

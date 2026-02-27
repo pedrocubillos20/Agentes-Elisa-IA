@@ -1,258 +1,261 @@
-# 🤖 ELISA IA - Plataforma de Agentes con WhatsApp
+# 🚀 BizonneCRM — Plataforma CRM + IA para WhatsApp
 
 ## 📋 Descripción
+BizonneCRM es una plataforma completa que automatiza ventas y atención al cliente por WhatsApp usando inteligencia artificial. Incluye CRM, pipeline de ventas, agenda, asistentes IA configurables, y notificaciones push.
 
-Elisa IA es una plataforma completa para gestionar agentes de inteligencia artificial conectados a WhatsApp. Incluye CRM, agenda, gestión de productos, conversaciones automatizadas y almacenamiento multimedia inteligente.
+---
 
 ## 🏗️ Arquitectura
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│    Frontend      │────▶│    Backend       │────▶│     WAHA        │
-│   (Next.js 14)   │     │ (Express + TS)   │     │  (WhatsApp API) │
-│    Vercel        │     │    Railway       │     │      VPS        │
-└─────────────────┘     └────────┬─────────┘     └─────────────────┘
-                                 │
-                    ┌────────────┼────────────┐
-                    ▼            ▼            ▼
-             ┌───────────┐ ┌──────────┐ ┌──────────────┐
-             │ PostgreSQL │ │   R2     │ │   sharp +    │
-             │ (Supabase) │ │(Cloudflare)│ │   ffmpeg    │
-             │  Datos     │ │  Media   │ │ Compresión   │
-             └───────────┘ └──────────┘ └──────────────┘
+┌─────────────────────────────┐     ┌──────────────────────────┐
+│     FRONTEND (Next.js)      │     │   BACKEND (Express.js)   │
+│     Puerto: 3001            │────▶│   Puerto: 3000           │
+│     Tailwind CSS            │     │   Prisma ORM             │
+│     PWA + Push Notif        │     │   PostgreSQL             │
+└─────────────────────────────┘     │   OpenAI GPT-4o-mini     │
+                                    │   Web Push (VAPID)       │
+                                    │   WhatsApp (WAHA/Cloud)  │
+                                    └──────────────────────────┘
 ```
 
-## 🚀 Tecnologías
+---
 
-- **Frontend**: Next.js 14, React, TailwindCSS
-- **Backend**: Node.js 18, Express, TypeScript, Prisma
-- **WhatsApp**: WAHA (WhatsApp HTTP API)
-- **Base de datos**: PostgreSQL (Supabase)
-- **Storage multimedia**: Cloudflare R2 (S3-compatible, 10GB gratis)
-- **Compresión**: sharp (imágenes), ffmpeg (audio/video)
-- **Hosting**: Vercel (Frontend), Railway (Backend), VPS (WAHA)
-- **Pagos**: Wompi (Colombia)
+## ⚡ Stack Tecnológico
 
-## 📦 Estructura del Proyecto
+| Componente | Tecnología |
+|------------|-----------|
+| Frontend | Next.js 14, React 18, Tailwind CSS |
+| Backend | Node.js, Express.js, TypeScript |
+| Base de datos | PostgreSQL (Supabase/Railway) |
+| ORM | Prisma |
+| IA | OpenAI GPT-4o-mini |
+| WhatsApp | WAHA (self-hosted) + Cloud API |
+| Push Notifications | Web Push API + VAPID |
+| Deploy | Railway |
+| Pagos | Wompi (Colombia) |
+
+---
+
+## 📁 Estructura del Proyecto
 
 ```
-elisa-ia/
+Agentes-elisa-IA/
 ├── backend/
-│   ├── src/
-│   │   ├── routes/
-│   │   │   ├── auth.routes.ts          # Registro, login, JWT
-│   │   │   ├── whatsapp.routes.ts      # Integración WAHA + webhooks
-│   │   │   ├── conversations.routes.ts # Chat + analytics dashboard
-│   │   │   ├── assistants.routes.ts    # Config IA + auto-aprendizaje
-│   │   │   ├── media.routes.ts         # Upload/delete multimedia → R2
-│   │   │   ├── clients.routes.ts       # CRM
-│   │   │   ├── products.routes.ts      # Catálogo
-│   │   │   ├── appointments.routes.ts  # Agenda
-│   │   │   ├── scheduled.routes.ts     # Mensajes programados
-│   │   │   ├── team.routes.ts          # Multi-usuario
-│   │   │   ├── subscription.routes.ts  # Planes + Wompi
-│   │   │   ├── stages.routes.ts        # Pipeline personalizable
-│   │   │   └── api.routes.ts           # API pública + webhooks
-│   │   ├── middleware/
-│   │   │   ├── auth.middleware.ts       # JWT validation
-│   │   │   └── subscription.middleware.ts # Plan enforcement
-│   │   ├── lib/
-│   │   │   ├── prisma.ts               # DB client + connection pool
-│   │   │   ├── cache.ts                # LRU cache in-memory
-│   │   │   ├── helpers.ts              # Utilidades comunes
-│   │   │   ├── storage.ts              # Cloudflare R2 / local fallback
-│   │   │   └── compress.ts             # Compresión multimedia
-│   │   └── server.ts
 │   ├── prisma/
-│   │   └── schema.prisma
-│   ├── Dockerfile
-│   └── package.json
-├── frontend/
+│   │   └── schema.prisma          # Modelos de datos
 │   ├── src/
-│   │   └── app/
-│   │       ├── dashboard/page.tsx      # Panel principal
-│   │       ├── whatsapp/page.tsx        # Conexión WhatsApp
-│   │       ├── conversaciones/page.tsx  # Chat + analytics
-│   │       ├── asistentes/page.tsx      # Config IA + multimedia
-│   │       ├── crm/page.tsx             # Gestión clientes
-│   │       ├── agenda/page.tsx          # Citas
-│   │       ├── programados/page.tsx     # Mensajes programados
-│   │       ├── equipo/page.tsx          # Multi-usuario
-│   │       ├── subscription/page.tsx    # Planes y pagos
-│   │       ├── admin/page.tsx           # Panel administración
-│   │       └── configuracion/page.tsx   # Ajustes
-│   └── package.json
+│   │   ├── lib/
+│   │   │   ├── prisma.ts          # Conexión DB (pool optimizado)
+│   │   │   ├── helpers.ts         # Utilidades
+│   │   │   └── cache.ts           # LRU Cache system
+│   │   ├── middleware/
+│   │   │   ├── auth.middleware.ts  # JWT authentication
+│   │   │   └── subscription.middleware.ts
+│   │   ├── routes/
+│   │   │   ├── whatsapp.routes.ts       # 🤖 Motor principal (IA + WhatsApp)
+│   │   │   ├── conversations.routes.ts  # Dashboard + conversaciones
+│   │   │   ├── ai-config.routes.ts      # 🆕 Generador de conocimiento v2
+│   │   │   ├── push.routes.ts           # 🆕 Push notifications
+│   │   │   ├── assistants.routes.ts     # CRUD asistentes
+│   │   │   ├── appointments.routes.ts   # Agenda (citas/pedidos/reservas)
+│   │   │   ├── clients.routes.ts        # CRM clientes
+│   │   │   ├── stages.routes.ts         # Pipeline stages
+│   │   │   ├── auth.routes.ts           # Login/Register
+│   │   │   ├── subscription.routes.ts   # Planes + Wompi
+│   │   │   ├── team.routes.ts           # Multi-usuario
+│   │   │   ├── scheduled.routes.ts      # Mensajes programados
+│   │   │   ├── media.routes.ts          # Upload archivos
+│   │   │   └── products.routes.ts       # Catálogo productos
+│   │   └── server.ts                    # Entry point
+│   ├── Dockerfile
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── frontend/
+│   ├── public/
+│   │   ├── sw.js                  # 🆕 Service Worker v2 (Push)
+│   │   ├── manifest.json          # PWA manifest
+│   │   └── bizonne.png            # Logo
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── layout.tsx         # Layout principal + OnboardingWizard
+│   │   │   ├── dashboard/page.tsx # Dashboard responsive
+│   │   │   ├── conversaciones/    # Chat WhatsApp
+│   │   │   ├── crm/page.tsx       # CRM con etapas colapsables
+│   │   │   ├── agenda/            # Citas/Pedidos/Reservas
+│   │   │   ├── asistentes/        # Configurar asistente IA
+│   │   │   ├── ai-config/         # Generador de conocimiento
+│   │   │   ├── whatsapp/          # Conexión WhatsApp
+│   │   │   ├── equipo/            # Gestión de equipo
+│   │   │   ├── programados/       # Mensajes programados
+│   │   │   ├── configuracion/     # Settings
+│   │   │   └── guia/              # Guía de inicio
+│   │   └── components/
+│   │       ├── NotificationSounds.tsx        # Sistema de sonidos
+│   │       ├── PushNotificationManager.tsx   # 🆕 Push notifications UI
+│   │       └── OnboardingWizard.tsx          # Wizard primer uso
+│   ├── package.json
+│   ├── tailwind.config.js
+│   └── next.config.js
+│
 └── README.md
 ```
 
-## 🗄️ Almacenamiento Multimedia
+---
 
-### Arquitectura de Storage
+## 🔧 Variables de Entorno
 
-```
-Usuario sube imagen/video/audio
-        ↓
-   Backend recibe (multer)
-        ↓
-   Compresión inteligente
-   ├── Imagen: sharp (quality 92, mozjpeg, max 2560px)
-   ├── Audio: ffmpeg (Opus 192kbps VBR, 48kHz)
-   └── Video: ffmpeg (H.264 CRF 20, AAC 192k)
-        ↓
-   Upload a Cloudflare R2
-        ↓
-   URL guardada en PostgreSQL (solo ~100 bytes)
-```
-
-### Límites y Costos
-
-| Clientes | Storage R2 | Costo/mes | DB Supabase |
-|----------|-----------|-----------|-------------|
-| 10       | 2.5 GB    | $0 (free) | ~5 MB       |
-| 100      | 25 GB     | $0.23     | ~50 MB      |
-| 1,000    | 250 GB    | $3.60     | ~500 MB     |
-
-- Cada usuario: **250MB** incluidos (expandible)
-- Cloudflare R2: **10GB gratis**, luego $0.015/GB
-- **$0 egress** (descargas gratis, a diferencia de S3)
-
-## ⚙️ Variables de Entorno
-
-### Backend (Railway)
+### Backend (.env o Railway Variables)
 
 ```env
 # Base de datos
-DATABASE_URL="postgresql://..."
-DIRECT_URL="postgresql://..."
+DATABASE_URL=postgresql://user:pass@host:5432/db?schema=public
 
 # JWT
-JWT_SECRET="tu-secreto-seguro"
-JWT_EXPIRES_IN="7d"
+JWT_SECRET=tu-secret-key-super-seguro
 
-# WAHA
-WAHA_API_URL="http://31.97.142.127:8080"
-WAHA_API_KEY="tu-api-key"
+# WhatsApp WAHA
+WAHA_URL=http://tu-waha-server:3000
+WAHA_API_KEY=tu-waha-api-key
 
-# Frontend
-FRONTEND_URL="https://agentes-elisa-ia.vercel.app"
-BACKEND_URL="https://elisa-iaagentes-production.up.railway.app"
+# WhatsApp Cloud API (opcional)
+WHATSAPP_VERIFY_TOKEN=tu-verify-token
 
-# Cloudflare R2 Storage
-R2_ACCOUNT_ID="tu-account-id"
-R2_ACCESS_KEY="tu-access-key"
-R2_SECRET_KEY="tu-secret-key"
-R2_BUCKET_NAME="bizonne-media"
-R2_PUBLIC_URL="https://pub-xxx.r2.dev"
+# Push Notifications (generar con: npx web-push generate-vapid-keys)
+VAPID_PUBLIC_KEY=BEl62iUYgUivxIkv...
+VAPID_PRIVATE_KEY=UUxI4o8-FbRouAev...
+VAPID_EMAIL=mailto:soporte@bizonne.com
+
+# Wompi (pagos)
+WOMPI_PUBLIC_KEY=pub_...
+WOMPI_PRIVATE_KEY=prv_...
+WOMPI_INTEGRITY_KEY=...
+WOMPI_EVENTS_SECRET=...
+
+# ElevenLabs (voz, opcional)
+ELEVENLABS_API_KEY=...
+
+# Puerto
+PORT=3000
 ```
 
-### Frontend (Vercel)
+### Frontend (.env.local)
 
 ```env
-NEXT_PUBLIC_API_URL="https://elisa-iaagentes-production.up.railway.app"
+NEXT_PUBLIC_API_URL=https://tu-backend.railway.app
 ```
 
-## 🔌 API Endpoints
+---
 
-### Autenticación
-- `POST /api/auth/register` - Registrar usuario
-- `POST /api/auth/login` - Iniciar sesión
-- `GET /api/auth/me` - Obtener usuario actual
-- `POST /api/auth/forgot-password` - Recuperar contraseña
-
-### WhatsApp
-- `GET /api/whatsapp/status` - Estado de conexión
-- `POST /api/whatsapp/connect` - Conectar WhatsApp
-- `GET /api/whatsapp/qr` - Obtener código QR
-- `POST /api/whatsapp/disconnect` - Desconectar
-- `POST /api/whatsapp/send` - Enviar mensaje
-
-### Multimedia
-- `POST /api/media/upload` - Subir archivo(s) con compresión automática
-- `DELETE /api/media/:id` - Eliminar archivo de R2
-- `GET /api/media/storage` - Info de storage del usuario
-- `GET /api/media/files` - Listar archivos
-- `POST /api/media/migrate` - Migrar base64 legacy a R2
-
-### Conversaciones
-- `GET /api/conversations` - Listar conversaciones
-- `GET /api/conversations/stats` - Estadísticas y analytics
-- `GET /api/conversations/:id/messages` - Mensajes
-
-### Asistentes IA
-- `GET /api/assistants` - Obtener asistente
-- `POST /api/assistants` - Crear/actualizar asistente
-- `POST /api/assistants/learn` - Auto-aprendizaje
-
-### CRM, Productos, Agenda, Equipo
-- `GET/POST/PUT /api/clients` - Gestión clientes
-- `GET/POST /api/products` - Catálogo
-- `GET/POST /api/appointments` - Citas
-- `GET/POST /api/team` - Sub-usuarios
-
-### Suscripciones
-- `GET /api/subscription/plans` - Planes disponibles
-- `POST /api/subscription/create` - Crear suscripción
-- `POST /api/subscription/webhook/wompi` - Webhook pagos
-
-### Webhooks
-- `POST /api/webhook/whatsapp` - Recibe mensajes de WAHA
-- `POST /api/subscription/webhook/wompi` - Pagos Wompi
-
-## 🛠️ Desarrollo Local
+## 🚀 Instalación y Desarrollo
 
 ### Backend
 ```bash
 cd backend
 npm install
-npx prisma generate
-npx prisma db push
-npm run dev
+npm install web-push        # Para push notifications
+npx prisma db push          # Crear/actualizar tablas
+npx prisma generate         # Generar cliente
+npm run dev                 # Desarrollo (ts-node)
 ```
 
 ### Frontend
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev                 # http://localhost:3000
 ```
-
-### WAHA (Docker)
-```bash
-docker-compose up -d
-```
-
-## 📤 Despliegue
-
-### Railway (Backend)
-1. Conectar repositorio GitHub
-2. Agregar variables de entorno (ver arriba)
-3. Dockerfile incluye: Node.js 18, sharp, ffmpeg
-4. Deploy automático con cada push
-
-### Vercel (Frontend)
-1. Importar proyecto desde GitHub
-2. Configurar `NEXT_PUBLIC_API_URL`
-3. Deploy automático
-
-### VPS (WAHA)
-```bash
-ssh usuario@tu-vps
-cd /root/elisa-whatsapp
-docker-compose up -d
-```
-
-## 🔒 Seguridad
-
-- JWT para autenticación de usuarios
-- API Key para comunicación con WAHA
-- HTTPS en todos los endpoints públicos
-- Rate limiting por IP (60 req/min general, 30 req/min media)
-- Credenciales R2 en variables de entorno
-- Webhook validación por sesión
 
 ---
 
-**Versión**: 7.0.0
-**Última actualización**: Febrero 2026
-**WhatsApp Provider**: WAHA (WhatsApp HTTP API)
-**Storage**: Cloudflare R2
+## 📦 Deploy (Railway)
+
+### Backend
+```bash
+cd backend
+git add .
+git commit -m "deploy: backend completo"
+git push origin main
+```
+Railway detecta el `Dockerfile` y hace build automático.
+
+### Frontend
+```bash
+cd frontend
+git add .
+git commit -m "deploy: frontend completo"
+git push origin main
+```
+
+---
+
+## 🔔 Push Notifications — Setup
+
+1. **Instalar:** `cd backend && npm install web-push`
+2. **Generar claves:** `npx web-push generate-vapid-keys`
+3. **Agregar variables** VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL en Railway
+4. **Aplicar schema:** `npx prisma db push`
+5. **Deploy** y activar desde la plataforma
+
+Las push se envían automáticamente cuando:
+- 📩 Un cliente escribe por WhatsApp
+- 🛒 La IA crea un pedido
+- 📅 La IA agenda una cita
+- 🏨 La IA confirma una reserva
+
+---
+
+## 🤖 Sistema de IA — Cómo Funciona
+
+1. Cliente escribe por WhatsApp
+2. Sistema carga los últimos 30 mensajes + memoria guardada
+3. Construye system prompt: identidad + conocimiento + reglas + memoria
+4. Llama GPT-4o-mini (500 tokens, temp 0.7)
+5. IA responde + genera bloque `<<MEMORY_JSON>>` con datos extraídos
+6. Sistema parsea: actualiza memoria, mueve pipeline, crea pedidos/citas
+7. Si hay trigger multimedia → envía archivos automáticamente
+8. Push notification al dueño del negocio
+
+### Configuración IA v2 (ai-config)
+Sube un PDF con la info de tu negocio y el sistema:
+- Auto-detecta el tipo de negocio (tienda, restaurante, clínica, etc.)
+- Genera base de conocimiento optimizada para la plataforma
+- Crea etapas del pipeline automáticamente
+- Integra triggers multimedia existentes
+- Configura flujo conversacional paso a paso
+- Mapea campos de memoria y acciones (crear_pedido/cita/reserva)
+
+---
+
+## 🔒 Seguridad Aplicada
+
+- ✅ SQL Injection: UUID validation en dashboard queries
+- ✅ JWT Authentication en todas las rutas
+- ✅ Rate limiting (30-60 req/min por ruta)
+- ✅ Subscription middleware (control de plan)
+- ✅ Connection pool optimizado (5 simultáneas, pool 10)
+- ✅ CORS configurado
+- ✅ Push subscriptions con limpieza automática de expiradas
+
+---
+
+## 📊 Fixes Aplicados en Esta Versión
+
+| Fix | Archivo | Descripción |
+|-----|---------|-------------|
+| 🔴 SQL Injection | conversations.routes.ts | UUID validation para lineId |
+| 🔴 Port mismatch | Dockerfile | EXPOSE 3001 → 3000 |
+| 🔴 Pool exhaustion | prisma.ts | connection_limit 5→10, batched queries |
+| 🟡 Trigger bug | ai-config.routes.ts | m.triggers → m.trigger (field fix) |
+| 🟢 AI Config v2 | ai-config.routes.ts | Auto-detect negocio, prompt optimizado |
+| 🟢 Push Notifications | push.routes.ts + sw.js | Notificaciones push reales |
+| 🟢 CRM responsive | crm/page.tsx | Etapas colapsables + mobile |
+| 🟢 Dashboard responsive | dashboard/page.tsx | Mobile optimizado |
+
+---
+
+## 📞 Soporte
+
+BizonneCRM — Automatiza tu WhatsApp con IA
+https://bizonne.com

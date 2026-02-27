@@ -182,7 +182,9 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     // ═══════════════════════════════════════════════════
     // ADVANCED METRICS (raw SQL — sequential, no pool pressure)
     // ═══════════════════════════════════════════════════
-    const lineFilter = lineId ? `AND c."whatsappLineId" = '${lineId}'` : '';
+    // 🔒 SECURITY: Validate lineId format to prevent SQL injection
+    const safeLineId = lineId && /^[a-zA-Z0-9_-]{1,50}$/.test(lineId as string) ? lineId as string : null;
+    const lineFilter = safeLineId ? `AND c."whatsappLineId" = '${safeLineId}'` : '';
 
     // 1. FRT - First Response Time
     let avgFRT = 0;

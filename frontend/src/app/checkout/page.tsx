@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CreditCard, Shield, Check, ArrowRight, Zap, Building2, Mail, User, ChevronDown, Clock, Star } from 'lucide-react';
+import { CreditCard, Shield, Check, Zap, Building2, Mail, User, Clock } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -40,9 +40,27 @@ export default function CheckoutPage() {
   const planInfo = PLANS[plan] || PLANS.starter;
   const PlanIcon = planInfo.icon;
 
+  // Force body to be scrollable on mount (fixes WebView/Facebook browser)
   useEffect(() => {
-    fetchPrices();
+    document.documentElement.style.overflow = 'auto';
+    document.documentElement.style.height = 'auto';
+    document.body.style.overflow = 'auto';
+    document.body.style.height = 'auto';
+    document.body.style.position = 'static';
+    // Hide the main app sidebar/layout
+    const mainLayout = document.getElementById('app-layout');
+    if (mainLayout) mainLayout.style.display = 'none';
+    return () => {
+      if (mainLayout) mainLayout.style.display = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.body.style.position = '';
+    };
   }, []);
+
+  useEffect(() => { fetchPrices(); }, []);
 
   const fetchPrices = async () => {
     try {
@@ -68,7 +86,6 @@ export default function CheckoutPage() {
     if (!email) { setError('Ingresa tu email'); return; }
     setLoading(true);
     setError('');
-
     try {
       const res = await fetch(`${API_URL}/api/payments/create-checkout`, {
         method: 'POST',
@@ -76,7 +93,6 @@ export default function CheckoutPage() {
         body: JSON.stringify({ plan, period, email: email.trim(), name: name.trim() })
       });
       const data = await res.json();
-
       if (res.ok && data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       } else {
@@ -89,193 +105,186 @@ export default function CheckoutPage() {
   const periodLabels: Record<string, string> = { monthly: 'Mensual', semiannual: '6 Meses', annual: 'Anual' };
   const periodSavings: Record<string, string> = { monthly: '', semiannual: 'Ahorra ~17%', annual: 'Ahorra ~30%' };
 
+  // ═══════════════════════════════════════════
+  // NO position:fixed — normal document flow
+  // Scroll works on ALL browsers and WebViews
+  // ═══════════════════════════════════════════
   return (
-    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0a0a1a 0%, #0f1b2d 50%, #0a0a1a 100%)' }}>
-      {/* Header */}
-      <div className="border-b" style={{ borderColor: '#1a2a3e' }}>
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
-            <span className="text-xl font-bold"><span style={{ color: '#00d4aa' }}>Bizonne</span><span className="text-white">CRM</span></span>
-          </Link>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <Shield className="w-4 h-4" style={{ color: '#10b981' }} />
-            <span>Pago seguro con Wompi</span>
-          </div>
+    <div style={{
+      minHeight: '100vh',
+      minHeight: '100dvh',
+      background: 'linear-gradient(180deg, #0a0a1a 0%, #0f1b2d 100%)',
+    }}>
+      {/* ─── HEADER ─── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        background: 'rgba(10,10,26,0.97)', backdropFilter: 'blur(12px)',
+        borderBottom: '1px solid #1a2a3e',
+        padding: '10px 16px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
+          <img src="/bizonne.png" alt="Bizonne" style={{ width: 26, height: 26, borderRadius: 6 }} />
+          <span style={{ fontSize: 16, fontWeight: 700 }}>
+            <span style={{ color: '#00d4aa' }}>Bizonne</span>
+            <span style={{ color: '#fff' }}>CRM</span>
+          </span>
+        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#666' }}>
+          <Shield style={{ width: 12, height: 12, color: '#10b981' }} />
+          <span>Pago seguro con Wompi</span>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8 md:py-12">
-        <div className="grid md:grid-cols-2 gap-8 md:gap-12">
-          
-          {/* LEFT — Plan Details */}
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">Finaliza tu compra</h1>
-            <p className="text-gray-400 mb-8">Selecciona tu plan y período de facturación</p>
+      {/* ─── BODY ─── */}
+      <div style={{ maxWidth: 500, margin: '0 auto', padding: '20px 16px 80px' }}>
 
-            {/* Plan Selector */}
-            <div className="flex gap-3 mb-6">
-              {Object.entries(PLANS).map(([id, info]) => (
-                <button key={id} onClick={() => setPlan(id)}
-                  className="flex-1 p-4 rounded-xl border-2 transition-all relative"
-                  style={{
-                    borderColor: plan === id ? info.color : '#2a2a3e',
-                    background: plan === id ? `${info.color}10` : '#1a1a2e'
-                  }}>
-                  {info.popular && (
-                    <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: info.color, color: '#fff' }}>
-                      POPULAR
-                    </span>
-                  )}
-                  <info.icon className="w-5 h-5 mb-2" style={{ color: info.color }} />
-                  <p className="font-semibold text-white text-sm">{info.name.replace('Bizonne ', '')}</p>
-                </button>
-              ))}
-            </div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#fff', margin: '0 0 4px' }}>Finaliza tu compra</h1>
+        <p style={{ color: '#777', fontSize: 13, margin: '0 0 20px' }}>Selecciona plan y período</p>
 
-            {/* Period Selector */}
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              {['monthly', 'semiannual', 'annual'].map(p => (
-                <button key={p} onClick={() => setPeriod(p)}
-                  className="p-3 rounded-xl border transition-all text-center"
-                  style={{
-                    borderColor: period === p ? '#00d4aa' : '#2a2a3e',
-                    background: period === p ? '#00d4aa10' : '#1a1a2e'
-                  }}>
-                  <p className="text-sm font-medium" style={{ color: period === p ? '#00d4aa' : '#999' }}>{periodLabels[p]}</p>
-                  {periodSavings[p] && (
-                    <p className="text-[10px] mt-1" style={{ color: period === p ? '#10b981' : '#666' }}>{periodSavings[p]}</p>
-                  )}
-                </button>
-              ))}
-            </div>
+        {/* ─── PLAN SELECTOR ─── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {Object.entries(PLANS).map(([id, info]) => (
+            <button key={id} onClick={() => setPlan(id)} style={{
+              flex: 1, padding: '12px 10px', borderRadius: 10,
+              border: `2px solid ${plan === id ? info.color : '#2a2a3e'}`,
+              background: plan === id ? `${info.color}10` : '#1a1a2e',
+              cursor: 'pointer', position: 'relative', textAlign: 'left',
+            }}>
+              {info.popular && (
+                <span style={{
+                  position: 'absolute', top: -8, left: '50%', transform: 'translateX(-50%)',
+                  fontSize: 8, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
+                  background: info.color, color: '#fff',
+                }}>POPULAR</span>
+              )}
+              <info.icon style={{ width: 18, height: 18, color: info.color, marginBottom: 4 }} />
+              <p style={{ fontWeight: 600, color: '#fff', fontSize: 13, margin: 0 }}>{info.name.replace('Bizonne ', '')}</p>
+            </button>
+          ))}
+        </div>
 
-            {/* Price */}
-            <div className="p-6 rounded-2xl mb-6" style={{ background: '#1a1a2e', border: '1px solid #2a2a3e' }}>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${planInfo.color}20` }}>
-                    <PlanIcon className="w-5 h-5" style={{ color: planInfo.color }} />
-                  </div>
-                  <div>
-                    <p className="font-semibold text-white">{planInfo.name}</p>
-                    <p className="text-xs text-gray-500">{periodLabels[period]}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold" style={{ color: '#00d4aa' }}>
-                    ${price.cop?.toLocaleString('es-CO')}
-                  </p>
-                  <p className="text-xs text-gray-500">COP (≈ USD ${price.usd})</p>
-                </div>
+        {/* ─── PERIOD ─── */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+          {['monthly', 'semiannual', 'annual'].map(p => (
+            <button key={p} onClick={() => setPeriod(p)} style={{
+              flex: 1, padding: '8px 6px', borderRadius: 8, textAlign: 'center',
+              border: `1.5px solid ${period === p ? '#00d4aa' : '#2a2a3e'}`,
+              background: period === p ? '#00d4aa10' : '#1a1a2e', cursor: 'pointer',
+            }}>
+              <p style={{ fontSize: 12, fontWeight: 500, color: period === p ? '#00d4aa' : '#999', margin: 0 }}>{periodLabels[p]}</p>
+              {periodSavings[p] && <p style={{ fontSize: 8, margin: '2px 0 0', color: period === p ? '#10b981' : '#555' }}>{periodSavings[p]}</p>}
+            </button>
+          ))}
+        </div>
+
+        {/* ─── PRICE ─── */}
+        <div style={{ padding: 16, borderRadius: 14, background: '#1a1a2e', border: '1px solid #2a2a3e', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${planInfo.color}20` }}>
+                <PlanIcon style={{ width: 18, height: 18, color: planInfo.color }} />
               </div>
-              
-              <div className="border-t pt-4 mt-4" style={{ borderColor: '#2a2a3e' }}>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-400">Total a pagar</span>
-                  <span className="text-lg font-bold text-white">${price.cop?.toLocaleString('es-CO')} COP</span>
-                </div>
-                {price.copWithCard && price.copWithCard !== price.cop && (
-                  <p className="text-[10px] text-gray-600 mt-1 text-right">💳 Con tarjeta: ${price.copWithCard?.toLocaleString('es-CO')} COP (+5%)</p>
-                )}
-                {trm && (
-                  <p className="text-[10px] text-gray-600 mt-2 text-center">
-                    Fuente: {trm.source} - {trm.date} · TRM: 1 USD ≈ ${trm.rate?.toLocaleString('es-CO')} COP
-                  </p>
-                )}
+              <div>
+                <p style={{ fontWeight: 600, color: '#fff', fontSize: 13, margin: 0 }}>{planInfo.name}</p>
+                <p style={{ fontSize: 10, color: '#888', margin: 0 }}>{periodLabels[period]}</p>
               </div>
             </div>
-
-            {/* Features */}
-            <div className="hidden md:block">
-              <p className="text-xs uppercase tracking-wider text-gray-500 mb-3 font-semibold">Incluye:</p>
-              <div className="grid grid-cols-1 gap-2">
-                {planInfo.features.map((f: string, i: number) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Check className="w-4 h-4 flex-shrink-0" style={{ color: planInfo.color }} />
-                    <span className="text-sm text-gray-300">{f}</span>
-                  </div>
-                ))}
-              </div>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 20, fontWeight: 700, color: '#00d4aa', margin: 0 }}>${price.cop?.toLocaleString('es-CO')}</p>
+              <p style={{ fontSize: 10, color: '#888', margin: 0 }}>COP (≈ USD ${price.usd})</p>
             </div>
           </div>
+          <div style={{ borderTop: '1px solid #2a2a3e', paddingTop: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#aaa', fontSize: 12 }}>Total</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>${price.cop?.toLocaleString('es-CO')} COP</span>
+            </div>
+            {price.copWithCard > 0 && price.copWithCard !== price.cop && (
+              <p style={{ fontSize: 9, color: '#666', margin: '4px 0 0', textAlign: 'right' }}>💳 Tarjeta: ${price.copWithCard?.toLocaleString('es-CO')} COP (+5%)</p>
+            )}
+            {trm && (
+              <p style={{ fontSize: 8, color: '#555', margin: '6px 0 0', textAlign: 'center' }}>
+                {trm.source} - {trm.date} · TRM: 1 USD ≈ ${trm.rate?.toLocaleString('es-CO')} COP
+              </p>
+            )}
+          </div>
+        </div>
 
-          {/* RIGHT — Payment Form */}
-          <div>
-            <div className="rounded-2xl p-6 md:p-8 sticky top-8" style={{ background: '#1a1a2e', border: '1px solid #2a2a3e' }}>
-              <h2 className="text-xl font-bold text-white mb-1">Información de pago</h2>
-              <p className="text-gray-400 text-sm mb-6">Te enviaremos el acceso a tu email después del pago</p>
+        {/* ─── FORM ─── */}
+        <div style={{ padding: '20px 16px', borderRadius: 14, background: '#1a1a2e', border: '1px solid #2a2a3e', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#fff', margin: '0 0 2px' }}>Información de pago</h2>
+          <p style={{ color: '#777', fontSize: 12, margin: '0 0 16px' }}>Acceso enviado a tu email después del pago</p>
 
-              <form onSubmit={handleCheckout} className="space-y-4">
-                {error && (
-                  <div className="p-3 rounded-xl text-sm" style={{ background: '#ef444420', border: '1px solid #ef444440', color: '#f87171' }}>
-                    {error}
-                  </div>
-                )}
+          <form onSubmit={handleCheckout}>
+            {error && (
+              <div style={{ padding: 10, borderRadius: 8, fontSize: 12, background: '#ef444420', border: '1px solid #ef444440', color: '#f87171', marginBottom: 12 }}>{error}</div>
+            )}
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1.5">Nombre completo</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input type="text" value={name} onChange={e => setName(e.target.value)}
-                      placeholder="Tu nombre" required
-                      className="w-full pl-10 pr-4 py-3 rounded-xl text-white text-sm outline-none transition-all"
-                      style={{ background: '#0f1b2d', border: '1px solid #2a2a3e' }} />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1.5">Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                      placeholder="tu@email.com" required
-                      className="w-full pl-10 pr-4 py-3 rounded-xl text-white text-sm outline-none transition-all"
-                      style={{ background: '#0f1b2d', border: '1px solid #2a2a3e' }} />
-                  </div>
-                  <p className="text-xs text-gray-600 mt-1">Recibirás el enlace de activación aquí</p>
-                </div>
-
-                <button type="submit" disabled={loading}
-                  className="w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-all"
-                  style={{
-                    background: loading ? '#333' : 'linear-gradient(135deg, #00d4aa, #10b981)',
-                    color: loading ? '#888' : '#000',
-                    opacity: loading ? 0.7 : 1
-                  }}>
-                  {loading ? (
-                    <><Clock className="w-5 h-5 animate-spin" /> Procesando...</>
-                  ) : (
-                    <><CreditCard className="w-5 h-5" /> Pagar ${price.cop?.toLocaleString('es-CO')} COP</>
-                  )}
-                </button>
-              </form>
-
-              {/* Trust badges */}
-              <div className="mt-6 pt-6 border-t" style={{ borderColor: '#2a2a3e' }}>
-                <div className="flex items-center justify-center gap-4 flex-wrap">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <Shield className="w-3.5 h-3.5" style={{ color: '#10b981' }} />
-                    <span>Pago seguro SSL</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <CreditCard className="w-3.5 h-3.5" style={{ color: '#3b82f6' }} />
-                    <span>Tarjeta • PSE • Nequi</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-center mt-3">
-                  <img src="https://cdn.wompi.co/widgets/assets/logos/full-colored.svg" alt="Wompi" className="h-5 opacity-50" />
-                </div>
-              </div>
-
-              {/* Guarantee */}
-              <div className="mt-4 p-3 rounded-xl text-center" style={{ background: '#10b98110', border: '1px solid #10b98130' }}>
-                <p className="text-xs" style={{ color: '#10b981' }}>
-                  🛡️ Garantía de 7 días — Si no estás satisfecho, te devolvemos tu dinero.
-                </p>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Nombre completo</label>
+              <div style={{ position: 'relative' }}>
+                <User style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: '#555' }} />
+                <input type="text" value={name} onChange={e => setName(e.target.value)}
+                  placeholder="Tu nombre" required
+                  style={{ width: '100%', paddingLeft: 34, paddingRight: 12, paddingTop: 11, paddingBottom: 11, borderRadius: 8, color: '#fff', fontSize: 14, background: '#0f1b2d', border: '1px solid #2a2a3e', outline: 'none', boxSizing: 'border-box' }} />
               </div>
             </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#aaa', marginBottom: 4 }}>Email</label>
+              <div style={{ position: 'relative' }}>
+                <Mail style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: '#555' }} />
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                  placeholder="tu@email.com" required
+                  style={{ width: '100%', paddingLeft: 34, paddingRight: 12, paddingTop: 11, paddingBottom: 11, borderRadius: 8, color: '#fff', fontSize: 14, background: '#0f1b2d', border: '1px solid #2a2a3e', outline: 'none', boxSizing: 'border-box' }} />
+              </div>
+              <p style={{ fontSize: 10, color: '#555', margin: '3px 0 0' }}>Recibirás el enlace de activación aquí</p>
+            </div>
+
+            <button type="submit" disabled={loading} style={{
+              width: '100%', padding: '13px 14px', borderRadius: 10,
+              fontWeight: 700, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
+              background: loading ? '#333' : 'linear-gradient(135deg, #00d4aa, #10b981)',
+              color: loading ? '#888' : '#000', transition: 'all 0.2s',
+            }}>
+              {loading ? (
+                <><Clock style={{ width: 16, height: 16 }} /> Procesando...</>
+              ) : (
+                <><CreditCard style={{ width: 16, height: 16 }} /> Pagar ${price.cop?.toLocaleString('es-CO')} COP</>
+              )}
+            </button>
+          </form>
+
+          {/* Trust */}
+          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #2a2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#777' }}>
+              <Shield style={{ width: 12, height: 12, color: '#10b981' }} /> SSL seguro
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#777' }}>
+              <CreditCard style={{ width: 12, height: 12, color: '#3b82f6' }} /> Tarjeta • PSE • Nequi
+            </span>
           </div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
+            <img src="https://cdn.wompi.co/widgets/assets/logos/full-colored.svg" alt="Wompi" style={{ height: 16, opacity: 0.4 }} />
+          </div>
+        </div>
+
+        {/* ─── GUARANTEE ─── */}
+        <div style={{ padding: 10, borderRadius: 10, textAlign: 'center', background: '#10b98110', border: '1px solid #10b98120', marginBottom: 16 }}>
+          <p style={{ fontSize: 11, color: '#10b981', margin: 0 }}>🛡️ Garantía 7 días — No satisfecho, te devolvemos tu dinero.</p>
+        </div>
+
+        {/* ─── FEATURES ─── */}
+        <div style={{ padding: 16, borderRadius: 14, background: '#1a1a2e', border: '1px solid #2a2a3e', marginBottom: 20 }}>
+          <p style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.5, color: '#777', margin: '0 0 10px', fontWeight: 600 }}>Incluye:</p>
+          {planInfo.features.map((f: string, i: number) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <Check style={{ width: 14, height: 14, flexShrink: 0, color: planInfo.color }} />
+              <span style={{ fontSize: 12, color: '#ccc' }}>{f}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

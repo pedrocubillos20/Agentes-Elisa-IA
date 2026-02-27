@@ -20,6 +20,7 @@ import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes'
 import mediaRoutes from './routes/media.routes';
 import ghlRoutes from './routes/ghl.routes';
 import aiConfigRoutes from './routes/ai-config.routes';
+import pushRoutes from './routes/push.routes';
 import paymentsRoutes from './routes/payments.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
@@ -163,6 +164,7 @@ app.use('/api/subscription', authMiddleware, subscriptionRoutes);
 app.use('/api/integrations', authMiddleware, subscriptionMiddleware, apiRoutes);
 app.use('/api/ghl', authMiddleware, subscriptionMiddleware, apiRL, ghlRoutes);
 app.use('/api/ai-config', authMiddleware, subscriptionMiddleware, apiRL, aiConfigRoutes);
+app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/v1', apiPublicRoutes);
 
 // ===== HEALTH + MONITORING =====

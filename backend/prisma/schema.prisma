@@ -62,6 +62,7 @@ model User {
   apiKeys         UserApiKey[]
   webhooks        UserWebhook[]
   mediaFiles      MediaFile[]
+  pushSubscriptions PushSubscription[]
   ghlIntegration  GhlIntegration?
 
   @@index([parentUserId])
@@ -584,4 +585,19 @@ model Purchase {
   @@index([registrationToken])
   @@index([buyerEmail])
   @@index([status])
+}
+
+// 🔔 Push Notification Subscriptions
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @db.Text
+  keys      Json
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, endpoint])
+  @@index([userId])
 }

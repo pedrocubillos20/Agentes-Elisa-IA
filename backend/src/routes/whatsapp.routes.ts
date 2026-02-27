@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
 import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { sendPushToUser } from './push.routes';
 
 const router = Router();
 
@@ -1658,6 +1659,8 @@ REGLAS DE TRANSFERENCIA:
                   await prisma.appointment.create({ data: orderData });
                   // Marcar pedido como creado
                   merged.pedido = 'creado';
+                  // 🔔 Push — Nuevo pedido
+                  sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || clientName || 'Cliente'} — ${merged.producto_servicio || 'Pedido'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -1751,6 +1754,8 @@ REGLAS DE TRANSFERENCIA:
                     merged.pedido = 'creado';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
                     log(`🛒🔔 Pedido AUTO-DETECTADO (datos completos + confirmación IA): ${merged.nombre}`);
+                    // 🔔 Push — Pedido auto-detectado
+                    sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || 'Cliente'} — ${merged.producto_servicio || 'Pedido auto'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
                   } catch (autoOrderErr: any) {
                     console.error('⚠️ Error auto-pedido:', autoOrderErr.message);
                   }
@@ -1847,6 +1852,8 @@ REGLAS DE TRANSFERENCIA:
                   
                   // Marcar cita como creada
                   merged.cita = 'creada';
+                  // 🔔 Push — Nueva cita
+                  sendPushToUser(ownerId, { title: '📅 ¡Nueva Cita!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_cita || 'Cita'} ${merged.fecha_cita || ''} ${merged.hora_cita || ''}`.trim().substring(0, 120), url: '/agenda', tag: `appt-${Date.now()}` }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -1986,6 +1993,8 @@ REGLAS DE TRANSFERENCIA:
                   
                   // Marcar reserva como creada
                   merged.reserva = 'creada';
+                  // 🔔 Push — Nueva reserva
+                  sendPushToUser(ownerId, { title: '🏨 ¡Nueva Reserva!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_reserva || 'Reserva'} ${merged.fecha_reserva || ''} ${merged.hora_reserva || ''}`.trim().substring(0, 120), url: '/agenda', tag: `reserv-${Date.now()}` }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2651,6 +2660,14 @@ const processBufferedMessages = async (bufferKey: string) => {
   const combinedMessage = msgs.join('\n');
 
   log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
+
+  // 🔔 PUSH NOTIFICATION — Notificar al dueño de nuevo mensaje
+  sendPushToUser(userId, {
+    title: `📩 ${senderName || 'Nuevo mensaje'}`,
+    body: combinedMessage.substring(0, 120),
+    url: '/conversaciones',
+    tag: `msg-${convId}`
+  }).catch(() => {});
 
   // ☁️ Detectar si es Cloud API (skip typing/presence que no funciona)
   const lineInfo = await getLineInfo(whatsappLineId);

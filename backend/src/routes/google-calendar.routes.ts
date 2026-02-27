@@ -129,7 +129,7 @@ export async function handleGCalCallback(req: Request, res: Response) {
       })
     });
 
-    const tokens = await tokenRes.json();
+    const tokens: any = await tokenRes.json();
 
     if (!tokens.access_token) {
       console.error('❌ Google token exchange failed:', tokens);
@@ -142,7 +142,7 @@ export async function handleGCalCallback(req: Request, res: Response) {
       const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: { Authorization: `Bearer ${tokens.access_token}` }
       });
-      const profile = await profileRes.json();
+      const profile: any = await profileRes.json();
       googleEmail = profile.email || '';
     } catch {}
 
@@ -196,7 +196,7 @@ async function getValidAccessToken(userId: string): Promise<string | null> {
       })
     });
 
-    const tokens = await tokenRes.json();
+    const tokens: any = await tokenRes.json();
 
     if (!tokens.access_token) {
       console.error('❌ Google token refresh failed:', tokens);
@@ -294,7 +294,7 @@ export async function createGCalEvent(userId: string, appointment: any): Promise
       }
     );
 
-    const result = await response.json();
+    const result: any = await response.json();
 
     if (result.id) {
       console.log(`📅 GCal: Evento creado "${event.summary}" (${result.id})`);
@@ -379,7 +379,7 @@ export async function updateGCalEvent(userId: string, googleEventId: string, app
       }
     );
 
-    const result = await response.json();
+    const result: any = await response.json();
     if (result.id) {
       console.log(`📅 GCal: Evento actualizado "${event.summary}"`);
       return true;
@@ -441,7 +441,7 @@ router.get('/calendars', async (req: Request, res: Response) => {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    const data = await response.json();
+    const data: any = await response.json();
     const calendars = (data.items || []).map((cal: any) => ({
       id: cal.id,
       summary: cal.summary,

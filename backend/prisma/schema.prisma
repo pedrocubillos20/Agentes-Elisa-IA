@@ -74,6 +74,8 @@ model User {
   resources       Resource[]
   businessSchedules BusinessSchedule[]
   ghlIntegration  GhlIntegration?
+  callConfig      CallConfig?
+  calls           Call[]
 
   @@index([parentUserId])
   @@index([role])
@@ -647,4 +649,81 @@ model BusinessSchedule {
 
   @@unique([userId, dayOfWeek])
   @@index([userId])
+}
+
+// ====================================================
+// 📞 LLAMADAS IA — Twilio + ElevenLabs Conversational AI
+// ====================================================
+
+model CallConfig {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Twilio
+  twilioAccountSid    String  @default("")
+  twilioAuthToken     String  @default("")
+  twilioPhoneNumber   String  @default("")
+  
+  // ElevenLabs Conversational AI
+  elevenLabsAgentId   String  @default("")
+  elevenLabsApiKey    String  @default("")
+  
+  // Voice
+  voiceId         String  @default("")
+  voiceName       String  @default("")
+  
+  // Agent Config
+  systemPrompt    String?   @db.Text
+  firstMessage    String?   @db.Text
+  language        String    @default("es")
+  
+  // Feature Flags
+  callsEnabled            Boolean @default(false)
+  autoCallReminders       Boolean @default(false)
+  autoCallFollowup        Boolean @default(false)
+  autoCallReactivation    Boolean @default(false)
+  reminderHoursBefore     Int     @default(24)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model Call {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  direction       String    @default("outbound")
+  type            String    @default("manual")
+  phoneNumber     String
+  clientName      String?
+  
+  status          String    @default("initiating")
+  duration        Int       @default(0)
+  
+  // External IDs
+  twilioCallSid               String?
+  agentId                     String?
+  elevenLabsConversationId    String?
+  
+  // Content
+  transcript      String?   @db.Text
+  recordingUrl    String?
+  context         String?   @db.Text
+  error           String?
+  summary         String?   @db.Text
+  
+  // Timestamps
+  answeredAt      DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([twilioCallSid])
 }

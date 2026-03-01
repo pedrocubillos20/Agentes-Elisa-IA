@@ -46,6 +46,7 @@ interface Voice {
   accent: string;
   age: string;
   preview_audio_url: string | null;
+  isSpanish?: boolean;
 }
 
 interface Call {
@@ -351,9 +352,11 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
 }) {
   const [selectedVoice, setSelectedVoice] = useState(config?.voiceId || '11labs-Adrian');
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
+  const [showAllVoices, setShowAllVoices] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const groupedVoices = voices.reduce((acc: Record<string, Voice[]>, v) => {
+  const filteredVoices = showAllVoices ? voices : voices.filter(v => v.isSpanish);
+  const groupedVoices = filteredVoices.reduce((acc: Record<string, Voice[]>, v) => {
     (acc[v.provider] = acc[v.provider] || []).push(v);
     return acc;
   }, {});
@@ -404,10 +407,21 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
 
       {/* Voice Selector */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
-          <Headphones className="w-4 h-4 text-violet-400" />
-          Selecciona una voz
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+            <Headphones className="w-4 h-4 text-violet-400" />
+            Selecciona una voz
+          </h3>
+          <button
+            onClick={() => setShowAllVoices(!showAllVoices)}
+            className="text-xs px-3 py-1 rounded-full border border-white/10 text-gray-400 hover:text-white hover:border-violet-400/50 transition-all"
+          >
+            {showAllVoices ? '🇪🇸 Solo español' : '🌐 Ver todas'}
+          </button>
+        </div>
+        {!showAllVoices && filteredVoices.length === 0 && (
+          <p className="text-xs text-gray-500 mb-3">No se encontraron voces en español. <button onClick={() => setShowAllVoices(true)} className="text-violet-400 underline">Ver todas</button></p>
+        )}
         
         {Object.entries(groupedVoices).map(([provider, provVoices]) => (
           <div key={provider} className="mb-4">
@@ -796,6 +810,7 @@ function ConfigTab({ config, voices, onSave, onDeactivate }: {
   });
   const [saving, setSaving] = useState(false);
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+  const [showAllVoices, setShowAllVoices] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const handleSave = async () => {
@@ -843,8 +858,16 @@ function ConfigTab({ config, voices, onSave, onDeactivate }: {
       <Section title="Voz" icon={Headphones} description="Selecciona y ajusta la voz de tu agente">
         <div className="space-y-4">
           <Field label={`Voz actual: ${selectedVoice?.voice_name || form.voiceId}`}>
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={() => setShowAllVoices(!showAllVoices)}
+                className="text-xs px-3 py-1 rounded-full border border-white/10 text-gray-400 hover:text-white hover:border-violet-400/50 transition-all"
+              >
+                {showAllVoices ? '🇪🇸 Solo español' : '🌐 Ver todas'}
+              </button>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
-              {voices.map(v => (
+              {(showAllVoices ? voices : voices.filter(v => v.isSpanish)).map(v => (
                 <button
                   key={v.voice_id}
                   onClick={() => setForm(f => ({ ...f, voiceId: v.voice_id }))}
@@ -878,7 +901,7 @@ function ConfigTab({ config, voices, onSave, onDeactivate }: {
                       </button>
                     )}
                   </div>
-                  <span className="text-[10px] text-gray-600">{v.gender === 'male' ? '♂' : '♀'} {v.provider}</span>
+                  <span className="text-[10px] text-gray-600">{v.gender === 'male' ? '♂' : '♀'} {v.accent} · {v.provider}</span>
                 </button>
               ))}
             </div>

@@ -187,7 +187,7 @@ router.post('/activate', async (req: any, res) => {
       responsiveness: 0.8,
       interruption_sensitivity: 0.7,
       max_call_duration_ms: config.maxCallDuration || 300000,
-      ambient_sound: 'office',
+      ambient_sound: 'call-center',
       ambient_sound_volume: 0.3,
       webhook_url: `${baseUrl}/api/webhook/retell`,
       normalize_for_speech: true,
@@ -263,22 +263,40 @@ router.post('/deactivate', async (req: any, res) => {
 });
 
 // ============================================
-// 5. GET /voices - Listar voces
+// 5. GET /voices - Listar voces (español primero)
 // ============================================
 router.get('/voices', async (req: any, res) => {
   try {
     if (!RETELL_KEY) return res.json(getDefaultVoices());
     
     const voices: any = await retellFetch('/list-voices');
-    const mapped = (Array.isArray(voices) ? voices : []).map((v: any) => ({
-      voice_id: v.voice_id,
-      voice_name: v.voice_name,
-      provider: v.provider,
-      gender: v.gender,
-      accent: v.accent || 'General',
-      age: v.age || 'Adult',
-      preview_audio_url: v.preview_audio_url,
-    }));
+    const spanishAccents = ['mexican', 'spanish', 'latin america', 'latin american', 'colombian', 'argentinian', 'chilean', 'peruvian', 'hispanic'];
+    
+    const mapped = (Array.isArray(voices) ? voices : []).map((v: any) => {
+      const accent = (v.accent || '').toLowerCase();
+      const isSpanish = spanishAccents.some((sa: string) => accent.includes(sa));
+      return {
+        voice_id: v.voice_id,
+        voice_name: v.voice_name,
+        provider: v.provider,
+        gender: v.gender,
+        accent: v.accent || 'General',
+        age: v.age || 'Adult',
+        preview_audio_url: v.preview_audio_url,
+        isSpanish,
+      };
+    });
+    
+    // Español primero, luego el resto por nombre
+    mapped.sort((a: any, b: any) => {
+      if (a.isSpanish && !b.isSpanish) return -1;
+      if (!a.isSpanish && b.isSpanish) return 1;
+      return a.voice_name.localeCompare(b.voice_name);
+    });
+    
+    // ?lang=es filtra solo español
+    const filter = req.query.lang as string;
+    if (filter === 'es') return res.json(mapped.filter((v: any) => v.isSpanish));
     
     res.json(mapped);
   } catch (e: any) {

@@ -3020,20 +3020,19 @@ const processBufferedMessages = async (bufferKey: string) => {
   if (!buf) return;
   messageBuffer.delete(bufferKey);
 
-  // 🔒 Si ya se está procesando para este contacto, re-encolar
+  // 🔒 Si ya se está procesando para este contacto → guardar SIN timer
+  // El finally del proceso actual recogerá estos mensajes automáticamente
   if (processingLock.has(bufferKey)) {
-    clog(`🔒 Lock activo para ${buf.senderName} — re-encolando ${buf.messages.length} mensaje(s)`);
     const existing = messageBuffer.get(bufferKey);
     if (existing) {
       existing.messages.push(...buf.messages);
-      clearTimeout(existing.timer);
-      const delay = getSmartDelay(buf.messages[buf.messages.length - 1], existing.messages.length, existing.firstTimestamp);
-      existing.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+      // NO timer — el finally lo procesa cuando termine la IA
     } else {
-      const delay = getSmartDelay(buf.messages[buf.messages.length - 1], buf.messages.length, buf.firstTimestamp);
-      buf.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+      // Guardar sin timer — el finally lo detecta
+      buf.timer = null as any;
       messageBuffer.set(bufferKey, buf);
     }
+    clog(`🔒 Lock activo → ${buf.messages.length} msg(s) de ${buf.senderName} guardados (serán procesados al terminar IA)`);
     return;
   }
 
@@ -3321,11 +3320,10 @@ const processBufferedMessages = async (bufferKey: string) => {
     // 🔄 Verificar si llegaron mensajes mientras procesábamos
     const pending = messageBuffer.get(bufferKey);
     if (pending) {
-      clog(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
+      clog(`🔄 ${pending.messages.length} msg(s) pendiente(s) de ${senderName} → procesando en 1.5s...`);
       clearTimeout(pending.timer);
-      // Espera adaptativa según el último mensaje pendiente
-      const delay = getSmartDelay(pending.messages[pending.messages.length - 1], pending.messages.length, pending.firstTimestamp);
-      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+      // Breve espera (1.5s) por si llegan más mensajes, luego procesar
+      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), 1500);
     }
   }
 };
@@ -5085,15 +5083,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
       log(`📦 Ráfaga: +1 de ${senderName} (total: ${existingBuffer.messages.length}, espera: ${(delay/1000).toFixed(1)}s${isFragment(messageForAI) ? ' [fragmento]' : ''})`);
     } else if (isLocked) {
-      // 🔒 IA procesando → crear buffer que se procesará cuando termine
-      const delay = getSmartDelay(messageForAI, 1, now);
-      const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+      // 🔒 IA procesando → guardar SIN timer (el finally del proceso actual lo recoge)
       messageBuffer.set(bufferKey, {
-        messages: [messageForAI], timer, sessionName, from, senderName, userId,
+        messages: [messageForAI], timer: null as any, sessionName, from, senderName, userId,
         convId: conv.id, whatsappLineId,
         firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg
       });
-      log(`🔒 Ráfaga (lock): nuevo de ${senderName} → se procesará cuando la IA termine`);
+      clog(`🔒 Ráfaga (lock): ${senderName} → guardado, se procesará al terminar IA`);
     } else {
       // Primer mensaje → crear buffer con timing adaptativo
       // Buscar asistente para verificar modo voz
@@ -5704,6 +5700,15 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         const delay = getSmartDelay(messageBody, existingBuffer.messages.length, existingBuffer.firstTimestamp);
         existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
         clog(`☁️ 📦 Buffer Cloud: +1 de ${senderName} (total: ${existingBuffer.messages.length}, espera: ${(delay/1000).toFixed(1)}s)`);
+      } else if (processingLock.has(bufferKey)) {
+        // 🔒 IA procesando → guardar SIN timer (el finally lo recoge)
+        messageBuffer.set(bufferKey, {
+          messages: [messageBody], timer: null as any, sessionName,
+          from: chatIdForSend, senderName, userId,
+          convId: conv.id, whatsappLineId,
+          firstTimestamp: now, lastTimestamp: now, hasMedia: false
+        });
+        clog(`☁️ 🔒 Lock activo → "${messageBody.substring(0, 50)}" de ${senderName} guardado (se procesará al terminar IA)`);
       } else {
         const delay = getSmartDelay(messageBody, 0, now);
         const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);

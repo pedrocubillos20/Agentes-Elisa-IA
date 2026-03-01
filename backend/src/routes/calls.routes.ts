@@ -107,7 +107,7 @@ router.put('/config', async (req: any, res) => {
         await retellFetch(`/update-agent/${config.retellAgentId}`, 'PATCH', {
           agent_name: config.agentName,
           voice_id: config.voiceId,
-          voice_model: config.voiceModel || 'eleven_turbo_v2',
+          ...(config.voiceId?.startsWith('11labs') && { voice_model: 'eleven_flash_v2_5' }),
           voice_speed: config.voiceSpeed,
           voice_temperature: config.voiceTemperature,
           language: config.agentLanguage === 'es' ? 'es-ES' : config.agentLanguage,
@@ -173,11 +173,15 @@ router.post('/activate', async (req: any, res) => {
     
     // PASO 2: Crear Agente
     console.log('🤖 Creando Agente en Retell...');
-    const agent: any = await retellFetch('/create-agent', 'POST', {
+    const voiceId = config.voiceId || '11labs-Adrian';
+    const isElevenLabs = voiceId.startsWith('11labs');
+    const isOpenAI = voiceId.startsWith('openai');
+    const isDeepgram = voiceId.startsWith('deepgram');
+    
+    const agentPayload: any = {
       response_engine: { type: 'retell-llm', llm_id: llm.llm_id },
       agent_name: `${businessName} - ${config.agentName}`,
-      voice_id: config.voiceId || '11labs-Adrian',
-      voice_model: config.voiceModel || 'eleven_turbo_v2',
+      voice_id: voiceId,
       voice_speed: config.voiceSpeed || 1,
       voice_temperature: config.voiceTemperature || 1,
       language: config.agentLanguage === 'es' ? 'es-ES' : config.agentLanguage,
@@ -195,7 +199,14 @@ router.post('/activate', async (req: any, res) => {
         { type: 'string', name: 'call_summary', key: 'call_summary', description: 'Resumen breve de la llamada en español' },
         { type: 'enum', name: 'sentiment', key: 'sentiment', description: 'Sentimiento del cliente', choices: ['positive', 'neutral', 'negative'] },
       ],
-    });
+    };
+    
+    // Solo agregar voice_model para ElevenLabs
+    if (isElevenLabs) {
+      agentPayload.voice_model = 'eleven_flash_v2_5';
+    }
+    
+    const agent: any = await retellFetch('/create-agent', 'POST', agentPayload);
     
     // PASO 3: Comprar número
     console.log('📞 Comprando número en Retell...');

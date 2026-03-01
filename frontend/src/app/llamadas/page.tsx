@@ -266,51 +266,54 @@ export default function LlamadasPage() {
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 py-6">
-        {!config?.isActive ? (
-          <ActivationPanel
-            config={config}
-            voices={voices}
-            activating={activating}
-            onActivate={async () => {
-              setActivating(true);
-              try {
-                const result = await apiFetch('/api/calls/activate', { method: 'POST' });
-                setConfig(result.config);
-                showMsg(`Línea activada: ${result.phone || 'Lista'}`, 'success');
-                loadAll();
-              } catch (e: any) {
-                showMsg(e.message, 'error');
-              } finally {
-                setActivating(false);
-              }
-            }}
-            onUpdateConfig={async (data: any) => {
-              try {
-                const updated = await apiFetch('/api/calls/config', { method: 'PUT', body: JSON.stringify(data) });
-                setConfig(updated);
-              } catch (e: any) {
-                showMsg(e.message, 'error');
-              }
-            }}
-          />
-        ) : tab === 'dashboard' ? (
-          <DashboardTab
-            config={config}
-            stats={stats}
-            calls={calls}
-            onCall={async (toNumber: string, toName?: string) => {
-              try {
-                await apiFetch('/api/calls/call', { method: 'POST', body: JSON.stringify({ toNumber, toName }) });
-                showMsg(`Llamando a ${toName || toNumber}...`, 'success');
-                setTimeout(loadAll, 2000);
-              } catch (e: any) {
-                showMsg(e.message, 'error');
-              }
-            }}
-          />
+        {tab === 'dashboard' ? (
+          !config?.isActive ? (
+            <ActivationPanel
+              config={config}
+              voices={voices}
+              activating={activating}
+              onActivate={async () => {
+                setActivating(true);
+                try {
+                  const result = await apiFetch('/api/calls/activate', { method: 'POST' });
+                  setConfig(result.config);
+                  showMsg(`Línea activada: ${result.phone || 'Lista'}`, 'success');
+                  loadAll();
+                } catch (e: any) {
+                  showMsg(e.message, 'error');
+                } finally {
+                  setActivating(false);
+                }
+              }}
+              onUpdateConfig={async (data: any) => {
+                try {
+                  const updated = await apiFetch('/api/calls/config', { method: 'PUT', body: JSON.stringify(data) });
+                  setConfig(updated);
+                } catch (e: any) {
+                  showMsg(e.message, 'error');
+                }
+              }}
+            />
+          ) : (
+            <DashboardTab
+              config={config}
+              stats={stats}
+              calls={calls}
+              onCall={async (toNumber: string, toName?: string) => {
+                try {
+                  await apiFetch('/api/calls/call', { method: 'POST', body: JSON.stringify({ toNumber, toName }) });
+                  showMsg(`Llamando a ${toName || toNumber}...`, 'success');
+                  setTimeout(loadAll, 2000);
+                } catch (e: any) {
+                  showMsg(e.message, 'error');
+                }
+              }}
+            />
+          )
         ) : tab === 'history' ? (
           <HistoryTab calls={calls} total={totalCalls} onRefresh={loadAll} />
         ) : (
+          config ? (
           <ConfigTab
             config={config}
             voices={voices}
@@ -334,6 +337,13 @@ export default function LlamadasPage() {
               }
             }}
           />
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <Settings className="w-10 h-10 mx-auto mb-3 opacity-40" />
+              <p>Activa tu línea primero para configurar el agente</p>
+              <button onClick={() => setTab('dashboard')} className="mt-3 text-violet-400 text-sm hover:underline">Ir a activar →</button>
+            </div>
+          )
         )}
       </div>
     </div>

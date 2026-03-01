@@ -30,11 +30,17 @@ const getWahaHeaders = () => {
 
 // ⏱️ TIMING ADAPTATIVO
 const BURST_CONFIG = {
-  INITIAL_WAIT_MS: 3000,      // Primera espera: 3s (usuario puede seguir escribiendo)
-  CONTINUE_WAIT_MS: 2000,     // Mensajes adicionales: 2s (están activos)
-  FRAGMENT_WAIT_MS: 4000,     // Fragmentos ("...", "?", <5 chars): 4s (probablemente continúan)
-  MAX_WAIT_MS: 15000,         // Máximo absoluto: 15s (no bufferear forever)
-  MAX_MESSAGES: 10,           // Máximo de mensajes en ráfaga
+  // WAHA (webhooks rápidos, conexión directa)
+  INITIAL_WAIT_MS: 3000,      // Primera espera: 3s
+  CONTINUE_WAIT_MS: 2000,     // Mensajes adicionales: 2s
+  FRAGMENT_WAIT_MS: 4000,     // Fragmentos: 4s
+  // CLOUD API (Meta webhooks con delay 1-4s entre entregas)
+  CLOUD_INITIAL_WAIT_MS: 5000,  // Primera espera Cloud: 5s
+  CLOUD_CONTINUE_WAIT_MS: 3000, // Adicionales Cloud: 3s
+  CLOUD_FRAGMENT_WAIT_MS: 5000, // Fragmentos Cloud: 5s
+  // Límites globales
+  MAX_WAIT_MS: 20000,         // Máximo absoluto: 20s
+  MAX_MESSAGES: 10,           // Máximo mensajes en ráfaga
 };
 
 // 🧠 Patrones que indican "sigo escribiendo"
@@ -53,7 +59,7 @@ const isFragment = (msg: string): boolean => {
 };
 
 // Calcula el tiempo de espera óptimo según el mensaje actual y el estado del buffer
-const getSmartDelay = (msg: string, messageCount: number, firstTimestamp: number): number => {
+const getSmartDelay = (msg: string, messageCount: number, firstTimestamp: number, isCloud: boolean = false): number => {
   const elapsed = Date.now() - firstTimestamp;
   const remaining = BURST_CONFIG.MAX_WAIT_MS - elapsed;
   
@@ -66,14 +72,11 @@ const getSmartDelay = (msg: string, messageCount: number, firstTimestamp: number
   let delay: number;
   
   if (messageCount === 0) {
-    // Primer mensaje — esperar más
-    delay = BURST_CONFIG.INITIAL_WAIT_MS;
+    delay = isCloud ? BURST_CONFIG.CLOUD_INITIAL_WAIT_MS : BURST_CONFIG.INITIAL_WAIT_MS;
   } else if (isFragment(msg)) {
-    // Fragmento — esperar más, probablemente sigue
-    delay = BURST_CONFIG.FRAGMENT_WAIT_MS;
+    delay = isCloud ? BURST_CONFIG.CLOUD_FRAGMENT_WAIT_MS : BURST_CONFIG.FRAGMENT_WAIT_MS;
   } else {
-    // Mensaje normal — espera estándar
-    delay = BURST_CONFIG.CONTINUE_WAIT_MS;
+    delay = isCloud ? BURST_CONFIG.CLOUD_CONTINUE_WAIT_MS : BURST_CONFIG.CONTINUE_WAIT_MS;
   }
   
   // No exceder el tiempo máximo total
@@ -115,6 +118,7 @@ const messageBuffer: Map<string, {
   firstTimestamp: number;      // Cuando llegó el primer mensaje
   lastTimestamp: number;       // Cuando llegó el último mensaje
   hasMedia: boolean;           // Si incluye media (imágenes, audio)
+  isCloud: boolean;            // Cloud API = webhooks lentos de Meta
 }> = new Map();
 
 // ===== SESSION MANAGEMENT (multi-tenant) =====
@@ -3152,8 +3156,9 @@ const processBufferedMessages = async (bufferKey: string) => {
 
       await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: aiResponse || `📎 ${matchedMedia.name}` } });
 
-      // ═══ PASO 3: FOLLOW-UP ESTRATÉGICO ═══
-      await sendMediaFollowUp(sessionName, from, userId, convId, matchedMedia.name, matchedMedia.type, aiResponse, whatsappLineId);
+      // ═══ PASO 3: FOLLOW-UP ESTRATÉGICO — DESACTIVADO ═══
+      // El follow-up duplicaba preguntas ya incluidas en la respuesta IA del usuario
+      // await sendMediaFollowUp(sessionName, from, userId, convId, matchedMedia.name, matchedMedia.type, aiResponse, whatsappLineId);
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
@@ -3272,8 +3277,8 @@ const processBufferedMessages = async (bufferKey: string) => {
             log(`🤖 Respuesta (post-media) → ${senderName}`);
           }
 
-          // PASO 3: Follow-up estratégico
-          await sendMediaFollowUp(sessionName, from, userId, convId, responseMedia.name, responseMedia.type, cleanResponse, whatsappLineId);
+          // PASO 3: Follow-up estratégico — DESACTIVADO
+          // await sendMediaFollowUp(sessionName, from, userId, convId, responseMedia.name, responseMedia.type, cleanResponse, whatsappLineId);
 
         } else {
           // ═══ FLUJO NORMAL SIN TRIGGER: Solo texto ═══
@@ -3320,10 +3325,12 @@ const processBufferedMessages = async (bufferKey: string) => {
     // 🔄 Verificar si llegaron mensajes mientras procesábamos
     const pending = messageBuffer.get(bufferKey);
     if (pending) {
-      clog(`🔄 ${pending.messages.length} msg(s) pendiente(s) de ${senderName} → procesando en 1.5s...`);
       clearTimeout(pending.timer);
-      // Breve espera (1.5s) por si llegan más mensajes, luego procesar
-      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), 1500);
+      // Cloud API: esperar 3s más (webhooks de Meta llegan con delay)
+      // WAHA: esperar 1.5s
+      const pendingDelay = pending.isCloud ? 3000 : 1500;
+      clog(`🔄 ${pending.messages.length} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''}...`);
+      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), pendingDelay);
     }
   }
 };
@@ -5087,7 +5094,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       messageBuffer.set(bufferKey, {
         messages: [messageForAI], timer: null as any, sessionName, from, senderName, userId,
         convId: conv.id, whatsappLineId,
-        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg
+        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg, isCloud: false
       });
       clog(`🔒 Ráfaga (lock): ${senderName} → guardado, se procesará al terminar IA`);
     } else {
@@ -5115,7 +5122,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       messageBuffer.set(bufferKey, {
         messages: [messageForAI], timer, sessionName, from, senderName, userId,
         convId: conv.id, whatsappLineId,
-        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg
+        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg, isCloud: false
       });
       log(`📦 Ráfaga: nuevo de ${senderName} → espera inteligente ${(delay/1000).toFixed(1)}s${isFragment(messageForAI) ? ' [fragmento detectado]' : ''}`);
     }
@@ -5697,7 +5704,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         existingBuffer.messages.push(messageBody);
         existingBuffer.lastTimestamp = now;
         clearTimeout(existingBuffer.timer);
-        const delay = getSmartDelay(messageBody, existingBuffer.messages.length, existingBuffer.firstTimestamp);
+        const delay = getSmartDelay(messageBody, existingBuffer.messages.length, existingBuffer.firstTimestamp, true);
         existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
         clog(`☁️ 📦 Buffer Cloud: +1 de ${senderName} (total: ${existingBuffer.messages.length}, espera: ${(delay/1000).toFixed(1)}s)`);
       } else if (processingLock.has(bufferKey)) {
@@ -5706,17 +5713,17 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           messages: [messageBody], timer: null as any, sessionName,
           from: chatIdForSend, senderName, userId,
           convId: conv.id, whatsappLineId,
-          firstTimestamp: now, lastTimestamp: now, hasMedia: false
+          firstTimestamp: now, lastTimestamp: now, hasMedia: false, isCloud: true
         });
         clog(`☁️ 🔒 Lock activo → "${messageBody.substring(0, 50)}" de ${senderName} guardado (se procesará al terminar IA)`);
       } else {
-        const delay = getSmartDelay(messageBody, 0, now);
+        const delay = getSmartDelay(messageBody, 0, now, true);
         const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
         messageBuffer.set(bufferKey, {
           messages: [messageBody], timer, sessionName,
           from: chatIdForSend, senderName, userId,
           convId: conv.id, whatsappLineId,
-          firstTimestamp: now, lastTimestamp: now, hasMedia: false
+          firstTimestamp: now, lastTimestamp: now, hasMedia: false, isCloud: true
         });
         clog(`☁️ 📦 Buffer Cloud: nuevo de ${senderName} → espera ${(delay/1000).toFixed(1)}s (bufferKey: ${bufferKey})`);
       }

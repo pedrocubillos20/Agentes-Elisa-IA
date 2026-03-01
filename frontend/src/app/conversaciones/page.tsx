@@ -824,7 +824,38 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                 {messages.map((msg, idx) => (
                   <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
-                      {msg.mediaType === 'image' && msg.mediaUrl && <img src={msg.mediaUrl} alt="" className="max-w-[200px] rounded-lg mb-1" />}
+                      {msg.mediaType === 'image' && msg.mediaUrl && (() => {
+                        const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+                        const imgSrc = msg.mediaUrl.startsWith('data:') ? msg.mediaUrl 
+                          : msg.mediaUrl.startsWith('/api/') ? `${API_URL}${msg.mediaUrl}?token=${t}`
+                          : msg.mediaUrl.startsWith('http') ? msg.mediaUrl
+                          : `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
+                        return (
+                          <img 
+                            src={imgSrc}
+                            alt="" 
+                            className="max-w-full w-full rounded-lg mb-1 cursor-pointer hover:opacity-90 transition" 
+                            style={{ maxWidth: '280px' }}
+                            onClick={() => window.open(imgSrc, '_blank')}
+                            onError={(e) => { 
+                              const el = e.target as HTMLImageElement;
+                              if (!el.dataset.retried) {
+                                el.dataset.retried = '1';
+                                el.src = `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
+                              } else {
+                                el.style.display = 'none';
+                              }
+                            }}
+                            loading="lazy"
+                          />
+                        );
+                      })()}
+                      {msg.mediaType === 'image' && !msg.mediaUrl && (
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
+                          <Image className="w-4 h-4 opacity-60" />
+                          <span className="text-xs opacity-60">Imagen recibida</span>
+                        </div>
+                      )}
                       {msg.mediaType === 'audio' && (
                         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
                           <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
@@ -845,7 +876,14 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                           </div>
                         </div>
                       )}
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                      <p className="whitespace-pre-wrap break-words">
+                        {msg.mediaType === 'image' && msg.mediaUrl && (msg.content === '📷 [Imagen]' || msg.content === '📷 [Imagen enviada por el cliente]' || msg.content?.startsWith('📷 [Imagen'))
+                          ? '' 
+                          : msg.mediaType === 'image' && msg.content?.startsWith('[El cliente envió una imagen')
+                            ? msg.content.replace(/^\[El cliente envió una imagen[^.]*\.\s*Contenido(?:\s*de la imagen)?:\s*/, '👁️ ').replace(/\]$/, '')
+                            : msg.content
+                        }
+                      </p>
                       <p className={`text-[9px] mt-1 ${msg.fromMe ? 'text-white/60' : 'text-[var(--text-muted)]'}`}>
                         {new Date(msg.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
                       </p>

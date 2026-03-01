@@ -283,7 +283,7 @@ export default function ProgramadosPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="card p-3 flex items-center gap-3 cursor-pointer hover:border-yellow-500/50 transition-all" onClick={() => setFilter(filter === 'pending' ? 'all' : 'pending')}>
           <div className="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center">
             <Clock className="w-5 h-5 text-yellow-400" />
@@ -440,7 +440,7 @@ export default function ProgramadosPage() {
               {/* Tipo de destinatario */}
               <div>
                 <label className="text-xs text-[var(--text-muted)] mb-2 block">Enviar a</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {TARGET_TYPES.map(t => {
                     const Icon = t.icon;
                     return (
@@ -640,7 +640,7 @@ export default function ProgramadosPage() {
               {/* Recurrencia */}
               <div>
                 <label className="text-xs text-[var(--text-muted)] mb-2 block">Repetir</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {RECURRENCE_OPTIONS.map(r => (
                     <button
                       key={r.id}

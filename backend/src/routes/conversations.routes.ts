@@ -481,7 +481,15 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
     });
     messages.reverse();
     
-    res.json({ messages });
+    // Transform: replace heavy base64/WAHA URLs with lightweight proxy URL for images
+    const transformed = messages.map((msg: any) => {
+      if (msg.mediaType === 'image' && msg.mediaUrl) {
+        return { ...msg, mediaUrl: `/api/media-proxy/${msg.id}` };
+      }
+      return msg;
+    });
+    
+    res.json({ messages: transformed });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
   }

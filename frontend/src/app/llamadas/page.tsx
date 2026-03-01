@@ -401,7 +401,7 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
       </div>
 
       {/* Features */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         {[
           { icon: Zap, label: 'Latencia ~600ms', desc: 'Respuestas naturales', color: 'text-yellow-400' },
           { icon: Globe, label: 'Número dedicado', desc: 'Se asigna automáticamente', color: 'text-blue-400' },

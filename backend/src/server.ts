@@ -132,6 +132,90 @@ app.post('/api/webhook/retell', (req, res, next) => {
   handleRetellWebhook(req, res).catch(next);
 });
 
+// 🖼️ MEDIA PROXY — Serves images from messages (own JWT auth via query param for <img> tags)
+app.get('/api/media-proxy/:msgId', async (req: any, res: any) => {
+  try {
+    const token = req.query.token as string || req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
+    const jwt = require('jsonwebtoken');
+    let decoded: any;
+    try { decoded = jwt.verify(token, process.env.JWT_SECRET); } catch { return res.status(401).json({ error: 'Bad token' }); }
+    
+    const userId = decoded.id;
+    const { msgId } = req.params;
+
+    const message = await prisma.message.findUnique({ where: { id: msgId } });
+    if (!message || !message.mediaUrl) return res.status(404).end();
+
+    // Verify ownership
+    const conv = await prisma.conversation.findFirst({ where: { id: message.conversationId, userId } });
+    if (!conv) {
+      // Check if team member
+      const member = await prisma.teamMember.findFirst({ where: { memberId: userId, status: 'active' } });
+      if (!member) return res.status(403).end();
+      const ownerConv = await prisma.conversation.findFirst({ where: { id: message.conversationId, userId: member.ownerId } });
+      if (!ownerConv) return res.status(403).end();
+    }
+
+    const mediaUrl = message.mediaUrl;
+
+    // CASE 1: Base64 data URL → decode and return binary
+    if (mediaUrl.startsWith('data:')) {
+      const match = mediaUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        const buffer = Buffer.from(match[2], 'base64');
+        res.setHeader('Content-Type', match[1]);
+        res.setHeader('Content-Length', buffer.length);
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        return res.send(buffer);
+      }
+    }
+
+    // CASE 2: WAHA URL → fetch with WAHA auth and forward
+    if (mediaUrl.includes('/api/') || mediaUrl.includes(':8080') || mediaUrl.includes(':3000')) {
+      const WAHA_API_URL = process.env.WAHA_API_URL || '';
+      const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
+      // Rewrite localhost URLs to WAHA URL
+      let fetchUrl = mediaUrl;
+      for (const prefix of ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:8080', 'http://127.0.0.1:8080']) {
+        if (fetchUrl.startsWith(prefix)) fetchUrl = fetchUrl.replace(prefix, WAHA_API_URL);
+      }
+      const headers: Record<string, string> = {};
+      if (WAHA_API_KEY) headers['X-Api-Key'] = WAHA_API_KEY;
+      try {
+        const wahaRes = await fetch(fetchUrl, { headers });
+        if (wahaRes.ok) {
+          const buffer = Buffer.from(await wahaRes.arrayBuffer());
+          res.setHeader('Content-Type', wahaRes.headers.get('content-type') || 'image/jpeg');
+          res.setHeader('Content-Length', buffer.length);
+          res.setHeader('Cache-Control', 'private, max-age=86400');
+          return res.send(buffer);
+        }
+      } catch {}
+    }
+
+    // CASE 3: External URL → fetch directly
+    if (mediaUrl.startsWith('http')) {
+      try {
+        const extRes = await fetch(mediaUrl);
+        if (extRes.ok) {
+          const buffer = Buffer.from(await extRes.arrayBuffer());
+          res.setHeader('Content-Type', extRes.headers.get('content-type') || 'image/jpeg');
+          res.setHeader('Content-Length', buffer.length);
+          res.setHeader('Cache-Control', 'private, max-age=86400');
+          return res.send(buffer);
+        }
+      } catch {}
+    }
+
+    res.status(404).json({ error: 'Media not found' });
+  } catch (e: any) {
+    console.error('Media proxy error:', e.message);
+    res.status(500).json({ error: 'Proxy error' });
+  }
+});
+
 // ===== DELETE CONVERSATION =====
 app.delete('/api/conversations/:id', authMiddleware, async (req: any, res: any) => {
   try {

@@ -32,7 +32,6 @@ const BUFFER_WAIT_MS = 2000; // Esperar 2 segundos por más mensajes
 
 const messageBuffer: Map<string, {
   messages: string[];
-  images: string[];
   timer: ReturnType<typeof setTimeout>;
   sessionName: string;
   from: string;
@@ -638,6 +637,74 @@ const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<str
 };
 
 // ====================================================
+// 👁️ ANALYZE IMAGE WITH VISION — GPT-4o-mini Vision
+// Convierte imágenes del cliente en descripción de texto para que la IA entienda
+// ====================================================
+const analyzeImageWithVision = async (imageBuffer: Buffer, mimetype: string, apiKey: string, businessContext?: string): Promise<string | null> => {
+  try {
+    const base64 = imageBuffer.toString('base64');
+    const mediaType = mimetype.includes('png') ? 'image/png' : mimetype.includes('webp') ? 'image/webp' : 'image/jpeg';
+    
+    // Limitar tamaño (max ~2MB en base64 para no exceder límites)
+    if (base64.length > 2_800_000) {
+      log(`⚠️ Imagen muy grande para Vision: ${(base64.length / 1_000_000).toFixed(1)}MB — omitiendo análisis`);
+      return null;
+    }
+
+    const systemMsg = `Eres un asistente de visión para un negocio por WhatsApp. Analiza la imagen que el cliente envió y describe lo que ves de forma concisa y útil en español.
+${businessContext ? `\nContexto del negocio: ${businessContext}` : ''}
+
+REGLAS:
+- Describe lo que ves en máximo 2-3 oraciones
+- Si es un producto, describe color, tipo, detalles visibles
+- Si es un comprobante de pago/transferencia, indica: monto, fecha, banco si es visible
+- Si es una captura de pantalla, describe el contenido relevante
+- Si es un texto/documento, transcribe el contenido relevante
+- Si es una foto personal o selfie, di "El cliente envió una foto personal"
+- NO inventes detalles que no puedas ver
+- Responde SOLO con la descripción, sin explicaciones extras`;
+
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 15000);
+    
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemMsg },
+          { role: 'user', content: [
+            { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}`, detail: 'low' } },
+            { type: 'text', text: 'Describe esta imagen que envió el cliente por WhatsApp.' }
+          ]}
+        ],
+        max_tokens: 200,
+        temperature: 0.3
+      }),
+      signal: ctrl.signal
+    });
+    clearTimeout(to);
+
+    if (res.ok) {
+      const data = await res.json() as any;
+      const description = data.choices?.[0]?.message?.content?.trim();
+      if (description) {
+        log(`👁️ Vision: "${description.substring(0, 120)}"`);
+        return description;
+      }
+    } else {
+      const err = await res.text().catch(() => '');
+      console.error(`❌ Vision error ${res.status}: ${err.substring(0, 200)}`);
+    }
+    return null;
+  } catch (e: any) {
+    console.error('❌ Vision error:', e.message);
+    return null;
+  }
+};
+
+// ====================================================
 // 📥 DOWNLOAD MEDIA FROM WAHA — Multiple strategies
 // ====================================================
 // Helper: rewrite WAHA internal URLs (localhost:3000) to public VPS URL
@@ -891,7 +958,7 @@ function findStageByKeyword(stages: any[], keywords: string[]): string {
   return '';
 }
 
-const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null, images?: string[]): Promise<string | null> => {
+const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null): Promise<string | null> => {
   try {
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
@@ -1375,72 +1442,33 @@ REGLAS DE TRANSFERENCIA:
 
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
-    
-    // 👁️ Si hay imágenes, agregar instrucciones de visión al prompt
-    const visionInstructions = (images && images.length > 0) ? `
-
-=== 👁️ VISIÓN — ANÁLISIS DE IMÁGENES ===
-El cliente te ha enviado ${images.length} imagen(es). Puedes VER las imágenes.
-INSTRUCCIONES:
-- Describe brevemente lo que ves en la imagen si es relevante para la conversación
-- Si es una imagen de un producto, identifícalo y relacónalo con tu catálogo/inventario
-- Si es un comprobante de pago, confirma que lo recibiste y menciona los datos visibles
-- Si es una captura de pantalla, lee el contenido relevante
-- Si es una foto personal o irrelevante, responde amablemente sin describir en exceso
-- NUNCA digas "no puedo ver imágenes" — SÍ puedes verlas
-- Integra lo que ves naturalmente en tu respuesta, no hagas una descripción técnica
-` : '';
-    
-    log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos${images?.length ? ` | 👁️ ${images.length} imagen(es)` : ''}`);
+    log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
 
     // Construir mensajes para OpenAI (30 mensajes = cubre flujo completo de venta)
     const recent = [...history].reverse().slice(-30);
-    const messages: any[] = [{ role: 'system', content: systemPrompt + visionInstructions }];
+    const messages: any[] = [{ role: 'system', content: systemPrompt }];
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
     const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas.]`;
-    
-    // 👁️ VISIÓN: Si hay imágenes, enviarlas a GPT-4o-mini con formato vision
-    if (images && images.length > 0) {
-      const contentParts: any[] = [];
-      
-      // Agregar cada imagen
-      for (const imgBase64 of images) {
-        const imageUrl = imgBase64.startsWith('data:') ? imgBase64 : `data:image/jpeg;base64,${imgBase64}`;
-        contentParts.push({
-          type: 'image_url',
-          image_url: { url: imageUrl, detail: 'low' }
-        });
-      }
-      
-      // Agregar el texto del mensaje
-      const textContent = message || 'El cliente envió esta imagen.';
-      contentParts.push({ type: 'text', text: textContent + memoryReminder });
-      
-      messages.push({ role: 'user', content: contentParts });
-      log(`👁️ Visión activada: ${images.length} imagen(es) + texto enviados a GPT-4o-mini`);
-    } else {
-      messages.push({ role: 'user', content: message + memoryReminder });
-    }
+    messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
     // 💰 MODELO FIJO: gpt-4o-mini (económico y potente, ~60x más barato que gpt-4-turbo)
     // NO se cambia desde el panel — siempre usa este modelo
     const FIXED_MODEL = 'gpt-4o-mini';
-    const hasVision = !!(images && images.length > 0);
     for (const model of [FIXED_MODEL]) {
       try {
-        log(`🤖 OpenAI (${model}, ${messages.length} msgs${hasVision ? ', 👁️ VISIÓN' : ''})...`);
+        log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), hasVision ? 30000 : 20000);
+        const to = setTimeout(() => ctrl.abort(), 20000);
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: hasVision ? 700 : 500
+            max_tokens: 500
           }),
           signal: ctrl.signal
         });
@@ -2916,7 +2944,6 @@ const processBufferedMessages = async (bufferKey: string) => {
     const existing = messageBuffer.get(bufferKey);
     if (existing) {
       existing.messages.push(...buf.messages);
-      if (buf.images) existing.images.push(...buf.images);
       clearTimeout(existing.timer);
       existing.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
     } else {
@@ -2929,10 +2956,10 @@ const processBufferedMessages = async (bufferKey: string) => {
   // 🔒 Activar lock
   processingLock.add(bufferKey);
 
-  const { messages: msgs, images: bufImages, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
+  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
   const combinedMessage = msgs.join('\n');
 
-  log(`📦 Buffer procesado: ${msgs.length} mensaje(s)${bufImages.length > 0 ? ` + ${bufImages.length} imagen(es) 👁️` : ''} de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
+  log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
 
   // 🔔 PUSH NOTIFICATION — Notificar al dueño de nuevo mensaje
   sendPushToUser(userId, {
@@ -3012,7 +3039,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           await new Promise(r => setTimeout(r, 300)); // Pausa mínima Cloud API
         }
       }
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId, bufImages);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -3044,7 +3071,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId, bufImages);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -4579,7 +4606,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const media = extractMediaInfo(payload);
     let savedMediaUrl: string | null = null;
     let savedMediaType: string | null = null;
-    let imageBase64ForAI: string | null = null; // 👁️ Para enviar a GPT visión
 
     if (media.hasMedia) {
       // 🔍 LOG COMPLETO del payload para debugging
@@ -4631,27 +4657,64 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
       }
       
-      // 🖼️ IMAGEN → Guardar para chat + enviar a IA con visión
+      // 🖼️ IMAGEN → Descargar, analizar con Vision, guardar en chat
       else if (media.mediaType === 'image') {
+        // Intentar descargar y guardar como base64 para el chat
+        let downloaded: { buffer: Buffer; mimetype: string } | null = null;
         if (media.messageId || media.mediaUrl) {
-          const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
+          downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
           if (downloaded) {
             savedMediaUrl = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
-            // 👁️ Guardar base64 para enviar a GPT-4o-mini visión
-            // Limitar a 1MB para no sobrecargar la API
-            if (downloaded.buffer.length < 1024 * 1024) {
-              imageBase64ForAI = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
-              log(`👁️ Imagen lista para visión IA: ${(downloaded.buffer.length / 1024).toFixed(0)}KB`);
-            } else {
-              log(`⚠️ Imagen muy grande para visión: ${(downloaded.buffer.length / 1024 / 1024).toFixed(1)}MB — solo se guarda para chat`);
-            }
+            log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
           } else {
             savedMediaUrl = getMediaUrl(sessionName, media.messageId);
           }
         }
         savedMediaType = 'image';
-        if (!body && media.caption) body = media.caption;
-        if (!body) body = imageBase64ForAI ? '📷 [Imagen enviada por el cliente - analizando...]' : '📷 [Imagen]';
+        
+        // 👁️ VISION: Analizar imagen con GPT-4o-mini Vision
+        if (downloaded) {
+          const recipientIdTemp = isLid 
+            ? await resolveLidToPhone(sessionName, from, payload).then(r => r.replace('LID_', ''))
+            : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
+          const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
+          if (userIdTemp) {
+            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
+            if (userForVision?.apiKey) {
+              // Obtener contexto del negocio para análisis más relevante
+              const assistantForContext = await prisma.assistant.findFirst({ 
+                where: { userId: userIdTemp, isActive: true }, 
+                select: { businessInfo: true, context: true } 
+              });
+              const bizContext = assistantForContext?.businessInfo || assistantForContext?.context || '';
+              
+              const imageDescription = await analyzeImageWithVision(
+                downloaded.buffer, 
+                downloaded.mimetype, 
+                userForVision.apiKey,
+                bizContext.substring(0, 500) // Limitar contexto
+              );
+              
+              if (imageDescription) {
+                const caption = media.caption ? ` (caption: "${media.caption}")` : '';
+                body = `[El cliente envió una imagen${caption}. Contenido de la imagen: ${imageDescription}]`;
+                log(`👁️ Imagen analizada: "${imageDescription.substring(0, 100)}"`);
+              } else {
+                if (!body && media.caption) body = media.caption;
+                if (!body) body = '📷 [Imagen enviada por el cliente - no se pudo analizar]';
+              }
+            } else {
+              if (!body && media.caption) body = media.caption;
+              if (!body) body = '📷 [Imagen - sin API key para analizar]';
+            }
+          } else {
+            if (!body && media.caption) body = media.caption;
+            if (!body) body = '📷 [Imagen]';
+          }
+        } else {
+          if (!body && media.caption) body = media.caption;
+          if (!body) body = '📷 [Imagen - no se pudo descargar]';
+        }
       }
       
       // 🎥 VIDEO
@@ -4921,16 +4984,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (existingBuffer) {
       // Ya hay mensajes en buffer → agregar y resetear timer
       existingBuffer.messages.push(messageForAI);
-      if (imageBase64ForAI) existingBuffer.images.push(imageBase64ForAI);
       clearTimeout(existingBuffer.timer);
       existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
-      log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, imgs: ${existingBuffer.images.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
+      log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
     } else if (isLocked) {
       // 🔒 IA procesando → crear buffer nuevo que se procesará cuando termine
       const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       messageBuffer.set(bufferKey, {
         messages: [messageForAI],
-        images: imageBase64ForAI ? [imageBase64ForAI] : [],
         timer,
         sessionName,
         from,
@@ -4962,7 +5023,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       messageBuffer.set(bufferKey, {
         messages: [messageForAI],
-        images: imageBase64ForAI ? [imageBase64ForAI] : [],
         timer,
         sessionName,
         from,
@@ -4971,7 +5031,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         convId: conv.id,
         whatsappLineId
       });
-      log(`📦 Buffer: nuevo de ${senderName}${imageBase64ForAI ? ' (con imagen 👁️)' : ''} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
+      log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
     }
 
     // Responder inmediatamente al webhook (WAHA no espera)
@@ -5430,7 +5490,6 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let messageBody = '';
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
-      let cloudImageBase64: string | null = null; // 👁️ Para visión IA
       
       if (msgType === 'text') {
         messageBody = msg.text?.body || '';
@@ -5447,21 +5506,6 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             if (mediaRes.ok) { savedMediaUrl = ((await mediaRes.json()) as any).url || null; }
           } catch {}
         }
-        // 👁️ IMAGEN → Descargar para visión IA
-        if (msgType === 'image' && savedMediaUrl && line.cloudAccessToken) {
-          try {
-            const imgRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
-            if (imgRes.ok) {
-              const imgBuf = Buffer.from(await imgRes.arrayBuffer());
-              if (imgBuf.length < 1024 * 1024) {
-                const mime = imgRes.headers.get('content-type') || 'image/jpeg';
-                cloudImageBase64 = `data:${mime};base64,${imgBuf.toString('base64')}`;
-                console.log(`☁️ 👁️ Imagen Cloud descargada para visión: ${(imgBuf.length / 1024).toFixed(0)}KB`);
-              }
-            }
-          } catch {}
-          if (!messageBody) messageBody = cloudImageBase64 ? '📷 [Imagen enviada por el cliente - analizando...]' : '📷 [Imagen]';
-        }
         // Audio transcription
         if (msgType === 'audio' && savedMediaUrl && line.cloudAccessToken) {
           try {
@@ -5474,6 +5518,27 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             }
           } catch {}
         }
+        // 👁️ Image Vision analysis
+        if (msgType === 'image' && savedMediaUrl && line.cloudAccessToken) {
+          try {
+            const imgRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
+            if (imgRes.ok) {
+              const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+              const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
+              if (apiKey) {
+                const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });
+                const bizCtx = assistantCtx?.businessInfo || assistantCtx?.context || '';
+                const desc = await analyzeImageWithVision(imgBuf, imgRes.headers.get('content-type') || 'image/jpeg', apiKey, bizCtx.substring(0, 500));
+                if (desc) {
+                  const cap = caption ? ` (caption: "${caption}")` : '';
+                  messageBody = `[El cliente envió una imagen${cap}. Contenido: ${desc}]`;
+                  log(`☁️ 👁️ Cloud imagen analizada: "${desc.substring(0, 100)}"`);
+                }
+              }
+            }
+          } catch (vErr: any) { log(`☁️ ⚠️ Vision error: ${vErr.message}`); }
+        }
       } else if (msgType === 'location') {
         messageBody = `📍 Ubicación: ${msg.location?.latitude}, ${msg.location?.longitude}`;
       } else if (msgType === 'contacts') {
@@ -5485,6 +5550,9 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       else { messageBody = `[${msgType}]`; }
       
       if (!messageBody && !savedMediaType) continue;
+      if (!messageBody && savedMediaType === 'image') messageBody = '📷 [Imagen enviada por el cliente]';
+      if (!messageBody && savedMediaType === 'video') messageBody = '🎬 [Video recibido]';
+      if (!messageBody && savedMediaType) messageBody = `📎 [${savedMediaType}]`;
       
       const recipientId = from.replace(/\D/g, '');
       
@@ -5540,13 +5608,12 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       
       if (existingBuffer) {
         existingBuffer.messages.push(messageBody);
-        if (cloudImageBase64) existingBuffer.images.push(cloudImageBase64);
         clearTimeout(existingBuffer.timer);
         existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       } else {
         const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
         messageBuffer.set(bufferKey, {
-          messages: [messageBody], images: cloudImageBase64 ? [cloudImageBase64] : [], timer, sessionName,
+          messages: [messageBody], timer, sessionName,
           from: chatIdForSend, senderName, userId,
           convId: conv.id, whatsappLineId
         });

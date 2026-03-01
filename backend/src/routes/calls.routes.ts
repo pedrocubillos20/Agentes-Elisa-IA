@@ -192,8 +192,8 @@ router.post('/activate', async (req: any, res) => {
       webhook_url: `${baseUrl}/api/webhook/retell`,
       normalize_for_speech: true,
       post_call_analysis_data: [
-        { type: 'string', key: 'call_summary', description: 'Resumen breve de la llamada en español' },
-        { type: 'enum', key: 'sentiment', description: 'Sentimiento del cliente', choices: ['positive', 'neutral', 'negative'] },
+        { type: 'string', name: 'call_summary', key: 'call_summary', description: 'Resumen breve de la llamada en español' },
+        { type: 'enum', name: 'sentiment', key: 'sentiment', description: 'Sentimiento del cliente', choices: ['positive', 'neutral', 'negative'] },
       ],
     });
     

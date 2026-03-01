@@ -239,6 +239,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Conversaciones', href: '/conversaciones', icon: MessageSquare, perm: 'conversations', color: 'from-cyan-500/20 to-cyan-600/10 text-cyan-400' },
     { name: 'WhatsApp', href: '/whatsapp', icon: Smartphone, perm: 'whatsapp', color: 'from-green-500/20 to-green-600/10 text-green-400' },
     { name: 'Asistentes IA', href: '/asistentes', icon: Bot, perm: 'assistants', featureKey: 'assistants', color: 'from-violet-500/20 to-violet-600/10 text-violet-400' },
+    { name: 'Llamadas IA', href: '/llamadas', icon: Phone, perm: 'assistants', featureKey: 'assistants', color: 'from-indigo-500/20 to-indigo-600/10 text-indigo-400' },
     { name: 'CRM', href: '/crm', icon: Users, perm: 'crm', color: 'from-amber-500/20 to-amber-600/10 text-amber-400' },
     { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', color: 'from-rose-500/20 to-rose-600/10 text-rose-400' },
     { name: 'Recursos', href: '/recursos', icon: LayoutGrid, perm: 'agenda', color: 'from-purple-500/20 to-purple-600/10 text-purple-400' },

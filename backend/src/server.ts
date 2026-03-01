@@ -24,6 +24,7 @@ import pushRoutes from './routes/push.routes';
 import paymentsRoutes from './routes/payments.routes';
 import gcalRoutes, { handleGCalCallback } from './routes/google-calendar.routes';
 import resourcesRoutes from './routes/resources.routes';
+import callsRoutes, { handleRetellWebhook, startCallReminderCron } from './routes/calls.routes'; // 📞 RETELL AI
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -126,6 +127,11 @@ app.post('/api/ghl/webhook', (req, res, next) => {
   ghlRoutes(req, res, next);
 });
 
+// 📞 RETELL AI WEBHOOK (público - recibe eventos de llamadas)
+app.post('/api/webhook/retell', (req, res, next) => {
+  handleRetellWebhook(req, res).catch(next);
+});
+
 // ===== DELETE CONVERSATION =====
 app.delete('/api/conversations/:id', authMiddleware, async (req: any, res: any) => {
   try {
@@ -170,6 +176,7 @@ app.use('/api/ai-config', authMiddleware, subscriptionMiddleware, apiRL, aiConfi
 app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/gcal', authMiddleware, gcalRoutes);
 app.use('/api/resources', authMiddleware, subscriptionMiddleware, apiRL, resourcesRoutes);
+app.use('/api/calls', authMiddleware, subscriptionMiddleware, apiRL, callsRoutes); // 📞 RETELL AI
 app.use('/api/v1', apiPublicRoutes);
 
 // ===== HEALTH + MONITORING =====
@@ -198,16 +205,17 @@ app.get('/api/admin/cache-stats', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Bizonne Backend v7.0 — Optimized', version: '7.0.0' });
+  res.json({ status: 'ok', message: 'Bizonne Backend v7.1 — Retell AI Calls', version: '7.1.0' });
 });
 app.get('/api', (req, res) => {
   res.json({
-    message: 'BizonneCRM API v7.0',
+    message: 'BizonneCRM API v7.1',
     endpoints: {
       auth: '/api/auth', assistants: '/api/assistants', conversations: '/api/conversations',
       whatsapp: '/api/whatsapp', products: '/api/products', clients: '/api/clients',
       appointments: '/api/appointments', team: '/api/team', ghl: '/api/ghl', aiConfig: '/api/ai-config',
-      webhooks: { whatsapp: '/api/webhook/whatsapp', ghl: '/api/ghl/webhook' }
+      calls: '/api/calls',
+      webhooks: { whatsapp: '/api/webhook/whatsapp', ghl: '/api/ghl/webhook', retell: '/api/webhook/retell' }
     }
   });
 });
@@ -431,8 +439,9 @@ const startAccountCleanupCron = () => {
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log('   🚀 Bizonne Backend v7.0.1 — Egress Optimized');
+  console.log('   🚀 Bizonne Backend v7.1 — Retell AI Calls');
   console.log('   ⚡ LRU Cache + Pool(5) + Rate Limit');
+  console.log('   📞 Retell AI Voice Calls Enabled');
   console.log('═══════════════════════════════════════════════════════════');
   console.log(`   🌐 http://localhost:${PORT}`);
   console.log('═══════════════════════════════════════════════════════════');
@@ -440,6 +449,7 @@ app.listen(PORT, () => {
   startScheduledMessagesCron();
   startWahaSyncCron();
   startAccountCleanupCron();
+  startCallReminderCron(); // 📞 RETELL AI - Auto-recordatorios
   prisma.$queryRaw`SELECT 1`.catch(() => {});
 
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {

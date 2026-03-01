@@ -148,14 +148,15 @@ app.get('/api/media-proxy/:msgId', async (req: any, res: any) => {
     const message = await prisma.message.findUnique({ where: { id: msgId } });
     if (!message || !message.mediaUrl) return res.status(404).end();
 
-    // Verify ownership
-    const conv = await prisma.conversation.findFirst({ where: { id: message.conversationId, userId } });
-    if (!conv) {
-      // Check if team member
-      const member = await prisma.teamMember.findFirst({ where: { memberId: userId, status: 'active' } });
-      if (!member) return res.status(403).end();
-      const ownerConv = await prisma.conversation.findFirst({ where: { id: message.conversationId, userId: member.ownerId } });
-      if (!ownerConv) return res.status(403).end();
+    // Verify ownership (direct or via team)
+    const conv = await prisma.conversation.findFirst({ where: { id: message.conversationId } });
+    if (!conv) return res.status(404).end();
+    // Simple check: user must be owner OR have any relationship
+    if (conv.userId !== userId) {
+      // Check via getOwnerId helper (handles team members)
+      const { getOwnerId } = require('./lib/helpers');
+      const ownerId = await getOwnerId(userId);
+      if (conv.userId !== ownerId) return res.status(403).end();
     }
 
     const mediaUrl = message.mediaUrl;

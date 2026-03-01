@@ -10,6 +10,8 @@ const router = Router();
 // ⚡ Production: reduce console.log I/O overhead (118 logs → solo errores)
 const IS_PROD = process.env.NODE_ENV === 'production';
 const log = IS_PROD ? (..._args: any[]) => {} : console.log.bind(console);
+// 🔥 Critical log: SIEMPRE visible, incluso en producción (para paths críticos)
+const clog = console.log.bind(console);
 
 const WAHA_API_URL = process.env.WAHA_API_URL || 'http://31.97.142.127:8080';
 const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
@@ -1039,7 +1041,10 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       where: { id: ownerId }, 
       select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true } 
     });
-    if (!owner?.apiKey || !owner.apiKeyConnected) return null;
+    if (!owner?.apiKey || !owner.apiKeyConnected) {
+      clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
+      return null;
+    }
 
     // Verificar si la suscripción está activa
     let isExpired = false;
@@ -1053,7 +1058,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     }
 
     if (isExpired) {
-      log(`🔒 AI bloqueada — Suscripción expirada para usuario ${ownerId}`);
+      clog(`🔒 AI bloqueada — Suscripción expirada (userId: ${ownerId}, plan: ${owner.plan})`);
       return null;
     }
 
@@ -1077,7 +1082,10 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       if (!assistant) {
         assistant = await prisma.assistant.findFirst({ where: { userId: ownerId }, orderBy: { updatedAt: 'desc' } });
         if (assistant) await prisma.assistant.update({ where: { id: assistant.id }, data: { isActive: true } });
-        else return null;
+        else {
+          clog(`⚠️ AI bloqueada — Sin asistente configurado (userId: ${ownerId})`);
+          return null;
+        }
       }
       log(`📋 Asistente GLOBAL "${assistant.name}" (sin asistente específico de línea)`);
     }
@@ -3014,7 +3022,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
   // 🔒 Si ya se está procesando para este contacto, re-encolar
   if (processingLock.has(bufferKey)) {
-    log(`🔒 Lock activo para ${buf.senderName} — re-encolando ${buf.messages.length} mensaje(s)`);
+    clog(`🔒 Lock activo para ${buf.senderName} — re-encolando ${buf.messages.length} mensaje(s)`);
     const existing = messageBuffer.get(bufferKey);
     if (existing) {
       existing.messages.push(...buf.messages);
@@ -3038,7 +3046,7 @@ const processBufferedMessages = async (bufferKey: string) => {
   // 🧠 Combinar mensajes de forma inteligente
   const combinedMessage = smartCombineMessages(msgs);
 
-  log(`📦 Ráfaga procesada: ${msgs.length} msg(s) de ${senderName} en ${(burstDuration/1000).toFixed(1)}s → "${combinedMessage.substring(0, 120)}${combinedMessage.length > 120 ? '...' : ''}" (lineId: ${whatsappLineId || 'global'})`);
+  clog(`📦 Ráfaga procesada: ${msgs.length} msg(s) de ${senderName} en ${(burstDuration/1000).toFixed(1)}s → "${combinedMessage.substring(0, 120)}${combinedMessage.length > 120 ? '...' : ''}" (lineId: ${whatsappLineId || 'global'})`);
 
   // 🔔 PUSH NOTIFICATION — Notificar al dueño de nuevo mensaje
   sendPushToUser(userId, {
@@ -3152,6 +3160,10 @@ const processBufferedMessages = async (bufferKey: string) => {
       // 🤖 Respuesta IA con mensaje combinado
       const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
       if (!isCloudAPI) await stopPresence(sessionName, from);
+
+      if (!aiResponse) {
+        clog(`⚠️ AI sin respuesta para ${senderName} (userId: ${userId}, lineId: ${whatsappLineId || 'global'}, isCloud: ${isCloudAPI})`);
+      }
 
       if (aiResponse) {
         // 🔊 CHECK: ¿Responder con voz?
@@ -3293,7 +3305,7 @@ const processBufferedMessages = async (bufferKey: string) => {
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
-              log(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados)`);
+              clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
             }
           }
         }
@@ -3309,7 +3321,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     // 🔄 Verificar si llegaron mensajes mientras procesábamos
     const pending = messageBuffer.get(bufferKey);
     if (pending) {
-      log(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
+      clog(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
       clearTimeout(pending.timer);
       // Espera adaptativa según el último mensaje pendiente
       const delay = getSmartDelay(pending.messages[pending.messages.length - 1], pending.messages.length, pending.firstTimestamp);
@@ -3357,17 +3369,17 @@ router.get('/lines', async (req: Request, res: Response) => {
       
       const allowedLines = perms?.allowedLines;
       
-      console.log(`🔍 Sub-usuario ${currentUser?.name || currentUser?.email} (${userId})`);
-      console.log(`   - permissions type: ${typeof currentUser?.permissions}`);
-      console.log(`   - allowedLines: ${JSON.stringify(allowedLines)}`);
-      console.log(`   - Total lineas admin: ${lines.length}`);
+      log(`🔍 Sub-usuario ${currentUser?.name || currentUser?.email} (${userId})`);
+      log(`   - permissions type: ${typeof currentUser?.permissions}`);
+      log(`   - allowedLines: ${JSON.stringify(allowedLines)}`);
+      log(`   - Total lineas admin: ${lines.length}`);
       
       if (allowedLines && Array.isArray(allowedLines) && allowedLines.length > 0 && !allowedLines.includes('all')) {
         const before = lines.length;
         lines = lines.filter((l: any) => allowedLines.includes(l.id));
-        console.log(`   🔒 Filtrado: ${before} -> ${lines.length} lineas`);
+        log(`   🔒 Filtrado: ${before} -> ${lines.length} lineas`);
       } else {
-        console.log(`   ✅ Acceso a todas las lineas`);
+        log(`   ✅ Acceso a todas las lineas`);
       }
     }
 
@@ -5043,7 +5055,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // Si IA pausada, solo guardar
     if (conv.aiPaused) {
-      log(`⏸️ IA pausada → ${senderName} (guardado, no responde)`);
+      clog(`⏸️ IA pausada → ${senderName} (guardado, no responde)`);
       res.json({ success: true }); return;
     }
 
@@ -5659,7 +5671,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: displayContent, recipientName: senderName } });
       console.log(`☁️ [CLOUD] ✅ Mensaje guardado: "${displayContent?.substring(0, 50)}" → conv: ${conv.id}`);
       
-      if (conv.aiPaused) { log(`☁️ IA pausada → ${senderName}`); continue; }
+      if (conv.aiPaused) { clog(`☁️ ⏸️ IA pausada → ${senderName} (Cloud)`); continue; }
       
       // Pause/Resume commands
       if (messageBody.trim() === '0') {
@@ -5691,6 +5703,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         clearTimeout(existingBuffer.timer);
         const delay = getSmartDelay(messageBody, existingBuffer.messages.length, existingBuffer.firstTimestamp);
         existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+        clog(`☁️ 📦 Buffer Cloud: +1 de ${senderName} (total: ${existingBuffer.messages.length}, espera: ${(delay/1000).toFixed(1)}s)`);
       } else {
         const delay = getSmartDelay(messageBody, 0, now);
         const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
@@ -5700,6 +5713,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           convId: conv.id, whatsappLineId,
           firstTimestamp: now, lastTimestamp: now, hasMedia: false
         });
+        clog(`☁️ 📦 Buffer Cloud: nuevo de ${senderName} → espera ${(delay/1000).toFixed(1)}s (bufferKey: ${bufferKey})`);
       }
     }
   } catch (e: any) {

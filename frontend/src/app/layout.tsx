@@ -244,6 +244,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', color: 'from-rose-500/20 to-rose-600/10 text-rose-400' },
     { name: 'Recursos', href: '/recursos', icon: LayoutGrid, perm: 'agenda', color: 'from-purple-500/20 to-purple-600/10 text-purple-400' },
     { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations', color: 'from-orange-500/20 to-orange-600/10 text-orange-400' },
+    { name: 'Llamadas IA', href: '/llamadas', icon: Phone, perm: 'conversations', featureKey: 'assistants', color: 'from-red-500/20 to-red-600/10 text-red-400' },
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', featureKey: 'team', color: 'from-blue-500/20 to-blue-600/10 text-blue-400' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config', color: 'from-gray-500/20 to-gray-600/10 text-gray-400' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config', color: 'from-yellow-500/20 to-yellow-600/10 text-yellow-400' },

@@ -32,6 +32,7 @@ const BUFFER_WAIT_MS = 2000; // Esperar 2 segundos por más mensajes
 
 const messageBuffer: Map<string, {
   messages: string[];
+  images: string[];
   timer: ReturnType<typeof setTimeout>;
   sessionName: string;
   from: string;
@@ -890,7 +891,7 @@ function findStageByKeyword(stages: any[], keywords: string[]): string {
   return '';
 }
 
-const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null): Promise<string | null> => {
+const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null, images?: string[]): Promise<string | null> => {
   try {
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
@@ -1374,33 +1375,72 @@ REGLAS DE TRANSFERENCIA:
 
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
-    log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
+    
+    // 👁️ Si hay imágenes, agregar instrucciones de visión al prompt
+    const visionInstructions = (images && images.length > 0) ? `
+
+=== 👁️ VISIÓN — ANÁLISIS DE IMÁGENES ===
+El cliente te ha enviado ${images.length} imagen(es). Puedes VER las imágenes.
+INSTRUCCIONES:
+- Describe brevemente lo que ves en la imagen si es relevante para la conversación
+- Si es una imagen de un producto, identifícalo y relacónalo con tu catálogo/inventario
+- Si es un comprobante de pago, confirma que lo recibiste y menciona los datos visibles
+- Si es una captura de pantalla, lee el contenido relevante
+- Si es una foto personal o irrelevante, responde amablemente sin describir en exceso
+- NUNCA digas "no puedo ver imágenes" — SÍ puedes verlas
+- Integra lo que ves naturalmente en tu respuesta, no hagas una descripción técnica
+` : '';
+    
+    log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos${images?.length ? ` | 👁️ ${images.length} imagen(es)` : ''}`);
 
     // Construir mensajes para OpenAI (30 mensajes = cubre flujo completo de venta)
     const recent = [...history].reverse().slice(-30);
-    const messages: any[] = [{ role: 'system', content: systemPrompt }];
+    const messages: any[] = [{ role: 'system', content: systemPrompt + visionInstructions }];
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 500) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
     const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas.]`;
-    messages.push({ role: 'user', content: message + memoryReminder });
+    
+    // 👁️ VISIÓN: Si hay imágenes, enviarlas a GPT-4o-mini con formato vision
+    if (images && images.length > 0) {
+      const contentParts: any[] = [];
+      
+      // Agregar cada imagen
+      for (const imgBase64 of images) {
+        const imageUrl = imgBase64.startsWith('data:') ? imgBase64 : `data:image/jpeg;base64,${imgBase64}`;
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: imageUrl, detail: 'low' }
+        });
+      }
+      
+      // Agregar el texto del mensaje
+      const textContent = message || 'El cliente envió esta imagen.';
+      contentParts.push({ type: 'text', text: textContent + memoryReminder });
+      
+      messages.push({ role: 'user', content: contentParts });
+      log(`👁️ Visión activada: ${images.length} imagen(es) + texto enviados a GPT-4o-mini`);
+    } else {
+      messages.push({ role: 'user', content: message + memoryReminder });
+    }
 
     // Llamar a OpenAI
     // 💰 MODELO FIJO: gpt-4o-mini (económico y potente, ~60x más barato que gpt-4-turbo)
     // NO se cambia desde el panel — siempre usa este modelo
     const FIXED_MODEL = 'gpt-4o-mini';
+    const hasVision = !!(images && images.length > 0);
     for (const model of [FIXED_MODEL]) {
       try {
-        log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
+        log(`🤖 OpenAI (${model}, ${messages.length} msgs${hasVision ? ', 👁️ VISIÓN' : ''})...`);
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 20000);
+        const to = setTimeout(() => ctrl.abort(), hasVision ? 30000 : 20000);
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: 500
+            max_tokens: hasVision ? 700 : 500
           }),
           signal: ctrl.signal
         });
@@ -2876,6 +2916,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     const existing = messageBuffer.get(bufferKey);
     if (existing) {
       existing.messages.push(...buf.messages);
+      if (buf.images) existing.images.push(...buf.images);
       clearTimeout(existing.timer);
       existing.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
     } else {
@@ -2888,10 +2929,10 @@ const processBufferedMessages = async (bufferKey: string) => {
   // 🔒 Activar lock
   processingLock.add(bufferKey);
 
-  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
+  const { messages: msgs, images: bufImages, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
   const combinedMessage = msgs.join('\n');
 
-  log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
+  log(`📦 Buffer procesado: ${msgs.length} mensaje(s)${bufImages.length > 0 ? ` + ${bufImages.length} imagen(es) 👁️` : ''} de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
 
   // 🔔 PUSH NOTIFICATION — Notificar al dueño de nuevo mensaje
   sendPushToUser(userId, {
@@ -2971,7 +3012,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           await new Promise(r => setTimeout(r, 300)); // Pausa mínima Cloud API
         }
       }
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId, bufImages);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -3003,7 +3044,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
+      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId, bufImages);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -4538,6 +4579,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const media = extractMediaInfo(payload);
     let savedMediaUrl: string | null = null;
     let savedMediaType: string | null = null;
+    let imageBase64ForAI: string | null = null; // 👁️ Para enviar a GPT visión
 
     if (media.hasMedia) {
       // 🔍 LOG COMPLETO del payload para debugging
@@ -4589,21 +4631,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
         }
       }
       
-      // 🖼️ IMAGEN → Guardar para mostrar en chat
+      // 🖼️ IMAGEN → Guardar para chat + enviar a IA con visión
       else if (media.mediaType === 'image') {
-        // Intentar descargar y guardar como base64 para el chat
         if (media.messageId || media.mediaUrl) {
           const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
           if (downloaded) {
             savedMediaUrl = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
-            log(`🖼️ Imagen guardada como base64: ${downloaded.buffer.length} bytes`);
+            // 👁️ Guardar base64 para enviar a GPT-4o-mini visión
+            // Limitar a 1MB para no sobrecargar la API
+            if (downloaded.buffer.length < 1024 * 1024) {
+              imageBase64ForAI = `data:${downloaded.mimetype};base64,${downloaded.buffer.toString('base64')}`;
+              log(`👁️ Imagen lista para visión IA: ${(downloaded.buffer.length / 1024).toFixed(0)}KB`);
+            } else {
+              log(`⚠️ Imagen muy grande para visión: ${(downloaded.buffer.length / 1024 / 1024).toFixed(1)}MB — solo se guarda para chat`);
+            }
           } else {
             savedMediaUrl = getMediaUrl(sessionName, media.messageId);
           }
         }
         savedMediaType = 'image';
         if (!body && media.caption) body = media.caption;
-        if (!body) body = '📷 [Imagen]';
+        if (!body) body = imageBase64ForAI ? '📷 [Imagen enviada por el cliente - analizando...]' : '📷 [Imagen]';
       }
       
       // 🎥 VIDEO
@@ -4873,14 +4921,16 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (existingBuffer) {
       // Ya hay mensajes en buffer → agregar y resetear timer
       existingBuffer.messages.push(messageForAI);
+      if (imageBase64ForAI) existingBuffer.images.push(imageBase64ForAI);
       clearTimeout(existingBuffer.timer);
       existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
-      log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
+      log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, imgs: ${existingBuffer.images.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
     } else if (isLocked) {
       // 🔒 IA procesando → crear buffer nuevo que se procesará cuando termine
       const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       messageBuffer.set(bufferKey, {
         messages: [messageForAI],
+        images: imageBase64ForAI ? [imageBase64ForAI] : [],
         timer,
         sessionName,
         from,
@@ -4912,6 +4962,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       messageBuffer.set(bufferKey, {
         messages: [messageForAI],
+        images: imageBase64ForAI ? [imageBase64ForAI] : [],
         timer,
         sessionName,
         from,
@@ -4920,7 +4971,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
         convId: conv.id,
         whatsappLineId
       });
-      log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
+      log(`📦 Buffer: nuevo de ${senderName}${imageBase64ForAI ? ' (con imagen 👁️)' : ''} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
     }
 
     // Responder inmediatamente al webhook (WAHA no espera)
@@ -5379,6 +5430,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let messageBody = '';
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
+      let cloudImageBase64: string | null = null; // 👁️ Para visión IA
       
       if (msgType === 'text') {
         messageBody = msg.text?.body || '';
@@ -5394,6 +5446,21 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             });
             if (mediaRes.ok) { savedMediaUrl = ((await mediaRes.json()) as any).url || null; }
           } catch {}
+        }
+        // 👁️ IMAGEN → Descargar para visión IA
+        if (msgType === 'image' && savedMediaUrl && line.cloudAccessToken) {
+          try {
+            const imgRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
+            if (imgRes.ok) {
+              const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+              if (imgBuf.length < 1024 * 1024) {
+                const mime = imgRes.headers.get('content-type') || 'image/jpeg';
+                cloudImageBase64 = `data:${mime};base64,${imgBuf.toString('base64')}`;
+                console.log(`☁️ 👁️ Imagen Cloud descargada para visión: ${(imgBuf.length / 1024).toFixed(0)}KB`);
+              }
+            }
+          } catch {}
+          if (!messageBody) messageBody = cloudImageBase64 ? '📷 [Imagen enviada por el cliente - analizando...]' : '📷 [Imagen]';
         }
         // Audio transcription
         if (msgType === 'audio' && savedMediaUrl && line.cloudAccessToken) {
@@ -5473,12 +5540,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       
       if (existingBuffer) {
         existingBuffer.messages.push(messageBody);
+        if (cloudImageBase64) existingBuffer.images.push(cloudImageBase64);
         clearTimeout(existingBuffer.timer);
         existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
       } else {
         const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
         messageBuffer.set(bufferKey, {
-          messages: [messageBody], timer, sessionName,
+          messages: [messageBody], images: cloudImageBase64 ? [cloudImageBase64] : [], timer, sessionName,
           from: chatIdForSend, senderName, userId,
           convId: conv.id, whatsappLineId
         });

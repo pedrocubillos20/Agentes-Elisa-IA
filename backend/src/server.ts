@@ -24,11 +24,7 @@ import pushRoutes from './routes/push.routes';
 import paymentsRoutes from './routes/payments.routes';
 import gcalRoutes, { handleGCalCallback } from './routes/google-calendar.routes';
 import resourcesRoutes from './routes/resources.routes';
-<<<<<<< HEAD
 import callsRoutes, { handleRetellWebhook, startCallReminderCron } from './routes/calls.routes'; // 📞 RETELL AI
-=======
-import callsRoutes, { callsPublicRouter, startCallReminderCron } from './routes/calls.routes';
->>>>>>> ce20e1575e5027dcb338cc860a7784291f7c620e
 import { authMiddleware } from './middleware/auth.middleware';
 import { subscriptionMiddleware } from './middleware/subscription.middleware';
 
@@ -110,14 +106,6 @@ app.post('/api/webhook/whatsapp-cloud', rateLimit(200, 1000), (req, res, next) =
   req.url = '/webhook-cloud';
   whatsappRoutes(req, res, next);
 });
-
-// 📞 Twilio + ElevenLabs call webhooks (public, no auth)
-app.post('/api/calls/twilio-webhook', (req, res, next) => { req.url = '/twilio-webhook'; callsPublicRouter(req, res, next); });
-app.post('/api/calls/twilio-status', (req, res, next) => { req.url = '/twilio-status'; callsPublicRouter(req, res, next); });
-app.post('/api/calls/twilio-recording', (req, res, next) => { req.url = '/twilio-recording'; callsPublicRouter(req, res, next); });
-app.post('/api/calls/twilio-inbound', (req, res, next) => { req.url = '/twilio-inbound'; callsPublicRouter(req, res, next); });
-app.post('/api/calls/elevenlabs-webhook', (req, res, next) => { req.url = '/elevenlabs-webhook'; callsPublicRouter(req, res, next); });
-
 app.post('/api/subscription/webhook/wompi', (req, res, next) => {
   req.url = '/webhook/wompi';
   subscriptionRoutes(req, res, next);
@@ -188,11 +176,7 @@ app.use('/api/ai-config', authMiddleware, subscriptionMiddleware, apiRL, aiConfi
 app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/gcal', authMiddleware, gcalRoutes);
 app.use('/api/resources', authMiddleware, subscriptionMiddleware, apiRL, resourcesRoutes);
-<<<<<<< HEAD
 app.use('/api/calls', authMiddleware, subscriptionMiddleware, apiRL, callsRoutes); // 📞 RETELL AI
-=======
-app.use('/api/calls', authMiddleware, subscriptionMiddleware, apiRL, callsRoutes);
->>>>>>> ce20e1575e5027dcb338cc860a7784291f7c620e
 app.use('/api/v1', apiPublicRoutes);
 
 // ===== HEALTH + MONITORING =====
@@ -230,13 +214,8 @@ app.get('/api', (req, res) => {
       auth: '/api/auth', assistants: '/api/assistants', conversations: '/api/conversations',
       whatsapp: '/api/whatsapp', products: '/api/products', clients: '/api/clients',
       appointments: '/api/appointments', team: '/api/team', ghl: '/api/ghl', aiConfig: '/api/ai-config',
-<<<<<<< HEAD
       calls: '/api/calls',
       webhooks: { whatsapp: '/api/webhook/whatsapp', ghl: '/api/ghl/webhook', retell: '/api/webhook/retell' }
-=======
-      webhooks: { whatsapp: '/api/webhook/whatsapp', ghl: '/api/ghl/webhook', calls: '/api/calls/twilio-inbound' },
-      calls: '/api/calls'
->>>>>>> ce20e1575e5027dcb338cc860a7784291f7c620e
     }
   });
 });
@@ -460,11 +439,7 @@ const startAccountCleanupCron = () => {
 app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════════');
-<<<<<<< HEAD
   console.log('   🚀 Bizonne Backend v7.1 — Retell AI Calls');
-=======
-  console.log('   🚀 Bizonne Backend v7.1.0 — AI Voice Calls');
->>>>>>> ce20e1575e5027dcb338cc860a7784291f7c620e
   console.log('   ⚡ LRU Cache + Pool(5) + Rate Limit');
   console.log('   📞 Retell AI Voice Calls Enabled');
   console.log('═══════════════════════════════════════════════════════════');
@@ -474,11 +449,7 @@ app.listen(PORT, () => {
   startScheduledMessagesCron();
   startWahaSyncCron();
   startAccountCleanupCron();
-<<<<<<< HEAD
   startCallReminderCron(); // 📞 RETELL AI - Auto-recordatorios
-=======
-  startCallReminderCron();
->>>>>>> ce20e1575e5027dcb338cc860a7784291f7c620e
   prisma.$queryRaw`SELECT 1`.catch(() => {});
 
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {

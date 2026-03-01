@@ -250,7 +250,7 @@ export default function DashboardPage() {
 
   if (user?.isBlocked || user?.subscriptionStatus === 'expired') return (
     <div className="max-w-2xl mx-auto py-20 text-center px-4">
-      <h1 className="text-2xl md:text-3xl font-bold text-white mb-4">Tu período de prueba ha terminado</h1>
+      <h1 className="text-2xl md:text-2xl md:text-3xl font-bold text-white mb-4">Tu período de prueba ha terminado</h1>
       <p className="text-[var(--text-muted)] text-base md:text-lg mb-8">Elige un plan para seguir usando la plataforma.</p>
       <a href="/subscription" className="px-6 md:px-8 py-3 md:py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-2xl text-base md:text-lg inline-block">🚀 Ver Planes</a>
     </div>

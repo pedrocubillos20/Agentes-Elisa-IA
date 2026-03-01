@@ -38,6 +38,7 @@ app.use(cors({
     'http://localhost:3001',
     'https://crm.bizonne.com',
     'https://crmauto.bizonne.com',
+    'https://app.bizonne.com',
     'https://agentes-elisa-ia.vercel.app',
     process.env.FRONTEND_URL || ''
   ].filter(Boolean),
@@ -543,8 +544,9 @@ app.listen(PORT, () => {
       setInterval(() => { fetch(`${selfUrl}/health`).catch(() => {}); }, 600_000); // 10min
       console.log(`   🏓 Self-ping: ${selfUrl}/health (10min)`);
     }
-    // 🧹 Weekly VACUUM: Sundays at 4 AM — prevents dead tuple bloat
-    const scheduleWeeklyVacuum = () => {
+    // 🧹 Weekly ANALYZE: Sundays at 4 AM — updates query planner statistics
+    // Note: Supabase handles VACUUM automatically via autovacuum daemon
+    const scheduleWeeklyAnalyze = () => {
       const now = new Date();
       const nextSunday = new Date();
       nextSunday.setDate(now.getDate() + (7 - now.getDay()) % 7);
@@ -553,23 +555,23 @@ app.listen(PORT, () => {
       const msUntil = nextSunday.getTime() - now.getTime();
       setTimeout(async () => {
         try {
-          await prisma.$executeRawUnsafe('VACUUM "Assistant"');
-          await prisma.$executeRawUnsafe('VACUUM "Message"');
-          await prisma.$executeRawUnsafe('VACUUM "Conversation"');
-          console.log('🧹 Weekly VACUUM completed');
-        } catch (e: any) { console.error('⚠️ VACUUM error:', e.message); }
+          await prisma.$executeRawUnsafe('ANALYZE "Message"');
+          await prisma.$executeRawUnsafe('ANALYZE "Conversation"');
+          await prisma.$executeRawUnsafe('ANALYZE "Assistant"');
+          console.log('🧹 Weekly ANALYZE completed');
+        } catch (e: any) { console.error('⚠️ ANALYZE error:', e.message); }
         setInterval(async () => {
           try {
-            await prisma.$executeRawUnsafe('VACUUM "Assistant"');
-            await prisma.$executeRawUnsafe('VACUUM "Message"');
-            await prisma.$executeRawUnsafe('VACUUM "Conversation"');
-            console.log('🧹 Weekly VACUUM completed');
-          } catch (e: any) { console.error('⚠️ VACUUM error:', e.message); }
+            await prisma.$executeRawUnsafe('ANALYZE "Message"');
+            await prisma.$executeRawUnsafe('ANALYZE "Conversation"');
+            await prisma.$executeRawUnsafe('ANALYZE "Assistant"');
+            console.log('🧹 Weekly ANALYZE completed');
+          } catch (e: any) { console.error('⚠️ ANALYZE error:', e.message); }
         }, 7 * 24 * 60 * 60 * 1000);
       }, msUntil);
-      console.log(`   🧹 Weekly VACUUM: Sundays 4 AM (next in ${(msUntil / 3600000).toFixed(1)}h)`);
+      console.log(`   🧹 Weekly ANALYZE: Sundays 4 AM (next in ${(msUntil / 3600000).toFixed(1)}h)`);
     };
-    scheduleWeeklyVacuum();
+    scheduleWeeklyAnalyze();
   }
 });
 

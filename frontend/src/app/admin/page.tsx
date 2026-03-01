@@ -266,7 +266,7 @@ export default function AdminPage() {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white flex items-center gap-3"><Shield className="w-8 h-8 text-red-400" /> Panel de Administración</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-white flex items-center gap-3"><Shield className="w-8 h-8 text-red-400" /> Panel de Administración</h1>
           <p className="text-[var(--text-muted)] mt-1">Gestiona usuarios, suscripciones y pagos</p>
         </div>
         <div className="flex items-center gap-3">
@@ -776,7 +776,7 @@ export default function AdminPage() {
             <div className="space-y-3">
               <div className={`p-4 rounded-xl border ${auditData.status?.includes('✅') ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
                 <h3 className="font-bold text-white text-lg">{auditData.status}</h3>
-                <div className="mt-2 grid grid-cols-4 gap-3 text-sm">
+                <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                   <div><span className="text-gray-500">Usuarios:</span> <span className="text-white font-bold">{auditData.totals?.users}</span></div>
                   <div><span className="text-gray-500">Líneas:</span> <span className="text-white font-bold">{auditData.totals?.lines}</span></div>
                   <div><span className="text-gray-500">Conversaciones:</span> <span className="text-white font-bold">{auditData.totals?.conversations}</span></div>

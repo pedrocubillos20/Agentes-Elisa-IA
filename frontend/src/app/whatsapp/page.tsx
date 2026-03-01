@@ -219,7 +219,7 @@ export default function WhatsAppPage() {
         <div className="flex items-center gap-4">
           <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl" />
           <div>
-            <h1 className="text-3xl font-bold text-white">WhatsApp</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">WhatsApp</h1>
             <p className="text-[var(--text-muted)]">
               Gestiona tus líneas de WhatsApp • {connectedLines.length} conectada{connectedLines.length !== 1 ? 's' : ''}
             </p>
@@ -499,7 +499,7 @@ export default function WhatsAppPage() {
                 {!editingLine && (
                   <div>
                     <label className="input-label">Tipo de conexión</label>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <button
                         type="button"
                         onClick={() => setLineForm({...lineForm, connectionType: 'waha'})}

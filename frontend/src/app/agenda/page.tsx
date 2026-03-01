@@ -240,7 +240,7 @@ export default function AgendaPage() {
         <div className="flex items-center gap-4">
           <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl hidden md:block" />
           <div>
-            <h1 className="text-3xl font-bold text-white">Agenda</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">Agenda</h1>
             <p className="text-[var(--text-muted)]">Citas, pedidos y reservas</p>
           </div>
         </div>
@@ -300,13 +300,13 @@ export default function AgendaPage() {
               <button onClick={nextMonth} className="btn-icon"><ChevronRight className="w-5 h-5" /></button>
             </div>
 
-            <div className="grid grid-cols-7 gap-2 mb-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 min-w-[280px]">
               {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
                 <div key={d} className="text-center text-xs font-semibold text-[var(--text-muted)] py-2">{d}</div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-2">
+            <div className="grid grid-cols-7 gap-1 sm:gap-2 min-w-[280px]">
               {renderCalendar()}
             </div>
           </div>

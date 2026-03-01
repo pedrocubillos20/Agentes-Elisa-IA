@@ -616,7 +616,7 @@ export default function ProgramadosPage() {
               </div>
 
               {/* Fecha y hora */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-[var(--text-muted)] mb-1.5 block">Fecha</label>
                   <input

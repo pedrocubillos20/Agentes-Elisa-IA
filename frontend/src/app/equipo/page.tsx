@@ -238,7 +238,7 @@ export default function EquipoPage() {
             <Users className="w-7 h-7 text-white" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-white">Equipo</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">Equipo</h1>
             <p className="text-[var(--text-muted)]">Gestiona sub-usuarios, roles y permisos</p>
           </div>
         </div>

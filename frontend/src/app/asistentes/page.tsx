@@ -547,7 +547,7 @@ export default function AsistentesPage() {
         <div className="flex items-center gap-4">
           <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl shadow-lg" />
           <div>
-            <h1 className="text-3xl font-bold text-white">Asistente IA</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-white">Asistente IA</h1>
             <p className="text-[var(--text-muted)]">Configura tu asistente IA</p>
           </div>
         </div>

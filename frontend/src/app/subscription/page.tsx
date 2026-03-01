@@ -1067,7 +1067,7 @@ export default function SubscriptionPage() {
         {/* Payment Methods Info */}
         <div className="mt-12 text-center">
           <p className="text-gray-500 text-sm mb-4">Métodos de pago aceptados vía Wompi</p>
-          <div className="flex justify-center gap-6 items-center opacity-60">
+          <div className="flex flex-wrap justify-center gap-3 sm:gap-6 items-center opacity-60">
             <span className="text-2xl">💳</span>
             <span className="text-sm text-gray-400">Visa / Mastercard</span>
             <span className="text-2xl">🏦</span>

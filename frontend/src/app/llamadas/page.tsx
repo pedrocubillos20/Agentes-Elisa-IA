@@ -198,6 +198,44 @@ export default function LlamadasPage() {
     );
   }
 
+  // 🔒 PAYWALL: Si no compró el addon, mostrar pantalla de compra
+  if (config && !(config as any).hasAddon) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0f] flex items-center justify-center p-4">
+        <div className="max-w-lg w-full text-center">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-600/20 flex items-center justify-center border border-indigo-500/20">
+            <Phone className="w-10 h-10 text-indigo-400" />
+          </div>
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-3">Llamadas IA</h1>
+          <p className="text-gray-400 mb-6 text-sm leading-relaxed">
+            Tu asistente IA atiende y realiza llamadas telefónicas con voz natural. 
+            Incluye número dedicado, transcripciones automáticas y análisis de sentimiento.
+          </p>
+          <div className="grid grid-cols-2 gap-3 mb-8 text-left">
+            {['Voz natural en español', 'Número de teléfono dedicado', 'Transcripciones automáticas', 'Usa tu base de conocimiento', 'Análisis de sentimiento', 'Historial completo'].map((f, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm text-gray-300">
+                <CheckCircle className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+                <span>{f}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mb-6">
+            <span className="text-3xl font-black text-indigo-400">$100 USD</span>
+            <span className="text-gray-500 text-sm ml-2">Pago único + $0.145/min</span>
+          </div>
+          <a 
+            href="/subscription" 
+            className="inline-flex items-center gap-2 px-8 py-3 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded-xl transition-all text-sm"
+          >
+            <Phone className="w-4 h-4" />
+            Activar Llamadas IA
+          </a>
+          <p className="text-[10px] text-gray-600 mt-3">Compra disponible en la sección de Suscripción → Complementos</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       {/* Header */}

@@ -38,12 +38,21 @@ async function retellFetch(endpoint: string, method: string = 'GET', body?: any)
   return data;
 }
 
+// 🔒 PAYWALL: Check if user has purchased ai_calls addon
+async function checkAiCallsAddon(userId: string): Promise<boolean> {
+  const payment = await prisma.payment.findFirst({
+    where: { userId, plan: 'ai_calls', status: 'approved' }
+  });
+  return !!payment;
+}
+
 // ============================================
 // 1. GET /config - Obtener configuración
 // ============================================
 router.get('/config', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const hasAddon = await checkAiCallsAddon(userId);
     
     let config = await db.callConfig.findUnique({ where: { userId } });
     
@@ -59,7 +68,7 @@ router.get('/config', async (req: any, res) => {
       });
     }
     
-    res.json({ ...config, hasRetellKey: !!RETELL_KEY });
+    res.json({ ...config, hasRetellKey: !!RETELL_KEY, hasAddon });
   } catch (e: any) {
     console.error('Error obteniendo config:', e.message);
     res.status(500).json({ error: e.message });
@@ -133,6 +142,15 @@ router.put('/config', async (req: any, res) => {
 router.post('/activate', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    
+    // 🔒 PAYWALL: Verificar que compró el addon
+    const hasAddon = await checkAiCallsAddon(userId);
+    if (!hasAddon) {
+      return res.status(403).json({ 
+        error: 'addon_required', 
+        message: 'Necesitas comprar el complemento Llamadas IA para activar esta función.' 
+      });
+    }
     
     if (!RETELL_KEY) return res.status(400).json({ error: 'Retell API key no configurada en el servidor' });
     

@@ -22,13 +22,84 @@ const getWahaHeaders = () => {
 };
 
 // ====================================================
-// 📦 MESSAGE BUFFER — Agrupa mensajes enviados en ráfaga
-// Si el usuario manda 3 líneas rápido, espera y responde UNA vez
-// MEJORADO: Lock de procesamiento para evitar respuestas duplicadas
+// 📦 INTELLIGENT BURST HANDLER — Manejo inteligente de ráfagas
+// Detecta patrones de escritura y agrupa mensajes de forma adaptativa
 // ====================================================
-const BUFFER_WAIT_MS = 2000; // Esperar 2 segundos por más mensajes
 
-// 🔑 Tracking de errores de API Key de OpenAI por usuario
+// ⏱️ TIMING ADAPTATIVO
+const BURST_CONFIG = {
+  INITIAL_WAIT_MS: 3000,      // Primera espera: 3s (usuario puede seguir escribiendo)
+  CONTINUE_WAIT_MS: 2000,     // Mensajes adicionales: 2s (están activos)
+  FRAGMENT_WAIT_MS: 4000,     // Fragmentos ("...", "?", <5 chars): 4s (probablemente continúan)
+  MAX_WAIT_MS: 15000,         // Máximo absoluto: 15s (no bufferear forever)
+  MAX_MESSAGES: 10,           // Máximo de mensajes en ráfaga
+};
+
+// 🧠 Patrones que indican "sigo escribiendo"
+const FRAGMENT_PATTERNS = /^\.{2,}$|^\?{1,3}$|^!{1,3}$|^(y|o|pero|que|porque|es|si|no|ok|ya|ah|mm|hm|je|ja|jaja|xd|eee|osea|ósea|pues|mira|oye|bueno|dale|va|aver|haber|espera|wait|un momento)$/i;
+const CONTINUATION_ENDINGS = /[,;:\-–—…]$|\.{2,}$/;
+const COMPLETE_PATTERNS = /[.!?]$/;
+
+// Detecta si un mensaje parece un fragmento (el usuario sigue escribiendo)
+const isFragment = (msg: string): boolean => {
+  const trimmed = msg.trim();
+  if (trimmed.length <= 4) return true;                    // Muy corto → fragmento
+  if (FRAGMENT_PATTERNS.test(trimmed)) return true;        // Palabra suelta conocida
+  if (CONTINUATION_ENDINGS.test(trimmed)) return true;     // Termina en coma, puntos suspensivos
+  if (trimmed.split(/\s+/).length <= 2 && !COMPLETE_PATTERNS.test(trimmed)) return true; // 1-2 palabras sin punto
+  return false;
+};
+
+// Calcula el tiempo de espera óptimo según el mensaje actual y el estado del buffer
+const getSmartDelay = (msg: string, messageCount: number, firstTimestamp: number): number => {
+  const elapsed = Date.now() - firstTimestamp;
+  const remaining = BURST_CONFIG.MAX_WAIT_MS - elapsed;
+  
+  // Si ya pasó el máximo, procesar inmediatamente
+  if (remaining <= 0) return 50;
+  
+  // Si ya alcanzó el máximo de mensajes, procesar pronto
+  if (messageCount >= BURST_CONFIG.MAX_MESSAGES) return 200;
+  
+  let delay: number;
+  
+  if (messageCount === 0) {
+    // Primer mensaje — esperar más
+    delay = BURST_CONFIG.INITIAL_WAIT_MS;
+  } else if (isFragment(msg)) {
+    // Fragmento — esperar más, probablemente sigue
+    delay = BURST_CONFIG.FRAGMENT_WAIT_MS;
+  } else {
+    // Mensaje normal — espera estándar
+    delay = BURST_CONFIG.CONTINUE_WAIT_MS;
+  }
+  
+  // No exceder el tiempo máximo total
+  return Math.min(delay, remaining);
+};
+
+// 🔗 Combinador inteligente: estructura los mensajes para que la IA los entienda mejor
+const smartCombineMessages = (messages: string[]): string => {
+  if (messages.length === 1) return messages[0];
+  
+  // Detectar si son fragmentos de una misma oración o mensajes separados
+  const allShort = messages.every(m => m.trim().length < 30);
+  const avgLen = messages.reduce((s, m) => s + m.trim().length, 0) / messages.length;
+  
+  if (allShort && avgLen < 15) {
+    // Fragmentos cortos → unir como una oración natural
+    // Ej: "hola" + "quiero" + "ver los precios" → "hola quiero ver los precios"
+    return messages.map(m => m.trim()).join(' ');
+  }
+  
+  if (messages.length <= 3) {
+    // Pocos mensajes → unir con saltos de línea
+    return messages.join('\n');
+  }
+  
+  // Muchos mensajes → estructurar para la IA
+  return messages.join('\n');
+};
 
 const messageBuffer: Map<string, {
   messages: string[];
@@ -39,6 +110,9 @@ const messageBuffer: Map<string, {
   userId: string;
   convId: string;
   whatsappLineId: string | null;
+  firstTimestamp: number;      // Cuando llegó el primer mensaje
+  lastTimestamp: number;       // Cuando llegó el último mensaje
+  hasMedia: boolean;           // Si incluye media (imágenes, audio)
 }> = new Map();
 
 // ===== SESSION MANAGEMENT (multi-tenant) =====
@@ -2929,9 +3003,9 @@ const executeLineTransfer = async (
 };
 
 // ====================================================
-// 🔥 PROCESAR MENSAJES AGRUPADOS
-// Se ejecuta después de 2 seg sin nuevos mensajes
-// Combina todas las líneas y genera UNA respuesta
+// 🔥 PROCESAR MENSAJES AGRUPADOS (INTELIGENTE)
+// Se ejecuta cuando el timer adaptativo expira
+// Combina mensajes con lógica contextual
 // ====================================================
 const processBufferedMessages = async (bufferKey: string) => {
   const buf = messageBuffer.get(bufferKey);
@@ -2945,9 +3019,11 @@ const processBufferedMessages = async (bufferKey: string) => {
     if (existing) {
       existing.messages.push(...buf.messages);
       clearTimeout(existing.timer);
-      existing.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      const delay = getSmartDelay(buf.messages[buf.messages.length - 1], existing.messages.length, existing.firstTimestamp);
+      existing.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
     } else {
-      buf.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      const delay = getSmartDelay(buf.messages[buf.messages.length - 1], buf.messages.length, buf.firstTimestamp);
+      buf.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
       messageBuffer.set(bufferKey, buf);
     }
     return;
@@ -2956,10 +3032,13 @@ const processBufferedMessages = async (bufferKey: string) => {
   // 🔒 Activar lock
   processingLock.add(bufferKey);
 
-  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId } = buf;
-  const combinedMessage = msgs.join('\n');
+  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId, firstTimestamp } = buf;
+  const burstDuration = Date.now() - firstTimestamp;
+  
+  // 🧠 Combinar mensajes de forma inteligente
+  const combinedMessage = smartCombineMessages(msgs);
 
-  log(`📦 Buffer procesado: ${msgs.length} mensaje(s) de ${senderName} → "${combinedMessage.substring(0, 100)}..." (lineId: ${whatsappLineId || 'global'})`);
+  log(`📦 Ráfaga procesada: ${msgs.length} msg(s) de ${senderName} en ${(burstDuration/1000).toFixed(1)}s → "${combinedMessage.substring(0, 120)}${combinedMessage.length > 120 ? '...' : ''}" (lineId: ${whatsappLineId || 'global'})`);
 
   // 🔔 PUSH NOTIFICATION — Notificar al dueño de nuevo mensaje
   sendPushToUser(userId, {
@@ -3232,8 +3311,9 @@ const processBufferedMessages = async (bufferKey: string) => {
     if (pending) {
       log(`🔄 Hay ${pending.messages.length} mensaje(s) pendiente(s) de ${senderName} → procesando...`);
       clearTimeout(pending.timer);
-      // Esperar un poco más por si siguen llegando
-      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      // Espera adaptativa según el último mensaje pendiente
+      const delay = getSmartDelay(pending.messages[pending.messages.length - 1], pending.messages.length, pending.firstTimestamp);
+      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
     }
   }
 };
@@ -4204,7 +4284,7 @@ router.get('/debug', async (req: Request, res: Response) => {
       teamMembers: team,
       activeBuffers: messageBuffer.size,
       activeLocks: processingLock.size,
-      bufferWaitMs: BUFFER_WAIT_MS
+      burstConfig: BURST_CONFIG
     });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -4972,38 +5052,39 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const messageForAI = isGroup ? `[${senderName}]: ${body}` : body;
 
     // ====================================================
-    // 📦 MESSAGE BUFFER — Agrupar mensajes en ráfaga
-    // Usuario manda varias líneas rápido → espera 5s → responde UNA vez
-    // Si la IA ya está procesando → encolar para después
-    // Para grupos: bufferKey usa el grupo, no el participante individual
+    // 📦 INTELLIGENT BURST HANDLER — Ráfagas inteligentes
+    // Timing adaptativo + detección de fragmentos + combinación inteligente
     // ====================================================
     const bufferKey = isGroup ? `${userId}_group_${from}` : `${userId}_${recipientId}`;
     const existingBuffer = messageBuffer.get(bufferKey);
     const isLocked = processingLock.has(bufferKey);
+    const now = Date.now();
+    const isMediaMsg = !!savedMediaUrl;
 
     if (existingBuffer) {
-      // Ya hay mensajes en buffer → agregar y resetear timer
+      // Ya hay mensajes en buffer → agregar con timing adaptativo
       existingBuffer.messages.push(messageForAI);
+      existingBuffer.lastTimestamp = now;
+      if (isMediaMsg) existingBuffer.hasMedia = true;
       clearTimeout(existingBuffer.timer);
-      existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
-      log(`📦 Buffer: +1 de ${senderName} (total: ${existingBuffer.messages.length}, esperando ${BUFFER_WAIT_MS/1000}s más...)`);
+      
+      // 🧠 Timing inteligente: si es fragmento, esperar más; si es completo, menos
+      const delay = getSmartDelay(messageForAI, existingBuffer.messages.length, existingBuffer.firstTimestamp);
+      existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+      log(`📦 Ráfaga: +1 de ${senderName} (total: ${existingBuffer.messages.length}, espera: ${(delay/1000).toFixed(1)}s${isFragment(messageForAI) ? ' [fragmento]' : ''})`);
     } else if (isLocked) {
-      // 🔒 IA procesando → crear buffer nuevo que se procesará cuando termine
-      const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      // 🔒 IA procesando → crear buffer que se procesará cuando termine
+      const delay = getSmartDelay(messageForAI, 1, now);
+      const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
       messageBuffer.set(bufferKey, {
-        messages: [messageForAI],
-        timer,
-        sessionName,
-        from,
-        senderName,
-        userId,
-        convId: conv.id,
-        whatsappLineId
+        messages: [messageForAI], timer, sessionName, from, senderName, userId,
+        convId: conv.id, whatsappLineId,
+        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg
       });
-      log(`🔒 Buffer (lock activo): nuevo de ${senderName} → se procesará cuando la IA termine`);
+      log(`🔒 Ráfaga (lock): nuevo de ${senderName} → se procesará cuando la IA termine`);
     } else {
-      // Primer mensaje → crear buffer, mostrar typing inmediato
-      // Buscar asistente de la línea para verificar modo voz
+      // Primer mensaje → crear buffer con timing adaptativo
+      // Buscar asistente para verificar modo voz
       let assistant = null;
       if (whatsappLineId) {
         assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId }, select: { voiceEnabled: true, elevenLabsKey: true, selectedVoice: true } });
@@ -5020,18 +5101,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
         setPresence(sessionName, from, 'typing');
       }
 
-      const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+      // 🧠 Primer mensaje: si parece fragmento o media, esperar más
+      const delay = getSmartDelay(messageForAI, 0, now);
+      const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
       messageBuffer.set(bufferKey, {
-        messages: [messageForAI],
-        timer,
-        sessionName,
-        from,
-        senderName,
-        userId,
-        convId: conv.id,
-        whatsappLineId
+        messages: [messageForAI], timer, sessionName, from, senderName, userId,
+        convId: conv.id, whatsappLineId,
+        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg
       });
-      log(`📦 Buffer: nuevo de ${senderName} → esperando ${BUFFER_WAIT_MS/1000}s por más mensajes...`);
+      log(`📦 Ráfaga: nuevo de ${senderName} → espera inteligente ${(delay/1000).toFixed(1)}s${isFragment(messageForAI) ? ' [fragmento detectado]' : ''}`);
     }
 
     // Responder inmediatamente al webhook (WAHA no espera)
@@ -5601,21 +5679,26 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         continue;
       }
       
-      // 📦 Buffer for AI response (reuses existing buffer system)
+      // 📦 Intelligent burst handler for Cloud API
       const bufferKey = `${userId}_${recipientId}`;
       const existingBuffer = messageBuffer.get(bufferKey);
-      const chatIdForSend = `${recipientId}@c.us`; // Cloud API uses clean numbers but buffer needs format
+      const chatIdForSend = `${recipientId}@c.us`;
+      const now = Date.now();
       
       if (existingBuffer) {
         existingBuffer.messages.push(messageBody);
+        existingBuffer.lastTimestamp = now;
         clearTimeout(existingBuffer.timer);
-        existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+        const delay = getSmartDelay(messageBody, existingBuffer.messages.length, existingBuffer.firstTimestamp);
+        existingBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
       } else {
-        const timer = setTimeout(() => processBufferedMessages(bufferKey), BUFFER_WAIT_MS);
+        const delay = getSmartDelay(messageBody, 0, now);
+        const timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
         messageBuffer.set(bufferKey, {
           messages: [messageBody], timer, sessionName,
           from: chatIdForSend, senderName, userId,
-          convId: conv.id, whatsappLineId
+          convId: conv.id, whatsappLineId,
+          firstTimestamp: now, lastTimestamp: now, hasMedia: false
         });
       }
     }

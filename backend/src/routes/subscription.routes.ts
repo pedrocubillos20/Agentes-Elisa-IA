@@ -62,6 +62,7 @@ const PRIORITY_SUPPORT_ADDON = {
 const ADDON_EXTRA_LINE = { price: 39, name: 'Línea Adicional WhatsApp' };     // +1 línea ($39 USD - almacenamiento + consumo)
 const ADDON_EXTRA_PRODUCTS = { price: 20, name: '+10 Productos Catálogo' };   // +10 productos
 const ADDON_AI_CONFIG = { price: 20, name: 'Configuración IA (PDF → Base de Conocimiento)' }; // AI auto-config
+const ADDON_AI_CALLS = { price: 100, name: 'Llamadas IA (Retell AI)' }; // AI voice calls
 
 const CARD_SURCHARGE = 0.05; // 5% recargo tarjeta
 
@@ -290,6 +291,12 @@ router.get('/plans', async (req: Request, res: Response) => {
         name: ADDON_AI_CONFIG.name,
         priceUsd: ADDON_AI_CONFIG.price,
         priceCop: Math.round(ADDON_AI_CONFIG.price * rate),
+      },
+      aiCalls: {
+        id: 'ai_calls',
+        name: ADDON_AI_CALLS.name,
+        priceUsd: ADDON_AI_CALLS.price,
+        priceCop: Math.round(ADDON_AI_CALLS.price * rate),
       }
     };
 
@@ -381,6 +388,11 @@ router.get('/status', async (req: Request, res: Response) => {
       where: { userId, plan: 'ai_config', status: 'approved' }
     });
 
+    // Verificar si compró Llamadas IA
+    const hasAiCalls = await prisma.payment.findFirst({
+      where: { userId, plan: 'ai_calls', status: 'approved' }
+    });
+
     // Contar addons comprados
     const extraLinesPurchased = await prisma.payment.count({
       where: { userId, plan: 'extra_line', status: 'approved' }
@@ -429,6 +441,7 @@ router.get('/status', async (req: Request, res: Response) => {
       hasPrioritySupport,
       prioritySupportExpiresAt,
       hasAiConfig: !!hasAiConfig,
+      hasAiCalls: !!hasAiCalls,
       effectiveLimits,
       subscription: subscription ? {
         plan: subscription.plan,
@@ -687,7 +700,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       return;
     }
 
-    if (plan === 'extra_line' || plan === 'extra_products' || plan === 'ai_config') {
+    if (plan === 'extra_line' || plan === 'extra_products' || plan === 'ai_config' || plan === 'ai_calls') {
       // Compra de addon individual (pago único)
       const existingSub = await prisma.subscription.findUnique({ where: { userId } });
       if (!existingSub || existingSub.status !== 'active') {
@@ -695,7 +708,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
         return;
       }
       
-      const addonConfig = plan === 'extra_line' ? ADDON_EXTRA_LINE : plan === 'extra_products' ? ADDON_EXTRA_PRODUCTS : ADDON_AI_CONFIG;
+      const addonConfig = plan === 'extra_line' ? ADDON_EXTRA_LINE : plan === 'extra_products' ? ADDON_EXTRA_PRODUCTS : plan === 'ai_calls' ? ADDON_AI_CALLS : ADDON_AI_CONFIG;
       const quantity = Math.max(1, parseInt(req.body.quantity) || 1);
       const priceAddon = addonConfig.price * quantity;
       
@@ -706,7 +719,7 @@ router.post('/create-payment', async (req: Request, res: Response) => {
       const rate = trm.rate;
       const copAmount = Math.round(priceAddon * rate);
       const amountInCents = copAmount * 100;
-      const suffix = plan === 'extra_line' ? 'LINE' : plan === 'extra_products' ? 'PRODS' : 'AICONF';
+      const suffix = plan === 'extra_line' ? 'LINE' : plan === 'extra_products' ? 'PRODS' : plan === 'ai_calls' ? 'AICALLS' : 'AICONF';
       const reference = `BIZONNE-${suffix}-${userId.slice(-8)}-${Date.now()}`;
       
       const integritySecret = WOMPI_INTEGRITY_KEY;
@@ -1105,7 +1118,8 @@ async function activateSubscription(payment: any, transactionId: string, payment
         'implementation': 'IMPLEMENTACIÓN',
         'extra_line': 'LÍNEA ADICIONAL',
         'extra_products': '+10 PRODUCTOS',
-        'ai_config': 'CONFIGURACIÓN IA'
+        'ai_config': 'CONFIGURACIÓN IA',
+        'ai_calls': 'LLAMADAS IA'
       };
       const addonName = addonNames[payment.plan] || payment.plan.toUpperCase();
       
@@ -1521,6 +1535,7 @@ router.get('/admin/users', async (req: Request, res: Response) => {
         implementation: addonPayments.some(p => p.plan === 'implementation'),
         prioritySupport: addonPayments.some(p => p.plan === 'priority_support'),
         aiConfig: addonPayments.some(p => p.plan === 'ai_config'),
+        aiCalls: addonPayments.some(p => p.plan === 'ai_calls'),
         extraLines: addonPayments.filter(p => p.plan === 'extra_line').length,
         extraProducts: addonPayments.filter(p => p.plan === 'extra_products').length
       };
@@ -1605,7 +1620,7 @@ router.post('/admin/addon', async (req: Request, res: Response) => {
     const { targetUserId, addonPlan, action } = req.body;
     if (!targetUserId || !addonPlan) { res.status(400).json({ error: 'targetUserId y addonPlan requeridos' }); return; }
 
-    const validAddons = ['implementation', 'priority_support', 'ai_config', 'extra_line', 'extra_products'];
+    const validAddons = ['implementation', 'priority_support', 'ai_config', 'ai_calls', 'extra_line', 'extra_products'];
     if (!validAddons.includes(addonPlan)) { res.status(400).json({ error: `Addon inválido. Válidos: ${validAddons.join(', ')}` }); return; }
 
     if (action === 'remove') {
@@ -1646,7 +1661,7 @@ router.post('/admin/addon', async (req: Request, res: Response) => {
 
     const addonNames: Record<string, string> = {
       'implementation': 'Implementación', 'priority_support': 'Soporte Prioritario',
-      'ai_config': 'Configuración IA', 'extra_line': 'Línea Adicional', 'extra_products': '+10 Productos'
+      'ai_config': 'Configuración IA', 'ai_calls': 'Llamadas IA', 'extra_line': 'Línea Adicional', 'extra_products': '+10 Productos'
     };
     console.log(`✅ Admin: addon ${addonNames[addonPlan] || addonPlan} activado para ${targetUserId}`);
     res.json({ success: true, message: `Addon ${addonNames[addonPlan] || addonPlan} activado` });

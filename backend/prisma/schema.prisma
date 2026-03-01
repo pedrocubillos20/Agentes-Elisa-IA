@@ -74,8 +74,8 @@ model User {
   resources       Resource[]
   businessSchedules BusinessSchedule[]
   ghlIntegration  GhlIntegration?
-  callConfig      CallConfig?
-  calls           Call[]
+  callConfig      CallConfig?       // 📞 Retell AI
+  calls           Call[]            // 📞 Retell AI
 
   @@index([parentUserId])
   @@index([role])
@@ -652,78 +652,96 @@ model BusinessSchedule {
 }
 
 // ====================================================
-// 📞 LLAMADAS IA — Twilio + ElevenLabs Conversational AI
+// 📞 RETELL AI — Configuración y Historial de Llamadas
 // ====================================================
 
 model CallConfig {
-  id              String    @id @default(cuid())
-  userId          String    @unique
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  // Twilio
-  twilioAccountSid    String  @default("")
-  twilioAuthToken     String  @default("")
-  twilioPhoneNumber   String  @default("")
+  // Retell AI IDs
+  retellAgentId       String?
+  retellLlmId         String?
+  retellPhoneNumber   String?
+  retellPhoneNumberId String?
   
-  // ElevenLabs Conversational AI
-  elevenLabsAgentId   String  @default("")
-  elevenLabsApiKey    String  @default("")
+  // Voice settings
+  voiceId             String    @default("11labs-Adrian")
+  voiceProvider       String    @default("elevenlabs")
+  voiceModel          String    @default("eleven_turbo_v2")
+  voiceSpeed          Float     @default(1.0)
+  voiceTemperature    Float     @default(1.0)
   
-  // Voice
-  voiceId         String  @default("")
-  voiceName       String  @default("")
+  // Agent settings
+  agentName           String    @default("Asistente")
+  agentLanguage       String    @default("es")
+  agentGreeting       String?
+  agentPrompt         String?
   
-  // Agent Config
-  systemPrompt    String?   @db.Text
-  firstMessage    String?   @db.Text
-  language        String    @default("es")
+  // Features
+  enableAutoReminders Boolean   @default(false)
+  reminderHoursBefore Int       @default(24)
+  maxCallDuration     Int       @default(300000)
+  enableBackchannel   Boolean   @default(true)
   
-  // Feature Flags
-  callsEnabled            Boolean @default(false)
-  autoCallReminders       Boolean @default(false)
-  autoCallFollowup        Boolean @default(false)
-  autoCallReactivation    Boolean @default(false)
-  reminderHoursBefore     Int     @default(24)
+  // Status
+  isActive            Boolean   @default(false)
+  activatedAt         DateTime?
+  minutesUsed         Float     @default(0)
+  minutesLimit        Float     @default(0)
   
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  
+  calls               Call[]
 
   @@index([userId])
 }
 
 model Call {
-  id              String    @id @default(cuid())
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  callConfigId      String
+  callConfig        CallConfig @relation(fields: [callConfigId], references: [id], onDelete: Cascade)
   
-  direction       String    @default("outbound")
-  type            String    @default("manual")
-  phoneNumber     String
-  clientName      String?
+  // Retell
+  retellCallId      String?
+  retellCallStatus  String?
   
-  status          String    @default("initiating")
-  duration        Int       @default(0)
+  // Call info
+  direction         String    @default("outbound")
+  fromNumber        String?
+  toNumber          String
+  toName            String?
+  clientId          String?
+  appointmentId     String?
   
-  // External IDs
-  twilioCallSid               String?
-  agentId                     String?
-  elevenLabsConversationId    String?
+  // Results
+  status            String    @default("initiated")
+  duration          Int?
+  costUsd           Float?
+  transcript        String?   @db.Text
+  transcriptObject  Json?
+  summary           String?   @db.Text
+  sentiment         String?
+  recordingUrl      String?
   
-  // Content
-  transcript      String?   @db.Text
-  recordingUrl    String?
-  context         String?   @db.Text
-  error           String?
-  summary         String?   @db.Text
+  // Meta
+  callType          String    @default("manual")
+  metadata          Json?
+  endReason         String?
   
-  // Timestamps
-  answeredAt      DateTime?
-  endedAt         DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  startedAt         DateTime?
+  endedAt           DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@index([userId])
-  @@index([userId, createdAt(sort: Desc)])
+  @@index([callConfigId])
+  @@index([retellCallId])
+  @@index([clientId])
   @@index([status])
-  @@index([twilioCallSid])
+  @@index([createdAt])
 }

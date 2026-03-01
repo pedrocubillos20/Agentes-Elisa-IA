@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Search, Send, X, Trash2,
   Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap,
-  Download, Upload, ChevronLeft
+  Download, Upload, ChevronLeft, StickyNote, Calendar, UserPlus, Check, Clock, Save, User
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -108,6 +108,18 @@ export default function ConversacionesPage() {
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [newQuickReply, setNewQuickReply] = useState('');
   const [showFullPhone] = useState(() => canSeeFullPhone());
+  
+  // 📝 NOTAS + 👤 ASIGNACIÓN + 📅 CITA RÁPIDA
+  const [convNotes, setConvNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesSaved, setNotesSaved] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [assigningChat, setAssigningChat] = useState(false);
+  const [showAppointment, setShowAppointment] = useState(false);
+  const [appointmentData, setAppointmentData] = useState({ date: '', time: '', type: 'appointment', notes: '' });
+  const [savingAppointment, setSavingAppointment] = useState(false);
+  const [userRole, setUserRole] = useState('admin'); // rol del usuario actual
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
@@ -154,6 +166,16 @@ export default function ConversacionesPage() {
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d?.stages?.length) setFunnelStages(d.stages); })
         .catch(() => {});
+      // 👤 Cargar miembros del equipo (para asignar chats)
+      fetch(`${API_URL}/api/team`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.members) setTeamMembers(d.members); })
+        .catch(() => {});
+      // 🔑 Obtener rol del usuario actual
+      try { 
+        const decoded = JSON.parse(atob(token!.split('.')[1]));
+        if (decoded.role) setUserRole(decoded.role);
+      } catch {}
     }
     // Polling de conversaciones (solo lista, sin stages ni sync)
     fetchConversations();
@@ -187,6 +209,13 @@ export default function ConversacionesPage() {
       setLoadingMessages(true); // ✅ Mostrar loading
       lastMessageCountRef.current = 0;
       fetchMessages(selectedConv.id);
+      // 📝 Cargar notas del contextData
+      const ctx = (selectedConv.contextData as any) || {};
+      setConvNotes(ctx._userNotes || '');
+      setNotesSaved(false);
+      // 📅 Reset appointment form
+      setShowAppointment(false);
+      setAppointmentData({ date: '', time: '', type: 'appointment', notes: '' });
     }
     // Load group settings if it's a group
     if (selectedConv?.isGroup) {
@@ -236,6 +265,86 @@ export default function ConversacionesPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // ====================================================
+  // 📝 GUARDAR NOTAS
+  // ====================================================
+  const saveNotes = async () => {
+    if (!selectedConv) return;
+    setSavingNotes(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/notes`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: convNotes })
+      });
+      if (res.ok) {
+        setNotesSaved(true);
+        setTimeout(() => setNotesSaved(false), 2000);
+        // Actualizar contextData local
+        setSelectedConv((prev: any) => prev ? { 
+          ...prev, 
+          contextData: { ...(prev.contextData || {}), _userNotes: convNotes } 
+        } : prev);
+      }
+    } catch (e) { console.error('Error guardando notas:', e); }
+    finally { setSavingNotes(false); }
+  };
+
+  // ====================================================
+  // 👤 ASIGNAR CHAT A MIEMBRO
+  // ====================================================
+  const assignChat = async (memberId: string | null) => {
+    if (!selectedConv) return;
+    setAssigningChat(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/assign`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignedTo: memberId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedConv((prev: any) => prev ? { 
+          ...prev, 
+          assignedTo: data.assignedTo, 
+          assignedName: data.assignedName 
+        } : prev);
+        // Actualizar en la lista de conversaciones
+        setConversations(prev => prev.map(c => 
+          c.id === selectedConv.id ? { ...c, assignedTo: data.assignedTo, assignedName: data.assignedName } : c
+        ));
+      }
+    } catch (e) { console.error('Error asignando chat:', e); }
+    finally { setAssigningChat(false); }
+  };
+
+  // ====================================================
+  // 📅 CREAR CITA RÁPIDA
+  // ====================================================
+  const createQuickAppointment = async () => {
+    if (!selectedConv || !appointmentData.date || !appointmentData.time) return;
+    setSavingAppointment(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/quick-appointment`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(appointmentData)
+      });
+      if (res.ok) {
+        setShowAppointment(false);
+        setAppointmentData({ date: '', time: '', type: 'appointment', notes: '' });
+        // Mini toast de éxito
+        alert('✅ Cita agendada correctamente');
+      }
+    } catch (e) { console.error('Error creando cita:', e); }
+    finally { setSavingAppointment(false); }
+  };
+
+  const canAssign = userRole === 'admin' || userRole === 'manager' || !localStorage.getItem('parentUserId');
 
   // 📋 Fetch SOLO conversaciones (sin stages ni sync)
   const fetchConversations = async () => {
@@ -767,6 +876,11 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                         {funnelStages.find(s => s.id === conv.stage)?.label || conv.stage}
                       </span>
                     )}
+                    {conv.assignedName && (
+                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">
+                        👤 {conv.assignedName.split(' ')[0]}
+                      </span>
+                    )}
                   </div>
                   {/* 🗑️ Delete button - solo admin/gerente */}
                   {canDeleteConversation() && (
@@ -981,9 +1095,10 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
           )}
         </div>
 
-        {/* Panel info */}
+        {/* Panel info — ENHANCED: Notas + Asignar + Cita */}
         {selectedConv && (
-          <div className="w-56 flex-shrink-0 hidden xl:flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] p-3 gap-3 overflow-y-auto">
+          <div className="w-64 flex-shrink-0 hidden xl:flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] p-3 gap-2.5 overflow-y-auto">
+            {/* Header: Avatar + Info */}
             <div className="text-center">
               <div className="w-12 h-12 mx-auto rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center mb-2">
                 <span className="text-lg font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || selectedConv.groupName?.[0] || '?'}</span>
@@ -994,13 +1109,45 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               </p>
             </div>
 
+            {/* 👤 ASIGNAR CHAT — Solo admin/manager */}
+            {canAssign && teamMembers.length > 0 && !selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <p className="text-[10px] text-[var(--text-muted)] mb-1.5 flex items-center gap-1">
+                  <UserPlus className="w-3 h-3" /> Asignar a
+                </p>
+                <select
+                  value={selectedConv.assignedTo || ''}
+                  onChange={(e) => assignChat(e.target.value || null)}
+                  disabled={assigningChat}
+                  className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1.5 px-2 text-[11px] text-white focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50 appearance-none cursor-pointer"
+                >
+                  <option value="">Sin asignar</option>
+                  {teamMembers.filter(m => m.isActive !== false).map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.role === 'admin' ? '👑' : m.role === 'manager' ? '📊' : m.role === 'agent' ? '🛒' : m.role === 'support' ? '🎧' : '👁️'} {m.name || m.email}
+                    </option>
+                  ))}
+                </select>
+                {selectedConv.assignedName && (
+                  <p className="text-[9px] text-emerald-400 mt-1 text-center">✅ {selectedConv.assignedName}</p>
+                )}
+              </div>
+            )}
+
+            {/* Asignado badge (para roles que no pueden cambiar) */}
+            {!canAssign && selectedConv.assignedName && (
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <p className="text-[10px] text-emerald-400 text-center flex items-center justify-center gap-1">
+                  <User className="w-3 h-3" /> Asignado a: <strong>{selectedConv.assignedName}</strong>
+                </p>
+              </div>
+            )}
+
             {/* 👥 GRUPO: Configuración de IA */}
             {selectedConv.isGroup && groupSettingsLocal && (
               <div className="space-y-2">
                 <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                   <p className="text-[10px] text-[var(--text-muted)] mb-2">🤖 IA en grupo</p>
-                  
-                  {/* Toggle IA */}
                   <button
                     onClick={() => updateGroupSettings({ aiEnabled: !groupSettingsLocal.aiEnabled })}
                     className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-between ${
@@ -1012,49 +1159,36 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                     <span>{groupSettingsLocal.aiEnabled ? '✅ IA Activa' : '❌ IA Desactivada'}</span>
                   </button>
                 </div>
-
-                {/* Modo de respuesta */}
                 {groupSettingsLocal.aiEnabled && (
                   <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                     <p className="text-[10px] text-[var(--text-muted)] mb-2">Responder a</p>
                     <div className="space-y-1">
                       {[
-                        { id: 'all', label: 'Todos los mensajes', desc: 'Responde a todo' },
-                        { id: 'mentions', label: 'Solo menciones', desc: 'Cuando mencionan al bot' },
-                        { id: 'keywords', label: 'Palabras clave', desc: 'Solo si usan una keyword' },
+                        { id: 'all', label: 'Todos', desc: 'Responde a todo' },
+                        { id: 'mentions', label: 'Menciones', desc: 'Cuando mencionan al bot' },
+                        { id: 'keywords', label: 'Keywords', desc: 'Solo si usan una keyword' },
                       ].map(mode => (
-                        <button
-                          key={mode.id}
-                          onClick={() => updateGroupSettings({ respondTo: mode.id })}
-                          className={`w-full text-left px-2 py-1.5 rounded text-[10px] transition-all ${
+                        <button key={mode.id} onClick={() => updateGroupSettings({ respondTo: mode.id })}
+                          className={`w-full text-left px-2 py-1 rounded text-[10px] transition-all ${
                             groupSettingsLocal.respondTo === mode.id
                               ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
                               : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
                           }`}
                         >
                           <p className="font-medium">{mode.label}</p>
-                          <p className="text-[9px] opacity-70">{mode.desc}</p>
                         </button>
                       ))}
                     </div>
                   </div>
                 )}
-
-                {/* Palabras clave */}
                 {groupSettingsLocal.aiEnabled && groupSettingsLocal.respondTo === 'keywords' && (
                   <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                     <p className="text-[10px] text-[var(--text-muted)] mb-1.5">Palabras clave</p>
-                    <input
-                      type="text"
-                      value={(groupSettingsLocal.triggerWords || []).join(', ')}
-                      onChange={(e) => {
-                        const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean);
-                        updateGroupSettings({ triggerWords: words });
-                      }}
+                    <input type="text" value={(groupSettingsLocal.triggerWords || []).join(', ')}
+                      onChange={(e) => { const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean); updateGroupSettings({ triggerWords: words }); }}
                       placeholder="bizonne, ayuda, info"
                       className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
                     />
-                    <p className="text-[9px] text-[var(--text-muted)] mt-1">Separar con comas</p>
                   </div>
                 )}
               </div>
@@ -1071,17 +1205,18 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               </div>
             )}
 
+            {/* 📋 Datos del cliente */}
             {selectedConv.contextData && Object.keys(selectedConv.contextData).length > 0 && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                 <p className="text-[10px] text-[var(--text-muted)] mb-1">📋 Datos</p>
                 <div className="space-y-1">
                   {Object.entries(selectedConv.contextData as Record<string, any>)
-                    .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita'].includes(k))
+                    .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita', '_userNotes'].includes(k))
                     .slice(0, 8)
                     .map(([key, value]) => (
                       <div key={key} className="flex justify-between text-[10px]">
                         <span className="text-[var(--text-muted)] capitalize">{key.replace(/_/g, ' ')}</span>
-                        <span className="text-white font-medium truncate ml-2 max-w-[70px]">
+                        <span className="text-white font-medium truncate ml-2 max-w-[80px]">
                           {(!showFullPhone && (key.toLowerCase() === 'telefono' || key.toLowerCase() === 'phone' || key.toLowerCase() === 'celular'))
                             ? maskPhone(String(value))
                             : String(value)}
@@ -1090,6 +1225,103 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                     ))
                   }
                 </div>
+              </div>
+            )}
+
+            {/* 📝 NOTAS MANUALES */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
+                    <StickyNote className="w-3 h-3" /> Notas
+                  </p>
+                  {convNotes !== ((selectedConv.contextData as any)?._userNotes || '') && (
+                    <button
+                      onClick={saveNotes}
+                      disabled={savingNotes}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 transition-all disabled:opacity-50 flex items-center gap-0.5"
+                    >
+                      {savingNotes ? <Clock className="w-2.5 h-2.5 animate-spin" /> : <Save className="w-2.5 h-2.5" />}
+                      Guardar
+                    </button>
+                  )}
+                  {notesSaved && (
+                    <span className="text-[9px] text-emerald-400 flex items-center gap-0.5">
+                      <Check className="w-2.5 h-2.5" /> Guardado
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={convNotes}
+                  onChange={(e) => setConvNotes(e.target.value)}
+                  placeholder="Escribir notas sobre este cliente..."
+                  rows={3}
+                  className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1.5 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)] resize-none leading-relaxed"
+                />
+              </div>
+            )}
+
+            {/* 📅 AGENDAR CITA RÁPIDA */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                {!showAppointment ? (
+                  <button
+                    onClick={() => setShowAppointment(true)}
+                    className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 transition-all"
+                  >
+                    <Calendar className="w-3 h-3" />
+                    Agendar cita
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] text-amber-400 font-medium flex items-center gap-1">
+                        <Calendar className="w-3 h-3" /> Nueva cita
+                      </p>
+                      <button onClick={() => setShowAppointment(false)} className="text-[var(--text-muted)] hover:text-white">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      <input
+                        type="date"
+                        value={appointmentData.date}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, date: e.target.value }))}
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white focus:outline-none focus:border-amber-400"
+                      />
+                      <input
+                        type="time"
+                        value={appointmentData.time}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, time: e.target.value }))}
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white focus:outline-none focus:border-amber-400"
+                      />
+                      <select
+                        value={appointmentData.type}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, type: e.target.value }))}
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white focus:outline-none focus:border-amber-400 appearance-none"
+                      >
+                        <option value="appointment">📅 Cita</option>
+                        <option value="order">📦 Pedido/Entrega</option>
+                        <option value="followup">📞 Seguimiento</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={appointmentData.notes}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Notas de la cita..."
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-amber-400"
+                      />
+                      <button
+                        onClick={createQuickAppointment}
+                        disabled={savingAppointment || !appointmentData.date || !appointmentData.time}
+                        className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-medium bg-amber-500 text-black hover:bg-amber-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {savingAppointment ? <Clock className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                        Agendar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

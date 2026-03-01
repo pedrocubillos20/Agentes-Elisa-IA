@@ -19,12 +19,27 @@ router.get('/', async (req: Request, res: Response) => {
     if (stage && stage !== 'all') where.stage = stage as string;
     if (lineId) where.whatsappLineId = lineId as string;
 
+    // 👤 FILTRO POR ASIGNACIÓN: vendedores y soporte solo ven sus chats asignados + sin asignar
+    if (userId !== ownerId) {
+      const currentUser = await prisma.user.findUnique({ 
+        where: { id: userId }, select: { role: true } 
+      });
+      if (currentUser && (currentUser.role === 'agent' || currentUser.role === 'support')) {
+        where.OR = [
+          { assignedTo: userId },    // Asignados a ellos
+          { assignedTo: null }        // Sin asignar
+        ];
+      }
+      // admin y manager ven todo (no se filtra)
+    }
+
     const conversations = await prisma.conversation.findMany({
       where, orderBy: { updatedAt: 'desc' },
       select: {
         id: true, recipientId: true, recipientName: true, stage: true,
         aiPaused: true, updatedAt: true, lastMessage: true, contextData: true,
-        whatsappLineId: true, isGroup: true, assignedTo: true,
+        whatsappLineId: true, isGroup: true, assignedTo: true, assignedName: true,
+        groupName: true,
         messages: { orderBy: { timestamp: 'desc' }, take: 1, select: { content: true, timestamp: true, fromMe: true } }
       }
     });
@@ -559,6 +574,158 @@ router.put('/:id/group-settings', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('Error actualizando grupo:', e.message);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ====================================================
+// 📝 PUT /api/conversations/:id/notes — Guardar/actualizar notas manuales
+// ====================================================
+router.put('/:id/notes', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const { id } = req.params;
+    const { notes } = req.body;
+
+    const existing = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
+    if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
+
+    // Guardar notas en contextData._userNotes (no interfiere con IA)
+    const currentContext = (existing.contextData as any) || {};
+    const updatedContext = { ...currentContext, _userNotes: notes || '' };
+
+    const conversation = await prisma.conversation.update({
+      where: { id },
+      data: { contextData: updatedContext }
+    });
+
+    res.json({ success: true, notes: notes || '' });
+  } catch (error) {
+    console.error('Error guardando notas:', error);
+    res.status(500).json({ error: 'Error al guardar notas' });
+  }
+});
+
+// ====================================================
+// 👤 PUT /api/conversations/:id/assign — Asignar chat a miembro del equipo
+// ====================================================
+router.put('/:id/assign', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    // Verificar permisos: solo admin, manager o gerente pueden asignar
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId }, 
+      select: { id: true, role: true, parentUserId: true } 
+    });
+    if (!user) { res.status(404).json({ error: 'Usuario no encontrado' }); return; }
+
+    const isOwner = !user.parentUserId;
+    const canAssign = isOwner || user.role === 'manager';
+    if (!canAssign) {
+      res.status(403).json({ error: 'Solo administradores y gerentes pueden asignar chats.' });
+      return;
+    }
+
+    const ownerId = user.parentUserId || user.id;
+    const { id } = req.params;
+    const { assignedTo } = req.body; // userId del miembro o null para desasignar
+
+    const existing = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
+    if (!existing) { res.status(404).json({ error: 'No encontrada' }); return; }
+
+    let assignedName: string | null = null;
+    if (assignedTo) {
+      // Verificar que el miembro existe y pertenece al equipo
+      const member = await prisma.user.findUnique({ 
+        where: { id: assignedTo }, 
+        select: { name: true, email: true, parentUserId: true, id: true } 
+      });
+      if (!member) { res.status(404).json({ error: 'Miembro no encontrado' }); return; }
+      // El miembro debe ser sub-usuario del mismo owner O el owner mismo
+      if (member.parentUserId !== ownerId && member.id !== ownerId) {
+        res.status(403).json({ error: 'El miembro no pertenece a tu equipo' }); return;
+      }
+      assignedName = member.name || member.email;
+    }
+
+    const conversation = await prisma.conversation.update({
+      where: { id },
+      data: { assignedTo: assignedTo || null, assignedName: assignedName }
+    });
+
+    console.log(`👤 Chat "${existing.recipientName}" asignado a ${assignedName || 'nadie'} por ${userId}`);
+    res.json({ success: true, conversation, assignedTo, assignedName });
+  } catch (error) {
+    console.error('Error asignando chat:', error);
+    res.status(500).json({ error: 'Error al asignar chat' });
+  }
+});
+
+// ====================================================
+// 📅 POST /api/conversations/:id/quick-appointment — Agendar cita rápida
+// ====================================================
+router.post('/:id/quick-appointment', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const { id } = req.params;
+    const { date, time, type, notes } = req.body;
+
+    if (!date || !time) {
+      res.status(400).json({ error: 'Fecha y hora son requeridos' }); return;
+    }
+
+    const conv = await prisma.conversation.findFirst({ 
+      where: { id, userId: ownerId },
+      select: { recipientName: true, recipientId: true, whatsappLineId: true, contextData: true }
+    });
+    if (!conv) { res.status(404).json({ error: 'Conversación no encontrada' }); return; }
+
+    // Extraer datos del cliente desde contextData
+    const ctx = (conv.contextData as any) || {};
+    const clientName = ctx.nombre || conv.recipientName || 'Sin nombre';
+    const clientPhone = ctx.telefono || conv.recipientId?.replace(/@c\.us|@g\.us/g, '') || '';
+
+    // Buscar o crear cliente
+    let clientId: string | null = null;
+    if (clientPhone) {
+      const existingClient = await prisma.client.findFirst({ 
+        where: { userId: ownerId, phone: { contains: clientPhone.replace(/\D/g, '').slice(-10) } }
+      });
+      if (existingClient) {
+        clientId = existingClient.id;
+      } else {
+        const newClient = await prisma.client.create({
+          data: { userId: ownerId, name: clientName, phone: clientPhone, status: 'active' }
+        });
+        clientId = newClient.id;
+      }
+    }
+
+    const appointment = await prisma.appointment.create({
+      data: {
+        userId: ownerId,
+        clientId,
+        type: type || 'appointment',
+        clientName,
+        clientPhone,
+        date: new Date(date + 'T00:00:00'),
+        time,
+        status: 'pending',
+        notes: notes || null,
+        whatsappLineId: conv.whatsappLineId || null
+      }
+    });
+
+    console.log(`📅 Cita rápida creada: ${clientName} @ ${date} ${time}`);
+    res.status(201).json({ success: true, appointment });
+  } catch (error: any) {
+    console.error('Error creando cita:', error.message);
+    res.status(500).json({ error: 'Error al crear cita' });
   }
 });
 

@@ -9,13 +9,16 @@ import crypto from 'crypto';
 
 const router = Router();
 
+// Prisma models CallConfig y Call son nuevos — usar "as any" para evitar errores TS
+const db = prisma as any;
+
 // ============================================
 // RETELL API HELPER
 // ============================================
 const RETELL_API = 'https://api.retellai.com';
 const RETELL_KEY = process.env.RETELL_API_KEY || '';
 
-async function retellFetch(endpoint: string, method: string = 'GET', body?: any) {
+async function retellFetch(endpoint: string, method: string = 'GET', body?: any): Promise<any> {
   const opts: any = {
     method,
     headers: {
@@ -26,7 +29,7 @@ async function retellFetch(endpoint: string, method: string = 'GET', body?: any)
   if (body) opts.body = JSON.stringify(body);
   
   const res = await fetch(`${RETELL_API}${endpoint}`, opts);
-  const data = await res.json().catch(() => null);
+  const data: any = await res.json().catch(() => null);
   
   if (!res.ok) {
     console.error(`❌ Retell API error [${method} ${endpoint}]:`, data);
@@ -42,10 +45,10 @@ router.get('/config', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
     
-    let config = await prisma.callConfig.findUnique({ where: { userId } });
+    let config = await db.callConfig.findUnique({ where: { userId } });
     
     if (!config) {
-      config = await prisma.callConfig.create({
+      config = await db.callConfig.create({
         data: {
           id: crypto.randomUUID(),
           userId,
@@ -76,10 +79,10 @@ router.put('/config', async (req: any, res) => {
       enableBackchannel,
     } = req.body;
     
-    let config = await prisma.callConfig.findUnique({ where: { userId } });
+    let config = await db.callConfig.findUnique({ where: { userId } });
     if (!config) return res.status(404).json({ error: 'Configuración no encontrada' });
     
-    config = await prisma.callConfig.update({
+    config = await db.callConfig.update({
       where: { userId },
       data: {
         ...(voiceId !== undefined && { voiceId }),
@@ -133,9 +136,9 @@ router.post('/activate', async (req: any, res) => {
     
     if (!RETELL_KEY) return res.status(400).json({ error: 'Retell API key no configurada en el servidor' });
     
-    let config = await prisma.callConfig.findUnique({ where: { userId } });
+    let config = await db.callConfig.findUnique({ where: { userId } });
     if (!config) {
-      config = await prisma.callConfig.create({ data: { id: crypto.randomUUID(), userId } });
+      config = await db.callConfig.create({ data: { id: crypto.randomUUID(), userId } });
     }
     if (config.isActive && config.retellAgentId && config.retellPhoneNumber) {
       return res.json({ message: 'Línea ya activa', config });
@@ -148,9 +151,9 @@ router.post('/activate', async (req: any, res) => {
     });
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true, businessName: true }
+      select: { name: true }
     });
-    const businessName = user?.businessName || user?.name || 'Negocio';
+    const businessName = user?.name || 'Negocio';
     const systemPrompt = buildAgentPrompt(config, assistant, businessName);
     
     // Webhook URL
@@ -159,7 +162,7 @@ router.post('/activate', async (req: any, res) => {
     
     // PASO 1: Crear LLM
     console.log('📝 Creando LLM en Retell...');
-    const llm = await retellFetch('/create-retell-llm', 'POST', {
+    const llm: any = await retellFetch('/create-retell-llm', 'POST', {
       general_prompt: systemPrompt,
       begin_message: config.agentGreeting || `Hola, gracias por comunicarse con ${businessName}. ¿En qué puedo ayudarle?`,
       general_tools: [
@@ -170,7 +173,7 @@ router.post('/activate', async (req: any, res) => {
     
     // PASO 2: Crear Agente
     console.log('🤖 Creando Agente en Retell...');
-    const agent = await retellFetch('/create-agent', 'POST', {
+    const agent: any = await retellFetch('/create-agent', 'POST', {
       response_engine: { type: 'retell-llm', llm_id: llm.llm_id },
       agent_name: `${businessName} - ${config.agentName}`,
       voice_id: config.voiceId || '11labs-Adrian',
@@ -208,7 +211,7 @@ router.post('/activate', async (req: any, res) => {
     }
     
     // PASO 4: Guardar en DB
-    config = await prisma.callConfig.update({
+    config = await db.callConfig.update({
       where: { userId },
       data: {
         retellAgentId: agent.agent_id,
@@ -235,10 +238,9 @@ router.post('/activate', async (req: any, res) => {
 router.post('/deactivate', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const config = await prisma.callConfig.findUnique({ where: { userId } });
+    const config = await db.callConfig.findUnique({ where: { userId } });
     if (!config) return res.status(404).json({ error: 'No hay configuración' });
     
-    // Limpiar en Retell
     if (config.retellPhoneNumber) {
       try { await retellFetch(`/delete-phone-number/${config.retellPhoneNumber}`, 'DELETE'); } catch {}
     }
@@ -249,7 +251,7 @@ router.post('/deactivate', async (req: any, res) => {
       try { await retellFetch(`/delete-retell-llm/${config.retellLlmId}`, 'DELETE'); } catch {}
     }
     
-    await prisma.callConfig.update({
+    await db.callConfig.update({
       where: { userId },
       data: { retellAgentId: null, retellLlmId: null, retellPhoneNumber: null, retellPhoneNumberId: null, isActive: false }
     });
@@ -267,8 +269,8 @@ router.get('/voices', async (req: any, res) => {
   try {
     if (!RETELL_KEY) return res.json(getDefaultVoices());
     
-    const voices = await retellFetch('/list-voices');
-    const mapped = voices.map((v: any) => ({
+    const voices: any = await retellFetch('/list-voices');
+    const mapped = (Array.isArray(voices) ? voices : []).map((v: any) => ({
       voice_id: v.voice_id,
       voice_name: v.voice_name,
       provider: v.provider,
@@ -294,15 +296,14 @@ router.post('/call', async (req: any, res) => {
     
     if (!toNumber) return res.status(400).json({ error: 'Número requerido' });
     
-    const config = await prisma.callConfig.findUnique({ where: { userId } });
+    const config = await db.callConfig.findUnique({ where: { userId } });
     if (!config?.isActive || !config.retellAgentId) return res.status(400).json({ error: 'Línea no activada' });
     if (!config.retellPhoneNumber) return res.status(400).json({ error: 'No hay número asignado' });
     
     const formattedNumber = formatE164(toNumber);
     
-    // Info contextual
     let clientName = toName;
-    let contextParts: string[] = [];
+    const contextParts: string[] = [];
     
     if (clientId) {
       const client = await prisma.client.findUnique({
@@ -326,7 +327,7 @@ router.post('/call', async (req: any, res) => {
       }
     }
     
-    const retellCall = await retellFetch('/v2/create-phone-call', 'POST', {
+    const retellCall: any = await retellFetch('/v2/create-phone-call', 'POST', {
       from_number: config.retellPhoneNumber,
       to_number: formattedNumber,
       override_agent_id: config.retellAgentId,
@@ -336,7 +337,7 @@ router.post('/call', async (req: any, res) => {
       }),
     });
     
-    const call = await prisma.call.create({
+    const call = await db.call.create({
       data: {
         id: crypto.randomUUID(),
         userId,
@@ -369,16 +370,15 @@ router.post('/call', async (req: any, res) => {
 router.get('/call/:id', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const call = await prisma.call.findFirst({ where: { id: req.params.id, userId } });
+    const call = await db.call.findFirst({ where: { id: req.params.id, userId } });
     if (!call) return res.status(404).json({ error: 'No encontrada' });
     
-    // Sync con Retell si en curso
     if (call.retellCallId && ['initiated', 'in_progress'].includes(call.status)) {
       try {
-        const rd = await retellFetch(`/v2/get-call/${call.retellCallId}`);
+        const rd: any = await retellFetch(`/v2/get-call/${call.retellCallId}`);
         const newStatus = mapRetellStatus(rd.call_status);
         if (newStatus !== call.status) {
-          await prisma.call.update({
+          await db.call.update({
             where: { id: call.id },
             data: {
               status: newStatus,
@@ -424,8 +424,8 @@ router.get('/history', async (req: any, res) => {
     }
     
     const [calls, total] = await Promise.all([
-      prisma.call.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
-      prisma.call.count({ where }),
+      db.call.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+      db.call.count({ where }),
     ]);
     
     res.json({ calls, total, page, totalPages: Math.ceil(total / limit) });
@@ -443,13 +443,13 @@ router.get('/stats', async (req: any, res) => {
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     
     const [totalCalls, monthCalls, completedCalls, totalMinutes] = await Promise.all([
-      prisma.call.count({ where: { userId } }),
-      prisma.call.count({ where: { userId, createdAt: { gte: startOfMonth } } }),
-      prisma.call.count({ where: { userId, status: 'completed' } }),
-      prisma.call.aggregate({ where: { userId, duration: { not: null } }, _sum: { duration: true } }),
+      db.call.count({ where: { userId } }),
+      db.call.count({ where: { userId, createdAt: { gte: startOfMonth } } }),
+      db.call.count({ where: { userId, status: 'completed' } }),
+      db.call.aggregate({ where: { userId, duration: { not: null } }, _sum: { duration: true } }),
     ]);
     
-    const config = await prisma.callConfig.findUnique({
+    const config = await db.callConfig.findUnique({
       where: { userId },
       select: { minutesUsed: true, minutesLimit: true, isActive: true, retellPhoneNumber: true }
     });
@@ -479,14 +479,13 @@ export async function handleRetellWebhook(req: any, res: any) {
     const retellCallId = event.call.call_id;
     const callData = event.call;
     
-    const call = await prisma.call.findFirst({ where: { retellCallId } });
+    const call = await db.call.findFirst({ where: { retellCallId } });
     
     if (!call) {
-      // Inbound nueva
       if (event.event === 'call_started' && callData.direction === 'inbound') {
-        const config = await prisma.callConfig.findFirst({ where: { retellPhoneNumber: callData.to_number } });
+        const config = await db.callConfig.findFirst({ where: { retellPhoneNumber: callData.to_number } });
         if (config) {
-          await prisma.call.create({
+          await db.call.create({
             data: {
               id: crypto.randomUUID(), userId: config.userId, callConfigId: config.id,
               retellCallId: callData.call_id, retellCallStatus: 'ongoing',
@@ -501,7 +500,7 @@ export async function handleRetellWebhook(req: any, res: any) {
     
     switch (event.event) {
       case 'call_started':
-        await prisma.call.update({ where: { id: call.id }, data: { status: 'in_progress', retellCallStatus: 'ongoing', startedAt: new Date() } });
+        await db.call.update({ where: { id: call.id }, data: { status: 'in_progress', retellCallStatus: 'ongoing', startedAt: new Date() } });
         break;
         
       case 'call_ended': {
@@ -509,7 +508,7 @@ export async function handleRetellWebhook(req: any, res: any) {
         const durationMin = durationSec ? durationSec / 60 : 0;
         const costUsd = durationMin * 0.145;
         
-        await prisma.call.update({
+        await db.call.update({
           where: { id: call.id },
           data: {
             status: 'completed', retellCallStatus: callData.call_status || 'ended',
@@ -523,7 +522,7 @@ export async function handleRetellWebhook(req: any, res: any) {
         });
         
         if (durationMin > 0) {
-          await prisma.callConfig.update({ where: { id: call.callConfigId }, data: { minutesUsed: { increment: durationMin } } });
+          await db.callConfig.update({ where: { id: call.callConfigId }, data: { minutesUsed: { increment: durationMin } } });
         }
         console.log(`✅ Llamada completada: ${call.id} | ${durationSec}s | $${costUsd.toFixed(3)}`);
         break;
@@ -531,7 +530,7 @@ export async function handleRetellWebhook(req: any, res: any) {
       
       case 'call_analyzed':
         if (callData.call_analysis) {
-          await prisma.call.update({
+          await db.call.update({
             where: { id: call.id },
             data: { summary: callData.call_analysis.call_summary || null, sentiment: callData.call_analysis.sentiment || null }
           });
@@ -556,7 +555,7 @@ export function startCallReminderCron() {
   
   reminderInterval = setInterval(async () => {
     try {
-      const configs = await prisma.callConfig.findMany({
+      const configs = await db.callConfig.findMany({
         where: { isActive: true, enableAutoReminders: true, retellPhoneNumber: { not: null } },
         select: { userId: true, reminderHoursBefore: true, retellAgentId: true, retellPhoneNumber: true, id: true }
       });
@@ -568,7 +567,7 @@ export function startCallReminderCron() {
         if (!config.retellAgentId || !config.retellPhoneNumber) continue;
         
         const targetTime = new Date(now.getTime() + config.reminderHoursBefore * 3600000);
-        const windowStart = new Date(targetTime.getTime() - 900000); // 15min window
+        const windowStart = new Date(targetTime.getTime() - 900000);
         
         const appointments = await prisma.appointment.findMany({
           where: {
@@ -580,7 +579,7 @@ export function startCallReminderCron() {
         });
         
         for (const apt of appointments) {
-          const exists = await prisma.call.findFirst({
+          const exists = await db.call.findFirst({
             where: { userId: config.userId, appointmentId: apt.id, callType: 'auto_reminder', createdAt: { gte: new Date(now.getTime() - 86400000) } }
           });
           if (exists || !apt.clientPhone) continue;
@@ -589,7 +588,7 @@ export function startCallReminderCron() {
             const phone = formatE164(apt.clientPhone);
             const dateStr = new Date(apt.date).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
             
-            const rc = await retellFetch('/v2/create-phone-call', 'POST', {
+            const rc: any = await retellFetch('/v2/create-phone-call', 'POST', {
               from_number: config.retellPhoneNumber,
               to_number: phone,
               override_agent_id: config.retellAgentId,
@@ -599,7 +598,7 @@ export function startCallReminderCron() {
               }
             });
             
-            await prisma.call.create({
+            await db.call.create({
               data: {
                 id: crypto.randomUUID(), userId: config.userId, callConfigId: config.id,
                 retellCallId: rc.call_id, direction: 'outbound', fromNumber: config.retellPhoneNumber,
@@ -616,7 +615,7 @@ export function startCallReminderCron() {
     } catch (e: any) {
       console.error('Cron error:', e.message);
     }
-  }, 900000); // 15 min
+  }, 900000);
   
   console.log('⏰ Cron recordatorios llamadas iniciado');
 }

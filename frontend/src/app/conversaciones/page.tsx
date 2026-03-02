@@ -1219,6 +1219,43 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               </div>
             )}
 
+            {/* 🤖 Asistente Personal toggle — para cualquier conversación */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <p className="text-[10px] text-[var(--text-muted)] mb-2">🤖 Asistente Personal</p>
+                <button
+                  onClick={async () => {
+                    const current = (selectedConv.contextData as any)?._isPersonalAssistant || false;
+                    try {
+                      const token = localStorage.getItem('token');
+                      await fetch(`${API_URL}/api/conversations/${selectedConv.id}/personal-assistant`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ enabled: !current })
+                      });
+                      setSelectedConv((prev: any) => ({
+                        ...prev,
+                        contextData: { ...(prev.contextData || {}), _isPersonalAssistant: !current }
+                      }));
+                    } catch {}
+                  }}
+                  className={`w-full px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-all ${
+                    (selectedConv.contextData as any)?._isPersonalAssistant
+                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                      : 'bg-white/5 text-[var(--text-muted)] border border-[var(--border-primary)]'
+                  }`}
+                >
+                  <span>{(selectedConv.contextData as any)?._isPersonalAssistant ? '🧠' : '💤'}</span>
+                  <span>{(selectedConv.contextData as any)?._isPersonalAssistant ? 'Asistente Activo' : 'Activar Asistente'}</span>
+                </button>
+                {(selectedConv.contextData as any)?._isPersonalAssistant && (
+                  <p className="text-[9px] text-purple-400 mt-1.5">
+                    ✨ Pregunta: resumen, citas, pedidos, ventas, reservas...
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Etapa (no-grupo) */}
             {!selectedConv.isGroup && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
@@ -1236,7 +1273,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                 <p className="text-[10px] text-[var(--text-muted)] mb-1">📋 Datos</p>
                 <div className="space-y-1">
                   {Object.entries(selectedConv.contextData as Record<string, any>)
-                    .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita', '_userNotes'].includes(k))
+                    .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita', '_userNotes', '_isPersonalAssistant'].includes(k))
                     .slice(0, 8)
                     .map(([key, value]) => (
                       <div key={key} className="flex justify-between text-[10px]">

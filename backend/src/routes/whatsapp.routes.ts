@@ -1566,18 +1566,53 @@ REGLAS DE TRANSFERENCIA:
     }
 
 
-    // 📅👥 MODO GRUPO INTERNO — Consultar y gestionar agenda/pedidos/reservas
-    if (conversation?.isGroup) {
+    // 🤖📊 MODO ASISTENTE INTERNO — Grupos de trabajo + Asistente Personal del admin
+    const isPersonalAssistant = savedContext?._isPersonalAssistant === true;
+    const isInternalAssistant = conversation?.isGroup || isPersonalAssistant;
+    
+    if (isInternalAssistant) {
       try {
         const msgLower = message.toLowerCase();
         const isAgendaQuery = /cita|agenda|reunión|reunion|horario|programad|cronograma|calendario|consulta.*hoy|hoy.*cita|cita.*hoy|mañana.*cita|cita.*mañana|semana/i.test(msgLower);
         const isPedidoQuery = /pedido|orden|venta|despacho|entreg|envío|envio|compra|factur/i.test(msgLower);
         const isReservaQuery = /reserva|booking|habitación|habitacion|mesa|cancha|turno|espacio/i.test(msgLower);
         const isUpdateQuery = /actualiz|cambiar|mover|reagend|modific|cancel|eliminar|reprogramar/i.test(msgLower);
-        const wantsAgendaData = isAgendaQuery || isPedidoQuery || isReservaQuery || isUpdateQuery;
+        const isStatsQuery = /resumen|resum|dashboard|estadístic|estadistic|cómo vamos|como vamos|cuántas|cuantas|conversacion|métrica|metrica|rendimiento|reporte|informe|estado/i.test(msgLower);
+        const isGeneralQuery = /qué tenemos|que tenemos|qué hay|que hay|novedades|pendiente|notifica|alerta/i.test(msgLower);
+        const wantsData = isAgendaQuery || isPedidoQuery || isReservaQuery || isUpdateQuery || isStatsQuery || isGeneralQuery;
 
-        if (wantsAgendaData) {
-          // Rango: hoy y próximos 7 días
+        // Para Asistente Personal: inyectar SIEMPRE datos de plataforma completos
+        // Para Grupos: solo cuando preguntan algo específico
+        if (wantsData || isPersonalAssistant) {
+          const biLines: string[] = [];
+          const assistantLabel = isPersonalAssistant ? 'Asistente Personal' : (conversation?.groupName || 'Grupo');
+          biLines.push(`\n=== 📊 DATOS DE PLATAFORMA EN TIEMPO REAL (${assistantLabel}) ===`);
+          biLines.push(`Fecha: ${new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} | Hora: ${new Date().toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true })}`);
+
+          // ━━━ ESTADÍSTICAS DE CONVERSACIONES ━━━
+          if (isStatsQuery || isGeneralQuery || isPersonalAssistant) {
+            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+            const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
+            
+            const [totalConvs, todayConvs, weekConvs, convsByStage] = await Promise.all([
+              prisma.conversation.count({ where: { userId: ownerId, isGroup: false } }),
+              prisma.conversation.count({ where: { userId: ownerId, isGroup: false, createdAt: { gte: todayStart } } }),
+              prisma.conversation.count({ where: { userId: ownerId, isGroup: false, createdAt: { gte: weekStart } } }),
+              prisma.conversation.groupBy({ by: ['stage'], where: { userId: ownerId, isGroup: false }, _count: true }),
+            ]);
+
+            biLines.push(`\n━━━ 💬 CONVERSACIONES ━━━`);
+            biLines.push(`Total: ${totalConvs} | Nuevas hoy: ${todayConvs} | Esta semana: ${weekConvs}`);
+            if (convsByStage.length > 0) {
+              const stageMap: Record<string, string> = {
+                new: 'Nuevo', interested: 'Interesado', quoting: 'Cotización', negotiating: 'Negociando',
+                pending_confirm: 'Pendiente', converted: 'Convertido', follow_up: 'Seguimiento', lost: 'Perdido'
+              };
+              biLines.push(`Por etapa: ${convsByStage.map((s: any) => `${stageMap[s.stage] || s.stage}: ${s._count}`).join(' | ')}`);
+            }
+          }
+
+          // ━━━ AGENDA: CITAS, PEDIDOS, RESERVAS ━━━
           const rangeStart = new Date(); rangeStart.setHours(0, 0, 0, 0);
           const rangeEnd = new Date(); rangeEnd.setDate(rangeEnd.getDate() + 7); rangeEnd.setHours(23, 59, 59, 999);
 
@@ -1587,13 +1622,24 @@ REGLAS DE TRANSFERENCIA:
             take: 50
           });
 
-          const groupAgendaLines: string[] = [];
-          groupAgendaLines.push(`\n=== 📋 DATOS DE AGENDA EN TIEMPO REAL (${conversation.groupName || 'Grupo'}) ===`);
-          groupAgendaLines.push(`Fecha actual: ${new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
-
           const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-          // Agrupar por día y tipo
+          // Resumen por tipo
+          const citas = allAppts.filter(a => a.type === 'appointment');
+          const pedidos = allAppts.filter(a => a.type === 'order');
+          const reservas = allAppts.filter(a => a.type === 'reservation');
+
+          biLines.push(`\n━━━ 📋 RESUMEN SEMANAL ━━━`);
+          biLines.push(`📅 Citas: ${citas.length} | 🛒 Pedidos: ${pedidos.length} | 🏨 Reservas: ${reservas.length} | Total: ${allAppts.length}`);
+
+          // Agrupar por día
+          const filterTypes: string[] = [];
+          if (isAgendaQuery) filterTypes.push('appointment');
+          if (isPedidoQuery) filterTypes.push('order');
+          if (isReservaQuery) filterTypes.push('reservation');
+          if (filterTypes.length === 0) filterTypes.push('appointment', 'order', 'reservation');
+
+          const typeLabels: Record<string, string> = { appointment: '📅 Cita', order: '🛒 Pedido', reservation: '🏨 Reserva' };
           const byDay = new Map<string, any[]>();
           for (const apt of allAppts) {
             const dateKey = new Date(apt.date).toISOString().split('T')[0];
@@ -1601,26 +1647,17 @@ REGLAS DE TRANSFERENCIA:
             byDay.get(dateKey)!.push(apt);
           }
 
-          // Formatear por tipo solicitado
-          const filterTypes: string[] = [];
-          if (isAgendaQuery) filterTypes.push('appointment');
-          if (isPedidoQuery) filterTypes.push('order');
-          if (isReservaQuery) filterTypes.push('reservation');
-          if (filterTypes.length === 0 || isUpdateQuery) filterTypes.push('appointment', 'order', 'reservation');
-
-          const typeLabels: Record<string, string> = { appointment: '📅 Cita', order: '🛒 Pedido', reservation: '🏨 Reserva' };
           let totalItems = 0;
-
           for (const [dateKey, appts] of byDay.entries()) {
             const d = new Date(dateKey + 'T12:00:00');
             const isToday = dateKey === new Date().toISOString().split('T')[0];
             const isTomorrow = dateKey === new Date(Date.now() + 86400000).toISOString().split('T')[0];
             const dayLabel = isToday ? '📌 HOY' : isTomorrow ? '📌 MAÑANA' : `${dayNames[d.getDay()]}`;
             
-            const filtered = appts.filter(a => filterTypes.includes(a.type));
+            const filtered = appts.filter((a: any) => filterTypes.includes(a.type));
             if (filtered.length === 0) continue;
 
-            groupAgendaLines.push(`\n━━━ ${dayLabel} ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} ━━━`);
+            biLines.push(`\n━━━ ${dayLabel} ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} ━━━`);
             
             for (const apt of filtered) {
               totalItems++;
@@ -1632,60 +1669,74 @@ REGLAS DE TRANSFERENCIA:
               details += `\n   🕐 Hora: ${timeStr}`;
               details += `\n   👤 Cliente: ${apt.clientName || 'Sin nombre'}`;
               if (apt.clientPhone) details += ` | 📞 ${apt.clientPhone}`;
-              if (apt.type === 'order') {
-                if ((apt as any).notes) details += `\n   📦 Detalles: ${(apt as any).notes}`;
-                if ((apt as any).address) details += `\n   📍 Dirección: ${(apt as any).address}`;
-              }
-              if (apt.type === 'reservation') {
-                if ((apt as any).notes) details += `\n   📝 Tipo: ${(apt as any).notes}`;
-              }
+              if ((apt as any).notes) details += `\n   📝 ${(apt as any).notes}`;
+              if ((apt as any).address) details += `\n   📍 ${(apt as any).address}`;
               if (apt.duration) details += ` | ⏱️ ${apt.duration} min`;
-              details += ` | 🆔 ID: ${apt.id.slice(-6)}`;
+              details += ` | 🆔 ${apt.id.slice(-6)}`;
               
-              groupAgendaLines.push(details);
+              biLines.push(details);
             }
           }
 
-          if (totalItems === 0) {
-            groupAgendaLines.push('\n📭 No hay registros para el período consultado.');
-          } else {
-            groupAgendaLines.push(`\n📊 Total: ${totalItems} registro(s) en los próximos 7 días`);
+          if (totalItems === 0 && (isAgendaQuery || isPedidoQuery || isReservaQuery)) {
+            biLines.push('\n📭 No hay registros para el período consultado.');
           }
 
-          // Instrucciones especiales para modo grupo
-          groupAgendaLines.push(`
-=== 🤖 INSTRUCCIONES MODO GRUPO INTERNO ===
+          // ━━━ VENTAS / INGRESOS ━━━
+          if (isStatsQuery || isGeneralQuery || isPedidoQuery) {
+            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+            const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+            
+            const [todayOrders, monthOrders] = await Promise.all([
+              prisma.appointment.findMany({ where: { userId: ownerId, type: 'order', date: { gte: todayStart }, status: { notIn: ['cancelled'] } } }),
+              prisma.appointment.findMany({ where: { userId: ownerId, type: 'order', date: { gte: monthStart }, status: { notIn: ['cancelled'] } } }),
+            ]);
 
-Estás en un GRUPO DE TRABAJO INTERNO. Los que escriben son miembros del equipo, NO clientes.
+            biLines.push(`\n━━━ 💰 VENTAS ━━━`);
+            biLines.push(`Hoy: ${todayOrders.length} pedidos | Este mes: ${monthOrders.length} pedidos`);
+          }
 
-CONSULTAS (responde con los datos de arriba):
-- "¿Qué citas tenemos hoy?" → Lista las citas de HOY ordenadas por hora
-- "¿Qué pedidos tenemos?" → Lista los pedidos con todos los detalles
-- "¿Qué reservas hay para mañana?" → Filtra reservas de mañana
-- "Resumen de la semana" → Resume todo por día
+          // ━━━ INSTRUCCIONES ━━━
+          biLines.push(`
+=== 🤖 INSTRUCCIONES — ${isPersonalAssistant ? 'ASISTENTE PERSONAL' : 'MODO GRUPO INTERNO'} ===
 
-ACTUALIZAR REGISTROS:
-- "Cancelar la cita de Miguel" → accion = "actualizar_cita", busca el ID del registro y marca cancelada
-- "Mover el pedido de Pedro a mañana" → accion = "actualizar_pedido"  
-- "Confirmar la reserva de las 3pm" → accion = "actualizar_reserva"
+${isPersonalAssistant ? `Eres el ASISTENTE PERSONAL del administrador de este negocio.
+Tu rol es ser un centro de control inteligente de toda la plataforma.
 
-CREAR NUEVOS:
-- "Agendar cita con María mañana a las 10am" → accion = "crear_cita"
+CAPACIDADES:
+- Dar resúmenes ejecutivos del negocio
+- Informar sobre conversaciones, ventas, citas, reservas, pedidos
+- Notificar cambios importantes
+- Crear, actualizar y cancelar citas/pedidos/reservas
+- Responder preguntas sobre el estado del negocio
+- Dar recomendaciones basadas en los datos` : `Estás en un GRUPO DE TRABAJO INTERNO. Los que escriben son miembros del equipo, NO clientes.`}
+
+CONSULTAS DISPONIBLES:
+- "¿Qué citas tenemos hoy?" → Lista citas del día
+- "¿Qué pedidos hay?" → Pedidos con detalles completos
+- "¿Reservas para mañana?" → Reservas filtradas
+- "¿Cómo vamos?" / "Resumen" → Dashboard general del negocio
+- "¿Cuántas conversaciones nuevas?" → Stats de conversaciones
+- "¿Cuántas ventas este mes?" → Resumen de ventas
+
+GESTIÓN:
+- "Agendar cita con María a las 10am" → accion = "crear_cita"
 - "Nuevo pedido: 2 buzos para Carlos" → accion = "crear_pedido"
+- "Cancelar la cita de Miguel" → accion = "actualizar_cita"
+- "Mover el pedido al viernes" → accion = "actualizar_pedido"
 
-FORMATO DE RESPUESTA EN GRUPO:
-- Usa formato limpio y organizado con emojis
-- Horarios SIEMPRE en formato 12h (ej: 2:00 PM, no 14:00)
-- Incluye todos los detalles relevantes (nombre, teléfono, dirección, productos)
-- Si no hay datos para lo que preguntan, dilo claramente
-- Responde como un asistente profesional del equipo
+FORMATO:
+- Horarios SIEMPRE en 12h (2:00 PM, no 14:00)
+- Responde organizado con emojis
+- Incluye TODOS los detalles (nombre, teléfono, dirección, productos)
+- Sé conciso pero completo
 `);
 
-          promptParts.push(groupAgendaLines.join('\n'));
-          log(`👥📋 Agenda inyectada para grupo: ${totalItems} registros (${filterTypes.join(', ')})`);
+          promptParts.push(biLines.join('\n'));
+          log(`🤖📊 BI inyectado (${isPersonalAssistant ? 'Personal' : 'Grupo'}): ${totalItems} agenda + stats`);
         }
       } catch (agendaErr: any) {
-        log(`⚠️ Error cargando agenda de grupo: ${agendaErr.message}`);
+        log(`⚠️ Error cargando datos internos: ${agendaErr.message}`);
       }
     }
 
@@ -1716,7 +1767,7 @@ FORMATO DE RESPUESTA EN GRUPO:
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: conversation?.isGroup ? 1000 : 500
+            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 1000 : 500
           }),
           signal: ctrl.signal
         });

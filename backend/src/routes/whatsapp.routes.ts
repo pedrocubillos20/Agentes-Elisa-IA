@@ -117,6 +117,128 @@ const to12h = (time: string): string => {
   return `${h}:${m} ${ampm}`;
 };
 
+// 📅 Helper: Parsear fecha inteligente — "viernes", "mañana", "13 de marzo", "2025-03-07"
+const parseSmartDate = (fechaStr: string): Date => {
+  const today = new Date();
+  if (!fechaStr) return today;
+  const f = fechaStr.toLowerCase().trim();
+
+  // Relativas
+  if (f.includes('hoy')) return new Date(today);
+  if (f.includes('mañana') || f.includes('manana')) { const d = new Date(today); d.setDate(d.getDate() + 1); return d; }
+  if (f.includes('pasado')) { const d = new Date(today); d.setDate(d.getDate() + 2); return d; }
+
+  // Días de la semana: "viernes", "este viernes", "el viernes"
+  const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const dayNamesAlt = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+  let targetDay = dayNames.findIndex(d => f.includes(d));
+  if (targetDay === -1) targetDay = dayNamesAlt.findIndex(d => f.includes(d));
+  if (targetDay >= 0) {
+    const d = new Date(today);
+    const currentDay = today.getDay();
+    let daysAhead = targetDay - currentDay;
+    if (daysAhead <= 0) daysAhead += 7; // Siempre próximo, nunca pasado
+    d.setDate(d.getDate() + daysAhead);
+    return d;
+  }
+
+  // "13 de marzo", "5 de febrero"
+  const monthNames: Record<string, number> = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
+  const dateMatch = f.match(/(\d{1,2})\s*(?:de\s+)?(\w+)/);
+  if (dateMatch) {
+    const day = parseInt(dateMatch[1]);
+    const monthStr = dateMatch[2].toLowerCase();
+    if (monthNames[monthStr] !== undefined) {
+      const d = new Date(today.getFullYear(), monthNames[monthStr], day);
+      if (d < today) d.setFullYear(d.getFullYear() + 1);
+      return d;
+    }
+  }
+
+  // ISO / formato estándar: "2025-03-07", "03/07/2025"
+  const parsed = new Date(fechaStr);
+  if (!isNaN(parsed.getTime())) return parsed;
+
+  return today; // Fallback
+};
+
+// 🕐 Helper: Parsear hora inteligente — "3pm", "15:00", "3:30 PM"
+const parseSmartTime = (horaStr: string, defaultTime: string = '10:00'): string => {
+  if (!horaStr) return defaultTime;
+  const h = horaStr.toLowerCase().trim();
+  const timeMatch = h.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
+  if (timeMatch) {
+    let hours = parseInt(timeMatch[1]);
+    const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+    const meridian = (timeMatch[3] || '').toLowerCase().replace(/\./g, '');
+    if (meridian === 'pm' && hours < 12) hours += 12;
+    if (meridian === 'am' && hours === 12) hours = 0;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+  }
+  return defaultTime;
+};
+
+// 🔔 Helper: Notificar al Asistente Personal cuando se crea algo
+const notifyPersonalAssistant = async (ownerId: string, type: 'pedido' | 'cita' | 'reserva', details: { name: string; date: string; time: string; product?: string; total?: string; phone?: string }) => {
+  try {
+    // Buscar conversaciones con asistente personal activado
+    const assistantConvs = await prisma.conversation.findMany({
+      where: { userId: ownerId },
+      select: { id: true, contextData: true, recipientId: true, whatsappLineId: true }
+    });
+
+    const paConvs = assistantConvs.filter(c => {
+      const ctx = (c.contextData as Record<string, any>) || {};
+      return ctx._isPersonalAssistant === true;
+    });
+
+    if (paConvs.length === 0) return;
+
+    const emojis: Record<string, string> = { pedido: '🛒', cita: '📅', reserva: '🏨' };
+    const labels: Record<string, string> = { pedido: 'NUEVO PEDIDO', cita: 'NUEVA CITA', reserva: 'NUEVA RESERVA' };
+    
+    const msg = `${emojis[type]} *${labels[type]}*\n\n` +
+      `👤 *Cliente:* ${details.name}\n` +
+      (details.phone ? `📞 *Teléfono:* ${details.phone}\n` : '') +
+      `📆 *Fecha:* ${details.date}\n` +
+      `🕐 *Hora:* ${details.time}\n` +
+      (details.product ? `📦 *Producto:* ${details.product}\n` : '') +
+      (details.total ? `💰 *Total:* $${details.total}\n` : '') +
+      `\n✅ Registrado en la agenda.`;
+
+    for (const paConv of paConvs) {
+      // Guardar como mensaje en la conversación del asistente
+      await prisma.message.create({
+        data: { conversationId: paConv.id, content: msg, fromMe: true, role: 'assistant', userId: ownerId }
+      });
+      await prisma.conversation.update({
+        where: { id: paConv.id },
+        data: { lastMessage: msg, updatedAt: new Date() }
+      });
+
+      // Enviar por WhatsApp
+      const recipientId = paConv.recipientId;
+      const lineId = paConv.whatsappLineId;
+      if (recipientId && lineId) {
+        const line = await prisma.whatsappLine.findUnique({ where: { id: lineId }, select: { sessionName: true, connectionType: true, cloudPhoneNumberId: true, cloudAccessToken: true } });
+        if (line) {
+          const isCloud = line.connectionType === 'cloud_api' && line.cloudPhoneNumberId && line.cloudAccessToken;
+          const cleanNum = recipientId.replace(/@.*/, '');
+          if (isCloud) {
+            await sendCloudText(line.cloudPhoneNumberId!, line.cloudAccessToken!, cleanNum, msg);
+          } else if (line.sessionName) {
+            const chatId = recipientId.includes('@') ? recipientId : `${cleanNum}@c.us`;
+            await sendWahaMessage(line.sessionName, chatId, msg);
+          }
+          clog(`🔔 Asistente Personal notificado: ${type} → ${recipientId}`);
+        }
+      }
+    }
+  } catch (err: any) {
+    clog(`⚠️ Error notificando asistente personal: ${err.message}`);
+  }
+};
+
 const messageBuffer: Map<string, {
   messages: string[];
   timer: ReturnType<typeof setTimeout>;
@@ -2101,27 +2223,8 @@ FORMATO:
                   // No crear el pedido aún, esperar a que el cliente complete datos
                 } else {
                 try {
-                  // Parsear fecha de entrega si existe
-                  let deliveryDate = new Date();
-                  if (merged.fecha_entrega) {
-                    // Intentar parsear diferentes formatos de fecha
-                    const fechaStr = merged.fecha_entrega.toLowerCase();
-                    const hoy = new Date();
-                    
-                    if (fechaStr.includes('mañana') || fechaStr.includes('manana')) {
-                      deliveryDate = new Date(hoy);
-                      deliveryDate.setDate(deliveryDate.getDate() + 1);
-                    } else if (fechaStr.includes('pasado')) {
-                      deliveryDate = new Date(hoy);
-                      deliveryDate.setDate(deliveryDate.getDate() + 2);
-                    } else {
-                      // Intentar parsear fecha específica (ej: "10 de febrero", "2025-02-10")
-                      const parsed = new Date(merged.fecha_entrega);
-                      if (!isNaN(parsed.getTime())) {
-                        deliveryDate = parsed;
-                      }
-                    }
-                  }
+                  // 📅 Parsear fecha de entrega inteligente
+                  const deliveryDate = parseSmartDate(merged.fecha_entrega || '');
                   
                   // 🧩 Construir descripción del producto (compatible con campos nuevos Y viejos)
                   let productoDesc = merged.producto_servicio || '';
@@ -2167,6 +2270,8 @@ FORMATO:
                   merged.pedido = 'creado';
                   // 🔔 Push — Nuevo pedido
                   sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || clientName || 'Cliente'} — ${merged.producto_servicio || 'Pedido'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
+                  // 🤖 Notificar Asistente Personal
+                  notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2226,19 +2331,7 @@ FORMATO:
                 
                 if (aiConfirmedOrder) {
                   try {
-                    let deliveryDate = new Date();
-                    if (merged.fecha_entrega) {
-                      const fechaStr = merged.fecha_entrega.toLowerCase();
-                      const hoy = new Date();
-                      if (fechaStr.includes('mañana') || fechaStr.includes('manana')) {
-                        deliveryDate = new Date(hoy); deliveryDate.setDate(deliveryDate.getDate() + 1);
-                      } else if (fechaStr.includes('pasado')) {
-                        deliveryDate = new Date(hoy); deliveryDate.setDate(deliveryDate.getDate() + 2);
-                      } else {
-                        const parsed = new Date(merged.fecha_entrega);
-                        if (!isNaN(parsed.getTime())) deliveryDate = parsed;
-                      }
-                    }
+                    const deliveryDate = parseSmartDate(merged.fecha_entrega || '');
                     
                     let productoDesc = merged.producto_servicio || '';
                     if (!productoDesc) {
@@ -2262,6 +2355,7 @@ FORMATO:
                     log(`🛒🔔 Pedido AUTO-DETECTADO (datos completos + confirmación IA): ${merged.nombre}`);
                     // 🔔 Push — Pedido auto-detectado
                     sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || 'Cliente'} — ${merged.producto_servicio || 'Pedido auto'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
+                    notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   } catch (autoOrderErr: any) {
                     console.error('⚠️ Error auto-pedido:', autoOrderErr.message);
                   }
@@ -2271,64 +2365,9 @@ FORMATO:
               // 📅 CREAR CITA AUTOMÁTICA
               if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
                 try {
-                  // 🕐 PARSEAR FECHA INTELIGENTE
-                  let citaDate = new Date();
-                  const fechaCitaStr = (merged.fecha_cita || '').toLowerCase().trim();
-                  const hoy = new Date();
-                  
-                  if (fechaCitaStr) {
-                    if (fechaCitaStr.includes('hoy')) {
-                      citaDate = new Date(hoy);
-                    } else if (fechaCitaStr.includes('mañana') || fechaCitaStr.includes('manana')) {
-                      citaDate = new Date(hoy);
-                      citaDate.setDate(citaDate.getDate() + 1);
-                    } else if (fechaCitaStr.includes('pasado')) {
-                      citaDate = new Date(hoy);
-                      citaDate.setDate(citaDate.getDate() + 2);
-                    } else if (fechaCitaStr.includes('lunes') || fechaCitaStr.includes('martes') || fechaCitaStr.includes('miércoles') || fechaCitaStr.includes('miercoles') || fechaCitaStr.includes('jueves') || fechaCitaStr.includes('viernes') || fechaCitaStr.includes('sábado') || fechaCitaStr.includes('sabado') || fechaCitaStr.includes('domingo')) {
-                      const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-                      const dayNamesAlt = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-                      let targetDay = dayNames.findIndex(d => fechaCitaStr.includes(d));
-                      if (targetDay === -1) targetDay = dayNamesAlt.findIndex(d => fechaCitaStr.includes(d));
-                      if (targetDay >= 0) {
-                        citaDate = new Date(hoy);
-                        const currentDay = hoy.getDay();
-                        let daysAhead = targetDay - currentDay;
-                        if (daysAhead <= 0) daysAhead += 7;
-                        citaDate.setDate(citaDate.getDate() + daysAhead);
-                      }
-                    } else {
-                      // Intentar formatos como "13 de febrero", "2025-02-13", "13/02/2025"
-                      const monthNames: Record<string, number> = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
-                      const dateMatch = fechaCitaStr.match(/(\d{1,2})\s*(?:de\s+)?(\w+)/);
-                      if (dateMatch) {
-                        const day = parseInt(dateMatch[1]);
-                        const monthStr = dateMatch[2].toLowerCase();
-                        if (monthNames[monthStr] !== undefined) {
-                          citaDate = new Date(hoy.getFullYear(), monthNames[monthStr], day);
-                          if (citaDate < hoy) citaDate.setFullYear(citaDate.getFullYear() + 1);
-                        }
-                      }
-                      // Formato ISO o slash
-                      const parsed = new Date(merged.fecha_cita);
-                      if (!isNaN(parsed.getTime())) citaDate = parsed;
-                    }
-                  }
-                  
-                  // 🕐 PARSEAR HORA
-                  let citaTime = '10:00';
-                  const horaCitaStr = (merged.hora_cita || '').toLowerCase().trim();
-                  if (horaCitaStr) {
-                    const timeMatch = horaCitaStr.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
-                    if (timeMatch) {
-                      let hours = parseInt(timeMatch[1]);
-                      const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-                      const meridian = (timeMatch[3] || '').toLowerCase().replace('.', '');
-                      if (meridian === 'pm' && hours < 12) hours += 12;
-                      if (meridian === 'am' && hours === 12) hours = 0;
-                      citaTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                    }
-                  }
+                  // 📅 Parsear fecha y hora inteligente
+                  const citaDate = parseSmartDate(merged.fecha_cita || '');
+                  const citaTime = parseSmartTime(merged.hora_cita || '', '10:00');
 
                   const tipoCita = merged.tipo_cita || 'cita';
                   const nombreCliente = merged.nombre || clientName || 'Cliente WhatsApp';
@@ -2407,6 +2446,7 @@ FORMATO:
                   merged.cita = 'creada';
                   // 🔔 Push — Nueva cita
                   sendPushToUser(ownerId, { title: '📅 ¡Nueva Cita!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_cita || 'Cita'} ${merged.fecha_cita || ''} ${merged.hora_cita || ''}`.trim().substring(0, 120), url: '/agenda', tag: `appt-${Date.now()}` }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'cita', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_cita || 'Pendiente', time: to12h(parseSmartTime(merged.hora_cita || '', '10:00')), phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2452,62 +2492,9 @@ FORMATO:
               // 🏨 CREAR RESERVA AUTOMÁTICA
               if (actionToTake === 'crear_reserva' && merged.reserva !== 'creada') {
                 try {
-                  // 🕐 PARSEAR FECHA
-                  let reservaDate = new Date();
-                  const fechaReservaStr = (merged.fecha_reserva || '').toLowerCase().trim();
-                  const hoyR = new Date();
-                  
-                  if (fechaReservaStr) {
-                    if (fechaReservaStr.includes('hoy')) {
-                      reservaDate = new Date(hoyR);
-                    } else if (fechaReservaStr.includes('mañana') || fechaReservaStr.includes('manana')) {
-                      reservaDate = new Date(hoyR);
-                      reservaDate.setDate(reservaDate.getDate() + 1);
-                    } else if (fechaReservaStr.includes('pasado')) {
-                      reservaDate = new Date(hoyR);
-                      reservaDate.setDate(reservaDate.getDate() + 2);
-                    } else if (fechaReservaStr.includes('lunes') || fechaReservaStr.includes('martes') || fechaReservaStr.includes('miércoles') || fechaReservaStr.includes('miercoles') || fechaReservaStr.includes('jueves') || fechaReservaStr.includes('viernes') || fechaReservaStr.includes('sábado') || fechaReservaStr.includes('sabado') || fechaReservaStr.includes('domingo')) {
-                      const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-                      const dayNamesAlt = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
-                      let targetDay = dayNames.findIndex(d => fechaReservaStr.includes(d));
-                      if (targetDay === -1) targetDay = dayNamesAlt.findIndex(d => fechaReservaStr.includes(d));
-                      if (targetDay >= 0) {
-                        reservaDate = new Date(hoyR);
-                        const currentDay = hoyR.getDay();
-                        let daysAhead = targetDay - currentDay;
-                        if (daysAhead <= 0) daysAhead += 7;
-                        reservaDate.setDate(reservaDate.getDate() + daysAhead);
-                      }
-                    } else {
-                      const monthNames: Record<string, number> = { enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5, julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11 };
-                      const dateMatch = fechaReservaStr.match(/(\d{1,2})\s*(?:de\s+)?(\w+)/);
-                      if (dateMatch) {
-                        const day = parseInt(dateMatch[1]);
-                        const monthStr = dateMatch[2].toLowerCase();
-                        if (monthNames[monthStr] !== undefined) {
-                          reservaDate = new Date(hoyR.getFullYear(), monthNames[monthStr], day);
-                          if (reservaDate < hoyR) reservaDate.setFullYear(reservaDate.getFullYear() + 1);
-                        }
-                      }
-                      const parsed = new Date(merged.fecha_reserva);
-                      if (!isNaN(parsed.getTime())) reservaDate = parsed;
-                    }
-                  }
-                  
-                  // 🕐 PARSEAR HORA
-                  let reservaTime = '12:00';
-                  const horaReservaStr = (merged.hora_reserva || '').toLowerCase().trim();
-                  if (horaReservaStr) {
-                    const timeMatch = horaReservaStr.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
-                    if (timeMatch) {
-                      let hours = parseInt(timeMatch[1]);
-                      const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-                      const meridian = (timeMatch[3] || '').toLowerCase().replace('.', '');
-                      if (meridian === 'pm' && hours < 12) hours += 12;
-                      if (meridian === 'am' && hours === 12) hours = 0;
-                      reservaTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                    }
-                  }
+                  // 📅 Parsear fecha y hora inteligente
+                  const reservaDate = parseSmartDate(merged.fecha_reserva || '');
+                  const reservaTime = parseSmartTime(merged.hora_reserva || '', '12:00');
 
                   const tipoReserva = merged.tipo_reserva || 'reserva';
                   const numPersonas = merged.num_personas || '1';
@@ -2594,6 +2581,7 @@ FORMATO:
                   merged.reserva = 'creada';
                   // 🔔 Push — Nueva reserva
                   sendPushToUser(ownerId, { title: '🏨 ¡Nueva Reserva!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_reserva || 'Reserva'} ${merged.fecha_reserva || ''} ${merged.hora_reserva || ''}`.trim().substring(0, 120), url: '/agenda', tag: `reserv-${Date.now()}` }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'reserva', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_reserva || 'Pendiente', time: to12h(parseSmartTime(merged.hora_reserva || '', '10:00')), phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2668,14 +2656,7 @@ FORMATO:
                     
                     // Actualizar fecha si cambió
                     if (merged.fecha_entrega) {
-                      const fechaStr = merged.fecha_entrega.toLowerCase();
-                      const hoy = new Date();
-                      let newDate = new Date(existingOrder.date);
-                      if (fechaStr.includes('hoy')) newDate = hoy;
-                      else if (fechaStr.includes('mañana') || fechaStr.includes('manana')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 1); }
-                      else if (fechaStr.includes('pasado')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 2); }
-                      else { const parsed = new Date(merged.fecha_entrega); if (!isNaN(parsed.getTime())) newDate = parsed; }
-                      updateOrderData.date = newDate;
+                      updateOrderData.date = parseSmartDate(merged.fecha_entrega);
                     }
 
                     await prisma.appointment.update({ where: { id: existingOrder.id }, data: updateOrderData });
@@ -2703,27 +2684,12 @@ FORMATO:
                     
                     // Actualizar fecha si cambió
                     if (merged.fecha_cita) {
-                      const fechaStr = merged.fecha_cita.toLowerCase();
-                      const hoy = new Date();
-                      let newDate = new Date(existingAppt.date);
-                      if (fechaStr.includes('hoy')) newDate = hoy;
-                      else if (fechaStr.includes('mañana') || fechaStr.includes('manana')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 1); }
-                      else if (fechaStr.includes('pasado')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 2); }
-                      else { const parsed = new Date(merged.fecha_cita); if (!isNaN(parsed.getTime())) newDate = parsed; }
-                      updateApptData.date = newDate;
+                      updateApptData.date = parseSmartDate(merged.fecha_cita);
                     }
                     
                     // Actualizar hora si cambió
                     if (merged.hora_cita) {
-                      const timeMatch = merged.hora_cita.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
-                      if (timeMatch) {
-                        let h = parseInt(timeMatch[1]);
-                        const m = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-                        const mer = (timeMatch[3] || '').toLowerCase().replace('.', '');
-                        if (mer === 'pm' && h < 12) h += 12;
-                        if (mer === 'am' && h === 12) h = 0;
-                        updateApptData.time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                      }
+                      updateApptData.time = parseSmartTime(merged.hora_cita, existingAppt.time || '10:00');
                     }
                     
                     if (merged.nombre) updateApptData.clientName = merged.nombre;
@@ -2764,26 +2730,11 @@ FORMATO:
                     const updateResData: any = { status: 'pending' };
                     
                     if (merged.fecha_reserva) {
-                      const fechaStr = merged.fecha_reserva.toLowerCase();
-                      const hoy = new Date();
-                      let newDate = new Date(existingRes.date);
-                      if (fechaStr.includes('hoy')) newDate = hoy;
-                      else if (fechaStr.includes('mañana') || fechaStr.includes('manana')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 1); }
-                      else if (fechaStr.includes('pasado')) { newDate = new Date(hoy); newDate.setDate(newDate.getDate() + 2); }
-                      else { const parsed = new Date(merged.fecha_reserva); if (!isNaN(parsed.getTime())) newDate = parsed; }
-                      updateResData.date = newDate;
+                      updateResData.date = parseSmartDate(merged.fecha_reserva);
                     }
                     
                     if (merged.hora_reserva) {
-                      const timeMatch = merged.hora_reserva.match(/(\d{1,2})[:\s]*(\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?/i);
-                      if (timeMatch) {
-                        let h = parseInt(timeMatch[1]);
-                        const m = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
-                        const mer = (timeMatch[3] || '').toLowerCase().replace('.', '');
-                        if (mer === 'pm' && h < 12) h += 12;
-                        if (mer === 'am' && h === 12) h = 0;
-                        updateResData.time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                      }
+                      updateResData.time = parseSmartTime(merged.hora_reserva, existingRes.time || '10:00');
                     }
                     
                     if (merged.nombre) updateResData.clientName = merged.nombre;

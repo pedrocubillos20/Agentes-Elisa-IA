@@ -885,12 +885,12 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
             {filteredConversations.map((conv) => (
               <div key={conv.id} onClick={() => setSelectedConv(conv)} className={`group p-2.5 border-b border-[var(--border-primary)] cursor-pointer hover:bg-white/5 transition-all ${selectedConv?.id === conv.id ? 'bg-[var(--accent-primary)]/10 border-l-2 border-l-[var(--accent-primary)]' : ''}`}>
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-[var(--accent-primary)]">{conv.recipientName?.[0] || '?'}</span>
+                  <div className={`w-8 h-8 rounded-full ${conv.isGroup ? 'bg-blue-500/20' : 'bg-[var(--accent-primary)]/20'} flex items-center justify-center flex-shrink-0`}>
+                    <span className={`text-xs font-bold ${conv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{conv.isGroup ? '👥' : (conv.recipientName?.[0] || '?')}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1">
-                      <p className="font-medium text-white text-sm truncate">{conv.recipientName || conv.groupName || 'Sin nombre'}</p>
+                      <p className="font-medium text-white text-sm truncate">{conv.isGroup ? (conv.groupName || conv.recipientName || 'Grupo') : (conv.recipientName || 'Sin nombre')}</p>
                       {conv.isGroup && <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">👥</span>}
                       
                       {conv.aiPaused && <PauseCircle className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
@@ -933,12 +933,12 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                   <button onClick={() => setSelectedConv(null)} className="lg:hidden p-1.5 -ml-1 mr-1 rounded-lg hover:bg-white/10 text-[var(--text-muted)]">
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <div className="w-9 h-9 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || '?'}</span>
+                  <div className={`w-9 h-9 rounded-full ${selectedConv.isGroup ? 'bg-blue-500/20' : 'bg-[var(--accent-primary)]/20'} flex items-center justify-center flex-shrink-0`}>
+                    <span className={`text-sm font-bold ${selectedConv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{selectedConv.isGroup ? '👥' : (selectedConv.recipientName?.[0] || '?')}</span>
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-white text-sm truncate">{selectedConv.recipientName || selectedConv.recipientId}</h3>
-                    <p className="text-[10px] text-[var(--text-muted)]">{showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp')}</p>
+                    <h3 className="font-semibold text-white text-sm truncate">{selectedConv.isGroup ? (selectedConv.groupName || selectedConv.recipientName || 'Grupo') : (selectedConv.recipientName || selectedConv.recipientId)}</h3>
+                    <p className="text-[10px] text-[var(--text-muted)]">{selectedConv.isGroup ? '👥 Grupo' : (showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp'))}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">

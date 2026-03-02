@@ -15,7 +15,7 @@ import LiveChat from '../components/LiveChat';
 import OnboardingWizard from '../components/OnboardingWizard';
 import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../components/WallpaperPicker';
 import InstallApp from '../components/InstallApp';
-import { NotificationProvider, NotificationBellBadge } from '../components/NotificationSounds';
+import { NotificationProvider, NotificationBellBadge, NotificationPanel } from '../components/NotificationSounds';
 import { PushNotificationManager } from '../components/PushNotificationManager';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -49,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [showWallpaper, setShowWallpaper] = useState(false);
   const [showInstall, setShowInstall] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [globalResults, setGlobalResults] = useState<any[]>([]);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -244,6 +245,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: 'Agenda', href: '/agenda', icon: Calendar, perm: 'agenda', color: 'from-rose-500/20 to-rose-600/10 text-rose-400' },
     { name: 'Recursos', href: '/recursos', icon: LayoutGrid, perm: 'agenda', color: 'from-purple-500/20 to-purple-600/10 text-purple-400' },
     { name: 'Programados', href: '/programados', icon: Bell, perm: 'conversations', color: 'from-orange-500/20 to-orange-600/10 text-orange-400' },
+    { name: 'Llamadas IA', href: '/llamadas', icon: Phone, perm: 'conversations', featureKey: 'assistants', color: 'from-red-500/20 to-red-600/10 text-red-400' },
     { name: 'Equipo', href: '/equipo', icon: Shield, perm: 'team', featureKey: 'team', color: 'from-blue-500/20 to-blue-600/10 text-blue-400' },
     { name: 'Configuración', href: '/configuracion', icon: Settings, perm: 'config', featureKey: 'config', color: 'from-gray-500/20 to-gray-600/10 text-gray-400' },
     { name: 'Suscripción', href: '/subscription', icon: CreditCard, perm: 'config', color: 'from-yellow-500/20 to-yellow-600/10 text-yellow-400' },
@@ -636,10 +638,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                     <Download className="w-4 h-4" />
                   </button>
                   <PushNotificationManager compact />
-                  <button className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
-                    <Bell className="w-5 h-5" />
-                    <NotificationBellBadge />
-                  </button>
+                  <div className="relative">
+                    <button onClick={() => setShowNotifPanel(!showNotifPanel)} className="relative p-2.5 text-[var(--text-muted)] hover:text-white rounded-xl hover:bg-white/5">
+                      <Bell className="w-5 h-5" />
+                      <NotificationBellBadge />
+                    </button>
+                    {showNotifPanel && <NotificationPanel onClose={() => setShowNotifPanel(false)} />}
+                  </div>
                   <div className="lg:hidden flex items-center gap-2">
                     <img src="/bizonne.png" alt="Bizonne" className="w-9 h-9 rounded-lg" />
                   </div>

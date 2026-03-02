@@ -28,6 +28,20 @@ export const SOUND_OPTIONS: SoundOption[] = [
 ];
 
 let audioContext: AudioContext | null = null;
+let lastGlobalSoundTime = 0; // 🛡️ Cooldown global anti-loop
+
+// 🕐 Formato 12h: "14:00" → "2:00 PM"
+export const formatTime12h = (time: string): string => {
+  if (!time) return '';
+  const parts = time.match(/(\d{1,2}):(\d{2})/);
+  if (!parts) return time;
+  let h = parseInt(parts[1]);
+  const m = parts[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return `${h}:${m} ${ampm}`;
+};
 
 const getAudioContext = (): AudioContext => {
   if (!audioContext || audioContext.state === 'closed') {
@@ -75,6 +89,10 @@ const playNoise = (ctx: AudioContext, startTime: number, duration: number, volum
 
 export const playSound = (sound: SoundType) => {
   if (sound === 'none') return;
+  // 🛡️ COOLDOWN: Prevenir loop de sonidos (mín 10s entre sonidos)
+  const now = Date.now();
+  if (now - lastGlobalSoundTime < 10000) return;
+  lastGlobalSoundTime = now;
   try {
     const ctx = getAudioContext();
     const now = ctx.currentTime;
@@ -163,6 +181,7 @@ interface NotificationToast {
   subtitle: string;
   emoji: string;
   timestamp: number;
+  read: boolean;
 }
 
 interface NotificationContextType {
@@ -170,8 +189,12 @@ interface NotificationContextType {
   setSelectedSound: (s: SoundType) => void;
   enabled: boolean;
   setEnabled: (e: boolean) => void;
-  triggerNotification: (toast: Omit<NotificationToast, 'id' | 'timestamp'>) => void;
+  triggerNotification: (toast: Omit<NotificationToast, 'id' | 'timestamp' | 'read'>) => void;
   toasts: NotificationToast[];
+  notifications: NotificationToast[];
+  unreadCount: number;
+  markAllRead: () => void;
+  todayAppointments: any[];
 }
 
 const NotificationContext = createContext<NotificationContextType>({
@@ -180,7 +203,11 @@ const NotificationContext = createContext<NotificationContextType>({
   enabled: true,
   setEnabled: () => {},
   triggerNotification: () => {},
-  toasts: []
+  toasts: [],
+  notifications: [],
+  unreadCount: 0,
+  markAllRead: () => {},
+  todayAppointments: [],
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -193,6 +220,8 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
   const [selectedSound, setSelectedSoundState] = useState<SoundType>('coins');
   const [enabled, setEnabledState] = useState(true);
   const [toasts, setToasts] = useState<NotificationToast[]>([]);
+  const [notifications, setNotifications] = useState<NotificationToast[]>([]);
+  const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
   const [initialized, setInitialized] = useState(false);
   const apptSnapshotRef = useRef<Map<string, string>>(new Map()); // id → updatedAt
   const firstLoadRef = useRef(true);
@@ -218,21 +247,30 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
     localStorage.setItem('bizonne_notif_enabled', String(e));
   }, []);
 
-  const triggerNotification = useCallback((toast: Omit<NotificationToast, 'id' | 'timestamp'>) => {
+  const triggerNotification = useCallback((toast: Omit<NotificationToast, 'id' | 'timestamp' | 'read'>) => {
     if (!enabled) return;
     const id = Date.now().toString() + Math.random();
-    const newToast: NotificationToast = { ...toast, id, timestamp: Date.now() };
+    const newToast: NotificationToast = { ...toast, id, timestamp: Date.now(), read: false };
     setToasts(prev => [newToast, ...prev].slice(0, 5));
+    // 📜 Guardar en historial
+    setNotifications(prev => [newToast, ...prev].slice(0, 50));
     playSound(selectedSound);
 
-    // Auto-remove después de 6s
+    // Auto-remove toast después de 6s
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 6000);
 
-    // Browser notification (si tiene permiso)
+    // Browser notification (silent para no duplicar sonido)
     if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification(`${toast.emoji} ${toast.title}`, { body: toast.subtitle, icon: '/bizonne.png' });
+      try {
+        new Notification(`${toast.emoji} ${toast.title}`, { 
+          body: toast.subtitle, 
+          icon: '/bizonne.png',
+          silent: true, // 🛡️ Sin sonido del browser — ya lo maneja playSound
+          tag: `bizonne-${toast.type}` // 🛡️ Reemplaza notificaciones del mismo tipo
+        });
+      } catch {}
     }
   }, [enabled, selectedSound]);
 
@@ -252,6 +290,15 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
         if (!res.ok) return;
         const data = await res.json();
         const appts: any[] = data.appointments || [];
+
+        // 📅 Extraer citas de hoy para el panel de la campana
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date(); todayEnd.setHours(23, 59, 59, 999);
+        const todayAppts = appts.filter((a: any) => {
+          const d = new Date(a.date);
+          return d >= todayStart && d <= todayEnd;
+        }).sort((a: any, b: any) => (a.time || '').localeCompare(b.time || ''));
+        setTodayAppointments(todayAppts);
 
         // Construir snapshot actual: id → updatedAt
         const currentSnapshot = new Map<string, string>();
@@ -327,7 +374,7 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
     };
 
     checkAppointments();
-    const interval = setInterval(checkAppointments, 15000);
+    const interval = setInterval(checkAppointments, 30000); // 🛡️ 30s (antes 15s — reduce carga y loops)
     return () => clearInterval(interval);
   }, [userId, initialized, triggerNotification]);
 
@@ -344,8 +391,13 @@ export function NotificationProvider({ children, userId }: { children: React.Rea
     }
   }, []);
 
+  const unreadCount = notifications.filter(n => !n.read).length;
+  const markAllRead = useCallback(() => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  }, []);
+
   return (
-    <NotificationContext.Provider value={{ selectedSound, setSelectedSound, enabled, setEnabled, triggerNotification, toasts }}>
+    <NotificationContext.Provider value={{ selectedSound, setSelectedSound, enabled, setEnabled, triggerNotification, toasts, notifications, unreadCount, markAllRead, todayAppointments }}>
       {children}
       {/* 🔔 Toast Container */}
       <div className="fixed top-20 right-4 z-[200] flex flex-col gap-3 pointer-events-none" style={{ maxWidth: '380px' }}>
@@ -519,11 +571,94 @@ export function SoundPicker({ compact = false }: { compact?: boolean }) {
 // =============================
 
 export function NotificationBellBadge() {
-  const { toasts } = useNotifications();
-  if (toasts.length === 0) return null;
+  const { unreadCount } = useNotifications();
+  if (unreadCount === 0) return null;
   return (
-    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[var(--accent-primary)] text-white text-[10px] font-bold rounded-full animate-pulse">
-      {toasts.length}
+    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full">
+      {unreadCount > 9 ? '9+' : unreadCount}
     </span>
+  );
+}
+
+// =============================
+// 🔔 NOTIFICATION PANEL (dropdown)
+// =============================
+
+function getTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'ahora';
+  if (mins < 60) return `hace ${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `hace ${hrs}h`;
+  return `hace ${Math.floor(hrs / 24)}d`;
+}
+
+export function NotificationPanel({ onClose }: { onClose: () => void }) {
+  const { notifications, markAllRead, todayAppointments } = useNotifications();
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    markAllRead();
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    setTimeout(() => document.addEventListener('mousedown', handler), 100);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose, markAllRead]);
+
+  return (
+    <div ref={ref} className="absolute top-full right-0 mt-2 w-80 md:w-96 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] shadow-2xl z-[100] overflow-hidden" style={{ maxHeight: '70vh' }}>
+      <div className="p-3 border-b border-[var(--border-primary)]">
+        <p className="text-sm font-bold text-white flex items-center gap-2">
+          <Bell className="w-4 h-4 text-emerald-400" />
+          Notificaciones
+        </p>
+      </div>
+
+      {/* Citas de hoy */}
+      {todayAppointments.length > 0 && (
+        <div className="p-3 border-b border-[var(--border-primary)] bg-emerald-500/5">
+          <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider mb-2">
+            📅 Hoy — {new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
+          <div className="space-y-1.5">
+            {todayAppointments.slice(0, 5).map((apt: any) => (
+              <div key={apt.id} className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg bg-white/5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-xs font-medium text-emerald-300 w-16 flex-shrink-0">{formatTime12h(apt.time || '')}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-white truncate">{apt.clientName || 'Sin nombre'}</p>
+                  <p className="text-[10px] text-gray-500">{apt.type === 'order' ? '🛒 Pedido' : apt.type === 'reservation' ? '🏨 Reserva' : '📅 Cita'}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Historial */}
+      <div className="max-h-64 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <div className="p-6 text-center">
+            <Bell className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+            <p className="text-xs text-gray-500">Sin notificaciones hoy</p>
+          </div>
+        ) : (
+          notifications.slice(0, 20).map((n) => (
+            <div key={n.id} className={`px-3 py-2.5 border-b border-[var(--border-primary)] last:border-0 ${!n.read ? 'bg-emerald-500/5' : ''}`}>
+              <div className="flex items-start gap-2.5">
+                <span className="text-lg flex-shrink-0">{n.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-white">{n.title}</p>
+                  <p className="text-[10px] text-gray-400 truncate mt-0.5">{n.subtitle}</p>
+                </div>
+                <span className="text-[9px] text-gray-600 flex-shrink-0">{getTimeAgo(n.timestamp)}</span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }

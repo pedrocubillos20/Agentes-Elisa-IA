@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, Clock, Plus, ChevronLeft, ChevronRight, User, Phone, MapPin, Package, Check, X, Edit2, Trash2 } from 'lucide-react';
-import { SoundPicker, useNotifications } from '../../components/NotificationSounds';
+import { SoundPicker, useNotifications, formatTime12h } from '../../components/NotificationSounds';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -240,7 +240,7 @@ export default function AgendaPage() {
         <div className="flex items-center gap-4">
           <img src="/bizonne.png" alt="Bizonne" className="w-14 h-14 rounded-xl hidden md:block" />
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-white">Agenda</h1>
+            <h1 className="text-3xl font-bold text-white">Agenda</h1>
             <p className="text-[var(--text-muted)]">Citas, pedidos y reservas</p>
           </div>
         </div>
@@ -300,13 +300,13 @@ export default function AgendaPage() {
               <button onClick={nextMonth} className="btn-icon"><ChevronRight className="w-5 h-5" /></button>
             </div>
 
-            <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 min-w-[280px]">
+            <div className="grid grid-cols-7 gap-2 mb-2">
               {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
                 <div key={d} className="text-center text-xs font-semibold text-[var(--text-muted)] py-2">{d}</div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-1 sm:gap-2 min-w-[280px]">
+            <div className="grid grid-cols-7 gap-2">
               {renderCalendar()}
             </div>
           </div>
@@ -325,7 +325,7 @@ export default function AgendaPage() {
                       <span className={`badge ${apt.type === 'order' ? 'badge-info' : apt.type === 'reservation' ? 'badge-warning' : 'badge-success'}`}>
                         {apt.type === 'order' ? 'Pedido' : apt.type === 'reservation' ? 'Reserva' : 'Cita'}
                       </span>
-                      <span className="text-sm font-medium text-[var(--accent-primary)]">{apt.time}</span>
+                      <span className="text-sm font-medium text-[var(--accent-primary)]">{formatTime12h(apt.time)}</span>
                     </div>
                     <h4 className="font-semibold text-white">{apt.clientName}</h4>
                     <p className="text-sm text-[var(--text-muted)]">{apt.clientPhone}</p>
@@ -375,7 +375,7 @@ export default function AgendaPage() {
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-4 h-4" />
-                        {apt.time}
+                        {formatTime12h(apt.time)}
                       </span>
                       {apt.total && <span className="text-[var(--accent-primary)] font-semibold">${apt.total.toLocaleString()}</span>}
                     </div>

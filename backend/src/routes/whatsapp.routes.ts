@@ -106,6 +106,17 @@ const smartCombineMessages = (messages: string[]): string => {
   return messages.join('\n');
 };
 
+// 🕐 Helper: "14:00" → "2:00 PM"
+const to12h = (time: string): string => {
+  if (!time) return '';
+  const parts = time.match(/(\d{1,2}):(\d{2})/);
+  if (!parts) return time;
+  let h = parseInt(parts[1]); const m = parts[2];
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12; if (h === 0) h = 12;
+  return `${h}:${m} ${ampm}`;
+};
+
 const messageBuffer: Map<string, {
   messages: string[];
   timer: ReturnType<typeof setTimeout>;
@@ -1123,7 +1134,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     // 🧠 CARGAR CONVERSACIÓN + MEMORIA PERSISTENTE
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { recipientName: true, recipientId: true, stage: true, contextData: true }
+      select: { recipientName: true, recipientId: true, stage: true, contextData: true, isGroup: true, groupName: true }
     });
 
     const clientName = conversation?.recipientName || '';
@@ -1462,7 +1473,7 @@ REGLAS DE TRANSFERENCIA:
         // Show schedule summary
         const openDays = schedules.filter(s => s.isOpen);
         if (openDays.length > 0) {
-          availabilityLines.push(`🕐 Horario: ${openDays.map(s => `${dayNames[s.dayOfWeek]}: ${s.startTime}-${s.endTime}`).join(' | ')}`);
+          availabilityLines.push(`🕐 Horario: ${openDays.map(s => `${dayNames[s.dayOfWeek]}: ${to12h(s.startTime)}-${to12h(s.endTime)}`).join(' | ')}`);
           availabilityLines.push(`⏱️ Duración por turno: ${openDays[0].slotDuration} min`);
         }
 
@@ -1514,7 +1525,11 @@ REGLAS DE TRANSFERENCIA:
             }
             const h = Math.floor(m / 60);
             const min = m % 60;
-            const slot = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+            const slot24 = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+            // 12h display
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+            const slot = `${h12}:${min.toString().padStart(2, '0')} ${ampm}`;
 
             const overlapping = dayAppts.filter(a => {
               if (!a.time) return false;
@@ -1541,7 +1556,7 @@ REGLAS DE TRANSFERENCIA:
           availabilityLines.push(`📅 ${label} ${dateStr}: ✅ Libres: ${freeSlots.length > 0 ? freeSlots.join(' | ') : 'NINGUNO'} ${fullSlots.length > 0 ? `| ❌ Llenos: ${fullSlots.join(',')}` : ''}`);
         }
 
-        availabilityLines.push('⚠️ REGLAS: Solo ofrece horarios DISPONIBLES (✅). NUNCA ofrezcas horarios llenos (❌). Si no hay disponibilidad, sugiere otro día. Cuando confirmen cita/reserva, usa la acción correspondiente.');
+        availabilityLines.push('⚠️ REGLAS: Solo ofrece horarios DISPONIBLES (✅). NUNCA ofrezcas horarios llenos (❌). Si no hay disponibilidad, sugiere otro día. Cuando confirmen cita/reserva, usa la acción correspondiente. SIEMPRE muestra horarios en formato 12h (ej: 2:00 PM, no 14:00).');
 
         promptParts.push(availabilityLines.join('\n'));
         log(`📅 Disponibilidad inyectada: ${resources.length} recursos, ${schedules.length} horarios`);
@@ -1550,6 +1565,129 @@ REGLAS DE TRANSFERENCIA:
       log(`⚠️ Error cargando disponibilidad: ${availErr.message}`);
     }
 
+
+    // 📅👥 MODO GRUPO INTERNO — Consultar y gestionar agenda/pedidos/reservas
+    if (conversation?.isGroup) {
+      try {
+        const msgLower = message.toLowerCase();
+        const isAgendaQuery = /cita|agenda|reunión|reunion|horario|programad|cronograma|calendario|consulta.*hoy|hoy.*cita|cita.*hoy|mañana.*cita|cita.*mañana|semana/i.test(msgLower);
+        const isPedidoQuery = /pedido|orden|venta|despacho|entreg|envío|envio|compra|factur/i.test(msgLower);
+        const isReservaQuery = /reserva|booking|habitación|habitacion|mesa|cancha|turno|espacio/i.test(msgLower);
+        const isUpdateQuery = /actualiz|cambiar|mover|reagend|modific|cancel|eliminar|reprogramar/i.test(msgLower);
+        const wantsAgendaData = isAgendaQuery || isPedidoQuery || isReservaQuery || isUpdateQuery;
+
+        if (wantsAgendaData) {
+          // Rango: hoy y próximos 7 días
+          const rangeStart = new Date(); rangeStart.setHours(0, 0, 0, 0);
+          const rangeEnd = new Date(); rangeEnd.setDate(rangeEnd.getDate() + 7); rangeEnd.setHours(23, 59, 59, 999);
+
+          const allAppts = await prisma.appointment.findMany({
+            where: { userId: ownerId, date: { gte: rangeStart, lte: rangeEnd }, status: { notIn: ['cancelled'] } },
+            orderBy: [{ date: 'asc' }, { time: 'asc' }],
+            take: 50
+          });
+
+          const groupAgendaLines: string[] = [];
+          groupAgendaLines.push(`\n=== 📋 DATOS DE AGENDA EN TIEMPO REAL (${conversation.groupName || 'Grupo'}) ===`);
+          groupAgendaLines.push(`Fecha actual: ${new Date().toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`);
+
+          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+          // Agrupar por día y tipo
+          const byDay = new Map<string, any[]>();
+          for (const apt of allAppts) {
+            const dateKey = new Date(apt.date).toISOString().split('T')[0];
+            if (!byDay.has(dateKey)) byDay.set(dateKey, []);
+            byDay.get(dateKey)!.push(apt);
+          }
+
+          // Formatear por tipo solicitado
+          const filterTypes: string[] = [];
+          if (isAgendaQuery) filterTypes.push('appointment');
+          if (isPedidoQuery) filterTypes.push('order');
+          if (isReservaQuery) filterTypes.push('reservation');
+          if (filterTypes.length === 0 || isUpdateQuery) filterTypes.push('appointment', 'order', 'reservation');
+
+          const typeLabels: Record<string, string> = { appointment: '📅 Cita', order: '🛒 Pedido', reservation: '🏨 Reserva' };
+          let totalItems = 0;
+
+          for (const [dateKey, appts] of byDay.entries()) {
+            const d = new Date(dateKey + 'T12:00:00');
+            const isToday = dateKey === new Date().toISOString().split('T')[0];
+            const isTomorrow = dateKey === new Date(Date.now() + 86400000).toISOString().split('T')[0];
+            const dayLabel = isToday ? '📌 HOY' : isTomorrow ? '📌 MAÑANA' : `${dayNames[d.getDay()]}`;
+            
+            const filtered = appts.filter(a => filterTypes.includes(a.type));
+            if (filtered.length === 0) continue;
+
+            groupAgendaLines.push(`\n━━━ ${dayLabel} ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} ━━━`);
+            
+            for (const apt of filtered) {
+              totalItems++;
+              const typeEmoji = typeLabels[apt.type] || '📅 Cita';
+              const timeStr = to12h(apt.time);
+              const statusEmoji = apt.status === 'confirmed' ? '✅' : apt.status === 'pending' ? '⏳' : '📋';
+              
+              let details = `${typeEmoji} | ${statusEmoji} ${apt.status === 'confirmed' ? 'Confirmado' : apt.status === 'pending' ? 'Pendiente' : apt.status}`;
+              details += `\n   🕐 Hora: ${timeStr}`;
+              details += `\n   👤 Cliente: ${apt.clientName || 'Sin nombre'}`;
+              if (apt.clientPhone) details += ` | 📞 ${apt.clientPhone}`;
+              if (apt.type === 'order') {
+                if ((apt as any).notes) details += `\n   📦 Detalles: ${(apt as any).notes}`;
+                if ((apt as any).address) details += `\n   📍 Dirección: ${(apt as any).address}`;
+              }
+              if (apt.type === 'reservation') {
+                if ((apt as any).notes) details += `\n   📝 Tipo: ${(apt as any).notes}`;
+              }
+              if (apt.duration) details += ` | ⏱️ ${apt.duration} min`;
+              details += ` | 🆔 ID: ${apt.id.slice(-6)}`;
+              
+              groupAgendaLines.push(details);
+            }
+          }
+
+          if (totalItems === 0) {
+            groupAgendaLines.push('\n📭 No hay registros para el período consultado.');
+          } else {
+            groupAgendaLines.push(`\n📊 Total: ${totalItems} registro(s) en los próximos 7 días`);
+          }
+
+          // Instrucciones especiales para modo grupo
+          groupAgendaLines.push(`
+=== 🤖 INSTRUCCIONES MODO GRUPO INTERNO ===
+
+Estás en un GRUPO DE TRABAJO INTERNO. Los que escriben son miembros del equipo, NO clientes.
+
+CONSULTAS (responde con los datos de arriba):
+- "¿Qué citas tenemos hoy?" → Lista las citas de HOY ordenadas por hora
+- "¿Qué pedidos tenemos?" → Lista los pedidos con todos los detalles
+- "¿Qué reservas hay para mañana?" → Filtra reservas de mañana
+- "Resumen de la semana" → Resume todo por día
+
+ACTUALIZAR REGISTROS:
+- "Cancelar la cita de Miguel" → accion = "actualizar_cita", busca el ID del registro y marca cancelada
+- "Mover el pedido de Pedro a mañana" → accion = "actualizar_pedido"  
+- "Confirmar la reserva de las 3pm" → accion = "actualizar_reserva"
+
+CREAR NUEVOS:
+- "Agendar cita con María mañana a las 10am" → accion = "crear_cita"
+- "Nuevo pedido: 2 buzos para Carlos" → accion = "crear_pedido"
+
+FORMATO DE RESPUESTA EN GRUPO:
+- Usa formato limpio y organizado con emojis
+- Horarios SIEMPRE en formato 12h (ej: 2:00 PM, no 14:00)
+- Incluye todos los detalles relevantes (nombre, teléfono, dirección, productos)
+- Si no hay datos para lo que preguntan, dilo claramente
+- Responde como un asistente profesional del equipo
+`);
+
+          promptParts.push(groupAgendaLines.join('\n'));
+          log(`👥📋 Agenda inyectada para grupo: ${totalItems} registros (${filterTypes.join(', ')})`);
+        }
+      } catch (agendaErr: any) {
+        log(`⚠️ Error cargando agenda de grupo: ${agendaErr.message}`);
+      }
+    }
 
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
@@ -1578,7 +1716,7 @@ REGLAS DE TRANSFERENCIA:
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: 500
+            max_tokens: conversation?.isGroup ? 1000 : 500
           }),
           signal: ctrl.signal
         });

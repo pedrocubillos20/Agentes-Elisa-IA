@@ -5703,6 +5703,37 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       
       const recipientId = from.replace(/\D/g, '');
       
+      // ⚡ EARLY BUFFER CHECK — Agregar al buffer ANTES de cualquier await
+      // Esto previene race condition: el timer puede dispararse durante un await de DB
+      // Excluir comandos especiales (0=pausar, .=resumir) que necesitan procesamiento directo
+      const bufferKey = `${userId}_${recipientId}`;
+      const earlyBuffer = messageBuffer.get(bufferKey);
+      const isSpecialCommand = messageBody.trim() === '0' || messageBody.trim() === '.';
+      if (earlyBuffer && messageBody && !isSpecialCommand) {
+        // Buffer existe → agregar inmediatamente (sync, sin await)
+        earlyBuffer.messages.push(messageBody);
+        earlyBuffer.lastTimestamp = Date.now();
+        clearTimeout(earlyBuffer.timer);
+        const delay = getSmartDelay(messageBody, earlyBuffer.messages.length, earlyBuffer.firstTimestamp, true);
+        earlyBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
+        clog(`☁️ 📦 Buffer Cloud: +1 de ${senderName} (total: ${earlyBuffer.messages.length}, espera: ${(delay/1000).toFixed(1)}s) [early]`);
+        
+        // Guardar en DB async (no bloquea el buffer)
+        const convId = earlyBuffer.convId;
+        const displayContent = savedMediaType === 'audio' ? `🎤 ${messageBody}` : messageBody;
+        prisma.message.create({
+          data: {
+            conversationId: convId, content: displayContent || '[Media]', fromMe: false,
+            userId, role: 'user',
+            ...(savedMediaType && { mediaType: savedMediaType }),
+            ...(savedMediaUrl && { mediaUrl: savedMediaUrl })
+          }
+        }).catch(() => {});
+        prisma.conversation.update({ where: { id: convId }, data: { lastMessage: displayContent, recipientName: senderName } }).catch(() => {});
+        console.log(`☁️ [CLOUD] ✅ Mensaje guardado: "${displayContent?.substring(0, 50)}" → conv: ${convId}`);
+        continue; // Ya está en el buffer, siguiente mensaje
+      }
+
       // Find or create conversation
       let conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
       if (!conv) conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: recipientId.slice(-10) }, whatsappLineId } });
@@ -5749,7 +5780,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       }
       
       // 📦 Intelligent burst handler for Cloud API
-      const bufferKey = `${userId}_${recipientId}`;
+      // 📦 Buffer handling (bufferKey already defined above in early check)
       const existingBuffer = messageBuffer.get(bufferKey);
       const chatIdForSend = `${recipientId}@c.us`;
       const now = Date.now();

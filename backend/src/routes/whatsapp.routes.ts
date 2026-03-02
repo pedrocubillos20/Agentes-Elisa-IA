@@ -119,6 +119,7 @@ const messageBuffer: Map<string, {
   lastTimestamp: number;       // Cuando llegó el último mensaje
   hasMedia: boolean;           // Si incluye media (imágenes, audio)
   isCloud: boolean;            // Cloud API = webhooks lentos de Meta
+  previousContext?: string;    // Contexto del batch anterior (para continuaciones)
 }> = new Map();
 
 // ===== SESSION MANAGEMENT (multi-tenant) =====
@@ -3086,6 +3087,12 @@ const processBufferedMessages = async (bufferKey: string) => {
   const lineInfo = await getLineInfo(whatsappLineId);
   const isCloudAPI = lineInfo?.type === 'cloud_api';
 
+  // 🧠 Si es continuación (mensaje pendiente mientras IA procesaba), agregar contexto
+  // Esto ayuda a que la IA responda brevemente sin repetir info previa
+  const aiMessage = buf.previousContext
+    ? `[El cliente agrega a su mensaje anterior "${buf.previousContext}":]\n${combinedMessage}`
+    : combinedMessage;
+
   try {
     // 🔗 Buscar asistente específico de la línea primero
     let assistant = null;
@@ -3160,7 +3167,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           await new Promise(r => setTimeout(r, 300)); // Pausa mínima Cloud API
         }
       }
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
+      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (aiResponse) {
@@ -3193,7 +3200,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
-      const aiResponse = await generateAIResponse(userId, combinedMessage, convId, whatsappLineId);
+      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (!aiResponse) {
@@ -3365,10 +3372,18 @@ const processBufferedMessages = async (bufferKey: string) => {
     const pending = messageBuffer.get(bufferKey);
     if (pending) {
       clearTimeout(pending.timer);
+      
+      // 🧠 Agregar contexto para que la IA sepa que es continuación
+      // Esto evita que repita información de la respuesta anterior
+      const realPendingCount = pending.messages.length;
+      if (combinedMessage) {
+        pending.previousContext = combinedMessage.substring(0, 120);
+      }
+      
       // Cloud API: esperar 5s más (webhooks de Meta llegan con delay impredecible)
       // WAHA: esperar 1.5s
       const pendingDelay = pending.isCloud ? 5000 : 1500;
-      clog(`🔄 ${pending.messages.length} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''}...`);
+      clog(`🔄 ${realPendingCount} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''}...`);
       pending.timer = setTimeout(() => processBufferedMessages(bufferKey), pendingDelay);
     }
   }

@@ -87,6 +87,7 @@ export default function ConversacionesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<any>(null); // conversation to delete
   const [filterStage, setFilterStage] = useState('all');
+  const [filterType, setFilterType] = useState<'all' | 'chats' | 'groups'>('all');
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [funnelStages, setFunnelStages] = useState<any[]>(DEFAULT_STAGES);
@@ -799,8 +800,12 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
   const filteredConversations = conversations.filter(c => {
     const matchSearch = !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm);
     const matchStage = filterStage === 'all' || c.stage === filterStage;
-    return matchSearch && matchStage;
+    const matchType = filterType === 'all' || (filterType === 'groups' ? c.isGroup : !c.isGroup);
+    return matchSearch && matchStage && matchType;
   });
+
+  const groupCount = conversations.filter(c => c.isGroup).length;
+  const chatCount = conversations.filter(c => !c.isGroup).length;
 
   const stageStats = funnelStages.map(s => ({
     ...s,
@@ -854,6 +859,26 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
               <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-1.5 pl-8 pr-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+            </div>
+            {/* 🔀 Filtro: Todas | Chats | Grupos */}
+            <div className="flex mt-2 bg-[var(--bg-tertiary)] rounded-lg p-0.5 gap-0.5">
+              {([
+                { id: 'all' as const, label: 'Todas', count: conversations.length },
+                { id: 'chats' as const, label: '💬 Chats', count: chatCount },
+                { id: 'groups' as const, label: '👥 Grupos', count: groupCount },
+              ]).map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilterType(tab.id)}
+                  className={`flex-1 py-1 px-1.5 rounded-md text-[10px] font-medium transition-all ${
+                    filterType === tab.id
+                      ? 'bg-[var(--accent-primary)] text-white shadow-sm'
+                      : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {tab.label} <span className="opacity-70">({tab.count})</span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">

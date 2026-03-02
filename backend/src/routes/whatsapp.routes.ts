@@ -34,12 +34,12 @@ const BURST_CONFIG = {
   INITIAL_WAIT_MS: 3000,      // Primera espera: 3s
   CONTINUE_WAIT_MS: 2000,     // Mensajes adicionales: 2s
   FRAGMENT_WAIT_MS: 4000,     // Fragmentos: 4s
-  // CLOUD API (Meta webhooks con delay 1-4s entre entregas)
-  CLOUD_INITIAL_WAIT_MS: 5000,  // Primera espera Cloud: 5s
-  CLOUD_CONTINUE_WAIT_MS: 3000, // Adicionales Cloud: 3s
-  CLOUD_FRAGMENT_WAIT_MS: 5000, // Fragmentos Cloud: 5s
+  // CLOUD API (Meta webhooks con delay 2-6s entre entregas del mismo segundo)
+  CLOUD_INITIAL_WAIT_MS: 7000,  // Primera espera Cloud: 7s (Meta tarda hasta 6s)
+  CLOUD_CONTINUE_WAIT_MS: 4000, // Adicionales Cloud: 4s
+  CLOUD_FRAGMENT_WAIT_MS: 6000, // Fragmentos Cloud: 6s
   // Límites globales
-  MAX_WAIT_MS: 20000,         // Máximo absoluto: 20s
+  MAX_WAIT_MS: 25000,         // Máximo absoluto: 25s
   MAX_MESSAGES: 10,           // Máximo mensajes en ráfaga
 };
 
@@ -302,6 +302,29 @@ const humanDelay = (textLength: number): Promise<void> => {
 };
 
 // ===== MEDIA TRIGGER =====
+// 🛡️ DEDUP: Evitar enviar la misma imagen/media múltiples veces al mismo chat
+const recentlySentMedia: Map<string, number> = new Map(); // key: `convId_mediaName` → timestamp
+const MEDIA_DEDUP_TTL = 600000; // 10 minutos
+
+const wasMediaRecentlySent = (convId: string, mediaName: string): boolean => {
+  const key = `${convId}_${mediaName.toLowerCase().trim()}`;
+  const sent = recentlySentMedia.get(key);
+  if (sent && Date.now() - sent < MEDIA_DEDUP_TTL) return true;
+  return false;
+};
+
+const markMediaSent = (convId: string, mediaName: string) => {
+  const key = `${convId}_${mediaName.toLowerCase().trim()}`;
+  recentlySentMedia.set(key, Date.now());
+  // Limpiar entradas viejas cada 100 entradas
+  if (recentlySentMedia.size > 100) {
+    const now = Date.now();
+    for (const [k, t] of recentlySentMedia) {
+      if (now - t > MEDIA_DEDUP_TTL) recentlySentMedia.delete(k);
+    }
+  }
+};
+
 const findMediaTrigger = (message: string, mediaItems: any[]): any | null => {
   if (!mediaItems?.length) return null;
   const norm = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -3075,7 +3098,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     
     const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
     const mediaItems = (assistant?.mediaItems as any[]) || [];
-    const matchedMedia = findMediaTrigger(combinedMessage, mediaItems);
+    let matchedMedia = findMediaTrigger(combinedMessage, mediaItems);
 
     // ⌨️🎙️ Typing/Recording (solo WAHA — Cloud API no soporta)
     if (!isCloudAPI) {
@@ -3084,6 +3107,12 @@ const processBufferedMessages = async (bufferKey: string) => {
       } else {
         await setPresence(sessionName, from, 'typing');
       }
+    }
+
+    // 🛡️ DEDUP: Si ya se envió esta media recientemente, no enviarla de nuevo
+    if (matchedMedia && wasMediaRecentlySent(convId, matchedMedia.name)) {
+      log(`📎 Media "${matchedMedia.name}" ya enviada recientemente → solo texto IA`);
+      matchedMedia = null; // Anular → flujo normal de solo texto
     }
 
     if (matchedMedia) {
@@ -3105,12 +3134,14 @@ const processBufferedMessages = async (bufferKey: string) => {
         }
         await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
         mediaSent = sentCount > 0;
+        if (mediaSent) markMediaSent(convId, matchedMedia.name);
         log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);
       } else {
         const sent = await unifiedSendMedia(sessionName, from, matchedMedia, matchedMedia.caption || '', whatsappLineId);
         if (sent) {
           await prisma.message.create({ data: { conversationId: convId, content: `📎 [${matchedMedia.type}: ${matchedMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: matchedMedia.type } });
           mediaSent = true;
+          markMediaSent(convId, matchedMedia.name);
         } else {
           const fallbackText = matchedMedia.caption
             ? `📎 ${matchedMedia.caption}`
@@ -3221,7 +3252,13 @@ const processBufferedMessages = async (bufferKey: string) => {
 
         // ═══ DETECTAR TRIGGER EN RESPUESTA ANTES DE ENVIAR TEXTO ═══
         const triggerableItems = mediaItems.filter((m: any) => m.trigger);
-        const responseMedia = triggerableItems.length > 0 ? findMediaTrigger(cleanResponse, triggerableItems) : null;
+        let responseMedia = triggerableItems.length > 0 ? findMediaTrigger(cleanResponse, triggerableItems) : null;
+
+        // 🛡️ DEDUP: No reenviar media que ya se mandó recientemente
+        if (responseMedia && wasMediaRecentlySent(convId, responseMedia.name)) {
+          log(`📎 Media "${responseMedia.name}" ya enviada → solo texto`);
+          responseMedia = null;
+        }
 
         if (responseMedia) {
           // ═══ FLUJO: MEDIA PRIMERO → TEXTO → FOLLOW-UP ═══
@@ -3252,11 +3289,13 @@ const processBufferedMessages = async (bufferKey: string) => {
               }
             }
             log(`📂 Catálogo completado: ${sentCount}/${responseMedia.images.length} imágenes`);
+            if (sentCount > 0) markMediaSent(convId, responseMedia.name);
           } else {
             const sent = await unifiedSendMedia(sessionName, from, responseMedia, responseMedia.caption || '', whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: `📎 [${responseMedia.type}: ${responseMedia.name}]`, fromMe: true, userId, role: 'assistant', mediaType: responseMedia.type, mediaUrl: responseMedia.url || null } });
               log(`📎 Media enviada por trigger de respuesta: ${responseMedia.name}`);
+              markMediaSent(convId, responseMedia.name);
             }
           }
 
@@ -3326,9 +3365,9 @@ const processBufferedMessages = async (bufferKey: string) => {
     const pending = messageBuffer.get(bufferKey);
     if (pending) {
       clearTimeout(pending.timer);
-      // Cloud API: esperar 3s más (webhooks de Meta llegan con delay)
+      // Cloud API: esperar 5s más (webhooks de Meta llegan con delay impredecible)
       // WAHA: esperar 1.5s
-      const pendingDelay = pending.isCloud ? 3000 : 1500;
+      const pendingDelay = pending.isCloud ? 5000 : 1500;
       clog(`🔄 ${pending.messages.length} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''}...`);
       pending.timer = setTimeout(() => processBufferedMessages(bufferKey), pendingDelay);
     }

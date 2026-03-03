@@ -59,9 +59,13 @@ router.get('/config', async (req: any, res) => {
       });
     }
     
-    // Check if user has purchased ai_calls addon
-    const ownerId = (await db.user.findUnique({ where: { id: userId }, select: { parentUserId: true } }))?.parentUserId || userId;
-    const hasAddon = !!(await db.payment.findFirst({ where: { userId: ownerId, plan: 'ai_calls', type: 'addon', status: 'approved' } }));
+    // Check if user purchased ai_calls addon
+    const ownerRow = await db.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+    const ownerId = ownerRow?.parentUserId || userId;
+    const hasAddon = !!(await db.payment.findFirst({
+      where: { userId: ownerId, plan: 'ai_calls', status: 'approved' }
+    }));
+
     res.json({ ...config, hasRetellKey: !!RETELL_KEY, hasAddon });
   } catch (e: any) {
     console.error('Error obteniendo config:', e.message);

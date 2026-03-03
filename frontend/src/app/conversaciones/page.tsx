@@ -672,13 +672,45 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
     } catch { alert('Error al leer archivo'); }
   };
 
+  // 🛡️ REF-BASED LOCK: Prevents re-sends even if state has race conditions
+  const bulkSendLockRef = useRef(false);
+  const bulkJobIdRef = useRef<string | null>(null);
+
   const sendMassMessage = async () => {
     if ((!massText.trim() && !massMediaFile) || filterStage === 'all') return;
+    
+    // 🛡️ LOCK: Absolutely prevent double-sends
+    if (bulkSendLockRef.current) {
+      console.warn('🛡️ Envío masivo bloqueado: ya hay uno en curso');
+      return;
+    }
+    bulkSendLockRef.current = true;
+    
     setSendingMass(true);
     const token = localStorage.getItem('token');
     const targets = conversations.filter(c => c.stage === filterStage);
-    setMassTotal(targets.length);
+    
+    // ===== 🛡️ DEDUPLICAR POR TELÉFONO EN FRONTEND =====
+    const seenPhones = new Set<string>();
+    const uniqueTargets = targets.filter(c => {
+      const phone = (c.recipientId || '').replace(/\D/g, '');
+      const normalized = phone.length >= 10 ? phone.slice(-10) : phone;
+      if (!normalized || seenPhones.has(normalized)) return false;
+      seenPhones.add(normalized);
+      return true;
+    });
+    
+    const duplicatesRemoved = targets.length - uniqueTargets.length;
+    if (duplicatesRemoved > 0) {
+      console.log(`🛡️ Deduplicación frontend: ${duplicatesRemoved} duplicados removidos`);
+    }
+    
+    setMassTotal(uniqueTargets.length);
     setMassSentCount(0);
+    
+    // 🛡️ Generar ID único para este batch
+    const jobId = `bulk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    bulkJobIdRef.current = jobId;
 
     try {
       // Convertir archivo a base64 si hay media
@@ -699,38 +731,60 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         else mediaType = 'document';
       }
 
-      const contacts = targets.map(c => ({
+      const contacts = uniqueTargets.map(c => ({
         phone: c.recipientId,
         name: c.recipientName || c.recipientId,
         conversationId: c.id
       }));
 
-      // 🚀 ENVIAR TODO AL BACKEND — El backend maneja delays de 3s entre cada envío
+      // 🚀 ENVIAR TODO AL BACKEND
       const res = await fetch(`${API_URL}/api/whatsapp/send-bulk`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           contacts,
           message: massText || null,
-          whatsappLineId: getLineId(),  // ✅ FIX: whatsappLineId correcto
+          whatsappLineId: getLineId(),
+          bulkJobId: jobId,
           ...(mediaUrl && { mediaUrl, mediaType })
         })
       });
 
-      if (res.ok) {
-        // Simular progreso mientras el backend envía en background
+      const resData = await res.json();
+      
+      // 🛡️ Check if backend rejected (duplicate batch)
+      if (resData.alreadyRunning || resData.alreadyProcessed) {
+        alert('⚠️ Ya hay un envío masivo en curso. Espera a que termine.');
+        setSendingMass(false);
+        bulkSendLockRef.current = false;
+        return;
+      }
+
+      if (res.ok && resData.success) {
+        const actualTotal = resData.total || uniqueTargets.length;
+        setMassTotal(actualTotal);
+        
+        // 🛡️ Estimación de tiempo REAL basada en delays del backend
+        // Backend: 5-18s por mensaje + 30-60s pausa cada 15 mensajes
+        const avgDelayPerMsg = actualTotal <= 20 ? 7 : actualTotal <= 50 ? 10 : 14;
+        const batchPauses = Math.floor(actualTotal / 15);
+        const totalEstimatedMs = (actualTotal * avgDelayPerMsg * 1000) + (batchPauses * 45000) + 5000;
+        const progressStepMs = totalEstimatedMs / actualTotal;
+        
+        // Simular progreso con timing realista
         let count = 0;
         const progressInterval = setInterval(() => {
           count += 1;
-          setMassSentCount(Math.min(count, targets.length));
-          if (count >= targets.length) clearInterval(progressInterval);
-        }, 3500);
+          setMassSentCount(Math.min(count, actualTotal));
+          if (count >= actualTotal) clearInterval(progressInterval);
+        }, progressStepMs);
 
         // Esperar tiempo estimado y cerrar
         setTimeout(() => {
           clearInterval(progressInterval);
-          setMassSentCount(targets.length);
-          alert(`✅ Mensaje masivo enviado a ${targets.length} contactos`);
+          setMassSentCount(actualTotal);
+          alert(`✅ Mensaje masivo enviado a ${actualTotal} contactos` + 
+                (duplicatesRemoved > 0 ? ` (${duplicatesRemoved} duplicados omitidos)` : ''));
           setSendingMass(false);
           setShowMassMessage(false);
           setMassText('');
@@ -738,15 +792,37 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
           setMassMediaPreview(null);
           setMassSentCount(0);
           setMassTotal(0);
+          
+          // 🛡️ Mantener lock 15s adicionales después de "completar" para evitar re-envíos
+          setTimeout(() => {
+            bulkSendLockRef.current = false;
+            bulkJobIdRef.current = null;
+          }, 15000);
+          
           fetchConversations();
-        }, targets.length * 3500 + 2000);
+        }, totalEstimatedMs);
       } else {
-        throw new Error('Error al enviar');
+        throw new Error(resData.error || 'Error al enviar');
       }
     } catch (e) {
       alert('❌ Error al enviar mensaje masivo');
       setSendingMass(false);
+      bulkSendLockRef.current = false;
+      bulkJobIdRef.current = null;
     }
+  };
+
+  // 🛡️ Contar contactos ÚNICOS por etapa (sin duplicados por teléfono)
+  const getUniqueStageCount = (stage: string) => {
+    const targets = conversations.filter(c => c.stage === stage);
+    const seen = new Set<string>();
+    return targets.filter(c => {
+      const phone = (c.recipientId || '').replace(/\D/g, '');
+      const norm = phone.length >= 10 ? phone.slice(-10) : phone;
+      if (!norm || seen.has(norm)) return false;
+      seen.add(norm);
+      return true;
+    }).length;
   };
 
   // 📎 Manejar selección de archivo para masivo
@@ -1405,7 +1481,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <button onClick={() => !sendingMass && setShowMassMessage(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
             <p className="text-sm text-[var(--text-muted)] mb-3">
-              Enviar a: <strong className="text-white">{funnelStages.find(s => s.id === filterStage)?.label}</strong> ({conversations.filter(c => c.stage === filterStage).length} contactos)
+              Enviar a: <strong className="text-white">{funnelStages.find(s => s.id === filterStage)?.label}</strong> ({getUniqueStageCount(filterStage)} contactos únicos)
             </p>
             <textarea 
               value={massText} onChange={(e) => setMassText(e.target.value)}
@@ -1460,13 +1536,19 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                   <div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} />
                 </div>
                 <p className="text-[10px] text-[var(--text-muted)] mt-1 text-center">
-                  ⏱️ ~{Math.ceil((massTotal - massSentCount) * 3.5)}s restantes
+                  ⏱️ ~{(() => {
+                    const remaining = massTotal - massSentCount;
+                    const avgDelay = massTotal <= 20 ? 7 : massTotal <= 50 ? 10 : 14;
+                    const batchPauses = Math.floor(remaining / 15) * 45;
+                    const totalSecs = remaining * avgDelay + batchPauses;
+                    return totalSecs > 60 ? `${Math.ceil(totalSecs / 60)}min` : `${totalSecs}s`;
+                  })()}  restantes
                 </p>
               </div>
             )}
 
-            <button onClick={sendMassMessage} disabled={sendingMass || (!massText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
-              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${conversations.filter(c => c.stage === filterStage).length} contactos`}
+            <button onClick={sendMassMessage} disabled={sendingMass || bulkSendLockRef.current || (!massText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${getUniqueStageCount(filterStage)} contactos`}
             </button>
           </div>
         </div>

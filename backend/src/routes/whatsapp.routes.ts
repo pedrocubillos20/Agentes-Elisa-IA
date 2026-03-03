@@ -4316,18 +4316,36 @@ router.post('/send', async (req: Request, res: Response) => {
 // 📢 ENVÍO MASIVO — Enviar mensaje a múltiples contactos
 // Con delays para evitar ban de WhatsApp
 // ====================================================
+// 🛡️ Track active bulk jobs to prevent duplicates
+const activeBulkJobs = new Set<string>();
+
 router.post('/send-bulk', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
 
-    const { contacts, message, whatsappLineId, lineId: legacyBulkLineId, mediaUrl, mediaType: bulkMediaType } = req.body;
+    const { contacts, message, whatsappLineId, lineId: legacyBulkLineId, mediaUrl, mediaType: bulkMediaType, bulkJobId } = req.body;
     if (!contacts?.length || (!message && !mediaUrl)) { 
       res.status(400).json({ error: 'Se requieren contactos y mensaje o media' }); return; 
     }
 
-    const effectiveLineId = whatsappLineId || legacyBulkLineId || null; // ✅ Acepta ambos
+    // 🛡️ ANTI-DUPLICATE: Reject if same user already has a bulk job running
+    const userJobKey = `bulk_${ownerId}`;
+    if (activeBulkJobs.has(userJobKey)) {
+      log(`🛡️ Envío masivo RECHAZADO: ya hay un envío en curso para ${ownerId}`);
+      res.json({ success: false, error: 'Ya hay un envío masivo en curso. Espera a que termine.', alreadyRunning: true });
+      return;
+    }
+
+    // 🛡️ ANTI-DUPLICATE: If frontend sent a bulkJobId, check it hasn't been processed
+    if (bulkJobId && activeBulkJobs.has(bulkJobId)) {
+      log(`🛡️ Envío masivo RECHAZADO: jobId ${bulkJobId} ya fue procesado`);
+      res.json({ success: false, error: 'Este envío ya fue procesado.', alreadyProcessed: true });
+      return;
+    }
+
+    const effectiveLineId = whatsappLineId || legacyBulkLineId || null;
 
     // Determinar sesión de la línea
     let sessionName: string | null = null;
@@ -4344,63 +4362,92 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       }
     }
 
-    log(`📢 Envío masivo: ${contacts.length} contactos, sesión: ${sessionName}`);
+    // ===== 🛡️ DEDUPLICAR CONTACTOS POR TELÉFONO =====
+    const seenPhones = new Set<string>();
+    const uniqueContacts: typeof contacts = [];
+    let duplicatesRemoved = 0;
+    
+    for (const contact of contacts) {
+      const rawPhone = (contact.phone || contact.recipientId || contact).toString().replace(/\D/g, '');
+      // Normalizar: usar últimos 10 dígitos para deduplicar
+      const normalizedPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : rawPhone;
+      
+      if (seenPhones.has(normalizedPhone)) {
+        duplicatesRemoved++;
+        continue; // ⏭️ Ya incluido — saltar duplicado
+      }
+      seenPhones.add(normalizedPhone);
+      uniqueContacts.push(contact);
+    }
+    
+    if (duplicatesRemoved > 0) {
+      log(`🛡️ Deduplicación: ${duplicatesRemoved} duplicados removidos de ${contacts.length} → ${uniqueContacts.length} únicos`);
+    }
+
+    log(`📢 Envío masivo: ${uniqueContacts.length} contactos únicos (de ${contacts.length} originales), sesión: ${sessionName}`);
+
+    // 🛡️ Marcar job como activo ANTES de responder
+    activeBulkJobs.add(userJobKey);
+    if (bulkJobId) activeBulkJobs.add(bulkJobId);
 
     // Responder inmediatamente y procesar en background
-    res.json({ success: true, message: `Enviando a ${contacts.length} contactos...`, total: contacts.length });
+    res.json({ success: true, message: `Enviando a ${uniqueContacts.length} contactos...`, total: uniqueContacts.length, duplicatesRemoved });
 
     // ===== 🛡️ MECANISMO ANTI-BLOQUEO =====
     let sent = 0;
     let failed = 0;
-    const total = contacts.length;
+    const total = uniqueContacts.length;
     
     // Intervalos progresivos: más contactos = más lento
     const getDelay = (index: number): number => {
-      const base = 5000; // 5 segundos mínimo
-      const max = 18000; // 18 segundos máximo
+      const base = 5000;
+      const max = 18000;
+      const randomFactor = 0.7 + Math.random() * 0.6;
+      const progressFactor = 1 + (index / total) * 0.5;
       
-      // Aleatoriedad: ±30% del delay base
-      const randomFactor = 0.7 + Math.random() * 0.6; // 0.7 a 1.3
-      
-      // Progresivo: aumenta delay conforme avanza (fatiga del rate limit)
-      const progressFactor = 1 + (index / total) * 0.5; // 1.0 a 1.5
-      
-      // Más contactos = más lento
       let delay: number;
       if (total <= 20) {
-        delay = base * randomFactor; // 3.5-6.5s para lotes pequeños
+        delay = base * randomFactor;
       } else if (total <= 50) {
-        delay = (base + 3000) * randomFactor * progressFactor; // 5.6-15.6s
+        delay = (base + 3000) * randomFactor * progressFactor;
       } else if (total <= 100) {
-        delay = (base + 5000) * randomFactor * progressFactor; // 7-19.5s
+        delay = (base + 5000) * randomFactor * progressFactor;
       } else {
-        delay = (base + 8000) * randomFactor * progressFactor; // 9.1-25.3s
+        delay = (base + 8000) * randomFactor * progressFactor;
       }
       
-      return Math.min(delay, max + 5000); // Cap en 23s
+      return Math.min(delay, max + 5000);
     };
     
-    // Pausa larga cada N mensajes (batch break)
-    const BATCH_SIZE = 15; // Cada 15 mensajes
-    const BATCH_PAUSE_MIN = 30000; // 30 segundos
-    const BATCH_PAUSE_MAX = 60000; // 60 segundos
+    const BATCH_SIZE = 15;
+    const BATCH_PAUSE_MIN = 30000;
+    const BATCH_PAUSE_MAX = 60000;
     
     log(`🛡️ Anti-bloqueo: ${total} contactos, batch=${BATCH_SIZE}, delays=5-18s`);
 
-    for (let i = 0; i < contacts.length; i++) {
-      const contact = contacts[i];
+    // 🛡️ Track phones already sent in THIS batch (extra safety)
+    const sentPhonesThisBatch = new Set<string>();
+
+    for (let i = 0; i < uniqueContacts.length; i++) {
+      const contact = uniqueContacts[i];
       try {
         const phone = (contact.phone || contact.recipientId || contact).replace(/\D/g, '');
-        // STRICT: Real phone numbers are 7-13 digits, LIDs are >13 digits
         if (!phone || phone.length < 7) { 
           log(`⏭️ Número inválido: ${phone} (${phone.length} dígitos) — saltando`);
           failed++; continue; 
         }
 
-        // LID numbers (>13 digits) use @lid, regular phones use @c.us
+        // 🛡️ Double-check: skip if already sent in this batch
+        const phoneKey = phone.length >= 10 ? phone.slice(-10) : phone;
+        if (sentPhonesThisBatch.has(phoneKey)) {
+          log(`⏭️ Duplicado en batch: ${phone} — saltando`);
+          continue;
+        }
+
         const chatId = phone.length > 13 ? `${phone}@lid` : `${phone}@c.us`;
 
-        // 🔍 Verificar si existe en WhatsApp (con cache)
+        // 🔍 Verificar si existe en WhatsApp
+        let skipThisContact = false;
         try {
           const checkEndpoints = [
             { url: `${WAHA_API_URL}/api/contacts/check-exists`, body: { session: sessionName, phone: chatId } },
@@ -4413,14 +4460,15 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
                 const cd = await cr.json() as any;
                 if (cd?.numberExists === false || cd?.result?.exists === false || cd?.exists === false) {
                   log(`⏭️ No existe en WhatsApp: ${phone} — saltando`);
-                  failed++; break;
+                  skipThisContact = true;
+                  failed++;
                 }
-                break; // Check passed
+                break; // Check done (passed or failed)
               }
             } catch {}
           }
-          if (failed > i) continue; // Was skipped in the check loop
         } catch {}
+        if (skipThisContact) continue;
 
         // ⌨️ Simular typing (más natural)
         await setPresence(sessionName!, chatId, 'typing').catch(() => {});
@@ -4463,6 +4511,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         }
 
         sent++;
+        sentPhonesThisBatch.add(phoneKey); // 🛡️ Mark as sent
         log(`📢 Masivo ${sent}/${total}: ✅ ${phone}`);
 
         // 🛡️ DELAY ANTI-BLOQUEO
@@ -4486,9 +4535,23 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
     }
 
     log(`📢 Envío masivo completado: ${sent} enviados, ${failed} fallidos de ${total}`);
+    
+    // 🛡️ Limpiar job activo (con delay de 30s para evitar re-envíos inmediatos)
+    setTimeout(() => {
+      activeBulkJobs.delete(userJobKey);
+      if (bulkJobId) activeBulkJobs.delete(bulkJobId);
+      log(`🛡️ Bulk job limpiado: ${userJobKey}`);
+    }, 30000);
   } catch (e: any) { 
     console.error('❌ Error envío masivo:', e.message);
-    res.status(500).json({ success: false, message: e.message }); 
+    // 🛡️ Limpiar job en caso de error
+    const userId2 = (req as AuthRequest).user?.id;
+    if (userId2) {
+      getOwnerId(userId2).then(oid => {
+        activeBulkJobs.delete(`bulk_${oid}`);
+      }).catch(() => {});
+    }
+    if (!res.headersSent) res.status(500).json({ success: false, message: e.message }); 
   }
 });
 

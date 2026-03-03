@@ -840,3 +840,112 @@ body {
 /* Scrollbar hide utility */
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ===== RESPONSIVE IMPROVEMENTS - AUDIT FIX ===== */
+
+/* Small screens: tighter grids */
+@media (max-width: 639px) {
+  /* Stats grids - 2 cols max on mobile */
+  .grid-cols-3, .grid-cols-4, .grid-cols-5 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  
+  /* Stack forms on mobile */
+  .grid-cols-2:not(.keep-grid) {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Agenda calendar grid stays 7 cols */
+  .grid-cols-7 {
+    grid-template-columns: repeat(7, 1fr) !important;
+    gap: 2px !important;
+  }
+
+  /* Reduce space-y on mobile */
+  .space-y-6 > * + * { margin-top: 1rem !important; }
+  .space-y-8 > * + * { margin-top: 1.25rem !important; }
+
+  /* Full width modals on mobile */
+  [class*="max-w-lg"], [class*="max-w-xl"], [class*="max-w-2xl"] {
+    max-width: calc(100vw - 16px) !important;
+  }
+  
+  /* Scroll tabs horizontally */
+  [class*="overflow-x-auto"] {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  [class*="overflow-x-auto"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Touch-friendly select elements */
+  select {
+    min-height: 44px;
+  }
+}
+
+/* Tablet adjustments */  
+@media (min-width: 640px) and (max-width: 1023px) {
+  .grid-cols-5 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+}
+
+/* Safe area for notched phones */
+@supports (padding: max(0px)) {
+  .fixed.bottom-0, [class*="pb-"] {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+}
+
+/* Prevent text overflow everywhere */
+h1, h2, h3, h4, h5, h6, p, span, a, label {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Scrollable containers on mobile */
+@media (max-width: 767px) {
+  /* Better touch scrolling */
+  [class*="overflow-y-auto"],
+  [class*="overflow-y-scroll"] {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  
+  /* Reduce large paddings */
+  .p-6 { padding: 12px !important; }
+  .p-8 { padding: 16px !important; }
+  .px-6 { padding-left: 12px !important; padding-right: 12px !important; }
+  .px-8 { padding-left: 16px !important; padding-right: 16px !important; }
+  .py-8 { padding-top: 16px !important; padding-bottom: 16px !important; }
+  
+  /* Tab bars scroll */
+  nav[class*="flex"][class*="gap"] {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  nav[class*="flex"][class*="gap"]::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ===== AGENDA CALENDAR MOBILE ===== */
+@media (max-width: 639px) {
+  .grid-cols-7 button,
+  .grid-cols-7 div {
+    font-size: 10px !important;
+    padding: 2px !important;
+    min-width: 0 !important;
+  }
+}
+
+/* ===== EQUIPO & CONFIG GRIDS ===== */
+@media (max-width: 639px) {
+  .grid.grid-cols-1.md\\:grid-cols-3,
+  .grid.grid-cols-1.md\\:grid-cols-2 {
+    gap: 8px !important;
+  }
+}

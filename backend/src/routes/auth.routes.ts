@@ -377,6 +377,14 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       where: { userId: user.parentUserId || userId, plan: 'extra_products', status: 'approved' }
     });
 
+    // Verificar addons de IA
+    const hasAiConfig = !!(await prisma.payment.findFirst({
+      where: { userId: user.parentUserId || userId, plan: 'ai_config', status: 'approved' }
+    }));
+    const hasAiCalls = !!(await prisma.payment.findFirst({
+      where: { userId: user.parentUserId || userId, plan: 'ai_calls', status: 'approved' }
+    }));
+
     // For sub-users, get plan from parent
     let effectivePlan = user.plan;
     if (user.parentUserId) {
@@ -417,6 +425,8 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         isBlocked: subscriptionStatus === 'expired',
         hasImplementation: !!hasImplementation,
         hasPrioritySupport,
+        hasAiConfig,
+        hasAiCalls,
         effectiveLimits,
         planFeatures: features
       }

@@ -193,7 +193,7 @@ export default function PerfilPage() {
     <div className="min-h-screen bg-[#0a0a0f] text-white">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[#0a0a0f]/90 backdrop-blur-md border-b border-white/5">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
+        <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-3">
           <button onClick={() => window.history.back()} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
             <ChevronLeft className="w-5 h-5 text-gray-400" />
           </button>
@@ -203,7 +203,7 @@ export default function PerfilPage() {
 
       {/* Toast */}
       {msg && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl flex items-center gap-2 animate-in slide-in-from-right ${
+        <div className={`fixed top-4 left-4 right-4 sm:left-auto sm:right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-2xl flex items-center gap-2 animate-in slide-in-from-right ${
           msg.type === 'success' ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/20 border border-red-500/30 text-red-400'
         }`}>
           {msg.type === 'success' ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
@@ -211,16 +211,16 @@ export default function PerfilPage() {
         </div>
       )}
 
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+      <div className="max-w-2xl mx-auto px-3 sm:px-4 md:px-6 py-6 md:py-8 space-y-6 md:space-y-8">
 
         {/* ========= FOTO DE PERFIL ========= */}
         <div className="flex flex-col items-center gap-4">
           <div className="relative group">
             {user?.profilePic ? (
-              <img src={user.profilePic} alt="Perfil" className="w-28 h-28 rounded-full object-cover ring-4 ring-emerald-500/20" />
+              <img src={user.profilePic} alt="Perfil" className="w-20 h-20 sm:w-28 sm:h-28 rounded-full object-cover ring-4 ring-emerald-500/20" />
             ) : (
-              <div className="w-28 h-28 rounded-full bg-gradient-to-br from-emerald-500/30 to-cyan-600/20 flex items-center justify-center ring-4 ring-emerald-500/20">
-                <span className="text-4xl font-bold text-emerald-400">{initial}</span>
+              <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-full bg-gradient-to-br from-emerald-500/30 to-cyan-600/20 flex items-center justify-center ring-4 ring-emerald-500/20">
+                <span className="text-2xl sm:text-4xl font-bold text-emerald-400">{initial}</span>
               </div>
             )}
             <button
@@ -233,7 +233,7 @@ export default function PerfilPage() {
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
           </div>
           <div className="text-center">
-            <h2 className="text-xl font-bold">{name || 'Sin nombre'}</h2>
+            <h2 className="text-lg sm:text-xl font-bold">{name || 'Sin nombre'}</h2>
             <p className="text-sm text-gray-500">{user?.email}</p>
             <span className="inline-block mt-1 text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-medium">{roleLabel}</span>
           </div>
@@ -246,12 +246,12 @@ export default function PerfilPage() {
 
         {/* ========= DATOS PERSONALES ========= */}
         <div className="bg-white/[0.03] rounded-2xl border border-white/5 overflow-hidden">
-          <div className="px-5 py-4 border-b border-white/5">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <User className="w-4 h-4 text-emerald-400" /> Datos Personales
             </h3>
           </div>
-          <div className="p-5 space-y-4">
+          <div className="p-3 sm:p-5 space-y-3 sm:space-y-4">
             {/* Nombre */}
             <div>
               <label className="block text-xs text-gray-500 mb-1.5 font-medium">Nombre completo</label>
@@ -313,7 +313,7 @@ export default function PerfilPage() {
             {/* Save button */}
             <button
               onClick={saveProfile} disabled={saving}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-semibold hover:from-emerald-600 hover:to-cyan-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-sm font-semibold hover:from-emerald-600 hover:to-cyan-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? 'Guardando...' : 'Guardar cambios'}
@@ -323,12 +323,12 @@ export default function PerfilPage() {
 
         {/* ========= CAMBIAR CONTRASEÑA ========= */}
         <div className="bg-white/[0.03] rounded-2xl border border-white/5 overflow-hidden">
-          <div className="px-5 py-4 border-b border-white/5">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5">
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               <Lock className="w-4 h-4 text-amber-400" /> Cambiar Contraseña
             </h3>
           </div>
-          <div className="p-5 space-y-4">
+          <div className="p-3 sm:p-5 space-y-3 sm:space-y-4">
             {/* Current password */}
             <div>
               <label className="block text-xs text-gray-500 mb-1.5 font-medium">Contraseña actual</label>
@@ -389,7 +389,7 @@ export default function PerfilPage() {
             <button
               onClick={changePassword}
               disabled={savingPassword || !currentPw || !newPw || newPw !== confirmPw || newPw.length < 6}
-              className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold hover:from-amber-600 hover:to-orange-600 transition-all disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {savingPassword ? <Loader className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
               {savingPassword ? 'Cambiando...' : 'Cambiar contraseña'}
@@ -399,10 +399,10 @@ export default function PerfilPage() {
 
         {/* ========= INFO DE CUENTA ========= */}
         <div className="bg-white/[0.03] rounded-2xl border border-white/5 overflow-hidden">
-          <div className="px-5 py-4 border-b border-white/5">
+          <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5">
             <h3 className="text-sm font-semibold text-gray-400">Información de cuenta</h3>
           </div>
-          <div className="p-5 space-y-3">
+          <div className="p-3 sm:p-5 space-y-2 sm:space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Plan</span>
               <span className="text-emerald-400 font-medium capitalize">{user?.plan || 'trial'}</span>

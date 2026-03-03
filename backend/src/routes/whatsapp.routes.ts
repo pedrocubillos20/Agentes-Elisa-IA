@@ -179,7 +179,7 @@ const parseSmartTime = (horaStr: string, defaultTime: string = '10:00'): string 
 };
 
 // 🔔 Helper: Notificar al Asistente Personal cuando se crea algo
-const notifyPersonalAssistant = async (ownerId: string, type: 'pedido' | 'cita' | 'reserva', details: { name: string; date: string; time: string; product?: string; total?: string; phone?: string }) => {
+const notifyPersonalAssistant = async (ownerId: string, type: 'pedido' | 'cita' | 'reserva', details: { name: string; date: string; time: string; product?: string; total?: string; phone?: string }, sourceLineId?: string | null) => {
   try {
     // Buscar conversaciones con asistente personal activado
     const assistantConvs = await prisma.conversation.findMany({
@@ -187,12 +187,24 @@ const notifyPersonalAssistant = async (ownerId: string, type: 'pedido' | 'cita' 
       select: { id: true, contextData: true, recipientId: true, whatsappLineId: true }
     });
 
-    const paConvs = assistantConvs.filter(c => {
+    let paConvs = assistantConvs.filter(c => {
       const ctx = (c.contextData as Record<string, any>) || {};
       return ctx._isPersonalAssistant === true;
     });
 
     if (paConvs.length === 0) return;
+
+    // 🔒 AISLAMIENTO POR LÍNEA: Solo notificar PA conversations de la MISMA línea
+    // Esto evita que citas de Demo aparezcan en The Four, etc.
+    if (sourceLineId) {
+      const sameLine = paConvs.filter(c => c.whatsappLineId === sourceLineId);
+      if (sameLine.length > 0) {
+        paConvs = sameLine;
+        clog(`🔔 PA: Filtrando por línea ${sourceLineId} → ${sameLine.length} conv(s)`);
+      } else {
+        clog(`🔔 PA: No hay PA conversation en línea ${sourceLineId} — enviando a todas`);
+      }
+    }
 
     const emojis: Record<string, string> = { pedido: '🛒', cita: '📅', reserva: '🏨' };
     const labels: Record<string, string> = { pedido: 'NUEVO PEDIDO', cita: 'NUEVA CITA', reserva: 'NUEVA RESERVA' };
@@ -2114,7 +2126,7 @@ FORMATO:
                   }
                   
                   const nombre = extractedData.nombre || clientName || 'Cliente WhatsApp';
-                  const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
                   
                   // Detectar tipo de cita
                   let tipoCita = 'reunión';
@@ -2272,7 +2284,7 @@ FORMATO:
                   // 🔔 Push — Nuevo pedido
                   sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || clientName || 'Cliente'} — ${merged.producto_servicio || 'Pedido'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
                   // 🤖 Notificar Asistente Personal
-                  notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '').replace('@lid', '').replace('@s.whatsapp.net', '') }, whatsappLineId).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2281,7 +2293,7 @@ FORMATO:
                   
                   // 👥 AUTO-CREAR CLIENTE EN CRM (pedido)
                   try {
-                    const phoneClean2 = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                    const phoneClean2 = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
                     const existingClient2 = await prisma.client.findFirst({
                       where: { userId: ownerId, phone: { endsWith: phoneClean2.slice(-10) } }
                     });
@@ -2356,7 +2368,7 @@ FORMATO:
                     log(`🛒🔔 Pedido AUTO-DETECTADO (datos completos + confirmación IA): ${merged.nombre}`);
                     // 🔔 Push — Pedido auto-detectado
                     sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || 'Cliente'} — ${merged.producto_servicio || 'Pedido auto'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
-                    notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                    notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '').replace('@lid', '').replace('@s.whatsapp.net', '') }, whatsappLineId).catch(() => {});
                   } catch (autoOrderErr: any) {
                     console.error('⚠️ Error auto-pedido:', autoOrderErr.message);
                   }
@@ -2372,7 +2384,7 @@ FORMATO:
 
                   const tipoCita = merged.tipo_cita || 'cita';
                   const nombreCliente = merged.nombre || clientName || 'Cliente WhatsApp';
-                  const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
 
                   const appointmentData: any = {
                     userId: ownerId,
@@ -2447,7 +2459,7 @@ FORMATO:
                   merged.cita = 'creada';
                   // 🔔 Push — Nueva cita
                   sendPushToUser(ownerId, { title: '📅 ¡Nueva Cita!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_cita || 'Cita'} ${merged.fecha_cita || ''} ${merged.hora_cita || ''}`.trim().substring(0, 120), url: '/agenda', tag: `appt-${Date.now()}` }).catch(() => {});
-                  notifyPersonalAssistant(ownerId, 'cita', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_cita || 'Pendiente', time: to12h(parseSmartTime(merged.hora_cita || '', '10:00')), phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'cita', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_cita || 'Pendiente', time: to12h(parseSmartTime(merged.hora_cita || '', '10:00')), phone: clientPhone.replace('@c.us', '').replace('@lid', '').replace('@s.whatsapp.net', '') }, whatsappLineId).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2501,7 +2513,7 @@ FORMATO:
                   const numPersonas = merged.num_personas || '1';
                   const duracionReserva = parseInt(merged.duracion_reserva || '60') || 60;
                   const nombreClienR = merged.nombre || clientName || 'Cliente WhatsApp';
-                  const phoneCleanR = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const phoneCleanR = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
 
                   const reservaData: any = {
                     userId: ownerId,
@@ -2582,7 +2594,7 @@ FORMATO:
                   merged.reserva = 'creada';
                   // 🔔 Push — Nueva reserva
                   sendPushToUser(ownerId, { title: '🏨 ¡Nueva Reserva!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_reserva || 'Reserva'} ${merged.fecha_reserva || ''} ${merged.hora_reserva || ''}`.trim().substring(0, 120), url: '/agenda', tag: `reserv-${Date.now()}` }).catch(() => {});
-                  notifyPersonalAssistant(ownerId, 'reserva', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_reserva || 'Pendiente', time: to12h(parseSmartTime(merged.hora_reserva || '', '10:00')), phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'reserva', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_reserva || 'Pendiente', time: to12h(parseSmartTime(merged.hora_reserva || '', '10:00')), phone: clientPhone.replace('@c.us', '').replace('@lid', '').replace('@s.whatsapp.net', '') }, whatsappLineId).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2626,7 +2638,7 @@ FORMATO:
               // ═══ 🔄 ACTUALIZAR PEDIDO EXISTENTE ═══
               if (actionToTake === 'actualizar_pedido' && merged.pedido === 'creado') {
                 try {
-                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
                   const existingOrder = await prisma.appointment.findFirst({
                     where: { userId: ownerId, type: 'order', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
                     orderBy: { createdAt: 'desc' }
@@ -2675,7 +2687,7 @@ FORMATO:
               // ═══ 🔄 ACTUALIZAR CITA EXISTENTE ═══
               if (actionToTake === 'actualizar_cita' && merged.cita === 'creada') {
                 try {
-                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
                   const existingAppt = await prisma.appointment.findFirst({
                     where: { userId: ownerId, type: 'appointment', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
                     orderBy: { createdAt: 'desc' }
@@ -2722,7 +2734,7 @@ FORMATO:
               // ═══ 🔄 ACTUALIZAR RESERVA EXISTENTE ═══
               if (actionToTake === 'actualizar_reserva' && merged.reserva === 'creada') {
                 try {
-                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '');
                   const existingRes = await prisma.appointment.findFirst({
                     where: { userId: ownerId, type: 'reservation', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
                     orderBy: { createdAt: 'desc' }
@@ -5736,12 +5748,35 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       return;
     }
     
-    const line = await prisma.whatsappLine.findFirst({
-      where: { cloudPhoneNumberId: phoneNumberId, connectionType: 'cloud_api' }
-    });
+    const line = await (async () => {
+      // Buscar TODAS las líneas que coincidan con el phoneNumberId
+      const matchingLines = await prisma.whatsappLine.findMany({
+        where: { cloudPhoneNumberId: phoneNumberId, connectionType: 'cloud_api' }
+      });
+      
+      if (matchingLines.length === 0) return null;
+      if (matchingLines.length === 1) return matchingLines[0];
+      
+      // ⚠️ MÚLTIPLES LÍNEAS con el mismo phoneNumberId — desambiguar
+      console.warn(`☁️ [CLOUD] ⚠️ ${matchingLines.length} líneas con phoneNumberId ${phoneNumberId}: ${matchingLines.map(l => `${l.label}(${l.id})`).join(', ')}`);
+      
+      // Intentar desambiguar por display_phone_number de Meta
+      const displayPhone = value.metadata?.display_phone_number?.replace(/\D/g, '');
+      if (displayPhone) {
+        const byPhone = matchingLines.find(l => l.phone && displayPhone.endsWith(l.phone.replace(/\D/g, '').slice(-10)));
+        if (byPhone) {
+          console.log(`☁️ [CLOUD] ✅ Desambiguado por display_phone: ${displayPhone} → ${byPhone.label}`);
+          return byPhone;
+        }
+      }
+      
+      // Fallback: devolver la primera (pero advertir)
+      console.warn(`☁️ [CLOUD] ⚠️ No se pudo desambiguar — usando primera línea: ${matchingLines[0].label}`);
+      return matchingLines[0];
+    })();
     if (!line) { console.warn(`☁️ [CLOUD] ❌ Línea NO encontrada para phoneNumberId: ${phoneNumberId}`); return; }
     
-    if (msgCount > 0) console.log(`☁️ [CLOUD] ✅ Línea: ${line.label} → ${msgCount} mensaje(s)`);
+    if (msgCount > 0) console.log(`☁️ [CLOUD] ✅ Línea: ${line.label} (${line.id}) → ${msgCount} mensaje(s) | display: ${value.metadata?.display_phone_number || 'N/A'} | owner: ${line.userId}`);
     
     const userId = line.userId;
     const whatsappLineId = line.id;

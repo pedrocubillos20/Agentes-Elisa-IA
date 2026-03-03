@@ -152,6 +152,7 @@ router.get('/schedule', async (req: Request, res: Response) => {
 
     const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId;
+    else where.whatsappLineId = null; // Global schedules only
 
     let schedule = await prisma.businessSchedule.findMany({
       where,
@@ -172,7 +173,11 @@ router.get('/schedule', async (req: Request, res: Response) => {
           whatsappLineId: lineId || null
         });
       }
-      await prisma.businessSchedule.createMany({ data: defaults });
+      try {
+        await prisma.businessSchedule.createMany({ data: defaults, skipDuplicates: true });
+      } catch (e: any) {
+        console.log(`⚠️ Schedule auto-create skipped (duplicates): ${e.message?.substring(0, 80)}`);
+      }
       schedule = await prisma.businessSchedule.findMany({
         where,
         orderBy: { dayOfWeek: 'asc' }
@@ -197,28 +202,23 @@ router.put('/schedule', async (req: Request, res: Response) => {
     const lineId = whatsappLineId || null;
 
     for (const day of schedule) {
-      await prisma.businessSchedule.upsert({
-        where: { userId_dayOfWeek_whatsappLineId: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId } },
-        create: {
-          userId: ownerId,
-          dayOfWeek: day.dayOfWeek,
-          isOpen: day.isOpen ?? true,
-          startTime: day.startTime || '08:00',
-          endTime: day.endTime || '18:00',
-          slotDuration: day.slotDuration || 60,
-          breakStart: day.breakStart || null,
-          breakEnd: day.breakEnd || null,
-          whatsappLineId: lineId
-        },
-        update: {
-          isOpen: day.isOpen ?? true,
-          startTime: day.startTime || '08:00',
-          endTime: day.endTime || '18:00',
-          slotDuration: day.slotDuration || 60,
-          breakStart: day.breakStart || null,
-          breakEnd: day.breakEnd || null,
-        }
+      // findFirst + update/create (upsert doesn't work well with nullable compound unique)
+      const existing = await prisma.businessSchedule.findFirst({
+        where: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId }
       });
+      const data = {
+        isOpen: day.isOpen ?? true,
+        startTime: day.startTime || '08:00',
+        endTime: day.endTime || '18:00',
+        slotDuration: day.slotDuration || 60,
+        breakStart: day.breakStart || null,
+        breakEnd: day.breakEnd || null,
+      };
+      if (existing) {
+        await prisma.businessSchedule.update({ where: { id: existing.id }, data });
+      } else {
+        await prisma.businessSchedule.create({ data: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId, ...data } });
+      }
     }
 
     const updated = await prisma.businessSchedule.findMany({

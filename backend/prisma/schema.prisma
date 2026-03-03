@@ -655,7 +655,7 @@ model BusinessSchedule {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  @@unique([userId, dayOfWeek, whatsappLineId])
+  @@index([userId, dayOfWeek, whatsappLineId])
   @@index([userId])
 }
 

@@ -471,6 +471,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                       ) : (
+                        <>
                         <button onClick={() => { setEditingUser(u.id); setEditPlan(u.plan); setEditDays(30); }}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-white/10 transition">
                           <Edit3 className="w-3.5 h-3.5" /> Editar
@@ -481,6 +482,7 @@ export default function AdminPage() {
                             <Wrench className="w-3.5 h-3.5" /> Implementar
                           </button>
                         )}
+                        </>
                       )}
                     </td>
                   </tr>

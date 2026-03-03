@@ -1571,14 +1571,15 @@ REGLAS DE TRANSFERENCIA:
 
     // 📅 INYECTAR DISPONIBILIDAD REAL — Para que la IA ofrezca horarios reales
     try {
-      const resources = await prisma.resource.findMany({
-        where: { userId: ownerId, isActive: true },
-        orderBy: { order: 'asc' }
-      });
-      const schedules = await prisma.businessSchedule.findMany({
-        where: { userId: ownerId },
-        orderBy: { dayOfWeek: 'asc' }
-      });
+      // Filtrar recursos y horarios por línea (con fallback a global)
+      const resWhere: any = { userId: ownerId, isActive: true };
+      const schedWhere: any = { userId: ownerId };
+      if (whatsappLineId) {
+        resWhere.OR = [{ whatsappLineId }, { whatsappLineId: null }];
+        schedWhere.OR = [{ whatsappLineId }, { whatsappLineId: null }];
+      }
+      const resources = await prisma.resource.findMany({ where: resWhere, orderBy: { order: 'asc' } });
+      const schedules = await prisma.businessSchedule.findMany({ where: schedWhere, orderBy: { dayOfWeek: 'asc' } });
 
       if (schedules.length > 0 || resources.length > 0) {
         const today = new Date();

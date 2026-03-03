@@ -37,15 +37,21 @@ const getOwnerId = async (userId: string): Promise<string> => {
 // 🏪 RESOURCES CRUD
 // =============================================
 
-// GET /api/resources — List all resources
+// GET /api/resources — List all resources (filtered by lineId)
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
+    const lineId = req.query.lineId as string || null;
+
+    const where: any = { userId: ownerId };
+    if (lineId) {
+      where.OR = [{ whatsappLineId: lineId }, { whatsappLineId: null }];
+    }
 
     const resources = await prisma.resource.findMany({
-      where: { userId: ownerId },
+      where,
       orderBy: [{ order: 'asc' }, { name: 'asc' }]
     });
 
@@ -62,7 +68,7 @@ router.post('/', async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
 
-    const { name, type, capacity, notes, order } = req.body;
+    const { name, type, capacity, notes, order, whatsappLineId } = req.body;
     if (!name) return res.status(400).json({ error: 'Nombre requerido' });
 
     const resource = await prisma.resource.create({
@@ -72,7 +78,8 @@ router.post('/', async (req: Request, res: Response) => {
         type: type || 'generic',
         capacity: capacity || 1,
         notes: notes || null,
-        order: order || 0
+        order: order || 0,
+        whatsappLineId: whatsappLineId || null
       }
     });
 
@@ -135,34 +142,39 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // 🕐 BUSINESS SCHEDULE CRUD
 // =============================================
 
-// GET /api/resources/schedule — Get business hours
+// GET /api/resources/schedule — Get business hours (filtered by lineId)
 router.get('/schedule', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
+    const lineId = req.query.lineId as string || null;
+
+    const where: any = { userId: ownerId };
+    if (lineId) where.whatsappLineId = lineId;
 
     let schedule = await prisma.businessSchedule.findMany({
-      where: { userId: ownerId },
+      where,
       orderBy: { dayOfWeek: 'asc' }
     });
 
-    // Auto-create default schedule if empty
+    // Auto-create default schedule if empty for this line
     if (schedule.length === 0) {
       const defaults = [];
       for (let day = 0; day <= 6; day++) {
         defaults.push({
           userId: ownerId,
           dayOfWeek: day,
-          isOpen: day >= 1 && day <= 6, // Mon-Sat open, Sun closed
+          isOpen: day >= 1 && day <= 6,
           startTime: '08:00',
           endTime: '18:00',
-          slotDuration: 60
+          slotDuration: 60,
+          whatsappLineId: lineId || null
         });
       }
       await prisma.businessSchedule.createMany({ data: defaults });
       schedule = await prisma.businessSchedule.findMany({
-        where: { userId: ownerId },
+        where,
         orderBy: { dayOfWeek: 'asc' }
       });
     }
@@ -173,19 +185,20 @@ router.get('/schedule', async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/resources/schedule — Update business hours (bulk)
+// PUT /api/resources/schedule — Update business hours (bulk, per line)
 router.put('/schedule', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
 
-    const { schedule } = req.body;
+    const { schedule, whatsappLineId } = req.body;
     if (!Array.isArray(schedule)) return res.status(400).json({ error: 'schedule debe ser un array' });
+    const lineId = whatsappLineId || null;
 
     for (const day of schedule) {
       await prisma.businessSchedule.upsert({
-        where: { userId_dayOfWeek: { userId: ownerId, dayOfWeek: day.dayOfWeek } },
+        where: { userId_dayOfWeek_whatsappLineId: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId } },
         create: {
           userId: ownerId,
           dayOfWeek: day.dayOfWeek,
@@ -195,6 +208,7 @@ router.put('/schedule', async (req: Request, res: Response) => {
           slotDuration: day.slotDuration || 60,
           breakStart: day.breakStart || null,
           breakEnd: day.breakEnd || null,
+          whatsappLineId: lineId
         },
         update: {
           isOpen: day.isOpen ?? true,
@@ -208,7 +222,7 @@ router.put('/schedule', async (req: Request, res: Response) => {
     }
 
     const updated = await prisma.businessSchedule.findMany({
-      where: { userId: ownerId },
+      where: { userId: ownerId, whatsappLineId: lineId },
       orderBy: { dayOfWeek: 'asc' }
     });
 
@@ -230,24 +244,32 @@ router.get('/availability', async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
 
-    const { date, resourceId } = req.query;
+    const { date, resourceId, lineId } = req.query;
     if (!date) return res.status(400).json({ error: 'Fecha requerida (date=YYYY-MM-DD)' });
 
     const targetDate = new Date(date as string);
-    const dayOfWeek = targetDate.getDay(); // 0=Sun, 1=Mon...
+    const dayOfWeek = targetDate.getDay();
+    const selectedLineId = lineId as string || null;
 
-    // 1. Get business schedule for this day
-    const daySchedule = await prisma.businessSchedule.findFirst({
-      where: { userId: ownerId, dayOfWeek }
+    // 1. Get business schedule for this day (line-specific or global)
+    let daySchedule = await prisma.businessSchedule.findFirst({
+      where: { userId: ownerId, dayOfWeek, whatsappLineId: selectedLineId }
     });
+    // Fallback to global schedule if no line-specific one
+    if (!daySchedule && selectedLineId) {
+      daySchedule = await prisma.businessSchedule.findFirst({
+        where: { userId: ownerId, dayOfWeek, whatsappLineId: null }
+      });
+    }
 
     if (!daySchedule || !daySchedule.isOpen) {
       return res.json({ available: false, message: 'Cerrado este día', slots: [] });
     }
 
-    // 2. Get active resources
+    // 2. Get active resources (line-specific + global)
     const resourceWhere: any = { userId: ownerId, isActive: true };
     if (resourceId) resourceWhere.id = resourceId as string;
+    else if (selectedLineId) resourceWhere.OR = [{ whatsappLineId: selectedLineId }, { whatsappLineId: null }];
 
     const resources = await prisma.resource.findMany({
       where: resourceWhere,
@@ -387,25 +409,33 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
 
-    const { date } = req.query;
+    const { date, lineId } = req.query;
     if (!date) return res.status(400).json({ error: 'Fecha requerida' });
+    const selectedLineId = lineId as string || null;
 
     const targetDate = new Date(date as string);
     const dayOfWeek = targetDate.getDay();
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-    // Schedule
-    const daySchedule = await prisma.businessSchedule.findFirst({
-      where: { userId: ownerId, dayOfWeek }
+    // Schedule (line-specific or global fallback)
+    let daySchedule = await prisma.businessSchedule.findFirst({
+      where: { userId: ownerId, dayOfWeek, whatsappLineId: selectedLineId }
     });
+    if (!daySchedule && selectedLineId) {
+      daySchedule = await prisma.businessSchedule.findFirst({
+        where: { userId: ownerId, dayOfWeek, whatsappLineId: null }
+      });
+    }
 
     if (!daySchedule || !daySchedule.isOpen) {
       return res.json({ text: `❌ ${dayNames[dayOfWeek]} ${date}: CERRADO. No hay disponibilidad.` });
     }
 
-    // Resources
+    // Resources (line-specific + global)
+    const resWhere: any = { userId: ownerId, isActive: true };
+    if (selectedLineId) resWhere.OR = [{ whatsappLineId: selectedLineId }, { whatsappLineId: null }];
     const resources = await prisma.resource.findMany({
-      where: { userId: ownerId, isActive: true },
+      where: resWhere,
       orderBy: { order: 'asc' }
     });
 
@@ -494,16 +524,22 @@ router.post('/check-slot', async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ error: 'No autorizado' });
     const ownerId = await getOwnerId(userId);
 
-    const { date, time, duration, resourceId } = req.body;
+    const { date, time, duration, resourceId, whatsappLineId } = req.body;
     if (!date || !time) return res.status(400).json({ error: 'date y time requeridos' });
+    const lineId = whatsappLineId || null;
 
     const targetDate = new Date(date);
     const dayOfWeek = targetDate.getDay();
 
-    // Check if open
-    const daySchedule = await prisma.businessSchedule.findFirst({
-      where: { userId: ownerId, dayOfWeek }
+    // Check if open (line-specific or global)
+    let daySchedule = await prisma.businessSchedule.findFirst({
+      where: { userId: ownerId, dayOfWeek, whatsappLineId: lineId }
     });
+    if (!daySchedule && lineId) {
+      daySchedule = await prisma.businessSchedule.findFirst({
+        where: { userId: ownerId, dayOfWeek, whatsappLineId: null }
+      });
+    }
 
     if (!daySchedule || !daySchedule.isOpen) {
       return res.json({ available: false, reason: 'Cerrado este día' });

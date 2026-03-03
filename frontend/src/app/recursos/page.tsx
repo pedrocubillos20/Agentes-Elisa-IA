@@ -6,6 +6,7 @@ import {
   AlertTriangle, RefreshCw, LayoutGrid, Armchair, Car, Scissors,
   UtensilsCrossed, Building, Dumbbell, Briefcase, Heart, Wrench
 } from 'lucide-react';
+import { useSelectedLine } from '../layout';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -56,6 +57,8 @@ const RESOURCE_TYPES: Record<string, { label: string; icon: any; examples: strin
 // MAIN COMPONENT
 // ═══════════════════════════════════════
 export default function RecursosPage() {
+  const { selectedLine } = useSelectedLine();
+  const lineId = selectedLine?.id || '';
   const [tab, setTab] = useState<'resources' | 'schedule' | 'availability'>('availability');
   const [resources, setResources] = useState<Resource[]>([]);
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
@@ -73,27 +76,27 @@ export default function RecursosPage() {
     'Content-Type': 'application/json'
   }), []);
 
-  // ═══ LOAD DATA ═══
+  // ═══ LOAD DATA (filtered by line) ═══
   const loadResources = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/resources`, { headers: headers() });
+      const res = await fetch(`${API_URL}/api/resources${lineId ? `?lineId=${lineId}` : ''}`, { headers: headers() });
       if (res.ok) { const data = await res.json(); setResources(data.resources || []); }
     } catch (e) { console.error(e); }
-  }, [headers]);
+  }, [headers, lineId]);
 
   const loadSchedule = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/resources/schedule`, { headers: headers() });
+      const res = await fetch(`${API_URL}/api/resources/schedule${lineId ? `?lineId=${lineId}` : ''}`, { headers: headers() });
       if (res.ok) { const data = await res.json(); setSchedule(data.schedule || []); }
     } catch (e) { console.error(e); }
-  }, [headers]);
+  }, [headers, lineId]);
 
   const loadAvailability = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/resources/availability?date=${selectedDate}`, { headers: headers() });
+      const res = await fetch(`${API_URL}/api/resources/availability?date=${selectedDate}${lineId ? `&lineId=${lineId}` : ''}`, { headers: headers() });
       if (res.ok) { const data = await res.json(); setAvailability(data); }
     } catch (e) { console.error(e); }
-  }, [headers, selectedDate]);
+  }, [headers, selectedDate, lineId]);
 
   useEffect(() => {
     Promise.all([loadResources(), loadSchedule(), loadAvailability()]).finally(() => setLoading(false));
@@ -107,7 +110,7 @@ export default function RecursosPage() {
     setSaving(true);
     try {
       const res = await fetch(`${API_URL}/api/resources`, {
-        method: 'POST', headers: headers(), body: JSON.stringify(newResource)
+        method: 'POST', headers: headers(), body: JSON.stringify({ ...newResource, whatsappLineId: lineId || null })
       });
       if (res.ok) {
         await loadResources(); await loadAvailability();
@@ -147,7 +150,7 @@ export default function RecursosPage() {
     setSaving(true);
     try {
       await fetch(`${API_URL}/api/resources/schedule`, {
-        method: 'PUT', headers: headers(), body: JSON.stringify({ schedule })
+        method: 'PUT', headers: headers(), body: JSON.stringify({ schedule, whatsappLineId: lineId || null })
       });
       await loadAvailability();
     } catch (e) { setError('Error guardando horario'); }

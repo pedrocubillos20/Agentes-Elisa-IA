@@ -1219,13 +1219,17 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               </div>
             )}
 
-            {/* 🤖 Asistente Personal toggle — para cualquier conversación */}
-            {!selectedConv.isGroup && (
+            {/* 🤖 Asistente Personal toggle — solo admin/manager */}
+            {!selectedConv.isGroup && (userRole === 'admin' || userRole === 'manager') && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                 <p className="text-[10px] text-[var(--text-muted)] mb-2">🤖 Asistente Personal</p>
                 <button
                   onClick={async () => {
                     const current = (selectedConv.contextData as any)?._isPersonalAssistant || false;
+                    if (!current) {
+                      const confirmed = window.confirm(`¿Seguro deseas activar el Asistente Personal en este número?\n\n${selectedConv.recipientName || selectedConv.recipientId}\n\nLa IA te enviará notificaciones automáticas de pedidos, citas y reservas a este WhatsApp.`);
+                      if (!confirmed) return;
+                    }
                     try {
                       const token = localStorage.getItem('token');
                       await fetch(`${API_URL}/api/conversations/${selectedConv.id}/personal-assistant`, {

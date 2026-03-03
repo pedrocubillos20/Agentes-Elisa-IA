@@ -416,6 +416,9 @@ model WhatsappLine {
   isDefault       Boolean   @default(false)
   isActive        Boolean   @default(true)
   
+  resources         Resource[]
+  businessSchedules BusinessSchedule[]
+  
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -618,36 +621,41 @@ model PushSubscription {
 }
 
 model Resource {
-  id          String   @id @default(cuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String
-  type        String   @default("generic")
-  capacity    Int      @default(1)
-  isActive    Boolean  @default(true)
-  order       Int      @default(0)
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  type            String        @default("generic")
+  capacity        Int           @default(1)
+  isActive        Boolean       @default(true)
+  order           Int           @default(0)
+  notes           String?
+  whatsappLineId  String?
+  whatsappLine    WhatsappLine? @relation(fields: [whatsappLineId], references: [id], onDelete: SetNull)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@index([userId])
+  @@index([whatsappLineId])
 }
 
 model BusinessSchedule {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dayOfWeek     Int
-  isOpen        Boolean  @default(true)
-  startTime     String   @default("08:00")
-  endTime       String   @default("18:00")
-  slotDuration  Int      @default(60)
-  breakStart    String?
-  breakEnd      String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dayOfWeek       Int
+  isOpen          Boolean       @default(true)
+  startTime       String        @default("08:00")
+  endTime         String        @default("18:00")
+  slotDuration    Int           @default(60)
+  breakStart      String?
+  breakEnd        String?
+  whatsappLineId  String?
+  whatsappLine    WhatsappLine? @relation(fields: [whatsappLineId], references: [id], onDelete: SetNull)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  @@unique([userId, dayOfWeek])
+  @@unique([userId, dayOfWeek, whatsappLineId])
   @@index([userId])
 }
 

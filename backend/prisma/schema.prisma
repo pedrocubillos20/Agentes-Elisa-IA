@@ -52,6 +52,8 @@ model User {
   whatsappStatus        String?
   
   // === STORAGE ===
+  profilePic      String?   @db.Text              // Foto de perfil (base64)
+  timezone        String    @default("America/Bogota") // Zona horaria
   storageUsed     Int      @default(0)         // Bytes usados actualmente
   storageLimit    Int      @default(262144000)  // 250MB en bytes (default)
   extraStorage    Int      @default(0)          // Storage adicional comprado (bytes)

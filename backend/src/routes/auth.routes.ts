@@ -621,7 +621,7 @@ router.post('/admin/impersonate', authMiddleware, async (req: Request, res: Resp
 // =====================================================
 
 // PUT /api/auth/profile
-router.put('/profile', async (req: Request, res: Response) => {
+router.put('/profile', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
@@ -641,7 +641,7 @@ router.put('/profile', async (req: Request, res: Response) => {
 });
 
 // PUT /api/auth/profile/photo
-router.put('/profile/photo', async (req: Request, res: Response) => {
+router.put('/profile/photo', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
@@ -657,7 +657,7 @@ router.put('/profile/photo', async (req: Request, res: Response) => {
 });
 
 // PUT /api/auth/change-password
-router.put('/change-password', async (req: Request, res: Response) => {
+router.put('/change-password', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }

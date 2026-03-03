@@ -154,9 +154,12 @@ router.post('/', async (req: Request, res: Response) => {
     const data: any = {
       name: body.name || 'Asistente',
       context: body.context || null,
-      personality: body.personality || null,
-      businessInfo: body.businessInfo || null,
-      instructions: body.instructions || null,
+      // 🛡️ PRESERVE: Solo actualizar si el frontend envía estos campos explícitamente
+      // El frontend principal (asistentes/page.tsx) no envía estos campos,
+      // así que los preservamos del asistente existente si no vienen en el body
+      ...(body.personality !== undefined && { personality: body.personality || null }),
+      ...(body.businessInfo !== undefined && { businessInfo: body.businessInfo || null }),
+      ...(body.instructions !== undefined && { instructions: body.instructions || null }),
       knowledgeItems: body.knowledgeItems || [],
       mediaItems: newMediaItems,
       elevenLabsKey: body.elevenLabsKey || null,
@@ -165,7 +168,7 @@ router.post('/', async (req: Request, res: Response) => {
       autoLearn: body.autoLearn !== false,
       // ✅ Trim learningHistory to prevent bloat (max 20 entries)
       learningHistory: trimLearningHistory(body.learningHistory || [], 20),
-      model: body.model || 'gpt-4-turbo-preview',
+      model: body.model || 'gpt-4o-mini',
       temperature: body.temperature || 0.7,
       maxTokens: body.maxTokens || 500,
       isActive: true

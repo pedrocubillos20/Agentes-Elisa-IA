@@ -19,6 +19,7 @@ export default function AsistentesPage() {
 
   // Context
   const [context, setContext] = useState('');
+  const [assistantName, setAssistantName] = useState('Asistente Principal');
   const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
 
   // Media
@@ -86,6 +87,7 @@ export default function AsistentesPage() {
         
         if (active) {
           // Cargar datos del asistente existente
+          setAssistantName(active.name || 'Asistente Principal');
           setContext(active.context || '');
           setKnowledgeItems(
             Array.isArray(active.knowledgeItems) ? active.knowledgeItems : 
@@ -136,7 +138,7 @@ export default function AsistentesPage() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({
-          name: 'Asistente Principal',
+          name: assistantName,
           context,
           knowledgeItems,
           mediaItems,

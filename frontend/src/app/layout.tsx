@@ -17,6 +17,7 @@ import WallpaperPicker, { applyWallpaper, loadSavedWallpaper } from '../componen
 import InstallApp from '../components/InstallApp';
 import { NotificationProvider, NotificationBellBadge, NotificationPanel } from '../components/NotificationSounds';
 import { PushNotificationManager } from '../components/PushNotificationManager';
+import ImpersonationBanner from '../components/ImpersonationBanner';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const SUPPORT_WHATSAPP = '573213815105';
@@ -53,6 +54,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const [globalResults, setGlobalResults] = useState<any[]>([]);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [isImpersonating, setIsImpersonating] = useState(false);
+
+  // 🛠️ Check if admin is impersonating a user
+  useEffect(() => {
+    setIsImpersonating(!!localStorage.getItem('bizonne_impersonating'));
+  }, []);
 
   // 🎨 Aplicar fondo guardado al montar
   useEffect(() => {
@@ -314,9 +321,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="app-background" />
         <div className="grid-pattern" />
 
+        <ImpersonationBanner />
+
         <NotificationProvider userId={user?.id}>
         <LineContext.Provider value={{ selectedLine, lines, switchLine, refreshLines: fetchLines }}>
-          <div id="bizonne-wrapper" className="h-[100dvh] flex overflow-hidden">
+          <div id="bizonne-wrapper" className={`h-[100dvh] flex overflow-hidden ${isImpersonating ? 'pt-10' : ''}`}>
             {sidebarOpen && <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
             {/* Sidebar */}

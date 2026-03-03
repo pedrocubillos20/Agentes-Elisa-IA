@@ -521,4 +521,88 @@ router.post('/admin/verify', authMiddleware, async (req: Request, res: Response)
   }
 });
 
+// ====================================================
+// 🛠️ ADMIN: Impersonar usuario (para implementación)
+// Permite al admin actuar como un usuario para configurar su cuenta
+// ====================================================
+router.post('/admin/impersonate', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const adminId = (req as AuthRequest).user?.id;
+    const { targetUserId } = req.body;
+
+    if (!adminId || !targetUserId) {
+      res.status(400).json({ error: 'targetUserId requerido' });
+      return;
+    }
+
+    // 1. Verificar que quien pide es ADMIN
+    const adminUser = await prisma.user.findUnique({
+      where: { id: adminId },
+      select: { email: true, name: true, parentUserId: true }
+    });
+
+    if (!adminUser || adminUser.parentUserId) {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
+
+    if (!ADMIN_EMAILS.includes(adminUser.email.toLowerCase())) {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
+
+    // 2. Obtener el usuario target
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        plan: true,
+        role: true,
+        parentUserId: true,
+        subscription: {
+          select: { plan: true, status: true, period: true }
+        }
+      }
+    });
+
+    if (!targetUser) {
+      res.status(404).json({ error: 'Usuario no encontrado' });
+      return;
+    }
+
+    // 3. Generar JWT del usuario target (expira en 2 horas)
+    const impersonationToken = jwt.sign(
+      {
+        id: targetUser.id,
+        email: targetUser.email,
+        impersonatedBy: adminId
+      },
+      JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+
+    // 4. Log de auditoría
+    console.log(`🛡️ IMPERSONACIÓN: Admin ${adminUser.email} → Usuario ${targetUser.email} (${targetUser.id})`);
+
+    res.json({
+      success: true,
+      token: impersonationToken,
+      user: {
+        id: targetUser.id,
+        email: targetUser.email,
+        name: targetUser.name,
+        plan: targetUser.plan,
+        role: targetUser.role
+      },
+      expiresIn: '2h'
+    });
+
+  } catch (error) {
+    console.error('Error impersonating:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 export default router;

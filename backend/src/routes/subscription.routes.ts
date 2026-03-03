@@ -1880,4 +1880,130 @@ router.post('/admin/cleanup', async (req: Request, res: Response) => {
   }
 });
 
+// =====================================================
+// 🛠️ ADMIN: GET /api/subscription/admin/implementations
+// Lista usuarios con addon de implementación + checklist auto-calculado
+// =====================================================
+router.get('/admin/implementations', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!(await isAdmin(userId))) {
+      res.status(403).json({ error: 'No autorizado' });
+      return;
+    }
+
+    // Buscar todos los pagos de implementación aprobados
+    const implPayments = await prisma.payment.findMany({
+      where: {
+        plan: 'implementation',
+        status: 'approved'
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            phone: true,
+            plan: true,
+            createdAt: true,
+            subscription: {
+              select: { plan: true, status: true, period: true, currentPeriodEnd: true }
+            },
+            whatsappLines: {
+              select: { id: true, status: true, phone: true, label: true }
+            },
+            assistants: {
+              select: { id: true, name: true, isActive: true, knowledgeItems: true, whatsappLineId: true }
+            },
+            products: {
+              select: { id: true, isActive: true }
+            },
+            businessSchedules: {
+              select: { id: true, dayOfWeek: true, isOpen: true }
+            },
+            _count: {
+              select: { conversations: true, clients: true }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    // Calcular estado de implementación para cada usuario
+    const implementations = implPayments.map(payment => {
+      const user = payment.user;
+      if (!user) return null;
+
+      const connectedLines = user.whatsappLines.filter(l => l.status === 'connected');
+      const activeAssistants = user.assistants.filter(a => a.isActive);
+      const hasKnowledge = user.assistants.some(a => {
+        const items = a.knowledgeItems as any[];
+        return Array.isArray(items) && items.length > 0;
+      });
+      const assistantLinked = user.assistants.some(a => a.whatsappLineId);
+      const activeProducts = user.products.filter(p => p.isActive);
+      const hasSchedule = user.businessSchedules.some(s => s.isOpen);
+
+      const checklist = {
+        whatsappConnected: { done: connectedLines.length > 0, label: 'WhatsApp conectado', detail: `${connectedLines.length} línea(s) conectada(s)` },
+        assistantCreated: { done: activeAssistants.length > 0, label: 'Asistente IA creado', detail: `${activeAssistants.length} asistente(s) activo(s)` },
+        knowledgeBase: { done: hasKnowledge, label: 'Base de conocimiento', detail: hasKnowledge ? 'Configurada' : 'Sin datos' },
+        assistantLinked: { done: assistantLinked, label: 'Asistente vinculado a línea', detail: assistantLinked ? 'Vinculado' : 'Sin vincular' },
+        productsLoaded: { done: activeProducts.length > 0, label: 'Productos cargados', detail: `${activeProducts.length} producto(s)` },
+        scheduleConfigured: { done: hasSchedule, label: 'Horario configurado', detail: hasSchedule ? 'Configurado' : 'Sin configurar' },
+      };
+
+      const totalSteps = Object.keys(checklist).length;
+      const completedSteps = Object.values(checklist).filter(c => c.done).length;
+      const progress = Math.round((completedSteps / totalSteps) * 100);
+
+      let status = 'pending';
+      if (progress === 100) status = 'completed';
+      else if (progress > 0) status = 'in_progress';
+
+      return {
+        paymentId: payment.id,
+        paidAt: payment.createdAt,
+        amountUsd: payment.amountUsd,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          phone: user.phone,
+          plan: user.plan,
+          createdAt: user.createdAt,
+          subscription: user.subscription,
+          stats: {
+            conversations: user._count.conversations,
+            clients: user._count.clients,
+            lines: user.whatsappLines.length,
+            connectedLines: connectedLines.length,
+            assistants: user.assistants.length,
+            products: user.products.length
+          }
+        },
+        checklist,
+        progress,
+        status,
+        completedSteps,
+        totalSteps
+      };
+    }).filter(Boolean);
+
+    res.json({
+      total: implementations.length,
+      completed: implementations.filter(i => i!.status === 'completed').length,
+      inProgress: implementations.filter(i => i!.status === 'in_progress').length,
+      pending: implementations.filter(i => i!.status === 'pending').length,
+      implementations
+    });
+
+  } catch (error) {
+    console.error('Error loading implementations:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 export default router;

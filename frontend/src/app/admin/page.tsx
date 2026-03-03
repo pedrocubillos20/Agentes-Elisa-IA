@@ -5,7 +5,8 @@ import {
   Shield, Users, CreditCard, Clock, Search, 
   RefreshCw, X,
   DollarSign, UserCheck, UserX, Edit3, Save, Lock,
-  Tag, Plus, Trash2, ToggleLeft, ToggleRight, Gift, Percent, Copy, Check
+  Tag, Plus, Trash2, ToggleLeft, ToggleRight, Gift, Percent, Copy, Check,
+  Wrench
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -17,7 +18,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'users' | 'payments' | 'discounts' | 'audit'>('users');
+  const [tab, setTab] = useState<'users' | 'payments' | 'discounts' | 'audit' | 'implementations'>('users');
   const [search, setSearch] = useState('');
   const [filterPlan, setFilterPlan] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -48,6 +49,11 @@ export default function AdminPage() {
   });
   const [discountLoading, setDiscountLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState('');
+
+  // Implementations state
+  const [implementations, setImplementations] = useState<any[]>([]);
+  const [implStats, setImplStats] = useState({ total: 0, completed: 0, inProgress: 0, pending: 0 });
+  const [implLoading, setImplLoading] = useState(false);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
@@ -100,6 +106,8 @@ export default function AdminPage() {
       else if (usersRes.status === 403) { alert('No tienes permisos de administrador'); router.push('/dashboard'); return; }
       if (paymentsRes.ok) setPayments((await paymentsRes.json()).payments || []);
       if (discountsRes.ok) setDiscounts((await discountsRes.json()).discounts || []);
+      // Cargar implementaciones en paralelo
+      loadImplementations();
     } catch (e) { console.error(e); }
     setLoading(false);
     setRefreshing(false);
@@ -214,6 +222,61 @@ export default function AdminPage() {
     }));
   };
 
+  // ===== IMPLEMENTATION FUNCTIONS =====
+  const loadImplementations = async () => {
+    setImplLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/subscription/admin/implementations`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setImplementations(data.implementations || []);
+        setImplStats({ total: data.total, completed: data.completed, inProgress: data.inProgress, pending: data.pending });
+      }
+    } catch (e) { console.error(e); }
+    setImplLoading(false);
+  };
+
+  const handleImpersonate = async (targetUserId: string, userName: string, userEmail: string) => {
+    if (!confirm(`¿Entrar a la cuenta de "${userName}"?\n\nTendrás acceso total por 2 horas.\nUsa el banner naranja para volver al panel admin.`)) return;
+    
+    try {
+      const res = await fetch(`${API_URL}/api/auth/admin/impersonate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUserId })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        
+        // Guardar token admin original
+        localStorage.setItem('bizonne_admin_token', token!);
+        localStorage.setItem('bizonne_impersonating', JSON.stringify({
+          userId: data.user.id,
+          userName: data.user.name || data.user.email,
+          userEmail: data.user.email,
+          startedAt: new Date().toISOString()
+        }));
+        
+        // Limpiar cache del usuario actual
+        localStorage.removeItem('bizonne_user_cache');
+        
+        // Reemplazar con token del usuario target
+        localStorage.setItem('token', data.token);
+        
+        // Redirigir al dashboard del usuario
+        window.location.href = '/dashboard';
+      } else {
+        const err = await res.json();
+        alert(`❌ ${err.error || 'Error al impersonar'}`);
+      }
+    } catch (e) {
+      alert('❌ Error de conexión');
+    }
+  };
+
   const formatCOP = (n: number) => '$' + Math.round(n).toLocaleString('es-CO');
   const formatDate = (d: string) => new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 
@@ -301,6 +364,7 @@ export default function AdminPage() {
           { id: 'users' as const, label: 'Usuarios', icon: Users, count: totalUsers },
           { id: 'payments' as const, label: 'Pagos', icon: CreditCard, count: payments.length },
           { id: 'discounts' as const, label: 'Descuentos', icon: Tag, count: discounts.length },
+          { id: 'implementations' as const, label: 'Implementaciones', icon: Wrench, count: implStats.total },
           { id: 'audit' as const, label: 'Auditoría DB', icon: Shield, count: 0 },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -411,6 +475,12 @@ export default function AdminPage() {
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-white/10 transition">
                           <Edit3 className="w-3.5 h-3.5" /> Editar
                         </button>
+                        {u.addons?.implementation && (
+                          <button onClick={() => handleImpersonate(u.id, u.name || u.email, u.email)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/10 rounded-lg text-xs text-orange-400 hover:bg-orange-500/20 transition border border-orange-500/20">
+                            <Wrench className="w-3.5 h-3.5" /> Implementar
+                          </button>
+                        )}
                       )}
                     </td>
                   </tr>
@@ -731,6 +801,136 @@ export default function AdminPage() {
       )}
 
       {/* ===== AUDITORÍA DB ===== */}
+      {tab === 'implementations' && (
+        <div className="space-y-6">
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Total', value: implStats.total, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
+              { label: 'Pendientes', value: implStats.pending, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
+              { label: 'En Progreso', value: implStats.inProgress, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+              { label: 'Completadas', value: implStats.completed, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+            ].map((s, i) => (
+              <div key={i} className={`${s.bg} rounded-2xl p-4 border ${s.border}`}>
+                <p className="text-xs text-gray-500 font-medium">{s.label}</p>
+                <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Cards */}
+          {implLoading ? (
+            <div className="flex justify-center py-12">
+              <RefreshCw className="w-6 h-6 text-orange-400 animate-spin" />
+            </div>
+          ) : implementations.length === 0 ? (
+            <div className="text-center py-16 text-gray-500">
+              <Wrench className="w-12 h-12 mx-auto mb-4 opacity-30" />
+              <p className="text-lg font-semibold">No hay implementaciones</p>
+              <p className="text-sm mt-1">Cuando un cliente compre el servicio de implementación, aparecerá aquí</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {implementations.map((impl: any) => (
+                <div key={impl.paymentId} className="bg-white/[0.02] border border-white/10 rounded-2xl overflow-hidden">
+                  {/* Header */}
+                  <div className="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                        impl.status === 'completed' ? 'bg-emerald-500/20' :
+                        impl.status === 'in_progress' ? 'bg-blue-500/20' :
+                        'bg-orange-500/20'
+                      }`}>
+                        <span className="text-2xl">
+                          {impl.status === 'completed' ? '✅' : impl.status === 'in_progress' ? '🔧' : '⏳'}
+                        </span>
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white">{impl.user.name || 'Sin nombre'}</h3>
+                        <p className="text-sm text-gray-500">{impl.user.email}</p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                            impl.user.plan === 'business' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'
+                          }`}>
+                            {impl.user.plan?.toUpperCase()}
+                          </span>
+                          {impl.user.phone && <span className="text-[10px] text-gray-600">📱 {impl.user.phone}</span>}
+                          <span className="text-[10px] text-gray-600">💰 ${impl.amountUsd} USD</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleImpersonate(impl.user.id, impl.user.name || impl.user.email, impl.user.email)}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition hover:brightness-110"
+                      style={{
+                        background: 'linear-gradient(135deg, #ea580c, #f59e0b)',
+                        boxShadow: '0 4px 15px rgba(249,115,22,0.3)'
+                      }}
+                    >
+                      🛠️ Implementar
+                    </button>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="px-5 pb-2">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-gray-500">Progreso: {impl.completedSteps}/{impl.totalSteps}</span>
+                      <span className={`text-xs font-bold ${
+                        impl.progress === 100 ? 'text-emerald-400' : impl.progress > 0 ? 'text-blue-400' : 'text-orange-400'
+                      }`}>{impl.progress}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          impl.progress === 100 ? 'bg-emerald-500' : impl.progress > 0 ? 'bg-blue-500' : 'bg-orange-500'
+                        }`}
+                        style={{ width: `${impl.progress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Checklist */}
+                  <div className="px-5 pb-5 pt-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      {Object.entries(impl.checklist).map(([key, check]: [string, any]) => (
+                        <div
+                          key={key}
+                          className={`flex items-center gap-2 p-2.5 rounded-xl border ${
+                            check.done
+                              ? 'bg-emerald-500/10 border-emerald-500/20'
+                              : 'bg-white/[0.02] border-white/5'
+                          }`}
+                        >
+                          <span className="text-sm">{check.done ? '✅' : '⬜'}</span>
+                          <div>
+                            <p className={`text-xs font-semibold ${check.done ? 'text-emerald-400' : 'text-gray-400'}`}>
+                              {check.label}
+                            </p>
+                            <p className="text-[10px] text-gray-600">{check.detail}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Stats footer */}
+                  <div className="px-5 pb-4 flex flex-wrap gap-3 border-t border-white/5 pt-3">
+                    <span className="text-[10px] text-gray-600">💬 {impl.user.stats.conversations} chats</span>
+                    <span className="text-[10px] text-gray-600">👥 {impl.user.stats.clients} clientes</span>
+                    <span className="text-[10px] text-gray-600">📱 {impl.user.stats.connectedLines}/{impl.user.stats.lines} líneas</span>
+                    <span className="text-[10px] text-gray-600">🤖 {impl.user.stats.assistants} asistentes</span>
+                    <span className="text-[10px] text-gray-600">📦 {impl.user.stats.products} productos</span>
+                    <span className="text-[10px] text-gray-600 ml-auto">Pagó: {formatDate(impl.paidAt)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== AUDITORÍA DB (original) ===== */}
       {tab === 'audit' && (
         <div className="space-y-4">
           <div className="flex gap-3">

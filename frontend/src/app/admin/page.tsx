@@ -418,9 +418,10 @@ export default function AdminPage() {
                         {u.addons?.implementation && <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400">🛠️ Impl</span>}
                         {u.addons?.prioritySupport && <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400">📞 Sop</span>}
                         {u.addons?.aiConfig && <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">🤖 IA</span>}
+                        {u.addons?.aiCalls && <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400">📞 Llam</span>}
                         {u.addons?.extraLines > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">📱 +{u.addons.extraLines}</span>}
                         {u.addons?.extraProducts > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">📦 +{u.addons.extraProducts * 10}</span>}
-                        {!u.addons?.implementation && !u.addons?.prioritySupport && !u.addons?.aiConfig && !u.addons?.extraLines && !u.addons?.extraProducts && <span className="text-[9px] text-gray-600">—</span>}
+                        {!u.addons?.implementation && !u.addons?.prioritySupport && !u.addons?.aiConfig && !u.addons?.aiCalls && !u.addons?.extraLines && !u.addons?.extraProducts && <span className="text-[9px] text-gray-600">—</span>}
                       </div>
                     </td>
                     <td className="px-5 py-4">
@@ -455,6 +456,7 @@ export default function AdminPage() {
                               { plan: 'implementation', label: '🛠️ Impl', active: u.addons?.implementation },
                               { plan: 'priority_support', label: '📞 Sop', active: u.addons?.prioritySupport },
                               { plan: 'ai_config', label: '🤖 IA', active: u.addons?.aiConfig },
+                              { plan: 'ai_calls', label: '📞 Llam', active: u.addons?.aiCalls },
                               { plan: 'extra_line', label: '📱 +Línea', active: false },
                               { plan: 'extra_products', label: '📦 +Prod', active: false }
                             ].map(a => (

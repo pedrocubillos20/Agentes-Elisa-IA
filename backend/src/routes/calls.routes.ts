@@ -59,7 +59,10 @@ router.get('/config', async (req: any, res) => {
       });
     }
     
-    res.json({ ...config, hasRetellKey: !!RETELL_KEY });
+    // Check if user has purchased ai_calls addon
+    const ownerId = (await db.user.findUnique({ where: { id: userId }, select: { parentUserId: true } }))?.parentUserId || userId;
+    const hasAddon = !!(await db.payment.findFirst({ where: { userId: ownerId, plan: 'ai_calls', type: 'addon', status: 'approved' } }));
+    res.json({ ...config, hasRetellKey: !!RETELL_KEY, hasAddon });
   } catch (e: any) {
     console.error('Error obteniendo config:', e.message);
     res.status(500).json({ error: e.message });

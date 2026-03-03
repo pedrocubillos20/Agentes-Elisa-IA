@@ -15,6 +15,9 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { next(); return; }
 
+    // 🛠️ Check if admin is impersonating this user
+    const isImpersonating = !!(req as AuthRequest).user?.impersonatedBy;
+
     // ⚡ Cache hit
     const cached = subscriptionCache.get(userId);
     if (cached) {
@@ -26,7 +29,8 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
         });
         return;
       }
-      if (cached.hasImplementation) {
+      // 🛠️ Skip implementation lock if admin is impersonating
+      if (cached.hasImplementation && !isImpersonating) {
         const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants')
           || req.path.startsWith('/api/integrations') || req.originalUrl?.includes('/api/integrations');
         if (isConfigRoute && req.method !== 'GET') {
@@ -70,7 +74,7 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
       return;
     }
 
-    if (hasImplementation) {
+    if (hasImplementation && !isImpersonating) {
       const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants')
         || req.path.startsWith('/api/integrations') || req.originalUrl?.includes('/api/integrations');
       if (isConfigRoute && req.method !== 'GET') {

@@ -12,6 +12,7 @@ export interface AuthRequest extends Request {
   user?: {
     id: string;
     email: string;
+    impersonatedBy?: string;
   };
 }
 
@@ -25,11 +26,12 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction):
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; email: string; impersonatedBy?: string };
 
     (req as AuthRequest).user = {
       id: decoded.id,
-      email: decoded.email
+      email: decoded.email,
+      impersonatedBy: decoded.impersonatedBy
     };
 
     next();

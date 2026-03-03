@@ -268,7 +268,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return true;
   }).map(item => ({
     ...item,
-    locked: hasImplementation && item.featureKey && implementationLocked.includes(item.featureKey)
+    locked: hasImplementation && !isImpersonating && item.featureKey && implementationLocked.includes(item.featureKey)
   }));
 
   const roleLabel = user?.role === 'admin' ? 'Administrador' : user?.role === 'manager' ? 'Gerente' : user?.role === 'agent' ? 'Vendedor' : user?.role === 'support' ? 'Soporte' : 'Observador';

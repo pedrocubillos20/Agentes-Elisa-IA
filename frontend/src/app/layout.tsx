@@ -493,15 +493,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <div className={`${sidebarCollapsed ? 'px-2 py-3' : 'p-4'} border-t border-[var(--border-primary)]`}>
                 {sidebarCollapsed ? (
                   <div className="flex flex-col items-center gap-2">
-                    <div className="avatar w-10 h-10 text-sm font-bold">{user?.name?.[0] || 'U'}</div>
+                    <div className="avatar w-10 h-10 text-sm font-bold" style={user?.profilePic ? { backgroundImage: `url(${user.profilePic})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}>{user?.profilePic ? '' : (user?.name?.[0] || 'U')}</div>
                     <button onClick={handleLogout} className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-red-500/15 to-red-600/5 text-red-400 hover:from-red-500/25 hover:to-red-600/15 transition-all" title="Cerrar sesión">
                       <LogOut className="w-4.5 h-4.5" />
                     </button>
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-white/5">
-                      <div className="avatar">{user?.name?.[0] || 'U'}</div>
+                    <div className="flex items-center gap-3 mb-4 p-3 rounded-xl bg-white/5 cursor-pointer hover:bg-white/10" onClick={() => router.push("/perfil")}>
+                      <div className="avatar" style={user?.profilePic ? { backgroundImage: `url(${user.profilePic})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}>{user?.profilePic ? '' : (user?.name?.[0] || 'U')}</div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-white truncate">{user?.name || 'Usuario'}</p>
                         <div className="flex items-center gap-1.5">

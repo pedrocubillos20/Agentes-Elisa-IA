@@ -307,7 +307,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, phone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
+      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
     });
 
     if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
@@ -605,4 +605,63 @@ router.post('/admin/impersonate', authMiddleware, async (req: Request, res: Resp
   }
 });
 
+
+// =====================================================
+// ===== PERFIL DE USUARIO =====
+// =====================================================
+
+// PUT /api/auth/profile
+router.put('/profile', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const { name, phone, timezone } = req.body;
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name.trim();
+    if (phone !== undefined) updateData.phone = phone.trim();
+    if (timezone !== undefined) updateData.timezone = timezone;
+    if (Object.keys(updateData).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
+    const user = await prisma.user.update({
+      where: { id: userId }, data: updateData,
+      select: { id: true, name: true, phone: true, email: true, timezone: true, profilePic: true }
+    });
+    console.log(`Profile updated: ${user.email}`);
+    res.json({ success: true, user });
+  } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+// PUT /api/auth/profile/photo
+router.put('/profile/photo', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const { photo } = req.body;
+    if (!photo) {
+      await prisma.user.update({ where: { id: userId }, data: { profilePic: null } });
+      res.json({ success: true, profilePic: null }); return;
+    }
+    if (photo.length > 2 * 1024 * 1024) { res.status(400).json({ error: 'Max 2MB' }); return; }
+    await prisma.user.update({ where: { id: userId }, data: { profilePic: photo } });
+    res.json({ success: true, profilePic: photo });
+  } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
+// PUT /api/auth/change-password
+router.put('/change-password', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) { res.status(400).json({ error: 'Ambas contrasenas requeridas' }); return; }
+    if (newPassword.length < 6) { res.status(400).json({ error: 'Minimo 6 caracteres' }); return; }
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { password: true, email: true } });
+    if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) { res.status(400).json({ error: 'Contrasena actual incorrecta' }); return; }
+    await prisma.user.update({ where: { id: userId }, data: { password: await bcrypt.hash(newPassword, 10) } });
+    res.json({ success: true, message: 'Contrasena actualizada' });
+  } catch (error: any) { res.status(500).json({ error: error.message }); }
+});
+
 export default router;
+

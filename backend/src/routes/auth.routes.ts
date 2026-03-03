@@ -305,10 +305,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
 
-    const _select: any = { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true };
-    const user = await prisma.user.findUnique({
+    const user: any = await (prisma as any).user.findUnique({
       where: { id: userId },
-      select: _select
+      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
     });
 
     if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
@@ -622,10 +621,9 @@ router.put('/profile', async (req: Request, res: Response) => {
     if (phone !== undefined) updateData.phone = phone.trim();
     if (timezone !== undefined) updateData.timezone = timezone;
     if (Object.keys(updateData).length === 0) { res.status(400).json({ error: 'Nada que actualizar' }); return; }
-    const _profileSelect: any = { id: true, name: true, phone: true, email: true, timezone: true, profilePic: true };
-    const user = await prisma.user.update({
+    const user: any = await (prisma as any).user.update({
       where: { id: userId }, data: updateData,
-      select: _profileSelect
+      select: { id: true, name: true, phone: true, email: true, timezone: true, profilePic: true }
     });
     console.log(`Profile updated: ${user.email}`);
     res.json({ success: true, user });
@@ -639,13 +637,11 @@ router.put('/profile/photo', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const { photo } = req.body;
     if (!photo) {
-      const _removeData: any = { profilePic: null };
-      await prisma.user.update({ where: { id: userId }, data: _removeData });
+      await (prisma as any).user.update({ where: { id: userId }, data: { profilePic: null } });
       res.json({ success: true, profilePic: null }); return;
     }
     if (photo.length > 2 * 1024 * 1024) { res.status(400).json({ error: 'Max 2MB' }); return; }
-    const _photoData: any = { profilePic: photo };
-    await prisma.user.update({ where: { id: userId }, data: _photoData });
+    await (prisma as any).user.update({ where: { id: userId }, data: { profilePic: photo } });
     res.json({ success: true, profilePic: photo });
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });

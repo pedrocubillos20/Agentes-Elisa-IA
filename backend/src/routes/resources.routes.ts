@@ -123,7 +123,7 @@ router.get('/schedule', async (req: Request, res: Response) => {
 
       // [FIX] Check for existing entries first to avoid duplicates (since no @@unique)
       const existingCount = await prisma.businessSchedule.count({
-        where: { userId: ownerId, whatsappLineId: lineId }
+        where: { userId: ownerId, whatsappLineId: lineId, dayOfWeek: { lte: 6 } }
       });
 
       if (existingCount === 0) {
@@ -351,10 +351,11 @@ router.get('/availability', async (req: Request, res: Response) => {
       });
     }
 
-    // 2. Get active resources (line-specific + global)
+    // 2. Get active resources (STRICT per line)
     const resourceWhere: any = { userId: ownerId, isActive: true };
     if (resourceId) resourceWhere.id = resourceId as string;
-    else if (selectedLineId) resourceWhere.OR = [{ whatsappLineId: selectedLineId }, { whatsappLineId: null }];
+    else if (selectedLineId) resourceWhere.whatsappLineId = selectedLineId;
+    else resourceWhere.whatsappLineId = null;
 
     const resources = await prisma.resource.findMany({
       where: resourceWhere,
@@ -554,9 +555,10 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
       return res.json({ text: `❌ ${dayNames[dayOfWeek]} ${date}: CERRADO. No hay disponibilidad.` });
     }
 
-    // Resources (line-specific + global)
+    // Resources (STRICT per line)
     const resWhere: any = { userId: ownerId, isActive: true };
-    if (selectedLineId) resWhere.OR = [{ whatsappLineId: selectedLineId }, { whatsappLineId: null }];
+    if (selectedLineId) resWhere.whatsappLineId = selectedLineId;
+    else resWhere.whatsappLineId = null;
     const resources = await prisma.resource.findMany({
       where: resWhere,
       orderBy: { order: 'asc' }
@@ -899,7 +901,9 @@ router.get('/', async (req: Request, res: Response) => {
 
     const where: any = { userId: ownerId };
     if (lineId) {
-      where.OR = [{ whatsappLineId: lineId }, { whatsappLineId: null }];
+      where.whatsappLineId = lineId;  // [FIX] Strict: solo recursos de ESTA línea
+    } else {
+      where.whatsappLineId = null;  // Sin línea: solo globales
     }
 
     const resources = await prisma.resource.findMany({

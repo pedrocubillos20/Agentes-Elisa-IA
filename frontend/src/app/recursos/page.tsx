@@ -881,6 +881,27 @@ export default function RecursosPage() {
           </div>
 
           <div className="space-y-3">
+            {schedule.length === 0 && !loading && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-center">
+                <p className="text-sm text-amber-400 mb-2">No hay horario configurado para esta línea</p>
+                <button onClick={async () => {
+                  try {
+                    setSaving(true);
+                    const defaults = Array.from({ length: 7 }, (_, i) => ({
+                      dayOfWeek: i, isOpen: i >= 1 && i <= 5, startTime: '08:00', endTime: '18:00', slotDuration: 60, breakStart: null, breakEnd: null
+                    }));
+                    await fetch(`${API_URL}/api/resources/schedule`, {
+                      method: 'PUT', headers: headers(), body: JSON.stringify({ schedule: defaults, whatsappLineId: lineId || null })
+                    });
+                    await loadSchedule();
+                    showToast('Horario creado exitosamente', 'success');
+                  } catch { showToast('Error creando horario', 'error'); }
+                  finally { setSaving(false); }
+                }} className="px-4 py-2 bg-amber-500 text-black font-bold rounded-lg text-xs hover:bg-amber-400 transition">
+                  Crear Horario por Defecto
+                </button>
+              </div>
+            )}
             {schedule.map(day => (
               <div key={day.dayOfWeek}
                 className={`rounded-xl border p-4 transition ${

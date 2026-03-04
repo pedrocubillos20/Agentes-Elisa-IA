@@ -3373,12 +3373,13 @@ const processBufferedMessages = async (bufferKey: string) => {
       const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
+      let cleanAiResponse = '';
       if (aiResponse) {
         // 🔄 Check for transfer in media+AI path
         const mediaTransferResetMatch = aiResponse.match(/<<TRANSFERIR_RESET:(\+?\d{7,15})>>/);
         const mediaTransferMatch = mediaTransferResetMatch || aiResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
         const mediaIsReset = !!mediaTransferResetMatch;
-        const cleanAiResponse = aiResponse
+        cleanAiResponse = aiResponse
           .replace(/<<TRANSFERIR_RESET:\+?\d{7,15}>>/g, '')
           .replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '')
           .replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();

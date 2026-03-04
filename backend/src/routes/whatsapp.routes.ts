@@ -3532,7 +3532,40 @@ const processBufferedMessages = async (bufferKey: string) => {
       log(`📎 Trigger multimedia: "${matchedMedia.name}" (tipo: ${matchedMedia.type})`);
       await stopPresence(sessionName, from);
 
-      // ═══ PASO 1: ENVIAR MEDIA PRIMERO ═══
+      // ═══ PASO 1: GENERAR Y ENVIAR TEXTO IA PRIMERO ═══
+      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
+      if (!isCloudAPI) await stopPresence(sessionName, from);
+
+      let cleanAiResponse = '';
+      if (aiResponse) {
+        const mediaTransferResetMatch = aiResponse.match(/<<TRANSFERIR_RESET:(\+?\d{7,15})>>/);
+        const mediaTransferMatch = mediaTransferResetMatch || aiResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
+        const mediaIsReset = !!mediaTransferResetMatch;
+        cleanAiResponse = aiResponse
+          .replace(/<<TRANSFERIR_RESET:\+?\d{7,15}>>/g, '')
+          .replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '')
+          .replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
+        
+        if (cleanAiResponse) {
+          if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
+          await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
+          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
+          log(`🤖 Respuesta IA (pre-media) → ${senderName}`);
+        }
+
+        if (mediaTransferMatch && whatsappLineId) {
+          await new Promise(r => setTimeout(r, 2000));
+          await executeLineTransfer(mediaTransferMatch[1], from, senderName, userId, whatsappLineId, convId, cleanAiResponse, mediaIsReset);
+        }
+      }
+
+      // ═══ PASO 2: ENVIAR MEDIA DESPUÉS DEL TEXTO ═══
+      if (!isCloudAPI) {
+        await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
+      } else {
+        await new Promise(r => setTimeout(r, 300));
+      }
+
       let mediaSent = false;
       if (matchedMedia.type === 'catalog' && Array.isArray(matchedMedia.images) && matchedMedia.images.length > 0) {
         log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
@@ -3564,46 +3597,12 @@ const processBufferedMessages = async (bufferKey: string) => {
         }
       }
 
-      // ═══ PASO 2: GENERAR Y ENVIAR TEXTO IA (después de la media) ═══
-      if (mediaSent) {
-        if (!isCloudAPI) {
-          await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
-          await setPresence(sessionName, from, 'typing');
-        } else {
-          await new Promise(r => setTimeout(r, 300)); // Pausa mínima Cloud API
-        }
-      }
-      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
-      if (!isCloudAPI) await stopPresence(sessionName, from);
-
-      let cleanAiResponse = '';
-      if (aiResponse) {
-        // 🔄 Check for transfer in media+AI path
-        const mediaTransferResetMatch = aiResponse.match(/<<TRANSFERIR_RESET:(\+?\d{7,15})>>/);
-        const mediaTransferMatch = mediaTransferResetMatch || aiResponse.match(/<<TRANSFERIR:(\+?\d{7,15})>>/);
-        const mediaIsReset = !!mediaTransferResetMatch;
-        cleanAiResponse = aiResponse
-          .replace(/<<TRANSFERIR_RESET:\+?\d{7,15}>>/g, '')
-          .replace(/<<TRANSFERIR:\+?\d{7,15}>>/g, '')
-          .replace(/<<VOZ>>/g, '').replace(/<<TEXTO>>/g, '').trim();
-        
-        if (cleanAiResponse) {
-          if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
-          await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
-          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
-        }
-
-        if (mediaTransferMatch && whatsappLineId) {
-          await new Promise(r => setTimeout(r, 2000));
-          await executeLineTransfer(mediaTransferMatch[1], from, senderName, userId, whatsappLineId, convId, cleanAiResponse, mediaIsReset);
-        }
-      }
-
       await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanAiResponse || `📎 ${matchedMedia.name}` } });
 
-      // ═══ PASO 3: FOLLOW-UP ESTRATÉGICO — DESACTIVADO ═══
-      // El follow-up duplicaba preguntas ya incluidas en la respuesta IA del usuario
-      // await sendMediaFollowUp(sessionName, from, userId, convId, matchedMedia.name, matchedMedia.type, aiResponse, whatsappLineId);
+      // ═══ PASO 3: FOLLOW-UP SOLO DESPUÉS DE MEDIA (foto/video) ═══
+      if (mediaSent) {
+        await sendMediaFollowUp(sessionName, from, userId, convId, matchedMedia.name, matchedMedia.type, aiResponse, whatsappLineId);
+      }
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
@@ -3675,10 +3674,28 @@ const processBufferedMessages = async (bufferKey: string) => {
         }
 
         if (responseMedia) {
-          // ═══ FLUJO: MEDIA PRIMERO → TEXTO → FOLLOW-UP ═══
+          // ═══ FLUJO: TEXTO PRIMERO → MEDIA DESPUÉS → FOLLOW-UP ═══
           log(`📸 Trigger por RESPUESTA del bot: "${responseMedia.name}" (tipo: ${responseMedia.type})`);
 
-          // PASO 1: Enviar media PRIMERO
+          // PASO 1: Enviar TEXTO primero
+          if (!isCloudAPI) {
+            await humanDelay(cleanResponse.length);
+          }
+
+          const textSent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
+          if (textSent) {
+            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+            log(`🤖 Respuesta (pre-media) → ${senderName}`);
+          }
+
+          // PASO 2: Pausa natural + enviar MEDIA después del texto
+          if (!isCloudAPI) {
+            await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
+          } else {
+            await new Promise(r => setTimeout(r, 300));
+          }
+
           if (responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
             log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes`);
             let sentCount = 0;
@@ -3713,25 +3730,8 @@ const processBufferedMessages = async (bufferKey: string) => {
             }
           }
 
-          // PASO 2: Pausa natural + enviar texto IA DESPUÉS de la media
-          if (!isCloudAPI) {
-            await new Promise(r => setTimeout(r, 600 + Math.random() * 600));
-            await setPresence(sessionName, from, 'typing');
-            await humanDelay(cleanResponse.length);
-            await stopPresence(sessionName, from);
-          } else {
-            await new Promise(r => setTimeout(r, 300));
-          }
-
-          const sent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
-          if (sent) {
-            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
-            await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
-            log(`🤖 Respuesta (post-media) → ${senderName}`);
-          }
-
-          // PASO 3: Follow-up estratégico — DESACTIVADO
-          // await sendMediaFollowUp(sessionName, from, userId, convId, responseMedia.name, responseMedia.type, cleanResponse, whatsappLineId);
+          // PASO 3: Follow-up estratégico SOLO después de foto/video
+          await sendMediaFollowUp(sessionName, from, userId, convId, responseMedia.name, responseMedia.type, cleanResponse, whatsappLineId);
 
         } else {
           // ═══ FLUJO NORMAL SIN TRIGGER: Solo texto ═══
@@ -4675,22 +4675,21 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
         await stopPresence(sessionName!, chatId).catch(() => {});
 
-        // 📎 PASO 1: Enviar MEDIA PRIMERO (imagen/video/audio antes del texto)
-        if (mediaUrl) {
-          const mediaObj = { url: mediaUrl, type: bulkMediaType || 'image', name: 'media' };
-          const mediaSent = await sendWahaMedia(sessionName!, chatId, mediaObj);
-          if (!mediaSent) { log(`⚠️ Media falló para ${phone}`); }
-          // Pausa entre media y texto
-          if (message) await new Promise(r => setTimeout(r, 1500 + Math.random() * 2000));
-        }
-
-        // 💬 PASO 2: Enviar TEXTO después (con variación anti-spam)
+        // 💬 PASO 1: Enviar TEXTO PRIMERO
         if (message) {
           // Variación invisible para anti-spam
           const variations = ['', ' ', '\u200B', '\u200E'];
           const variedMsg = message + variations[i % variations.length];
           const textSent = await sendWahaMessage(sessionName!, chatId, variedMsg);
           if (!textSent) { failed++; continue; }
+        }
+
+        // 📎 PASO 2: Enviar MEDIA DESPUÉS del texto
+        if (mediaUrl) {
+          if (message) await new Promise(r => setTimeout(r, 1500 + Math.random() * 2000));
+          const mediaObj = { url: mediaUrl, type: bulkMediaType || 'image', name: 'media' };
+          const mediaSent = await sendWahaMedia(sessionName!, chatId, mediaObj);
+          if (!mediaSent) { log(`⚠️ Media falló para ${phone}`); }
         }
 
         // Guardar en DB

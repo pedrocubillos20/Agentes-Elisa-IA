@@ -1336,6 +1336,19 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 
     // ====== CONSTRUIR SYSTEM PROMPT ======
     const promptParts: string[] = [];
+
+    // 🇨🇴 INYECTAR FECHA Y HORA DE COLOMBIA
+    const nowCol = getNowColombia();
+    const dayNamesCO = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const monthNamesCO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const colDateStr = `${dayNamesCO[nowCol.getDay()]} ${nowCol.getDate()} de ${monthNamesCO[nowCol.getMonth()]} de ${nowCol.getFullYear()}`;
+    const colTimeStr = `${nowCol.getHours().toString().padStart(2, '0')}:${nowCol.getMinutes().toString().padStart(2, '0')}`;
+    const colHour = nowCol.getHours();
+    const colAmPm = colHour >= 12 ? 'PM' : 'AM';
+    const colHour12 = colHour === 0 ? 12 : colHour > 12 ? colHour - 12 : colHour;
+    const colTime12 = `${colHour12}:${nowCol.getMinutes().toString().padStart(2, '0')} ${colAmPm}`;
+    promptParts.push(`🇨🇴 FECHA Y HORA ACTUAL (Colombia, UTC-5): ${colDateStr}, ${colTime12} (${colTimeStr}). Hoy es ${dayNamesCO[nowCol.getDay()]}. Usa SIEMPRE esta referencia para saber qué día es "hoy", "mañana", etc. Si un cliente pide una hora que YA PASÓ hoy, ofrécele para MAÑANA.`);
+
     if (assistant.name) promptParts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
     if (assistant.personality?.trim()) promptParts.push(assistant.personality);
     if (assistant.context?.trim()) promptParts.push(assistant.context);
@@ -4508,6 +4521,20 @@ router.post('/send', async (req: Request, res: Response) => {
       }
       
       if (!conv) {
+        // 🔍 ÚLTIMA BÚSQUEDA ANTI-DUPLICADOS: últimos 7 dígitos sin filtro de línea
+        if (cleanNumber.length >= 7) {
+          const last7 = cleanNumber.slice(-7);
+          conv = await prisma.conversation.findFirst({ 
+            where: { userId: ownerId, recipientId: { endsWith: last7 }, isGroup: { not: true } },
+            orderBy: { updatedAt: 'desc' }
+          });
+          if (conv && lineId && !conv.whatsappLineId) {
+            await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId: lineId } }).catch(() => {});
+          }
+        }
+      }
+      
+      if (!conv) {
         conv = await prisma.conversation.create({ 
           data: { userId: ownerId, recipientId: cleanNumber, lastMessage: message || '📎 Media', stage: 'new', ...(lineId ? { whatsappLineId: lineId } : {}) } 
         });
@@ -5372,6 +5399,28 @@ router.post('/webhook', async (req: Request, res: Response) => {
     
     // Crear nueva conversación si no existe
     if (!conv) {
+      // 🔍 ÚLTIMA BÚSQUEDA ANTI-DUPLICADOS: buscar por últimos 7 dígitos SIN filtro de línea
+      if (!isGroup && recipientId.length >= 7) {
+        const last7 = recipientId.replace(/\D/g, '').slice(-7);
+        conv = await prisma.conversation.findFirst({ 
+          where: { userId, recipientId: { endsWith: last7 }, isGroup: { not: true } },
+          orderBy: { updatedAt: 'desc' }
+        });
+        if (conv) {
+          log(`🔗 Anti-duplicado: encontrada conv existente ${conv.recipientId} para ${recipientId} (match últimos 7)`);
+          // Actualizar línea si faltaba
+          if (whatsappLineId && !conv.whatsappLineId) {
+            await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
+          }
+          // Actualizar recipientId si el nuevo es más completo
+          if (recipientId.length > (conv.recipientId?.length || 0)) {
+            await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId } }).catch(() => {});
+          }
+        }
+      }
+    }
+    
+    if (!conv) {
       // 👥 Para grupos: obtener nombre del grupo de la metadata del payload
       const groupSubject = isGroup 
         ? (payload?.subject || payload?._data?.subject || payload?.chat?.name || payload?.groupMetadata?.subject || senderName)
@@ -6124,6 +6173,16 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       // Find or create conversation
       let conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
       if (!conv) conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: recipientId.slice(-10) }, whatsappLineId } });
+      // 🔍 ANTI-DUPLICADOS: búsqueda amplia sin filtro de línea
+      if (!conv && recipientId.length >= 7) {
+        conv = await prisma.conversation.findFirst({ 
+          where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, isGroup: { not: true } },
+          orderBy: { updatedAt: 'desc' }
+        });
+        if (conv && whatsappLineId && !conv.whatsappLineId) {
+          await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
+        }
+      }
       if (!conv) {
         conv = await prisma.conversation.create({
           data: { userId, recipientId, recipientName: senderName, lastMessage: messageBody, stage: 'new', whatsappLineId }

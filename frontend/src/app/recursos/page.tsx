@@ -104,6 +104,33 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 }
 
 // ═══════════════════════════════════════
+// 🇨🇴 COLOMBIA TIMEZONE HELPERS
+// All dates must use Colombia time (UTC-5) to avoid day-shift bugs
+// ═══════════════════════════════════════
+function getNowColombia(): Date {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utc - 5 * 3600000); // UTC-5
+}
+
+function getTodayColombia(): string {
+  const col = getNowColombia();
+  const y = col.getFullYear();
+  const m = String(col.getMonth() + 1).padStart(2, '0');
+  const d = String(col.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function getColombiaDate(offsetDays: number = 0): { dateStr: string; dayOfWeek: number; dayOfMonth: number } {
+  const col = getNowColombia();
+  col.setDate(col.getDate() + offsetDays);
+  const y = col.getFullYear();
+  const m = String(col.getMonth() + 1).padStart(2, '0');
+  const d = String(col.getDate()).padStart(2, '0');
+  return { dateStr: `${y}-${m}-${d}`, dayOfWeek: col.getDay(), dayOfMonth: col.getDate() };
+}
+
+// ═══════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════
 export default function RecursosPage() {
@@ -113,12 +140,7 @@ export default function RecursosPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
   const [availability, setAvailability] = useState<AvailabilityData | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => {
-    // [FIX] Use Colombia timezone for default date
-    const now = new Date();
-    const colombiaTime = new Date(now.getTime() + (-5 - now.getTimezoneOffset() / 60) * 3600000);
-    return colombiaTime.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(() => getTodayColombia());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddResource, setShowAddResource] = useState(false);
@@ -341,9 +363,13 @@ export default function RecursosPage() {
 
   // ═══ DATE NAVIGATION ═══
   const changeDate = (offset: number) => {
-    const d = new Date(selectedDate + 'T12:00:00');
-    d.setDate(d.getDate() + offset);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    // Parse selectedDate and add offset using Colombia-safe method
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dt = new Date(y, m - 1, d + offset);
+    const ny = dt.getFullYear();
+    const nm = String(dt.getMonth() + 1).padStart(2, '0');
+    const nd = String(dt.getDate()).padStart(2, '0');
+    setSelectedDate(`${ny}-${nm}-${nd}`);
   };
 
   if (loading) return (
@@ -472,8 +498,7 @@ export default function RecursosPage() {
           {/* Quick date buttons */}
           <div className="flex gap-2 flex-wrap">
             {[0, 1, 2, 3, 4, 5, 6].map(offset => {
-              const d = new Date(); d.setDate(d.getDate() + offset);
-              const ds = d.toISOString().split('T')[0];
+              const { dateStr: ds, dayOfWeek, dayOfMonth } = getColombiaDate(offset);
               const isSelected = ds === selectedDate;
               const hol = holidays.find(h => h.date === ds);
               return (
@@ -483,7 +508,7 @@ export default function RecursosPage() {
                     : hol && !hol.isWorkDay ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
                     : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
                   }`}>
-                  {offset === 0 ? 'Hoy' : offset === 1 ? 'Mañana' : DAY_SHORT[d.getDay()]} {d.getDate()}
+                  {offset === 0 ? 'Hoy' : offset === 1 ? 'Mañana' : DAY_SHORT[dayOfWeek]} {dayOfMonth}
                   {hol && <span className="ml-1">🇨🇴</span>}
                 </button>
               );
@@ -962,7 +987,7 @@ export default function RecursosPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           {holidays.map(h => {
-            const today = new Date().toISOString().split('T')[0];
+            const today = getTodayColombia();
             const isPast = h.date < today;
             const d = new Date(h.date + 'T12:00:00Z');
             const dayName = DAY_SHORT[d.getUTCDay()];

@@ -438,10 +438,11 @@ router.get('/', async (req: Request, res: Response) => {
     if (status && status !== 'all') where.status = status;
 
     if (date) {
-      const targetDate = new Date(date as string);
-      targetDate.setHours(0, 0, 0, 0);
-      const nextDay = new Date(targetDate);
-      nextDay.setDate(nextDay.getDate() + 1);
+      // 🇨🇴 Use Colombia timezone boundaries (midnight COT = 5AM UTC)
+      const [year, month, day] = (date as string).split('-').map(Number);
+      const COLOMBIA_UTC_OFFSET = 5; // Colombia is UTC-5
+      const targetDate = new Date(Date.UTC(year, month - 1, day, COLOMBIA_UTC_OFFSET, 0, 0, 0));
+      const nextDay = new Date(Date.UTC(year, month - 1, day + 1, COLOMBIA_UTC_OFFSET, 0, 0, 0));
       where.date = { gte: targetDate, lt: nextDay };
     }
 
@@ -550,8 +551,11 @@ router.post('/', async (req: Request, res: Response) => {
       const activeResources = await prisma.resource.findMany({ where: resWhere, orderBy: { order: 'asc' } });
 
       if (activeResources.length > 0 && date && time) {
-        const dayStart = new Date(toDateTime(date).toISOString().split('T')[0] + 'T00:00:00Z');
-        const dayEnd = new Date(toDateTime(date).toISOString().split('T')[0] + 'T23:59:59Z');
+        // 🇨🇴 Use Colombia timezone boundaries
+        const dateStr = toDateTime(date).toISOString().split('T')[0];
+        const [dY, dM, dD] = dateStr.split('-').map(Number);
+        const dayStart = new Date(Date.UTC(dY, dM - 1, dD, 5, 0, 0, 0)); // Midnight Colombia = 5AM UTC
+        const dayEnd = new Date(Date.UTC(dY, dM - 1, dD + 1, 4, 59, 59, 999)); // 11:59 PM Colombia
 
         const [tH, tM] = time.split(':').map(Number);
         const requestMin = tH * 60 + tM;

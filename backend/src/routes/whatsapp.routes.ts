@@ -148,15 +148,29 @@ const formatTimeColombia = (date?: Date): string => {
 };
 
 // 📅 Helper: Parsear fecha inteligente — "viernes", "mañana", "13 de marzo", "2025-03-07"
+/**
+ * Converts a Colombia-adjusted Date to a UTC Date that Prisma stores correctly.
+ * Ensures the date falls within getColombiaDayRange for the correct Colombia day.
+ * Stores at 12:00 UTC (7AM Colombia) — safely within the day range.
+ */
+const toStorableDate = (colombiaDate: Date): Date => {
+  // Extract the Colombia year/month/day (works on UTC servers because getNowColombia shifts the clock)
+  const y = colombiaDate.getFullYear();
+  const m = colombiaDate.getMonth();
+  const d = colombiaDate.getDate();
+  // Return noon UTC of that date — safely inside getColombiaDayRange (05:00 UTC to 04:59 next day)
+  return new Date(Date.UTC(y, m, d, 12, 0, 0));
+};
+
 const parseSmartDate = (fechaStr: string): Date => {
   const today = getNowColombia();
-  if (!fechaStr) return today;
+  if (!fechaStr) return toStorableDate(today);
   const f = fechaStr.toLowerCase().trim();
 
   // Relativas
-  if (f.includes('hoy')) return new Date(today);
-  if (f.includes('mañana') || f.includes('manana')) { const d = new Date(today); d.setDate(d.getDate() + 1); return d; }
-  if (f.includes('pasado')) { const d = new Date(today); d.setDate(d.getDate() + 2); return d; }
+  if (f.includes('hoy')) return toStorableDate(new Date(today));
+  if (f.includes('mañana') || f.includes('manana')) { const d = new Date(today); d.setDate(d.getDate() + 1); return toStorableDate(d); }
+  if (f.includes('pasado')) { const d = new Date(today); d.setDate(d.getDate() + 2); return toStorableDate(d); }
 
   // Días de la semana: "viernes", "este viernes", "el viernes"
   const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -169,7 +183,7 @@ const parseSmartDate = (fechaStr: string): Date => {
     let daysAhead = targetDay - currentDay;
     if (daysAhead <= 0) daysAhead += 7; // Siempre próximo, nunca pasado
     d.setDate(d.getDate() + daysAhead);
-    return d;
+    return toStorableDate(d);
   }
 
   // "13 de marzo", "5 de febrero"
@@ -181,15 +195,15 @@ const parseSmartDate = (fechaStr: string): Date => {
     if (monthNames[monthStr] !== undefined) {
       const d = new Date(today.getFullYear(), monthNames[monthStr], day);
       if (d < today) d.setFullYear(d.getFullYear() + 1);
-      return d;
+      return toStorableDate(d);
     }
   }
 
   // ISO / formato estándar: "2025-03-07", "03/07/2025"
   const parsed = new Date(fechaStr);
-  if (!isNaN(parsed.getTime())) return parsed;
+  if (!isNaN(parsed.getTime())) return toStorableDate(parsed);
 
-  return today; // Fallback
+  return toStorableDate(today); // Fallback
 };
 
 // 🕐 Helper: Parsear hora inteligente — "3pm", "15:00", "3:30 PM"
@@ -2184,6 +2198,8 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                       }
                     }
                   }
+                  // 🇨🇴 Convert to storable UTC date (noon UTC = 7AM Colombia, safely within day range)
+                  citaDate = toStorableDate(citaDate);
                   
                   const nombre = extractedData.nombre || clientName || 'Cliente WhatsApp';
                   const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
@@ -2461,15 +2477,15 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   const citaTime = parseSmartTime(merged.hora_cita || '', '10:00');
 
                   // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
-                  const now = getNowColombia();
-                  const todayStr = now.toISOString().split('T')[0];
+                  const nowCol = getNowColombia();
+                  const todayStr = getTodayStringColombia();
                   const citaDateCheck = citaDate.toISOString().split('T')[0];
                   if (citaDateCheck === todayStr) {
                     const [cH, cM] = citaTime.split(':').map(Number);
                     const citaMinutes = cH * 60 + cM;
-                    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                    const nowMinutes = nowCol.getHours() * 60 + nowCol.getMinutes();
                     if (citaMinutes <= nowMinutes) {
-                      citaDate.setDate(citaDate.getDate() + 1);
+                      citaDate = toStorableDate(new Date(nowCol.getFullYear(), nowCol.getMonth(), nowCol.getDate() + 1));
                       log(`🕐 Hora ${citaTime} ya pasó hoy → movida a mañana ${citaDate.toISOString().split('T')[0]}`);
                     }
                   }
@@ -2632,14 +2648,14 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
 
                   // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
                   const nowR = getNowColombia();
-                  const todayStrR = nowR.toISOString().split('T')[0];
+                  const todayStrR = getTodayStringColombia();
                   const reservaDateCheck = reservaDate.toISOString().split('T')[0];
                   if (reservaDateCheck === todayStrR) {
                     const [rH, rM] = reservaTime.split(':').map(Number);
                     const resMinutes = rH * 60 + rM;
                     const nowMinutesR = nowR.getHours() * 60 + nowR.getMinutes();
                     if (resMinutes <= nowMinutesR) {
-                      reservaDate.setDate(reservaDate.getDate() + 1);
+                      reservaDate = toStorableDate(new Date(nowR.getFullYear(), nowR.getMonth(), nowR.getDate() + 1));
                       log(`🕐 Hora ${reservaTime} ya pasó hoy → reserva movida a mañana ${reservaDate.toISOString().split('T')[0]}`);
                     }
                   }

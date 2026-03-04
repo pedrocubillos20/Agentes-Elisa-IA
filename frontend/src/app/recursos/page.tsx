@@ -29,7 +29,7 @@ interface DaySchedule {
 interface SlotInfo {
   time: string; totalCapacity: number; occupied: number;
   free: number; available: boolean;
-  resources?: { id: string; name: string; available: boolean; occupant: any }[];
+  resources?: { id: string; name: string; available: boolean; capacity?: number; occupied?: number; free?: number; occupants?: { name: string; type: string }[] }[];
 }
 
 interface AvailabilityData {
@@ -325,6 +325,11 @@ export default function RecursosPage() {
         <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
           <p className="text-2xl font-black text-white">{resources.filter(r => r.isActive).length}</p>
           <p className="text-xs text-purple-300">Recursos activos</p>
+          {resources.some(r => (r.capacity || 1) > 1) && (
+            <p className="text-[10px] text-purple-400 mt-1">
+              Cap. total: {resources.filter(r => r.isActive).reduce((s, r) => s + (r.capacity || 1), 0)}/turno
+            </p>
+          )}
         </div>
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
           <p className="text-2xl font-black text-white">{availability?.availableSlots || 0}</p>
@@ -413,6 +418,9 @@ export default function RecursosPage() {
               {availability.resources.length > 0 && (
                 <span>🏪 {availability.resources.length} recurso{availability.resources.length > 1 ? 's' : ''}</span>
               )}
+              {availability.resources.some(r => (r.capacity || 1) > 1) && (
+                <span>👥 Capacidad: {availability.resources.reduce((s: number, r: any) => s + (r.capacity || 1), 0)}/turno</span>
+              )}
             </div>
           )}
 
@@ -430,6 +438,9 @@ export default function RecursosPage() {
                       <div key={r.id} className="p-3 text-center border-r border-white/5 last:border-r-0">
                         <TypeIcon className="w-4 h-4 text-purple-400 mx-auto mb-1" />
                         <p className="text-xs font-bold text-white truncate">{r.name}</p>
+                        {(r.capacity || 1) > 1 && (
+                          <p className="text-[10px] text-gray-500 mt-0.5">Cap: {r.capacity}/turno</p>
+                        )}
                       </div>
                     );
                   })}
@@ -452,32 +463,73 @@ export default function RecursosPage() {
                       <span className="text-sm font-mono font-bold text-gray-300">{slot.time}</span>
                     </div>
 
-                    {/* Per-resource cells */}
+                    {/* Per-resource cells — CAPACITY-AWARE */}
                     {availability.resources.length > 0 ? (
-                      slot.resources?.map(r => (
-                        <div key={r.id} className={`p-3 border-r border-white/5 last:border-r-0 flex items-center justify-center ${
-                          r.available ? 'bg-emerald-500/5' : 'bg-red-500/10'
-                        }`}>
-                          {r.available ? (
-                            <div className="flex items-center gap-1.5">
-                              <CheckCircle className="w-4 h-4 text-emerald-400" />
-                              <span className="text-xs text-emerald-300 font-medium">Libre</span>
-                            </div>
-                          ) : (
-                            <div className="text-center">
-                              <div className="flex items-center gap-1.5">
-                                <XCircle className="w-4 h-4 text-red-400" />
-                                <span className="text-xs text-red-300 font-medium">Ocupado</span>
-                              </div>
-                              {r.occupant && (
-                                <p className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[120px]">
-                                  {r.occupant.name}
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))
+                      slot.resources?.map(r => {
+                        const cap = r.capacity || 1;
+                        const occ = r.occupied || 0;
+                        const isFull = !r.available;
+                        const pct = cap > 0 ? (occ / cap) * 100 : 0;
+                        const barColor = pct === 0 ? 'bg-emerald-500' : pct >= 100 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500';
+
+                        return (
+                          <div key={r.id} className={`p-2 border-r border-white/5 last:border-r-0 flex flex-col items-center justify-center gap-1 ${
+                            isFull ? 'bg-red-500/10' : occ > 0 ? 'bg-amber-500/5' : 'bg-emerald-500/5'
+                          }`}>
+                            {cap > 1 ? (
+                              <>
+                                <div className="flex items-center gap-1">
+                                  {isFull ? (
+                                    <XCircle className="w-3.5 h-3.5 text-red-400" />
+                                  ) : (
+                                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                                  )}
+                                  <span className={`text-xs font-bold ${isFull ? 'text-red-300' : occ > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>
+                                    {occ}/{cap}
+                                  </span>
+                                </div>
+                                {/* Mini capacity bar */}
+                                <div className="w-full max-w-[80px] h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                  <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                                </div>
+                                {/* Occupant names */}
+                                {r.occupants && r.occupants.length > 0 && (
+                                  <div className="text-center">
+                                    {r.occupants.slice(0, 3).map((o, i) => (
+                                      <p key={i} className="text-[9px] text-gray-500 truncate max-w-[100px]">{o.name}</p>
+                                    ))}
+                                    {r.occupants.length > 3 && (
+                                      <p className="text-[9px] text-gray-600">+{r.occupants.length - 3} más</p>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              /* Single capacity (cap=1): simple occupied/free */
+                              <>
+                                {r.available ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <CheckCircle className="w-4 h-4 text-emerald-400" />
+                                    <span className="text-xs text-emerald-300 font-medium">Libre</span>
+                                  </div>
+                                ) : (
+                                  <div className="text-center">
+                                    <div className="flex items-center gap-1.5">
+                                      <XCircle className="w-4 h-4 text-red-400" />
+                                      <span className="text-xs text-red-300 font-medium">Ocupado</span>
+                                    </div>
+                                    {r.occupants?.[0] && (
+                                      <p className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[120px]">
+                                        {r.occupants[0].name}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })
                     ) : (
                       <div className={`p-3 flex items-center gap-2 ${slot.available ? 'bg-emerald-500/5' : 'bg-red-500/10'}`}>
                         {slot.available ? (

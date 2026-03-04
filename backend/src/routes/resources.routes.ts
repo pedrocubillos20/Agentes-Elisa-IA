@@ -385,9 +385,11 @@ router.get('/availability', async (req: Request, res: Response) => {
       slots.push(`${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`);
     }
 
-    // 5. Calculate availability per slot
+    // 5. Calculate availability per slot — CAPACITY-AWARE
+    // Each resource has a capacity (e.g. Tecnomecanica capacity=5 means 5 motos per hour)
+    // totalCapacity = SUM of all resource capacities, not just count of resources
     const hasResources = resources.length > 0;
-    const totalCapacity = hasResources ? resources.length : 1;
+    const totalCapacity = hasResources ? resources.reduce((sum, r) => sum + (r.capacity || 1), 0) : 1;
 
     const availability = slots.map(slot => {
       // Count appointments at this time slot
@@ -411,18 +413,25 @@ router.get('/availability', async (req: Request, res: Response) => {
       const occupiedCount = slotAppointments.length;
       const freeCount = Math.max(0, totalCapacity - occupiedCount);
 
-      // Per-resource detail
+      // Per-resource detail with CAPACITY support
       let resourceDetail: any[] = [];
       if (hasResources) {
         resourceDetail = resources.map(r => {
-          const isOccupied = slotAppointments.some(a => a.resourceId === r.id);
-          const occupant = slotAppointments.find(a => a.resourceId === r.id);
+          const resourceAppts = slotAppointments.filter(a => a.resourceId === r.id);
+          const resourceOccupied = resourceAppts.length;
+          const resourceCapacity = r.capacity || 1;
+          const resourceFree = Math.max(0, resourceCapacity - resourceOccupied);
+          const isFull = resourceFree <= 0;
+
           return {
             id: r.id,
             name: r.name,
             type: r.type,
-            available: !isOccupied,
-            occupant: isOccupied ? { name: occupant?.clientName, type: occupant?.type } : null
+            capacity: resourceCapacity,
+            occupied: resourceOccupied,
+            free: resourceFree,
+            available: !isFull,
+            occupants: resourceAppts.map(a => ({ name: a.clientName, type: a.type }))
           };
         });
       }
@@ -535,7 +544,7 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
       breakEndMin = beH * 60 + beM;
     }
 
-    const totalCapacity = resources.length || 1;
+    const totalCapacity = resources.length > 0 ? resources.reduce((sum, r) => sum + (r.capacity || 1), 0) : 1;
     const availableSlots: string[] = [];
     const occupiedSlots: string[] = [];
 
@@ -562,12 +571,18 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
 
       const freeCount = totalCapacity - slotAppts.length;
       if (freeCount > 0) {
-        const freeResources = resources.length > 0
-          ? resources.filter(r => !slotAppts.some(a => a.resourceId === r.id)).map(r => r.name)
+        // Show per-resource availability with capacity
+        const resourceInfo = resources.length > 0
+          ? resources.map(r => {
+              const rAppts = slotAppts.filter(a => a.resourceId === r.id).length;
+              const rCap = r.capacity || 1;
+              const rFree = Math.max(0, rCap - rAppts);
+              return rFree > 0 ? `${r.name} (${rFree}/${rCap} libres)` : null;
+            }).filter(Boolean)
           : [];
         availableSlots.push(
-          resources.length > 0
-            ? `${slot} (${freeCount} libre${freeCount > 1 ? 's' : ''}: ${freeResources.join(', ')})`
+          resourceInfo.length > 0
+            ? `${slot} (${freeCount} libre${freeCount > 1 ? 's' : ''}: ${resourceInfo.join(', ')})`
             : `${slot}`
         );
       } else {
@@ -664,32 +679,36 @@ router.post('/check-slot', async (req: Request, res: Response) => {
       return aStart < reqEnd && aEnd > timeMin;
     });
 
-    // If resource specified, check just that resource
+    // If resource specified, check that resource's CAPACITY
     if (resourceId) {
-      const conflict = overlapping.find(a => a.resourceId === resourceId);
-      if (conflict) {
-        return res.json({ available: false, reason: `Recurso ocupado a esa hora (${conflict.clientName})` });
+      const resource = await prisma.resource.findFirst({ where: { id: resourceId, userId: ownerId } });
+      const resourceCapacity = resource?.capacity || 1;
+      const resourceAppts = overlapping.filter(a => a.resourceId === resourceId);
+      if (resourceAppts.length >= resourceCapacity) {
+        return res.json({ available: false, reason: `Recurso lleno a esa hora (${resourceAppts.length}/${resourceCapacity} ocupados)` });
       }
-      return res.json({ available: true });
+      return res.json({ available: true, currentOccupied: resourceAppts.length, capacity: resourceCapacity });
     }
 
-    // If no resource specified, check total capacity
+    // If no resource specified, check total capacity across all resources
     const resources = await prisma.resource.findMany({
       where: { userId: ownerId, isActive: true }
     });
 
-    const totalCapacity = resources.length || 1;
+    const totalCapacity = resources.length > 0 ? resources.reduce((sum, r) => sum + (r.capacity || 1), 0) : 1;
     if (overlapping.length >= totalCapacity) {
-      return res.json({ available: false, reason: `Todos los espacios ocupados a las ${time}` });
+      return res.json({ available: false, reason: `Todos los espacios ocupados a las ${time} (${overlapping.length}/${totalCapacity})` });
     }
 
-    // Find a free resource to assign
-    const occupiedResourceIds = overlapping.map(a => a.resourceId).filter(Boolean);
-    const freeResource = resources.find(r => !occupiedResourceIds.includes(r.id));
+    // Find a resource with available capacity to assign
+    const freeResource = resources.find(r => {
+      const rAppts = overlapping.filter(a => a.resourceId === r.id).length;
+      return rAppts < (r.capacity || 1);
+    });
 
     res.json({
       available: true,
-      suggestedResource: freeResource ? { id: freeResource.id, name: freeResource.name } : null
+      suggestedResource: freeResource ? { id: freeResource.id, name: freeResource.name, capacity: freeResource.capacity } : null
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });

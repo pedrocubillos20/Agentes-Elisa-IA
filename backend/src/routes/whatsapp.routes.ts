@@ -2475,14 +2475,21 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                         return aStart < reqStart + slotDur && aEnd > reqStart;
                       });
                       
-                      const occupiedIds = overlapping.map(a => a.resourceId).filter(Boolean);
-                      const freeResource = activeResources.find(r => !occupiedIds.includes(r.id));
+                      // CAPACITY-AWARE: count per-resource, not just occupied IDs
+                      const occupiedCounts = new Map<string, number>();
+                      for (const a of overlapping) {
+                        if (a.resourceId) occupiedCounts.set(a.resourceId, (occupiedCounts.get(a.resourceId) || 0) + 1);
+                      }
+                      const freeResource = activeResources.find(r => {
+                        const used = occupiedCounts.get(r.id) || 0;
+                        return used < (r.capacity || 1);
+                      });
                       
                       if (freeResource) {
                         appointmentData.resourceId = freeResource.id;
                         appointmentData.resourceName = freeResource.name;
                         appointmentData.duration = slotDur;
-                        log(`🔗 Recurso asignado: ${freeResource.name} (${freeResource.id})`);
+                        log(`🔗 Recurso asignado: ${freeResource.name} (${freeResource.id}) — capacidad ${freeResource.capacity || 1}`);
                       } else {
                         log(`⚠️ Sin recursos libres para ${citaTime} — cita creada sin recurso`);
                       }
@@ -2611,13 +2618,20 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                         return aStart < reqStart + duracionReserva && aEnd > reqStart;
                       });
                       
-                      const occupiedIds = overlapping.map(a => a.resourceId).filter(Boolean);
-                      const freeResource = activeResources.find(r => !occupiedIds.includes(r.id));
+                      // CAPACITY-AWARE: count per-resource, not just occupied IDs
+                      const occupiedCounts2 = new Map<string, number>();
+                      for (const a of overlapping) {
+                        if (a.resourceId) occupiedCounts2.set(a.resourceId, (occupiedCounts2.get(a.resourceId) || 0) + 1);
+                      }
+                      const freeResource = activeResources.find(r => {
+                        const used = occupiedCounts2.get(r.id) || 0;
+                        return used < (r.capacity || 1);
+                      });
                       
                       if (freeResource) {
                         reservaData.resourceId = freeResource.id;
                         reservaData.resourceName = freeResource.name;
-                        log(`🔗 Recurso asignado a reserva: ${freeResource.name}`);
+                        log(`🔗 Recurso asignado a reserva: ${freeResource.name} — capacidad ${freeResource.capacity || 1}`);
                       } else {
                         log(`⚠️ Sin recursos libres para reserva ${reservaTime} — creada sin recurso`);
                       }

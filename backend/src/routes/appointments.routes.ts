@@ -570,8 +570,14 @@ router.post('/', async (req: Request, res: Response) => {
           return aStart < (requestMin + slotDuration) && aEnd > requestMin;
         });
 
-        const occupiedIds = overlapping.map(a => a.resourceId).filter(Boolean);
-        const freeResource = activeResources.find(r => !occupiedIds.includes(r.id));
+        const occupiedCounts = new Map<string, number>();
+        for (const a of overlapping) {
+          if (a.resourceId) occupiedCounts.set(a.resourceId, (occupiedCounts.get(a.resourceId) || 0) + 1);
+        }
+        const freeResource = activeResources.find(r => {
+          const used = occupiedCounts.get(r.id) || 0;
+          return used < (r.capacity || 1);
+        });
         if (freeResource) {
           assignedResourceId = freeResource.id;
           assignedResourceName = freeResource.name;

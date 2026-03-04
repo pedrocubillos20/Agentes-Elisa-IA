@@ -1347,7 +1347,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     const colAmPm = colHour >= 12 ? 'PM' : 'AM';
     const colHour12 = colHour === 0 ? 12 : colHour > 12 ? colHour - 12 : colHour;
     const colTime12 = `${colHour12}:${nowCol.getMinutes().toString().padStart(2, '0')} ${colAmPm}`;
-    promptParts.push(`🇨🇴 FECHA Y HORA ACTUAL (Colombia, UTC-5): ${colDateStr}, ${colTime12} (${colTimeStr}). Hoy es ${dayNamesCO[nowCol.getDay()]}. Usa SIEMPRE esta referencia para saber qué día es "hoy", "mañana", etc. Si un cliente pide una hora que YA PASÓ hoy, ofrécele para MAÑANA.`);
+    promptParts.push(`🇨🇴 FECHA Y HORA ACTUAL (Colombia, UTC-5): ${colDateStr}, ${colTime12} (${colTimeStr}). Hoy es ${dayNamesCO[nowCol.getDay()]}. Usa SIEMPRE esta referencia para calcular qué horarios de HOY aún son válidos. Un horario es válido si es al menos 1 hora después de la hora actual. Si el cliente pide "hoy" y hay horarios futuros disponibles → OFRÉCELOS. Solo sugiere mañana si HOY ya no tiene horarios libres futuros.`);
 
     if (assistant.name) promptParts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
     if (assistant.personality?.trim()) promptParts.push(assistant.personality);
@@ -1770,6 +1770,7 @@ REGLAS DE TRANSFERENCIA:
         }
 
         availabilityLines.push('⚠️ REGLAS: Solo ofrece horarios DISPONIBLES (✅). NUNCA ofrezcas horarios llenos (❌). Si no hay disponibilidad, sugiere otro día. Cuando confirmen cita/reserva, usa la acción correspondiente. SIEMPRE muestra horarios en formato 12h (ej: 2:00 PM, no 14:00).');
+        availabilityLines.push('🕐 REGLA HOY vs MAÑANA: Compara la HORA ACTUAL de Colombia (inyectada arriba) con los horarios libres de HOY. Si hay horarios de HOY que sean al menos 1 hora después de la hora actual → OFRÉCELOS. Solo di "hoy no hay disponibilidad" si TODOS los horarios libres de HOY ya pasaron. Para recogida a domicilio: el horario debe ser mínimo 1 hora después de ahora. Para cita presencial: mínimo 30 minutos después. NUNCA saltes a mañana si hoy todavía tiene horarios futuros disponibles.');
         availabilityLines.push('🚨 CRÍTICO: Esta sección de disponibilidad es INTERNA — SOLO PARA TI. NUNCA copies este bloque al cliente. NUNCA muestres "(Tecnomecanica)" ni "=== DISPONIBILIDAD ===" ni datos técnicos. Reformula la info de forma bonita y natural como un humano por WhatsApp.');
 
         // 🇨🇴 Add upcoming holidays
@@ -1978,7 +1979,7 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas. Si el cliente CANCELA, pon accion:"cancelar_cita"/"cancelar_reserva"/"cancelar_pedido" según corresponda. Si CAMBIA fecha/hora, pon accion:"actualizar_cita"/"actualizar_reserva"/"actualizar_pedido". IMPORTANTE: Si la hora solicitada ya pasó hoy, agenda para MAÑANA, no para hoy.]`;
+    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas. Si el cliente CANCELA, pon accion:"cancelar_cita"/"cancelar_reserva"/"cancelar_pedido" según corresponda. Si CAMBIA fecha/hora, pon accion:"actualizar_cita"/"actualizar_reserva"/"actualizar_pedido". IMPORTANTE: Si un horario específico ya pasó hoy, ofrece el SIGUIENTE horario libre de HOY. Solo agenda para mañana si ya NO quedan horarios disponibles hoy.]`;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI

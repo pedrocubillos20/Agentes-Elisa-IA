@@ -4,6 +4,7 @@ import { getOwnerId } from '../lib/helpers';
 import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { sendPushToUser } from './push.routes';
+import { isColombianHoliday, getUpcomingHolidays, getHolidaySummaryForAI } from './colombian-holidays';
 
 const router = Router();
 
@@ -1623,7 +1624,7 @@ REGLAS DE TRANSFERENCIA:
         }
 
         // Show schedule summary
-        const openDays = schedules.filter(s => s.isOpen);
+        const openDays = schedules.filter(s => s.isOpen && s.dayOfWeek <= 6);
         if (openDays.length > 0) {
           availabilityLines.push(`🕐 Horario: ${openDays.map(s => `${dayNames[s.dayOfWeek]}: ${to12h(s.startTime)}-${to12h(s.endTime)}`).join(' | ')}`);
           availabilityLines.push(`⏱️ Duración por turno: ${openDays[0].slotDuration} min`);
@@ -1640,6 +1641,22 @@ REGLAS DE TRANSFERENCIA:
           if (!daySchedule || !daySchedule.isOpen) {
             availabilityLines.push(`❌ ${dayNames[dayOfWeek]} ${dateStr}: CERRADO`);
             continue;
+          }
+
+          // 🇨🇴 Check Colombian holiday
+          const holiday = isColombianHoliday(dateStr);
+          if (holiday) {
+            // Check if business works on this holiday
+            const holidayConfig = schedules.find(s => s.dayOfWeek === 7);
+            const workOnAll = holidayConfig?.isOpen || false;
+            let workDates: string[] = [];
+            try { workDates = holidayConfig?.breakStart ? JSON.parse(holidayConfig.breakStart) : []; } catch {}
+            if (!workOnAll && !workDates.includes(dateStr)) {
+              availabilityLines.push(`🇨🇴 ${dayNames[dayOfWeek]} ${dateStr}: FESTIVO (${holiday.name}) — CERRADO`);
+              continue;
+            }
+            // Working holiday - note it
+            availabilityLines.push(`⚠️ ${dayNames[dayOfWeek]} ${dateStr} es festivo (${holiday.name}) pero el negocio ABRE:`);
           }
 
           // Get appointments for this day
@@ -1664,7 +1681,7 @@ REGLAS DE TRANSFERENCIA:
             bEndMin = beH * 60 + beM;
           }
 
-          const totalCap = resources.length || 1;
+          const totalCap = resources.length > 0 ? resources.reduce((sum, r) => sum + (r.capacity || 1), 0) : 1;
           const freeSlots: string[] = [];
           const fullSlots: string[] = [];
 
@@ -1694,7 +1711,10 @@ REGLAS DE TRANSFERENCIA:
             const freeCount = totalCap - overlapping.length;
             if (freeCount > 0) {
               if (resources.length > 0) {
-                const freeR = resources.filter(r => !overlapping.some(a => a.resourceId === r.id));
+                const freeR = resources.filter(r => {
+                  const rUsed = overlapping.filter(a => a.resourceId === r.id).length;
+                  return rUsed < (r.capacity || 1);
+                });
                 freeSlots.push(`${slot}(${freeR.map(r => r.name).join(',')})`);
               } else {
                 freeSlots.push(slot);
@@ -1709,6 +1729,15 @@ REGLAS DE TRANSFERENCIA:
         }
 
         availabilityLines.push('⚠️ REGLAS: Solo ofrece horarios DISPONIBLES (✅). NUNCA ofrezcas horarios llenos (❌). Si no hay disponibilidad, sugiere otro día. Cuando confirmen cita/reserva, usa la acción correspondiente. SIEMPRE muestra horarios en formato 12h (ej: 2:00 PM, no 14:00).');
+
+        // 🇨🇴 Add upcoming holidays
+        const todayStr = today.toISOString().split('T')[0];
+        const holidaySummary = getHolidaySummaryForAI(todayStr);
+        if (holidaySummary) {
+          availabilityLines.push('');
+          availabilityLines.push(holidaySummary);
+          availabilityLines.push('⚠️ Los festivos el negocio está CERRADO salvo que se indique lo contrario arriba. NO agendes citas/reservas en festivos cerrados.');
+        }
 
         promptParts.push(availabilityLines.join('\n'));
         log(`📅 Disponibilidad inyectada: ${resources.length} recursos, ${schedules.length} horarios`);
@@ -2420,6 +2449,27 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   const citaDate = parseSmartDate(merged.fecha_cita || '');
                   const citaTime = parseSmartTime(merged.hora_cita || '', '10:00');
 
+                  // 🇨🇴 Check holiday — prevent booking on closed holidays
+                  const citaDateStr = citaDate.toISOString().split('T')[0];
+                  const citaHoliday = isColombianHoliday(citaDateStr);
+                  let holidayBlocked = false;
+                  if (citaHoliday) {
+                    const holConfig = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: 7 } });
+                    const workAll = holConfig?.isOpen || false;
+                    let workDts: string[] = [];
+                    try { workDts = holConfig?.breakStart ? JSON.parse(holConfig.breakStart) : []; } catch {}
+                    if (!workAll && !workDts.includes(citaDateStr)) {
+                      holidayBlocked = true;
+                      log(`🇨🇴 Cita bloqueada: ${citaDateStr} es festivo (${citaHoliday.name})`);
+                    }
+                  }
+
+                  if (holidayBlocked) {
+                    log(`⚠️ Cita NO creada — festivo cerrado`);
+                  }
+
+                  if (!holidayBlocked) {
+
                   const tipoCita = merged.tipo_cita || 'cita';
                   const nombreCliente = merged.nombre || clientName || 'Cliente WhatsApp';
                   const phoneClean = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
@@ -2542,6 +2592,7 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   } catch (crmErr: any) {
                     console.error('⚠️ Error auto-CRM:', crmErr.message);
                   }
+                  } // end if (!holidayBlocked)
                 } catch (citaErr: any) {
                   console.error('❌ Error creando cita:', citaErr.message);
                 }
@@ -2553,6 +2604,23 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   // 📅 Parsear fecha y hora inteligente
                   const reservaDate = parseSmartDate(merged.fecha_reserva || '');
                   const reservaTime = parseSmartTime(merged.hora_reserva || '', '12:00');
+
+                  // 🇨🇴 Check holiday — prevent booking on closed holidays
+                  const reservaDateStr = reservaDate.toISOString().split('T')[0];
+                  const reservaHoliday = isColombianHoliday(reservaDateStr);
+                  let reservaHolidayBlocked = false;
+                  if (reservaHoliday) {
+                    const holCfg = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: 7 } });
+                    const workAllR = holCfg?.isOpen || false;
+                    let workDtsR: string[] = [];
+                    try { workDtsR = holCfg?.breakStart ? JSON.parse(holCfg.breakStart) : []; } catch {}
+                    if (!workAllR && !workDtsR.includes(reservaDateStr)) {
+                      reservaHolidayBlocked = true;
+                      log(`🇨🇴 Reserva bloqueada: ${reservaDateStr} es festivo (${reservaHoliday.name})`);
+                    }
+                  }
+
+                  if (!reservaHolidayBlocked) {
 
                   const tipoReserva = merged.tipo_reserva || 'reserva';
                   const numPersonas = merged.num_personas || '1';
@@ -2682,6 +2750,7 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   } catch (crmErr: any) {
                     console.error('⚠️ Error auto-CRM reserva:', crmErr.message);
                   }
+                  } // end if (!reservaHolidayBlocked)
                 } catch (resErr: any) {
                   console.error('❌ Error creando reserva:', resErr.message);
                 }

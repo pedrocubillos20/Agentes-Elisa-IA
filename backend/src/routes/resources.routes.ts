@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
+import { getColombianHolidays, isColombianHoliday, getHolidaysInRange, getHolidaySummaryForAI, getUpcomingHolidays } from './colombian-holidays';
 
 // =============================================
 // 📅 RESOURCES & AVAILABILITY SYSTEM
@@ -77,7 +78,7 @@ router.get('/schedule', async (req: Request, res: Response) => {
     const ownerId = await getOwnerId(userId);
     const lineId = req.query.lineId as string || null;
 
-    const where: any = { userId: ownerId };
+    const where: any = { userId: ownerId, dayOfWeek: { lte: 6 } };
     if (lineId) where.whatsappLineId = lineId;
     else where.whatsappLineId = null; // Global schedules only
 
@@ -307,6 +308,30 @@ router.get('/availability', async (req: Request, res: Response) => {
     // [FIX] Use Colombia timezone for correct day-of-week
     const dayOfWeek = getColombiaDayOfWeek(date as string);
     const selectedLineId = lineId as string || null;
+    const dateStr = date as string;
+    const dayName = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][dayOfWeek];
+
+    // 🇨🇴 CHECK HOLIDAY
+    const holiday = isColombianHoliday(dateStr);
+    if (holiday) {
+      // Check if user works on this holiday
+      const holidayConfig = await prisma.businessSchedule.findFirst({
+        where: { userId: ownerId, dayOfWeek: 7 }
+      });
+      const workOnAll = holidayConfig?.isOpen || false;
+      let workDates: string[] = [];
+      try { workDates = holidayConfig?.breakStart ? JSON.parse(holidayConfig.breakStart) : []; } catch {}
+      const worksThisHoliday = workOnAll || workDates.includes(dateStr);
+
+      if (!worksThisHoliday) {
+        return res.json({
+          available: false, message: `🇨🇴 Festivo: ${holiday.name}`, slots: [], totalSlots: 0,
+          availableSlots: 0, occupiedSlots: 0, isOpen: false, isHoliday: true,
+          holiday: { name: holiday.name, type: holiday.type },
+          date: dateStr, dayOfWeek, dayName, resources: [], schedule: null
+        });
+      }
+    }
 
     // 1. Get business schedule for this day (line-specific or global fallback)
     let daySchedule = await prisma.businessSchedule.findFirst({
@@ -453,8 +478,10 @@ router.get('/availability', async (req: Request, res: Response) => {
     res.json({
       date: date,
       dayOfWeek,
-      dayName: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][dayOfWeek],
+      dayName,
       isOpen: true,
+      isHoliday: !!holiday,
+      holiday: holiday ? { name: holiday.name, type: holiday.type } : null,
       schedule: {
         start: daySchedule.startTime,
         end: daySchedule.endTime,
@@ -493,6 +520,25 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
     // [FIX] Colombia timezone
     const dayOfWeek = getColombiaDayOfWeek(date as string);
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+    // 🇨🇴 CHECK HOLIDAY
+    const holiday = isColombianHoliday(date as string);
+    if (holiday) {
+      const holidayConfig = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: 7 } });
+      const workOnAll = holidayConfig?.isOpen || false;
+      let workDates: string[] = [];
+      try { workDates = holidayConfig?.breakStart ? JSON.parse(holidayConfig.breakStart) : []; } catch {}
+      const worksThisHoliday = workOnAll || workDates.includes(date as string);
+
+      if (!worksThisHoliday) {
+        const upcoming = getUpcomingHolidays(date as string, 3).filter(h => h.date !== date);
+        let text = `🇨🇴 ${dayNames[dayOfWeek]} ${date} es FESTIVO: ${holiday.name}. NO hay disponibilidad. El negocio está cerrado por festivo.`;
+        if (upcoming.length > 0) {
+          text += `\nPróximos festivos: ${upcoming.map(h => `${h.date} (${h.name})`).join(', ')}`;
+        }
+        return res.json({ text, isHoliday: true, holidayName: holiday.name });
+      }
+    }
 
     // Schedule (line-specific or global fallback)
     let daySchedule = await prisma.businessSchedule.findFirst({
@@ -620,6 +666,18 @@ router.post('/check-slot', async (req: Request, res: Response) => {
     // [FIX] Colombia timezone
     const dayOfWeek = getColombiaDayOfWeek(date);
 
+    // 🇨🇴 CHECK HOLIDAY
+    const holiday = isColombianHoliday(date);
+    if (holiday) {
+      const holidayConfig = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: 7 } });
+      const workOnAll = holidayConfig?.isOpen || false;
+      let workDates: string[] = [];
+      try { workDates = holidayConfig?.breakStart ? JSON.parse(holidayConfig.breakStart) : []; } catch {}
+      if (!workOnAll && !workDates.includes(date)) {
+        return res.json({ available: false, reason: `🇨🇴 Festivo: ${holiday.name}. Negocio cerrado.`, isHoliday: true });
+      }
+    }
+
     // Check if open (line-specific or global)
     let daySchedule = await prisma.businessSchedule.findFirst({
       where: { userId: ownerId, dayOfWeek, whatsappLineId: lineId }
@@ -709,6 +767,115 @@ router.post('/check-slot', async (req: Request, res: Response) => {
     res.json({
       available: true,
       suggestedResource: freeResource ? { id: freeResource.id, name: freeResource.name, capacity: freeResource.capacity } : null
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// =============================================
+// =============================================
+// 🇨🇴 COLOMBIAN HOLIDAYS
+// =============================================
+
+// GET /api/resources/holidays — Get holidays for a year/month
+router.get('/holidays', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    const ownerId = await getOwnerId(userId);
+
+    const year = parseInt(req.query.year as string) || new Date().getFullYear();
+    const month = req.query.month ? parseInt(req.query.month as string) : undefined;
+
+    let holidays = getColombianHolidays(year);
+
+    if (month !== undefined) {
+      const monthStr = month.toString().padStart(2, '0');
+      holidays = holidays.filter(h => h.date.substring(5, 7) === monthStr);
+    }
+
+    // Get user's holiday work preferences (stored in dayOfWeek=7 BusinessSchedule)
+    const holidayConfig = await prisma.businessSchedule.findFirst({
+      where: { userId: ownerId, dayOfWeek: 7 }
+    });
+
+    // Parse work dates from breakStart field (JSON array of dates)
+    let workOnHolidays = false;
+    let holidayWorkDates: string[] = [];
+    if (holidayConfig) {
+      workOnHolidays = holidayConfig.isOpen; // isOpen = work on ALL holidays
+      try {
+        holidayWorkDates = holidayConfig.breakStart ? JSON.parse(holidayConfig.breakStart) : [];
+      } catch { holidayWorkDates = []; }
+    }
+
+    // Enrich holidays with work status
+    const enriched = holidays.map(h => ({
+      ...h,
+      isWorkDay: workOnHolidays || holidayWorkDates.includes(h.date)
+    }));
+
+    res.json({ holidays: enriched, workOnHolidays, holidayWorkDates, year });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/resources/holidays — Update holiday work preferences
+router.put('/holidays', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    const ownerId = await getOwnerId(userId);
+
+    const { workOnHolidays, holidayWorkDates, toggleDate } = req.body;
+
+    // Get or create the holiday config record (dayOfWeek=7)
+    let holidayConfig = await prisma.businessSchedule.findFirst({
+      where: { userId: ownerId, dayOfWeek: 7 }
+    });
+
+    let currentWorkDates: string[] = [];
+    if (holidayConfig) {
+      try { currentWorkDates = holidayConfig.breakStart ? JSON.parse(holidayConfig.breakStart) : []; } catch { currentWorkDates = []; }
+    }
+
+    // Toggle a specific date
+    if (toggleDate) {
+      if (currentWorkDates.includes(toggleDate)) {
+        currentWorkDates = currentWorkDates.filter(d => d !== toggleDate);
+      } else {
+        currentWorkDates.push(toggleDate);
+      }
+    }
+
+    // Explicit set of work dates
+    if (holidayWorkDates !== undefined) {
+      currentWorkDates = holidayWorkDates;
+    }
+
+    const data = {
+      userId: ownerId,
+      dayOfWeek: 7,
+      isOpen: workOnHolidays !== undefined ? workOnHolidays : (holidayConfig?.isOpen || false),
+      startTime: '00:00',
+      endTime: '23:59',
+      slotDuration: 60,
+      breakStart: JSON.stringify(currentWorkDates),
+      breakEnd: null
+    };
+
+    if (holidayConfig) {
+      await prisma.businessSchedule.update({ where: { id: holidayConfig.id }, data });
+    } else {
+      await prisma.businessSchedule.create({ data });
+    }
+
+    res.json({
+      message: 'Configuración de festivos actualizada',
+      workOnHolidays: data.isOpen,
+      holidayWorkDates: currentWorkDates
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });

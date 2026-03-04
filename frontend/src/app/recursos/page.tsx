@@ -34,10 +34,15 @@ interface SlotInfo {
 
 interface AvailabilityData {
   date: string; dayName: string; isOpen: boolean;
+  isHoliday?: boolean; holiday?: { name: string; type: string } | null;
   schedule: { start: string; end: string; slotDuration: number; breakStart?: string; breakEnd?: string } | null;
   resources: { id: string; name: string; type: string; capacity?: number }[];
   totalSlots: number; availableSlots: number; occupiedSlots: number;
   slots: SlotInfo[];
+}
+
+interface HolidayInfo {
+  date: string; name: string; type: string; originalDate?: string; isWorkDay: boolean;
 }
 
 const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -124,6 +129,15 @@ export default function RecursosPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   // [FIX] Track if schedule has unsaved changes
   const [scheduleChanged, setScheduleChanged] = useState(false);
+  // 🇨🇴 Holiday state
+  const [holidays, setHolidays] = useState<HolidayInfo[]>([]);
+  const [workOnHolidays, setWorkOnHolidays] = useState(false);
+  const [holidayWorkDates, setHolidayWorkDates] = useState<string[]>([]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const headers = useCallback(() => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -156,10 +170,58 @@ export default function RecursosPage() {
     } catch (e) { console.error(e); }
   }, [headers, selectedDate, lineId]);
 
+  // 🇨🇴 Load holidays for selected month/year
+  const loadHolidays = useCallback(async () => {
+    try {
+      const [y, m] = selectedDate.split('-');
+      const res = await fetch(`${API_URL}/api/resources/holidays?year=${y}`, { headers: headers() });
+      if (res.ok) {
+        const data = await res.json();
+        setHolidays(data.holidays || []);
+        setWorkOnHolidays(data.workOnHolidays || false);
+        setHolidayWorkDates(data.holidayWorkDates || []);
+      }
+    } catch (e) { console.error(e); }
+  }, [headers, selectedDate]);
+
+  // 🇨🇴 Toggle working on a specific holiday
+  const toggleHolidayWork = async (dateStr: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/resources/holidays`, {
+        method: 'PUT', headers: headers(),
+        body: JSON.stringify({ toggleDate: dateStr })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHolidayWorkDates(data.holidayWorkDates || []);
+        showToast(`Festivo ${data.holidayWorkDates.includes(dateStr) ? 'marcado como día laboral' : 'marcado como cerrado'}`, 'success');
+        loadAvailability();
+        loadHolidays();
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  // 🇨🇴 Toggle working on ALL holidays
+  const toggleAllHolidays = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/resources/holidays`, {
+        method: 'PUT', headers: headers(),
+        body: JSON.stringify({ workOnHolidays: !workOnHolidays })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWorkOnHolidays(data.workOnHolidays);
+        showToast(data.workOnHolidays ? 'Se trabajará en TODOS los festivos' : 'Festivos serán días de descanso', 'info');
+        loadAvailability();
+        loadHolidays();
+      }
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
     setLoading(true);
-    Promise.all([loadResources(), loadSchedule(), loadAvailability()]).finally(() => setLoading(false));
-  }, [loadResources, loadSchedule, loadAvailability]);
+    Promise.all([loadResources(), loadSchedule(), loadAvailability(), loadHolidays()]).finally(() => setLoading(false));
+  }, [loadResources, loadSchedule, loadAvailability, loadHolidays]);
 
   useEffect(() => { loadAvailability(); }, [selectedDate, loadAvailability]);
 
@@ -381,8 +443,25 @@ export default function RecursosPage() {
               <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
                 className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm [color-scheme:dark]" />
               <span className="text-lg font-bold text-white">{availability?.dayName || ''}</span>
-              {availability && !availability.isOpen && (
+              {availability?.isHoliday && (
+                <span className="px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-xs font-bold flex items-center gap-1">
+                  🇨🇴 {availability.holiday?.name || 'Festivo'}
+                </span>
+              )}
+              {availability && !availability.isOpen && !availability.isHoliday && (
                 <span className="px-3 py-1 bg-red-500/20 text-red-300 rounded-full text-xs font-bold">CERRADO</span>
+              )}
+              {availability && !availability.isOpen && availability.isHoliday && (
+                <button onClick={() => toggleHolidayWork(selectedDate)}
+                  className="px-3 py-1 bg-amber-500/10 text-amber-300 rounded-full text-xs font-bold border border-amber-500/30 hover:bg-amber-500/20 transition">
+                  Habilitar este festivo
+                </button>
+              )}
+              {availability && availability.isOpen && availability.isHoliday && (
+                <button onClick={() => toggleHolidayWork(selectedDate)}
+                  className="px-2 py-0.5 bg-red-500/10 text-red-300 rounded-full text-[10px] border border-red-500/30 hover:bg-red-500/20 transition">
+                  Cerrar festivo
+                </button>
               )}
             </div>
             <button onClick={() => changeDate(1)} className="p-2 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition">
@@ -396,12 +475,19 @@ export default function RecursosPage() {
               const d = new Date(); d.setDate(d.getDate() + offset);
               const ds = d.toISOString().split('T')[0];
               const isSelected = ds === selectedDate;
+              const hol = holidays.find(h => h.date === ds);
               return (
                 <button key={offset} onClick={() => setSelectedDate(ds)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                    isSelected ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50' : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition relative ${
+                    isSelected ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50' 
+                    : hol && !hol.isWorkDay ? 'bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20'
+                    : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'
                   }`}>
                   {offset === 0 ? 'Hoy' : offset === 1 ? 'Mañana' : DAY_SHORT[d.getDay()]} {d.getDate()}
+                  {hol && <span className="ml-1">🇨🇴</span>}
+                </button>
+              );
+            })}
                 </button>
               );
             })}
@@ -551,13 +637,27 @@ export default function RecursosPage() {
             </div>
           ) : availability && !availability.isOpen ? (
             <div className="text-center py-16">
-              <XCircle className="w-16 h-16 text-red-400/30 mx-auto mb-4" />
-              <p className="text-lg font-bold text-white">Cerrado este día ({availability?.dayName})</p>
-              <p className="text-sm text-gray-500 mt-1">Configura los horarios en la pestaña "🕐 Horarios"</p>
-              <button onClick={() => setTab('schedule')}
-                className="mt-3 px-4 py-2 bg-purple-500/20 text-purple-300 rounded-xl text-sm font-semibold border border-purple-500/30 hover:bg-purple-500/30 transition">
-                Ir a Horarios
-              </button>
+              {availability.isHoliday ? (
+                <>
+                  <span className="text-6xl block mb-4">🇨🇴</span>
+                  <p className="text-lg font-bold text-white">Festivo: {availability.holiday?.name}</p>
+                  <p className="text-sm text-gray-500 mt-1">{availability.dayName} — Negocio cerrado por festivo</p>
+                  <button onClick={() => toggleHolidayWork(selectedDate)}
+                    className="mt-3 px-5 py-2.5 bg-amber-500/20 text-amber-300 rounded-xl text-sm font-semibold border border-amber-500/30 hover:bg-amber-500/30 transition">
+                    Habilitar trabajo este festivo
+                  </button>
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-16 h-16 text-red-400/30 mx-auto mb-4" />
+                  <p className="text-lg font-bold text-white">Cerrado este día ({availability?.dayName})</p>
+                  <p className="text-sm text-gray-500 mt-1">Configura los horarios en la pestaña "Horarios"</p>
+                  <button onClick={() => setTab('schedule')}
+                    className="mt-3 px-4 py-2 bg-purple-500/20 text-purple-300 rounded-xl text-sm font-semibold border border-purple-500/30 hover:bg-purple-500/30 transition">
+                    Ir a Horarios
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <div className="text-center py-16">
@@ -842,6 +942,71 @@ export default function RecursosPage() {
           )}
         </div>
       )}
+
+      {/* ═══ 🇨🇴 HOLIDAYS SECTION ═══ */}
+      <div className="rounded-2xl bg-gradient-to-r from-amber-500/5 to-orange-500/5 border border-amber-500/20 p-5 space-y-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🇨🇴</span>
+            <div>
+              <h3 className="text-sm font-bold text-white">Festivos Colombia {new Date(selectedDate).getFullYear()}</h3>
+              <p className="text-xs text-gray-500">Selecciona en cuáles festivos quieres trabajar</p>
+            </div>
+          </div>
+          <button onClick={toggleAllHolidays}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition ${
+              workOnHolidays 
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
+                : 'bg-red-500/10 text-red-300 border border-red-500/20 hover:bg-red-500/20'
+            }`}>
+            {workOnHolidays ? '✅ Abierto TODOS los festivos' : '🔴 Cerrado en festivos'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+          {holidays.map(h => {
+            const today = new Date().toISOString().split('T')[0];
+            const isPast = h.date < today;
+            const d = new Date(h.date + 'T12:00:00Z');
+            const dayName = DAY_SHORT[d.getUTCDay()];
+            const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+            const dayNum = d.getUTCDate();
+            const month = monthNames[d.getUTCMonth()];
+            
+            return (
+              <button key={h.date} onClick={() => { if (!workOnHolidays) toggleHolidayWork(h.date); setSelectedDate(h.date); }}
+                disabled={workOnHolidays}
+                className={`flex items-center gap-3 p-3 rounded-xl border transition text-left ${
+                  isPast ? 'opacity-40 cursor-default' :
+                  h.isWorkDay ? 'bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20' :
+                  'bg-white/5 border-white/10 hover:bg-white/10'
+                }`}>
+                <div className="text-center flex-shrink-0 w-12">
+                  <p className="text-[10px] text-gray-500 uppercase">{dayName}</p>
+                  <p className="text-lg font-black text-white leading-tight">{dayNum}</p>
+                  <p className="text-[10px] text-gray-500">{month}</p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-white truncate">{h.name}</p>
+                  <p className="text-[10px] text-gray-500">
+                    {h.type === 'emiliani' ? 'Ley Emiliani' : h.type === 'easter' ? 'Semana Santa' : 'Fecha fija'}
+                  </p>
+                </div>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  h.isWorkDay ? 'bg-emerald-500/30 text-emerald-300' : 'bg-red-500/20 text-red-300'
+                }`}>
+                  <span className="text-xs">{h.isWorkDay ? '✓' : '✕'}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {!workOnHolidays && holidays.length > 0 && (
+          <p className="text-[10px] text-gray-600 text-center">
+            Haz clic en un festivo para habilitar/deshabilitar trabajo ese día. La IA respetará esta configuración.
+          </p>
+        )}
+      </div>
 
       {/* ═══ INFO BOX ═══ */}
       <div className="rounded-2xl bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 p-5">

@@ -108,29 +108,44 @@ router.get('/schedule', async (req: Request, res: Response) => {
 
     // Auto-create default schedule if empty for this line
     if (schedule.length === 0) {
-      const defaults = [];
+      // [FIX] Use upsert per day to avoid unique constraint errors
       for (let day = 0; day <= 6; day++) {
-        defaults.push({
-          userId: ownerId,
-          dayOfWeek: day,
-          isOpen: day >= 1 && day <= 5, // [FIX] Mon-Fri open, Sat+Sun closed (more realistic default)
-          startTime: '08:00',
-          endTime: '18:00',
-          slotDuration: 60,
-          whatsappLineId: lineId || null
-        });
-      }
-
-      // [FIX] Check for existing entries first to avoid duplicates (since no @@unique)
-      const existingCount = await prisma.businessSchedule.count({
-        where: { userId: ownerId, whatsappLineId: lineId, dayOfWeek: { lte: 6 } }
-      });
-
-      if (existingCount === 0) {
         try {
-          await prisma.businessSchedule.createMany({ data: defaults });
+          await prisma.businessSchedule.upsert({
+            where: {
+              userId_dayOfWeek_whatsappLineId: {
+                userId: ownerId,
+                dayOfWeek: day,
+                whatsappLineId: lineId || ''
+              }
+            },
+            update: {}, // Don't overwrite if exists
+            create: {
+              userId: ownerId,
+              dayOfWeek: day,
+              isOpen: day >= 1 && day <= 5,
+              startTime: '08:00',
+              endTime: '18:00',
+              slotDuration: 60,
+              whatsappLineId: lineId || null
+            }
+          });
         } catch (e: any) {
-          console.log(`⚠️ Schedule auto-create failed: ${e.message?.substring(0, 80)}`);
+          // Fallback: try without compound key
+          try {
+            const existing = await prisma.businessSchedule.findFirst({
+              where: { userId: ownerId, dayOfWeek: day, whatsappLineId: lineId }
+            });
+            if (!existing) {
+              await prisma.businessSchedule.create({
+                data: {
+                  userId: ownerId, dayOfWeek: day, isOpen: day >= 1 && day <= 5,
+                  startTime: '08:00', endTime: '18:00', slotDuration: 60,
+                  whatsappLineId: lineId || null
+                }
+              });
+            }
+          } catch { /* ignore — will be created on next load */ }
         }
       }
 
@@ -140,32 +155,33 @@ router.get('/schedule', async (req: Request, res: Response) => {
       });
     }
 
-    // [FIX] Ensure all 7 days exist (fill gaps)
+    // [FIX] Ensure all 7 days exist (fill gaps) — safe per-day create
     const existingDays = new Set(schedule.map(s => s.dayOfWeek));
-    const missingDays = [];
+    let gapsFilled = false;
     for (let day = 0; day <= 6; day++) {
       if (!existingDays.has(day)) {
-        missingDays.push({
-          userId: ownerId,
-          dayOfWeek: day,
-          isOpen: false,
-          startTime: '08:00',
-          endTime: '18:00',
-          slotDuration: 60,
-          whatsappLineId: lineId || null
-        });
+        try {
+          const exists = await prisma.businessSchedule.findFirst({
+            where: { userId: ownerId, dayOfWeek: day, whatsappLineId: lineId }
+          });
+          if (!exists) {
+            await prisma.businessSchedule.create({
+              data: {
+                userId: ownerId, dayOfWeek: day, isOpen: false,
+                startTime: '08:00', endTime: '18:00', slotDuration: 60,
+                whatsappLineId: lineId || null
+              }
+            });
+            gapsFilled = true;
+          }
+        } catch { /* ignore unique constraint errors */ }
       }
     }
-    if (missingDays.length > 0) {
-      try {
-        await prisma.businessSchedule.createMany({ data: missingDays });
-        schedule = await prisma.businessSchedule.findMany({
-          where,
-          orderBy: { dayOfWeek: 'asc' }
-        });
-      } catch (e) {
-        // Ignore — will be created on next load
-      }
+    if (gapsFilled) {
+      schedule = await prisma.businessSchedule.findMany({
+        where,
+        orderBy: { dayOfWeek: 'asc' }
+      });
     }
 
     res.json({ schedule });
@@ -254,9 +270,17 @@ router.put('/schedule', async (req: Request, res: Response) => {
       if (existing) {
         await prisma.businessSchedule.update({ where: { id: existing.id }, data });
       } else {
-        await prisma.businessSchedule.create({ 
-          data: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId, ...data } 
-        });
+        try {
+          await prisma.businessSchedule.create({ 
+            data: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId, ...data } 
+          });
+        } catch (e: any) {
+          // Unique constraint: try finding and updating instead
+          const retry = await prisma.businessSchedule.findFirst({
+            where: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId }
+          });
+          if (retry) await prisma.businessSchedule.update({ where: { id: retry.id }, data });
+        }
       }
     }
 
@@ -871,7 +895,15 @@ router.put('/holidays', async (req: Request, res: Response) => {
     if (holidayConfig) {
       await prisma.businessSchedule.update({ where: { id: holidayConfig.id }, data });
     } else {
-      await prisma.businessSchedule.create({ data });
+      try {
+        await prisma.businessSchedule.create({ data });
+      } catch {
+        // Unique constraint — find and update instead
+        const retry = await prisma.businessSchedule.findFirst({
+          where: { userId: ownerId, dayOfWeek: 7 }
+        });
+        if (retry) await prisma.businessSchedule.update({ where: { id: retry.id }, data });
+      }
     }
 
     res.json({

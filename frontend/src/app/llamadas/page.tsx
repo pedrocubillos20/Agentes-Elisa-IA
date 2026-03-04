@@ -36,6 +36,7 @@ interface CallConfig {
   minutesUsed: number;
   minutesLimit: number;
   hasRetellKey: boolean;
+  hasTwilio: boolean;
 }
 
 interface Voice {
@@ -310,10 +311,13 @@ export default function LlamadasPage() {
               config={config}
               voices={voices}
               activating={activating}
-              onActivate={async () => {
+              onActivate={async (phoneMode?: string, twilioPhone?: string, countryCode?: string) => {
                 setActivating(true);
                 try {
-                  const result = await apiFetch('/api/calls/activate', { method: 'POST' });
+                  const result = await apiFetch('/api/calls/activate', { 
+                    method: 'POST', 
+                    body: JSON.stringify({ phoneMode: phoneMode || 'retell', twilioPhoneNumber: twilioPhone, countryCode }) 
+                  });
                   setConfig(result.config);
                   showMsg(`Línea activada: ${result.phone || 'Lista'}`, 'success');
                   loadAll();
@@ -395,13 +399,21 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
   config: CallConfig | null;
   voices: Voice[];
   activating: boolean;
-  onActivate: () => void;
+  onActivate: (phoneMode?: string, twilioPhone?: string, countryCode?: string) => void;
   onUpdateConfig: (data: any) => void;
 }) {
   const [selectedVoice, setSelectedVoice] = useState(config?.voiceId || '11labs-Adrian');
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
   const [showAllVoices, setShowAllVoices] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  
+  // Twilio state
+  const [phoneMode, setPhoneMode] = useState<'retell' | 'twilio_import'>('retell');
+  const [twilioNumber, setTwilioNumber] = useState('');
+  const [countryCode, setCountryCode] = useState('CO');
+  const [searchingNumbers, setSearchingNumbers] = useState(false);
+  const [availableNumbers, setAvailableNumbers] = useState<any[]>([]);
+  const [buyingNumber, setBuyingNumber] = useState(false);
 
   const filteredVoices = showAllVoices ? voices : voices.filter(v => v.isSpanish);
   const groupedVoices = filteredVoices.reduce((acc: Record<string, Voice[]>, v) => {
@@ -411,11 +423,7 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
 
   const playPreview = (url: string | null, voiceId: string) => {
     if (!url) return;
-    if (playingPreview === voiceId) {
-      audioRef.current?.pause();
-      setPlayingPreview(null);
-      return;
-    }
+    if (playingPreview === voiceId) { audioRef.current?.pause(); setPlayingPreview(null); return; }
     if (audioRef.current) audioRef.current.pause();
     const audio = new Audio(url);
     audioRef.current = audio;
@@ -423,6 +431,40 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
     setPlayingPreview(voiceId);
     audio.onended = () => setPlayingPreview(null);
   };
+
+  const searchTwilioNumbers = async () => {
+    setSearchingNumbers(true);
+    try {
+      const data = await apiFetch(`/api/calls/twilio/numbers?country=${countryCode}&type=Mobile`);
+      setAvailableNumbers(data.numbers || []);
+    } catch (e: any) {
+      setAvailableNumbers([]);
+    }
+    setSearchingNumbers(false);
+  };
+
+  const buyTwilioNumber = async (phoneNumber: string) => {
+    setBuyingNumber(true);
+    try {
+      const data = await apiFetch('/api/calls/twilio/buy', { method: 'POST', body: JSON.stringify({ phoneNumber }) });
+      setTwilioNumber(data.phoneNumber);
+      setAvailableNumbers([]);
+    } catch (e: any) {
+      alert(`Error comprando: ${e.message}`);
+    }
+    setBuyingNumber(false);
+  };
+
+  const COUNTRIES = [
+    { code: 'CO', name: '🇨🇴 Colombia', prefix: '+57' },
+    { code: 'MX', name: '🇲🇽 México', prefix: '+52' },
+    { code: 'AR', name: '🇦🇷 Argentina', prefix: '+54' },
+    { code: 'CL', name: '🇨🇱 Chile', prefix: '+56' },
+    { code: 'PE', name: '🇵🇪 Perú', prefix: '+51' },
+    { code: 'EC', name: '🇪🇨 Ecuador', prefix: '+593' },
+    { code: 'US', name: '🇺🇸 USA', prefix: '+1' },
+    { code: 'ES', name: '🇪🇸 España', prefix: '+34' },
+  ];
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -434,7 +476,6 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
         <h2 className="text-2xl font-bold mb-2">Activa tu Línea IA</h2>
         <p className="text-gray-400 max-w-md mx-auto">
           Tu asistente IA atenderá y realizará llamadas telefónicas automáticamente.
-          Selecciona una voz y activa en un click.
         </p>
       </div>
 
@@ -442,7 +483,7 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         {[
           { icon: Zap, label: 'Latencia ~600ms', desc: 'Respuestas naturales', color: 'text-yellow-400' },
-          { icon: Globe, label: 'Número dedicado', desc: 'Se asigna automáticamente', color: 'text-blue-400' },
+          { icon: Globe, label: 'Números internacionales', desc: 'Colombia, México, USA...', color: 'text-blue-400' },
           { icon: Bot, label: 'IA conversacional', desc: 'Usa contexto de tu negocio', color: 'text-violet-400' },
         ].map((f, i) => (
           <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/5 text-center">
@@ -452,6 +493,135 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
           </div>
         ))}
       </div>
+
+      {/* ═══ PHONE MODE SELECTOR ═══ */}
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+          <Phone className="w-4 h-4 text-violet-400" />
+          Tipo de número
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setPhoneMode('retell')}
+            className={`p-4 rounded-xl border text-left transition-all ${
+              phoneMode === 'retell' 
+                ? 'bg-violet-500/20 border-violet-500/40 ring-1 ring-violet-400/50' 
+                : 'bg-white/[0.02] border-white/5 hover:border-white/10'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">🇺🇸</span>
+              <span className="text-sm font-medium">Número USA</span>
+            </div>
+            <p className="text-[10px] text-gray-500">Automático · Se asigna al instante</p>
+            <p className="text-[10px] text-emerald-400 mt-1">Gratis (incluido)</p>
+          </button>
+          <button
+            onClick={() => setPhoneMode('twilio_import')}
+            className={`p-4 rounded-xl border text-left transition-all ${
+              phoneMode === 'twilio_import' 
+                ? 'bg-emerald-500/20 border-emerald-500/40 ring-1 ring-emerald-400/50' 
+                : 'bg-white/[0.02] border-white/5 hover:border-white/10'
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg">🌎</span>
+              <span className="text-sm font-medium">Número Internacional</span>
+            </div>
+            <p className="text-[10px] text-gray-500">Via Twilio · Colombia, México, etc.</p>
+            <p className="text-[10px] text-amber-400 mt-1">Requiere cuenta Twilio</p>
+          </button>
+        </div>
+      </div>
+
+      {/* ═══ TWILIO SECTION ═══ */}
+      {phoneMode === 'twilio_import' && (
+        <div className="mb-6 p-4 rounded-xl bg-white/[0.02] border border-emerald-500/20 space-y-4">
+          <h4 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+            <Globe className="w-4 h-4" />
+            Configurar número internacional
+          </h4>
+          
+          {!config?.hasTwilio ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <p className="text-xs text-amber-400 mb-2 font-medium">⚠️ Twilio no configurado en el servidor</p>
+              <p className="text-[10px] text-gray-400">
+                El administrador debe agregar estas variables de entorno:{' '}
+                <code className="bg-black/30 px-1 rounded">TWILIO_ACCOUNT_SID</code>,{' '}
+                <code className="bg-black/30 px-1 rounded">TWILIO_AUTH_TOKEN</code>
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Country + Search */}
+              <div className="flex gap-2">
+                <select 
+                  value={countryCode} 
+                  onChange={e => setCountryCode(e.target.value)}
+                  className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white [&>option]:bg-gray-900"
+                >
+                  {COUNTRIES.map(c => (
+                    <option key={c.code} value={c.code}>{c.name} ({c.prefix})</option>
+                  ))}
+                </select>
+                <button 
+                  onClick={searchTwilioNumbers}
+                  disabled={searchingNumbers}
+                  className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {searchingNumbers ? <Loader className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  Buscar números
+                </button>
+              </div>
+
+              {/* Available Numbers */}
+              {availableNumbers.length > 0 && (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  <p className="text-xs text-gray-500">{availableNumbers.length} números disponibles:</p>
+                  {availableNumbers.map((n, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.03] border border-white/5">
+                      <div>
+                        <span className="text-sm font-mono text-white">{n.phoneNumber}</span>
+                        {n.locality && <span className="text-[10px] text-gray-500 ml-2">{n.locality}</span>}
+                      </div>
+                      <button 
+                        onClick={() => buyTwilioNumber(n.phoneNumber)}
+                        disabled={buyingNumber}
+                        className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-medium hover:bg-emerald-500/30 transition disabled:opacity-50"
+                      >
+                        {buyingNumber ? '...' : 'Comprar'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Manual entry */}
+              <div>
+                <p className="text-xs text-gray-500 mb-1">O ingresa un número que ya tengas en Twilio:</p>
+                <input
+                  type="tel"
+                  value={twilioNumber}
+                  onChange={e => setTwilioNumber(e.target.value)}
+                  placeholder="+573001234567"
+                  className="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-emerald-500/50 placeholder-gray-600 font-mono"
+                />
+              </div>
+
+              {/* SIP Setup info */}
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                <p className="text-xs text-blue-400 font-medium mb-1">📋 Requisitos SIP Trunk:</p>
+                <ul className="text-[10px] text-gray-400 space-y-0.5">
+                  <li>1. Crear Elastic SIP Trunk en Twilio</li>
+                  <li>2. Origination URI: <code className="bg-black/30 px-1 rounded">sip:sip.retellai.com</code></li>
+                  <li>3. Whitelist IP Retell: <code className="bg-black/30 px-1 rounded">18.98.16.120/30</code></li>
+                  <li>4. Asignar el número al trunk</li>
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Voice Selector */}
       <div className="mb-6">
@@ -523,31 +693,27 @@ function ActivationPanel({ config, voices, activating, onActivate, onUpdateConfi
 
       {/* Activate Button */}
       <button
-        onClick={onActivate}
-        disabled={activating || !config?.hasRetellKey}
+        onClick={() => onActivate(phoneMode, twilioNumber || undefined, countryCode)}
+        disabled={activating || !config?.hasRetellKey || (phoneMode === 'twilio_import' && !twilioNumber)}
         className="w-full py-4 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-semibold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg shadow-violet-500/20"
       >
         {activating ? (
-          <>
-            <Loader className="w-5 h-5 animate-spin" />
-            Activando línea...
-          </>
+          <><Loader className="w-5 h-5 animate-spin" /> Activando línea...</>
         ) : (
-          <>
-            <Zap className="w-5 h-5" />
-            Activar Línea IA
-          </>
+          <><Zap className="w-5 h-5" /> Activar {phoneMode === 'twilio_import' ? `con ${twilioNumber || 'número Twilio'}` : 'con número USA'}</>
         )}
       </button>
 
       {!config?.hasRetellKey && (
         <p className="text-center text-xs text-red-400/70 mt-3">
-          ⚠️ Retell API key no configurada en el servidor. Contacta al administrador.
+          ⚠️ Retell API key no configurada. Contacta al administrador.
         </p>
       )}
 
       <p className="text-center text-xs text-gray-600 mt-3">
-        Se asignará un número telefónico US automáticamente · ~$0.15/min
+        {phoneMode === 'retell' 
+          ? 'Se asignará un número USA automáticamente · ~$0.15/min'
+          : 'El número Twilio se importará via SIP Trunk a Retell · ~$0.15/min + costos Twilio'}
       </p>
     </div>
   );

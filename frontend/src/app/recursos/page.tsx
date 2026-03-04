@@ -488,9 +488,6 @@ export default function RecursosPage() {
                 </button>
               );
             })}
-                </button>
-              );
-            })}
           </div>
 
           {/* Schedule summary */}

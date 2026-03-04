@@ -1121,7 +1121,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                 )}
                 {messages.map((msg, idx) => (
                   <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
+                    <div className={`${msg.mediaType === 'image' ? 'max-w-[85%]' : 'max-w-[75%]'} px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
                       {msg.mediaType === 'image' && msg.mediaUrl && (() => {
                         const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
                         const imgSrc = msg.mediaUrl.startsWith('data:') ? msg.mediaUrl 
@@ -1133,7 +1133,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                             src={imgSrc}
                             alt="" 
                             className="max-w-full w-full rounded-lg mb-1 cursor-pointer hover:opacity-90 transition" 
-                            style={{ maxWidth: '280px' }}
+                            style={{ maxWidth: '420px', imageRendering: 'auto' }}
                             onClick={() => window.open(imgSrc, '_blank')}
                             onError={(e) => { 
                               const el = e.target as HTMLImageElement;

@@ -1750,7 +1750,13 @@ REGLAS DE TRANSFERENCIA:
                   const rUsed = overlapping.filter(a => a.resourceId === r.id).length;
                   return rUsed < (r.capacity || 1);
                 });
-                freeSlots.push(`${slot}(${freeR.map(r => r.name).join(',')})`);
+                // Show slot without resource names (AI was copying "(Tecnomecanica)" to client)
+                // Only add resource name if multiple resources exist
+                if (resources.length > 1) {
+                  freeSlots.push(`${slot}(${freeR.map(r => r.name).join(',')})`);
+                } else {
+                  freeSlots.push(slot);
+                }
               } else {
                 freeSlots.push(slot);
               }
@@ -1764,6 +1770,7 @@ REGLAS DE TRANSFERENCIA:
         }
 
         availabilityLines.push('⚠️ REGLAS: Solo ofrece horarios DISPONIBLES (✅). NUNCA ofrezcas horarios llenos (❌). Si no hay disponibilidad, sugiere otro día. Cuando confirmen cita/reserva, usa la acción correspondiente. SIEMPRE muestra horarios en formato 12h (ej: 2:00 PM, no 14:00).');
+        availabilityLines.push('🚨 CRÍTICO: Esta sección de disponibilidad es INTERNA — SOLO PARA TI. NUNCA copies este bloque al cliente. NUNCA muestres "(Tecnomecanica)" ni "=== DISPONIBILIDAD ===" ni datos técnicos. Reformula la info de forma bonita y natural como un humano por WhatsApp.');
 
         // 🇨🇴 Add upcoming holidays
         const todayStr = today.toISOString().split('T')[0];

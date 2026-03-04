@@ -113,6 +113,85 @@ export default function ConversacionesPage() {
   // 📝 NOTAS + 👤 ASIGNACIÓN + 📅 CITA RÁPIDA
   const [convNotes, setConvNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
+
+  // ✏️ EDICIÓN DE NOMBRE Y DATOS
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editFieldValue, setEditFieldValue] = useState('');
+  const [showContactDetails, setShowContactDetails] = useState(false);
+
+  // 💾 Guardar nombre del contacto
+  const saveContactName = async (newName: string) => {
+    if (!selectedConv || !newName.trim()) return;
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipientName: newName.trim() })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, recipientName: newName.trim() } : prev);
+      setConversations((prev: any[]) => prev.map(c => c.id === selectedConv.id ? { ...c, recipientName: newName.trim() } : c));
+      setEditingName(false);
+    } catch (e) { console.error('Error actualizando nombre:', e); }
+  };
+
+  // 💾 Guardar campo de contextData
+  const saveContextField = async (key: string, value: string) => {
+    if (!selectedConv) return;
+    try {
+      const token = localStorage.getItem('token');
+      const updatedContext = { ...(selectedConv.contextData || {}), [key]: value };
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contextData: updatedContext })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, contextData: updatedContext } : prev);
+      setEditingField(null);
+    } catch (e) { console.error('Error actualizando campo:', e); }
+  };
+
+  // 💾 Guardar etapa manualmente
+  const saveStage = async (newStage: string) => {
+    if (!selectedConv) return;
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: newStage })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, stage: newStage } : prev);
+      setConversations((prev: any[]) => prev.map(c => c.id === selectedConv.id ? { ...c, stage: newStage } : c));
+    } catch (e) { console.error('Error actualizando etapa:', e); }
+  };
+
+  // 🔥 Lead temperature helpers
+  const getLeadTemp = (conv: any) => {
+    const ctx = (conv?.contextData as any) || {};
+    return ctx._leadTemp || 'frio';
+  };
+  const leadTempOptions = [
+    { id: 'caliente', label: '🔥 Caliente', color: 'text-red-400 bg-red-500/15 border-red-500/30' },
+    { id: 'tibio', label: '🟡 Tibio', color: 'text-yellow-400 bg-yellow-500/15 border-yellow-500/30' },
+    { id: 'frio', label: '🔵 Frío', color: 'text-blue-400 bg-blue-500/15 border-blue-500/30' },
+  ];
+  const saveLeadTemp = async (temp: string) => {
+    if (!selectedConv) return;
+    const updatedContext = { ...(selectedConv.contextData || {}), _leadTemp: temp };
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contextData: updatedContext })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, contextData: updatedContext } : prev);
+      setConversations((prev: any[]) => prev.map(c => c.id === selectedConv.id ? { ...c, contextData: updatedContext } : c));
+    } catch (e) { console.error('Error actualizando temperatura:', e); }
+  };
   const [notesSaved, setNotesSaved] = useState(false);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [assigningChat, setAssigningChat] = useState(false);
@@ -214,6 +293,10 @@ export default function ConversacionesPage() {
       const ctx = (selectedConv.contextData as any) || {};
       setConvNotes(ctx._userNotes || '');
       setNotesSaved(false);
+      // ✏️ Reset editing states
+      setEditingName(false);
+      setEditingField(null);
+      setShowContactDetails(false);
       // 📅 Reset appointment form
       setShowAppointment(false);
       setAppointmentData({ date: '', time: '', type: 'appointment', notes: '' });
@@ -960,20 +1043,20 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
           <div className="flex-1 overflow-y-auto">
             {filteredConversations.map((conv) => (
               <div key={conv.id} onClick={() => setSelectedConv(conv)} className={`group p-2.5 border-b border-[var(--border-primary)] cursor-pointer hover:bg-white/5 transition-all ${selectedConv?.id === conv.id ? 'bg-[var(--accent-primary)]/10 border-l-2 border-l-[var(--accent-primary)]' : ''}`}>
-                <div className="flex items-center gap-2">
-                  <div className={`w-8 h-8 rounded-full ${conv.isGroup ? 'bg-blue-500/20' : 'bg-[var(--accent-primary)]/20'} flex items-center justify-center flex-shrink-0`}>
-                    <span className={`text-xs font-bold ${conv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{conv.isGroup ? '👥' : (conv.recipientName?.[0] || '?')}</span>
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-full ${conv.isGroup ? 'bg-blue-500/20' : 'bg-[var(--accent-primary)]/20'} flex items-center justify-center flex-shrink-0`}>
+                    <span className={`text-sm font-bold ${conv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{conv.isGroup ? '👥' : (conv.recipientName?.[0] || '?')}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1">
-                      <p className="font-medium text-white text-sm truncate">{conv.isGroup ? (conv.groupName || conv.recipientName || 'Grupo') : (conv.recipientName || 'Sin nombre')}</p>
+                      <p className="font-semibold text-white text-[13px] truncate">{conv.isGroup ? (conv.groupName || conv.recipientName || 'Grupo') : (conv.recipientName || 'Sin nombre')}</p>
                       {conv.isGroup && <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">👥</span>}
                       
                       {conv.aiPaused && <PauseCircle className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
                     </div>
-                    <p className="text-[10px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
+                    <p className="text-[11px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
                     {conv.stage && (
-                      <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] border ${getStageColor(conv.stage)}`}>
+                      <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium border ${getStageColor(conv.stage)}`}>
                         {funnelStages.find(s => s.id === conv.stage)?.label || conv.stage}
                       </span>
                     )}
@@ -1013,8 +1096,8 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                     <span className={`text-sm font-bold ${selectedConv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{selectedConv.isGroup ? '👥' : (selectedConv.recipientName?.[0] || '?')}</span>
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-white text-sm truncate">{selectedConv.isGroup ? (selectedConv.groupName || selectedConv.recipientName || 'Grupo') : (selectedConv.recipientName || selectedConv.recipientId)}</h3>
-                    <p className="text-[10px] text-[var(--text-muted)]">{selectedConv.isGroup ? '👥 Grupo' : (showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp'))}</p>
+                    <h3 className="font-bold text-white text-[15px] truncate">{selectedConv.isGroup ? (selectedConv.groupName || selectedConv.recipientName || 'Grupo') : (selectedConv.recipientName || selectedConv.recipientId)}</h3>
+                    <p className="text-[11px] text-[var(--text-muted)]">{selectedConv.isGroup ? '👥 Grupo' : (showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp'))}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -1199,15 +1282,49 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         {/* Panel info — ENHANCED: Notas + Asignar + Cita */}
         {selectedConv && (
           <div className="w-64 flex-shrink-0 hidden xl:flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] p-3 gap-2.5 overflow-y-auto">
-            {/* Header: Avatar + Info */}
+            {/* Header: Avatar + Name (editable) + Phone */}
             <div className="text-center">
-              <div className="w-12 h-12 mx-auto rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center mb-2">
-                <span className="text-lg font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || selectedConv.groupName?.[0] || '?'}</span>
+              <div className="w-14 h-14 mx-auto rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center mb-2">
+                <span className="text-xl font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || selectedConv.groupName?.[0] || '?'}</span>
               </div>
-              <h4 className="font-semibold text-white text-sm">{selectedConv.groupName || selectedConv.recipientName}</h4>
-              <p className="text-[10px] text-[var(--text-muted)]">
+              {/* Editable Name */}
+              {editingName && !selectedConv.isGroup ? (
+                <div className="flex items-center gap-1 justify-center mb-1">
+                  <input
+                    autoFocus
+                    value={editNameValue}
+                    onChange={(e) => setEditNameValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveContactName(editNameValue); if (e.key === 'Escape') setEditingName(false); }}
+                    className="bg-[var(--bg-tertiary)] border border-[var(--accent-primary)] rounded px-2 py-1 text-sm text-white text-center focus:outline-none w-40"
+                  />
+                  <button onClick={() => saveContactName(editNameValue)} className="text-emerald-400 hover:text-emerald-300"><Check className="w-4 h-4" /></button>
+                  <button onClick={() => setEditingName(false)} className="text-red-400 hover:text-red-300"><X className="w-4 h-4" /></button>
+                </div>
+              ) : (
+                <h4
+                  className="font-bold text-white text-base cursor-pointer hover:text-[var(--accent-primary)] transition-colors"
+                  onClick={() => { if (!selectedConv.isGroup) { setEditNameValue(selectedConv.recipientName || ''); setEditingName(true); } }}
+                  title="Clic para editar nombre"
+                >
+                  {selectedConv.groupName || selectedConv.recipientName || 'Sin nombre'}
+                  {!selectedConv.isGroup && <span className="inline-block ml-1 text-[var(--text-muted)] text-[10px]">✏️</span>}
+                </h4>
+              )}
+              <p className="text-xs text-[var(--text-muted)]">
                 {selectedConv.isGroup ? '👥 Grupo' : (showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp'))}
               </p>
+              {/* Lead Temperature */}
+              {!selectedConv.isGroup && (
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  {leadTempOptions.map(opt => (
+                    <button key={opt.id} onClick={() => saveLeadTemp(opt.id)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all ${getLeadTemp(selectedConv) === opt.id ? opt.color : 'text-[var(--text-muted)] bg-white/5 border-transparent hover:border-white/10'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 👤 ASIGNAR CHAT — Solo admin/manager */}
@@ -1336,37 +1453,71 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               </div>
             )}
 
-            {/* Etapa (no-grupo) */}
+            {/* Etapa (editable) */}
             {!selectedConv.isGroup && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                 <p className="text-[10px] text-[var(--text-muted)] mb-1">Etapa actual</p>
-                <div className={`px-2 py-1 rounded text-xs text-center border ${getStageColor(selectedConv.stage || '')}`}>
-                  {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage || 'Sin etapa'}
-                </div>
-                <p className="text-[9px] text-emerald-400 text-center mt-1">✨ Auto-detectada</p>
+                <select
+                  value={selectedConv.stage || ''}
+                  onChange={(e) => saveStage(e.target.value)}
+                  className={`w-full px-2 py-1.5 rounded text-xs text-center font-medium border cursor-pointer focus:outline-none focus:border-[var(--accent-primary)] bg-[var(--bg-secondary)] ${getStageColor(selectedConv.stage || '')}`}
+                >
+                  <option value="">Sin etapa</option>
+                  {funnelStages.map(s => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
               </div>
             )}
 
-            {/* 📋 Datos del cliente */}
+            {/* 📋 Datos del cliente — Expandable + Editable */}
             {selectedConv.contextData && Object.keys(selectedConv.contextData).length > 0 && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
-                <p className="text-[10px] text-[var(--text-muted)] mb-1">📋 Datos</p>
-                <div className="space-y-1">
-                  {Object.entries(selectedConv.contextData as Record<string, any>)
-                    .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita', '_userNotes', '_isPersonalAssistant'].includes(k))
-                    .slice(0, 8)
-                    .map(([key, value]) => (
-                      <div key={key} className="flex justify-between text-[10px]">
-                        <span className="text-[var(--text-muted)] capitalize">{key.replace(/_/g, ' ')}</span>
-                        <span className="text-white font-medium truncate ml-2 max-w-[80px]">
-                          {(!showFullPhone && (key.toLowerCase() === 'telefono' || key.toLowerCase() === 'phone' || key.toLowerCase() === 'celular'))
-                            ? maskPhone(String(value))
-                            : String(value)}
-                        </span>
-                      </div>
-                    ))
-                  }
-                </div>
+                <button
+                  onClick={() => setShowContactDetails(!showContactDetails)}
+                  className="w-full flex items-center justify-between text-[11px] text-[var(--text-muted)] hover:text-white transition-colors"
+                >
+                  <span className="flex items-center gap-1">📋 Datos del cliente</span>
+                  <span className={`transition-transform ${showContactDetails ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {showContactDetails && (
+                  <div className="space-y-1.5 mt-2">
+                    {Object.entries(selectedConv.contextData as Record<string, any>)
+                      .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita', 'reserva', '_userNotes', '_isPersonalAssistant', '_leadTemp'].includes(k))
+                      .map(([key, value]) => (
+                        <div key={key} className="group/field">
+                          {editingField === key ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-[var(--text-muted)] capitalize w-16 flex-shrink-0">{key.replace(/_/g, ' ')}</span>
+                              <input
+                                autoFocus
+                                value={editFieldValue}
+                                onChange={(e) => setEditFieldValue(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') saveContextField(key, editFieldValue); if (e.key === 'Escape') setEditingField(null); }}
+                                className="flex-1 bg-[var(--bg-secondary)] border border-[var(--accent-primary)] rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none"
+                              />
+                              <button onClick={() => saveContextField(key, editFieldValue)} className="text-emerald-400"><Check className="w-3 h-3" /></button>
+                              <button onClick={() => setEditingField(null)} className="text-red-400"><X className="w-3 h-3" /></button>
+                            </div>
+                          ) : (
+                            <div
+                              className="flex justify-between text-[11px] cursor-pointer hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
+                              onClick={() => { setEditingField(key); setEditFieldValue(String(value)); }}
+                              title="Clic para editar"
+                            >
+                              <span className="text-[var(--text-muted)] capitalize">{key.replace(/_/g, ' ')}</span>
+                              <span className="text-white font-medium truncate ml-2 max-w-[100px]">
+                                {(!showFullPhone && (key.toLowerCase() === 'telefono' || key.toLowerCase() === 'phone' || key.toLowerCase() === 'celular'))
+                                  ? maskPhone(String(value))
+                                  : String(value)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
               </div>
             )}
 

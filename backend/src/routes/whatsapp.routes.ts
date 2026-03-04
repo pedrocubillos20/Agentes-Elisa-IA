@@ -5035,6 +5035,37 @@ router.get('/waha-contacts', async (req: Request, res: Response) => {
 });
 
 // =====================================================
+// ===== ACTUALIZAR CONTACTO / CONVERSACIÓN =====
+// =====================================================
+router.put('/conversations/:id/update-contact', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).userId;
+    const { id } = req.params;
+    const { recipientName, stage, contextData, leadScore } = req.body;
+
+    // Verify ownership
+    const conv = await prisma.conversation.findFirst({ where: { id, userId } });
+    if (!conv) return res.status(404).json({ error: 'Conversación no encontrada' });
+
+    const updateData: any = {};
+    if (recipientName !== undefined) updateData.recipientName = recipientName;
+    if (stage !== undefined) updateData.stage = stage;
+    if (contextData !== undefined) updateData.contextData = contextData;
+    if (leadScore !== undefined) updateData.leadScore = leadScore;
+
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: updateData
+    });
+
+    res.json(updated);
+  } catch (e: any) {
+    console.error('❌ update-contact error:', e.message);
+    res.status(500).json({ error: 'Error actualizando contacto' });
+  }
+});
+
+// =====================================================
 // ===== WEBHOOK PÚBLICO (recibe mensajes WhatsApp) =====
 // =====================================================
 router.post('/webhook', async (req: Request, res: Response) => {

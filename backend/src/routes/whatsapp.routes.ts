@@ -1355,6 +1355,15 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     if (assistant.businessInfo?.trim()) promptParts.push(`Info del negocio: ${assistant.businessInfo}`);
     if (assistant.instructions?.trim()) promptParts.push(`Instrucciones: ${assistant.instructions}`);
 
+    // 🧠 REGLAS DE CONVERSACIÓN NATURAL (anti-repetición)
+    promptParts.push(`🚫 ANTI-REPETICIÓN (OBLIGATORIO):
+- NUNCA repitas un mensaje que ya enviaste en esta conversación. Lee el historial antes de responder.
+- Si ya mostraste un menú de opciones, NO lo repitas. En su lugar, pregunta directamente o reformula diferente.
+- Si el cliente no entendió, reformula con OTRAS PALABRAS, no copies lo mismo.
+- Sé natural como un humano real por WhatsApp: varía tu lenguaje, no uses frases idénticas dos veces.
+- Si ya saludaste, NO saludes de nuevo. Si ya pediste un dato, NO lo pidas de nuevo (a menos que el cliente no lo dio).
+- Cada respuesta debe AVANZAR la conversación, nunca retroceder.`);
+
     // 🧠 INYECTAR MEMORIA PERSISTENTE DEL CLIENTE
     const memoryBlock: string[] = [];
     

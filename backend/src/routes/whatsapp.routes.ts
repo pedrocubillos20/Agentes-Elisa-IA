@@ -2473,8 +2473,8 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
               if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
-                  let citaDate = parseSmartDate(merged.fecha_cita || '');
-                  const citaTime = parseSmartTime(merged.hora_cita || '', '10:00');
+                  let citaDate = parseSmartDate(merged.fecha_cita || merged.fecha_reserva || '');
+                  const citaTime = parseSmartTime(merged.hora_cita || merged.hora_reserva || '', '10:00');
 
                   // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
                   const nowCol = getNowColombia();
@@ -2643,8 +2643,8 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
               if (actionToTake === 'crear_reserva' && merged.reserva !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
-                  let reservaDate = parseSmartDate(merged.fecha_reserva || '');
-                  const reservaTime = parseSmartTime(merged.hora_reserva || '', '12:00');
+                  let reservaDate = parseSmartDate(merged.fecha_reserva || merged.fecha_cita || '');
+                  const reservaTime = parseSmartTime(merged.hora_reserva || merged.hora_cita || '', '12:00');
 
                   // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
                   const nowR = getNowColombia();
@@ -2768,8 +2768,8 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   // Marcar reserva como creada
                   merged.reserva = 'creada';
                   // 🔔 Push — Nueva reserva
-                  sendPushToUser(ownerId, { title: '🏨 ¡Nueva Reserva!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_reserva || 'Reserva'} ${merged.fecha_reserva || ''} ${merged.hora_reserva || ''}`.trim().substring(0, 120), url: '/agenda', tag: `reserv-${Date.now()}` }).catch(() => {});
-                  notifyPersonalAssistant(ownerId, 'reserva', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_reserva || 'Pendiente', time: to12h(parseSmartTime(merged.hora_reserva || '', '10:00')), phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                  sendPushToUser(ownerId, { title: '🏨 ¡Nueva Reserva!', body: `${merged.nombre || 'Cliente'} — ${merged.tipo_reserva || 'Reserva'} ${merged.fecha_reserva || merged.fecha_cita || ''} ${merged.hora_reserva || merged.hora_cita || ''}`.trim().substring(0, 120), url: '/agenda', tag: `reserv-${Date.now()}` }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'reserva', { name: merged.nombre || clientName || 'Cliente', date: merged.fecha_reserva || merged.fecha_cita || 'Pendiente', time: to12h(parseSmartTime(merged.hora_reserva || merged.hora_cita || '', '10:00')), phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
@@ -2871,14 +2871,16 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   if (existingAppt) {
                     const updateApptData: any = { status: 'pending' };
                     
-                    // Actualizar fecha si cambió
-                    if (merged.fecha_cita) {
-                      updateApptData.date = parseSmartDate(merged.fecha_cita);
+                    // Actualizar fecha si cambió (check both cita and reserva fields)
+                    const newFechaCita = merged.fecha_cita || merged.fecha_reserva;
+                    if (newFechaCita) {
+                      updateApptData.date = parseSmartDate(newFechaCita);
                     }
                     
-                    // Actualizar hora si cambió
-                    if (merged.hora_cita) {
-                      updateApptData.time = parseSmartTime(merged.hora_cita, existingAppt.time || '10:00');
+                    // Actualizar hora si cambió (check both cita and reserva fields)
+                    const newHoraCita = merged.hora_cita || merged.hora_reserva;
+                    if (newHoraCita) {
+                      updateApptData.time = parseSmartTime(newHoraCita, existingAppt.time || '10:00');
                     }
                     
                     if (merged.nombre) updateApptData.clientName = merged.nombre;
@@ -2918,12 +2920,15 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   if (existingRes) {
                     const updateResData: any = { status: 'pending' };
                     
-                    if (merged.fecha_reserva) {
-                      updateResData.date = parseSmartDate(merged.fecha_reserva);
+                    // Check both reserva and cita fields (AI may use either)
+                    const newFechaRes = merged.fecha_reserva || merged.fecha_cita;
+                    if (newFechaRes) {
+                      updateResData.date = parseSmartDate(newFechaRes);
                     }
                     
-                    if (merged.hora_reserva) {
-                      updateResData.time = parseSmartTime(merged.hora_reserva, existingRes.time || '10:00');
+                    const newHoraRes = merged.hora_reserva || merged.hora_cita;
+                    if (newHoraRes) {
+                      updateResData.time = parseSmartTime(newHoraRes, existingRes.time || '10:00');
                     }
                     
                     if (merged.nombre) updateResData.clientName = merged.nombre;

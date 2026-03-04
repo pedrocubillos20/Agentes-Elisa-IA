@@ -1016,9 +1016,9 @@ const fetchFromWaha = async (url: string): Promise<globalThis.Response> => {
   return fetch(rewritten, { headers: getWahaHeaders() });
 };
 
-const downloadMediaFromWaha = async (session: string, messageId: string, payload?: any): Promise<{ buffer: Buffer; mimetype: string } | null> => {
+const downloadMediaFromWaha = async (session: string, messageId: string, payload?: any, forceFullQuality?: boolean): Promise<{ buffer: Buffer; mimetype: string } | null> => {
   
-  // STRATEGY 1: Base64 data directly in payload (most reliable, no network call)
+  // STRATEGY 1a: Base64 data directly in payload.media.data (full quality from WAHA)
   if (payload?.media?.data) {
     try {
       const buf = Buffer.from(payload.media.data, 'base64');
@@ -1029,12 +1029,18 @@ const downloadMediaFromWaha = async (session: string, messageId: string, payload
     } catch (e: any) { log(`⚠️ S1a media.data falló: ${e.message}`); }
   }
   
-  if (payload?._data?.body) {
+  // STRATEGY 1b: _data.body — SKIP FOR IMAGES (this is often a low-res thumbnail!)
+  if (payload?._data?.body && !forceFullQuality) {
     try {
       const buf = Buffer.from(payload._data.body, 'base64');
-      if (buf.length > 100) {
+      const mime = payload?.mimetype || payload?._data?.mimetype || 'audio/ogg';
+      const isImage = mime.startsWith('image/');
+      // For images: only use _data.body if it's large enough (>50KB = likely full quality)
+      if (buf.length > 100 && (!isImage || buf.length > 50000)) {
         log(`✅ S1b: Media de payload._data.body: ${buf.length} bytes`);
-        return { buffer: buf, mimetype: payload?.mimetype || payload?._data?.mimetype || 'audio/ogg' };
+        return { buffer: buf, mimetype: mime };
+      } else if (isImage && buf.length <= 50000) {
+        log(`⚠️ S1b: Imagen thumbnail detectada (${buf.length} bytes), buscando versión completa...`);
       }
     } catch (e: any) { log(`⚠️ S1b _data.body falló: ${e.message}`); }
   }
@@ -6136,7 +6142,30 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             const mediaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
               headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` }
             });
-            if (mediaRes.ok) { savedMediaUrl = ((await mediaRes.json()) as any).url || null; }
+            if (mediaRes.ok) {
+              const mediaData = (await mediaRes.json()) as any;
+              const mediaDownloadUrl = mediaData.url;
+              // For images: download full content and store as base64 (temp URLs expire!)
+              if (mediaDownloadUrl && (msgType === 'image' || msgType === 'video' || msgType === 'sticker')) {
+                try {
+                  const fullRes = await fetch(mediaDownloadUrl, {
+                    headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` }
+                  });
+                  if (fullRes.ok) {
+                    const imgBuf = Buffer.from(await fullRes.arrayBuffer());
+                    const mime = fullRes.headers.get('content-type') || (msgType === 'image' ? 'image/jpeg' : 'video/mp4');
+                    savedMediaUrl = `data:${mime};base64,${imgBuf.toString('base64')}`;
+                    log(`☁️ 🖼️ ${msgType} descargado: ${imgBuf.length} bytes → base64`);
+                  } else {
+                    savedMediaUrl = mediaDownloadUrl;
+                  }
+                } catch {
+                  savedMediaUrl = mediaDownloadUrl;
+                }
+              } else {
+                savedMediaUrl = mediaDownloadUrl || null;
+              }
+            }
           } catch {}
         }
         // Audio transcription
@@ -6152,22 +6181,34 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           } catch {}
         }
         // 👁️ Image Vision analysis
-        if (msgType === 'image' && savedMediaUrl && line.cloudAccessToken) {
+        if (msgType === 'image' && savedMediaUrl) {
           try {
-            const imgRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
-            if (imgRes.ok) {
-              const imgBuf = Buffer.from(await imgRes.arrayBuffer());
-              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
-              const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
-              if (apiKey) {
-                const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });
-                const bizCtx = assistantCtx?.businessInfo || assistantCtx?.context || '';
-                const desc = await analyzeImageWithVision(imgBuf, imgRes.headers.get('content-type') || 'image/jpeg', apiKey, bizCtx.substring(0, 500));
-                if (desc) {
-                  const cap = caption ? ` (caption: "${caption}")` : '';
-                  messageBody = `[El cliente envió una imagen${cap}. Contenido: ${desc}]`;
-                  log(`☁️ 👁️ Cloud imagen analizada: "${desc.substring(0, 100)}"`);
-                }
+            let imgBuf: Buffer;
+            let imgMime = 'image/jpeg';
+            // If base64, extract buffer directly (no re-download needed)
+            if (savedMediaUrl.startsWith('data:')) {
+              const match = savedMediaUrl.match(/^data:(.+?);base64,(.+)$/s);
+              if (match) {
+                imgMime = match[1];
+                imgBuf = Buffer.from(match[2], 'base64');
+              } else { throw new Error('Invalid base64 data URL'); }
+            } else if (line.cloudAccessToken) {
+              const imgRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
+              if (!imgRes.ok) throw new Error(`Fetch failed: ${imgRes.status}`);
+              imgBuf = Buffer.from(await imgRes.arrayBuffer());
+              imgMime = imgRes.headers.get('content-type') || 'image/jpeg';
+            } else { throw new Error('No access token'); }
+
+            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+            const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
+            if (apiKey) {
+              const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });
+              const bizCtx = assistantCtx?.businessInfo || assistantCtx?.context || '';
+              const desc = await analyzeImageWithVision(imgBuf!, imgMime, apiKey, bizCtx.substring(0, 500));
+              if (desc) {
+                const cap = caption ? ` (caption: "${caption}")` : '';
+                messageBody = `[El cliente envió una imagen${cap}. Contenido: ${desc}]`;
+                log(`☁️ 👁️ Cloud imagen analizada: "${desc.substring(0, 100)}"`);
               }
             }
           } catch (vErr: any) { log(`☁️ ⚠️ Vision error: ${vErr.message}`); }

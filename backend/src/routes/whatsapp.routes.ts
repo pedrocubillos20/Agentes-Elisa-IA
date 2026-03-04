@@ -2860,162 +2860,121 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                 }
               }
 
-              // ═══ 🔄 ACTUALIZAR CITA EXISTENTE ═══
-              if (actionToTake === 'actualizar_cita' && merged.cita === 'creada') {
+              // ═══ 🔄 ACTUALIZAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
+              // AI may use actualizar_cita OR actualizar_reserva regardless of actual DB type
+              if ((actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva') && 
+                  (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
-                  const existingAppt = await prisma.appointment.findFirst({
-                    where: { userId: ownerId, type: 'appointment', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
+                  // Search for ANY active appointment/reservation for this phone
+                  const existingRecord = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, clientPhone: { endsWith: phoneCleanU.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
                     orderBy: { createdAt: 'desc' }
                   });
-                  if (existingAppt) {
-                    const updateApptData: any = { status: 'pending' };
+                  if (existingRecord) {
+                    const updateData: any = { status: 'pending' };
                     
-                    // Actualizar fecha si cambió (check both cita and reserva fields)
-                    const newFechaCita = merged.fecha_cita || merged.fecha_reserva;
-                    if (newFechaCita) {
-                      updateApptData.date = parseSmartDate(newFechaCita);
-                    }
+                    // Get new date/time from ANY field the AI might have used
+                    const newFecha = merged.fecha_cita || merged.fecha_reserva;
+                    if (newFecha) updateData.date = parseSmartDate(newFecha);
                     
-                    // Actualizar hora si cambió (check both cita and reserva fields)
-                    const newHoraCita = merged.hora_cita || merged.hora_reserva;
-                    if (newHoraCita) {
-                      updateApptData.time = parseSmartTime(newHoraCita, existingAppt.time || '10:00');
-                    }
+                    const newHora = merged.hora_cita || merged.hora_reserva;
+                    if (newHora) updateData.time = parseSmartTime(newHora, existingRecord.time || '10:00');
                     
-                    if (merged.nombre) updateApptData.clientName = merged.nombre;
-                    if (merged.direccion) updateApptData.address = merged.direccion;
+                    if (merged.nombre) updateData.clientName = merged.nombre;
+                    if (merged.direccion) updateData.address = merged.direccion;
                     
-                    const tipoCita = merged.tipo_cita || 'cita';
-                    updateApptData.notes = `📅 ${tipoCita.toUpperCase()} — ACTUALIZADA\n` +
+                    const tipo = merged.tipo_cita || merged.tipo_reserva || existingRecord.type;
+                    updateData.notes = `📅 ${tipo.toUpperCase()} — ACTUALIZADA\n` +
                       `━━━━━━━━━━━━━━━\n` +
-                      `👤 Cliente: ${merged.nombre || existingAppt.clientName}\n` +
+                      `👤 Cliente: ${merged.nombre || existingRecord.clientName}\n` +
                       `📱 Teléfono: ${phoneCleanU}\n` +
-                      `🗓️ Fecha: ${(updateApptData.date || existingAppt.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
-                      `🕐 Hora: ${updateApptData.time || existingAppt.time}\n` +
-                      `📋 Tipo: ${tipoCita}\n` +
+                      `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
+                      `🕐 Hora: ${updateData.time || existingRecord.time}\n` +
+                      `📋 Tipo: ${tipo}\n` +
                       `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
                       `━━━━━━━━━━━━━━━`;
 
-                    await prisma.appointment.update({ where: { id: existingAppt.id }, data: updateApptData });
-                    merged.cita = 'creada';
-                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`🔄📅 CITA ACTUALIZADA: ${existingAppt.id} | ${merged.nombre || clientName}`);
-                  } else {
-                    log(`⚠️ No se encontró cita para actualizar de ${phoneCleanU}`);
-                  }
-                } catch (upErr: any) {
-                  console.error('❌ Error actualizando cita:', upErr.message);
-                }
-              }
-
-              // ═══ 🔄 ACTUALIZAR RESERVA EXISTENTE ═══
-              if (actionToTake === 'actualizar_reserva' && merged.reserva === 'creada') {
-                try {
-                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
-                  const existingRes = await prisma.appointment.findFirst({
-                    where: { userId: ownerId, type: 'reservation', clientPhone: { endsWith: phoneCleanU.slice(-10) } },
-                    orderBy: { createdAt: 'desc' }
-                  });
-                  if (existingRes) {
-                    const updateResData: any = { status: 'pending' };
-                    
-                    // Check both reserva and cita fields (AI may use either)
-                    const newFechaRes = merged.fecha_reserva || merged.fecha_cita;
-                    if (newFechaRes) {
-                      updateResData.date = parseSmartDate(newFechaRes);
-                    }
-                    
-                    const newHoraRes = merged.hora_reserva || merged.hora_cita;
-                    if (newHoraRes) {
-                      updateResData.time = parseSmartTime(newHoraRes, existingRes.time || '10:00');
-                    }
-                    
-                    if (merged.nombre) updateResData.clientName = merged.nombre;
-                    const tipoRes = merged.tipo_reserva || 'reserva';
-                    const numPers = merged.num_personas || '';
-                    
-                    updateResData.notes = `🏨 RESERVA ACTUALIZADA — ${tipoRes.toUpperCase()}\n` +
-                      `━━━━━━━━━━━━━━━\n` +
-                      `👤 Cliente: ${merged.nombre || existingRes.clientName}\n` +
-                      `📱 Teléfono: ${phoneCleanU}\n` +
-                      `🗓️ Fecha: ${(updateResData.date || existingRes.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
-                      `🕐 Hora: ${updateResData.time || existingRes.time}\n` +
-                      (numPers ? `👥 Personas: ${numPers}\n` : '') +
-                      `📋 Tipo: ${tipoRes}\n` +
-                      `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
-                      `━━━━━━━━━━━━━━━`;
-
-                    await prisma.appointment.update({ where: { id: existingRes.id }, data: updateResData });
-                    merged.reserva = 'creada';
-                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`🔄🏨 RESERVA ACTUALIZADA: ${existingRes.id} | ${merged.nombre || clientName}`);
-                  } else {
-                    log(`⚠️ No se encontró reserva para actualizar de ${phoneCleanU}`);
-                  }
-                } catch (upErr: any) {
-                  console.error('❌ Error actualizando reserva:', upErr.message);
-                }
-              }
-
-              // ═══ ❌ CANCELAR CITA ═══
-              if (actionToTake === 'cancelar_cita' && merged.cita === 'creada') {
-                try {
-                  const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
-                  const existingAppt = await prisma.appointment.findFirst({
-                    where: { userId: ownerId, type: 'appointment', clientPhone: { endsWith: phoneCleanC.slice(-10) }, status: { notIn: ['cancelled'] } },
-                    orderBy: { createdAt: 'desc' }
-                  });
-                  if (existingAppt) {
-                    await prisma.appointment.update({
-                      where: { id: existingAppt.id },
-                      data: { status: 'cancelled', notes: existingAppt.notes + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
-                    });
-                    merged.cita = '';
-                    merged.fecha_cita = '';
-                    merged.hora_cita = '';
+                    await prisma.appointment.update({ where: { id: existingRecord.id }, data: updateData });
+                    // Keep status as created so future updates work
+                    if (existingRecord.type === 'reservation') merged.reserva = 'creada';
+                    else merged.cita = 'creada';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`❌📅 CITA CANCELADA: ${existingAppt.id} | ${existingAppt.clientName} | ${existingAppt.date} ${existingAppt.time}`);
-                    sendPushToUser(ownerId, { title: '❌ Cita Cancelada', body: `${existingAppt.clientName || 'Cliente'} canceló su cita del ${existingAppt.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                    log(`🔄 ${existingRecord.type.toUpperCase()} ACTUALIZADA: ${existingRecord.id} | ${merged.nombre || clientName}`);
+                    sendPushToUser(ownerId, { title: '🔄 Cita Actualizada', body: `${merged.nombre || 'Cliente'} actualizó su ${tipo}`, url: '/agenda', tag: `update-${Date.now()}` }).catch(() => {});
                   } else {
-                    log(`⚠️ No se encontró cita activa para cancelar de ${phoneCleanC}`);
+                    log(`⚠️ No se encontró cita/reserva activa para actualizar de ${phoneCleanU}`);
                   }
-                } catch (cancelErr: any) {
-                  console.error('❌ Error cancelando cita:', cancelErr.message);
+                } catch (upErr: any) {
+                  console.error('❌ Error actualizando cita/reserva:', upErr.message);
                 }
               }
 
-              // ═══ ❌ CANCELAR RESERVA ═══
-              if (actionToTake === 'cancelar_reserva' && merged.reserva === 'creada') {
+              // ═══ 🔄 ACTUALIZAR PEDIDO EXISTENTE ═══
+              if (actionToTake === 'actualizar_pedido' && (merged.pedido === 'creado' || merged.pedido === 'actualizado')) {
                 try {
-                  const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
-                  const existingRes = await prisma.appointment.findFirst({
-                    where: { userId: ownerId, type: 'reservation', clientPhone: { endsWith: phoneCleanC.slice(-10) }, status: { notIn: ['cancelled'] } },
+                  const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingOrder = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'order', clientPhone: { endsWith: phoneCleanU.slice(-10) }, status: { notIn: ['cancelled'] } },
                     orderBy: { createdAt: 'desc' }
                   });
-                  if (existingRes) {
+                  if (existingOrder) {
+                    const productoDesc = merged.producto_servicio || merged.detalles_producto || '';
+                    const updateOrderData: any = {
+                      clientName: merged.nombre || existingOrder.clientName,
+                      address: merged.direccion || merged.ciudad || existingOrder.address,
+                      notes: `🛒 PEDIDO ACTUALIZADO\n━━━━━━━━━━━━━━━\n👤 ${merged.nombre || existingOrder.clientName}\n📱 ${phoneCleanU}\n📦 ${productoDesc}\n📏 Detalles: ${merged.detalles_producto || ''}\n🔢 Cantidad: ${merged.cantidad || ''}\n💰 Total: $${merged.total || ''}\n📍 ${merged.direccion || ''} ${merged.ciudad || ''}\n💳 Pago: ${merged.metodo_pago || ''}\n⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n━━━━━━━━━━━━━━━`
+                    };
+                    if (merged.fecha_entrega) updateOrderData.date = parseSmartDate(merged.fecha_entrega);
+                    await prisma.appointment.update({ where: { id: existingOrder.id }, data: updateOrderData });
+                    merged.pedido = 'creado'; // Keep as creado for future updates
+                    merged.accion = '';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`🔄🛒 PEDIDO ACTUALIZADO: ${existingOrder.id}`);
+                  }
+                } catch (upErr: any) {
+                  console.error('❌ Error actualizando pedido:', upErr.message);
+                }
+              }
+
+              // ═══ ❌ CANCELAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
+              // AI may use cancelar_cita OR cancelar_reserva regardless of actual DB type
+              if ((actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva') &&
+                  (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
+                try {
+                  const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  // Search for ANY active appointment/reservation for this phone
+                  const existingRecord = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, clientPhone: { endsWith: phoneCleanC.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingRecord) {
                     await prisma.appointment.update({
-                      where: { id: existingRes.id },
-                      data: { status: 'cancelled', notes: existingRes.notes + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                      where: { id: existingRecord.id },
+                      data: { status: 'cancelled', notes: (existingRecord.notes || '') + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
                     });
+                    // Clear ALL relevant memory fields
+                    merged.cita = '';
                     merged.reserva = '';
+                    merged.fecha_cita = '';
+                    merged.hora_cita = '';
                     merged.fecha_reserva = '';
                     merged.hora_reserva = '';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`❌🏨 RESERVA CANCELADA: ${existingRes.id} | ${existingRes.clientName} | ${existingRes.date} ${existingRes.time}`);
-                    sendPushToUser(ownerId, { title: '❌ Reserva Cancelada', body: `${existingRes.clientName || 'Cliente'} canceló su reserva del ${existingRes.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                    log(`❌ ${existingRecord.type.toUpperCase()} CANCELADA: ${existingRecord.id} | ${existingRecord.clientName} | ${existingRecord.date} ${existingRecord.time}`);
+                    sendPushToUser(ownerId, { title: '❌ Cita/Reserva Cancelada', body: `${existingRecord.clientName || 'Cliente'} canceló — ${existingRecord.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
                   } else {
-                    log(`⚠️ No se encontró reserva activa para cancelar de ${phoneCleanC}`);
+                    log(`⚠️ No se encontró cita/reserva activa para cancelar de ${phoneCleanC}`);
                   }
                 } catch (cancelErr: any) {
-                  console.error('❌ Error cancelando reserva:', cancelErr.message);
+                  console.error('❌ Error cancelando cita/reserva:', cancelErr.message);
                 }
               }
 
               // ═══ ❌ CANCELAR PEDIDO ═══
-              if (actionToTake === 'cancelar_pedido' && merged.pedido === 'creado') {
+              if (actionToTake === 'cancelar_pedido' && (merged.pedido === 'creado' || merged.pedido === 'actualizado')) {
                 try {
                   const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   const existingOrder = await prisma.appointment.findFirst({
@@ -3025,7 +2984,7 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   if (existingOrder) {
                     await prisma.appointment.update({
                       where: { id: existingOrder.id },
-                      data: { status: 'cancelled', notes: existingOrder.notes + '\n\n❌ CANCELADO por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                      data: { status: 'cancelled', notes: (existingOrder.notes || '') + '\n\n❌ CANCELADO por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
                     });
                     merged.pedido = '';
                     merged.fecha_entrega = '';
@@ -3033,8 +2992,6 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
                     log(`❌🛒 PEDIDO CANCELADO: ${existingOrder.id} | ${existingOrder.clientName}`);
                     sendPushToUser(ownerId, { title: '❌ Pedido Cancelado', body: `${existingOrder.clientName || 'Cliente'} canceló su pedido`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
-                  } else {
-                    log(`⚠️ No se encontró pedido activo para cancelar de ${phoneCleanC}`);
                   }
                 } catch (cancelErr: any) {
                   console.error('❌ Error cancelando pedido:', cancelErr.message);

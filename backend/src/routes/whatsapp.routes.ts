@@ -1479,6 +1479,14 @@ Si el cliente ya tiene un pedido/cita/reserva CREADO y pide CAMBIAR algo (fecha,
 Actualiza los campos correspondientes con los nuevos valores y pon la accion de actualizar.
 Ejemplos: "cambié de opinión, quiero el buzo rojo" → actualizar_pedido, "mejor a las 3pm" → actualizar_cita, "seremos 6 personas" → actualizar_reserva
 
+❌ CANCELAR REGISTROS EXISTENTES:
+Si el cliente pide CANCELAR su cita/reserva/pedido:
+- accion = "cancelar_cita" → Cancela la cita en el sistema (marca como cancelada, libera el cupo)
+- accion = "cancelar_reserva" → Cancela la reserva en el sistema
+- accion = "cancelar_pedido" → Cancela el pedido en el sistema
+IMPORTANTE: Confirma con el cliente ANTES de cancelar. Una vez confirme, pon la accion de cancelar.
+Ejemplos: "quiero cancelar mi cita" → confirmar → accion = "cancelar_cita", "ya no voy" → confirmar → accion = "cancelar_reserva"
+
 === ⚠️⚠️⚠️ BLOQUE DE MEMORIA - SUPER IMPORTANTE ⚠️⚠️⚠️ ===
 
 🔴 OBLIGATORIO: AL FINAL de CADA respuesta, DEBES incluir este bloque de memoria.
@@ -1510,7 +1518,7 @@ INSTRUCCIONES:
 - "pedido" = NO lo llenes tú, el sistema lo actualiza
 - "notas" = Cualquier dato extra relevante del cliente
 - "etapa_actual" = ${pipelineStages.length > 0 ? `OBLIGATORIO. SOLO puede ser una de estas exactas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(', ')}. NO inventes otras.` : 'Déjalo vacío si no hay etapas configuradas.'}
-- "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. "crear_reserva" cuando SE CONFIRMA reserva. Vacío en otros casos.
+- "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. "crear_reserva" cuando SE CONFIRMA reserva. "actualizar_cita"/"actualizar_pedido"/"actualizar_reserva" para cambios. "cancelar_cita"/"cancelar_pedido"/"cancelar_reserva" para cancelaciones. Vacío en otros casos.
 - "fecha_cita" = Fecha de la cita confirmada (YYYY-MM-DD o texto como "mañana").
 - "hora_cita" = Hora de la cita (ej: "8:00", "14:30").
 - "tipo_cita" = Tipo: "demostración", "reunión", "consulta", "asesoría", etc.
@@ -1913,7 +1921,10 @@ REGLAS CRITICAS:
 GESTION (usa acciones en el bloque MEMORY_JSON):
 - "Agendar cita con Maria a las 10am" -> accion = "crear_cita"
 - "Nuevo pedido: 2 buzos para Carlos" -> accion = "crear_pedido"  
-- "Cancelar la cita de Miguel" -> accion = "actualizar_cita"
+- "Cancelar la cita de Miguel" -> accion = "cancelar_cita"
+- "Cancelar la reserva" -> accion = "cancelar_reserva"
+- "Cancelar el pedido" -> accion = "cancelar_pedido"
+- "Mover la cita al viernes" -> accion = "actualizar_cita"
 - "Mover el pedido al viernes" -> accion = "actualizar_pedido"
 `);
 
@@ -1933,7 +1944,7 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas.]`;
+    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas. Si el cliente CANCELA, pon accion:"cancelar_cita"/"cancelar_reserva"/"cancelar_pedido" según corresponda. Si CAMBIA fecha/hora, pon accion:"actualizar_cita"/"actualizar_reserva"/"actualizar_pedido". IMPORTANTE: Si la hora solicitada ya pasó hoy, agenda para MAÑANA, no para hoy.]`;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
@@ -2446,8 +2457,22 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
               if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
-                  const citaDate = parseSmartDate(merged.fecha_cita || '');
+                  let citaDate = parseSmartDate(merged.fecha_cita || '');
                   const citaTime = parseSmartTime(merged.hora_cita || '', '10:00');
+
+                  // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
+                  const now = getNowColombia();
+                  const todayStr = now.toISOString().split('T')[0];
+                  const citaDateCheck = citaDate.toISOString().split('T')[0];
+                  if (citaDateCheck === todayStr) {
+                    const [cH, cM] = citaTime.split(':').map(Number);
+                    const citaMinutes = cH * 60 + cM;
+                    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+                    if (citaMinutes <= nowMinutes) {
+                      citaDate.setDate(citaDate.getDate() + 1);
+                      log(`🕐 Hora ${citaTime} ya pasó hoy → movida a mañana ${citaDate.toISOString().split('T')[0]}`);
+                    }
+                  }
 
                   // 🇨🇴 Check holiday — prevent booking on closed holidays
                   const citaDateStr = citaDate.toISOString().split('T')[0];
@@ -2602,8 +2627,22 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
               if (actionToTake === 'crear_reserva' && merged.reserva !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
-                  const reservaDate = parseSmartDate(merged.fecha_reserva || '');
+                  let reservaDate = parseSmartDate(merged.fecha_reserva || '');
                   const reservaTime = parseSmartTime(merged.hora_reserva || '', '12:00');
+
+                  // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
+                  const nowR = getNowColombia();
+                  const todayStrR = nowR.toISOString().split('T')[0];
+                  const reservaDateCheck = reservaDate.toISOString().split('T')[0];
+                  if (reservaDateCheck === todayStrR) {
+                    const [rH, rM] = reservaTime.split(':').map(Number);
+                    const resMinutes = rH * 60 + rM;
+                    const nowMinutesR = nowR.getHours() * 60 + nowR.getMinutes();
+                    if (resMinutes <= nowMinutesR) {
+                      reservaDate.setDate(reservaDate.getDate() + 1);
+                      log(`🕐 Hora ${reservaTime} ya pasó hoy → reserva movida a mañana ${reservaDate.toISOString().split('T')[0]}`);
+                    }
+                  }
 
                   // 🇨🇴 Check holiday — prevent booking on closed holidays
                   const reservaDateStr = reservaDate.toISOString().split('T')[0];
@@ -2895,6 +2934,89 @@ GESTION (usa acciones en el bloque MEMORY_JSON):
                   }
                 } catch (upErr: any) {
                   console.error('❌ Error actualizando reserva:', upErr.message);
+                }
+              }
+
+              // ═══ ❌ CANCELAR CITA ═══
+              if (actionToTake === 'cancelar_cita' && merged.cita === 'creada') {
+                try {
+                  const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingAppt = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'appointment', clientPhone: { endsWith: phoneCleanC.slice(-10) }, status: { notIn: ['cancelled'] } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingAppt) {
+                    await prisma.appointment.update({
+                      where: { id: existingAppt.id },
+                      data: { status: 'cancelled', notes: existingAppt.notes + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                    });
+                    merged.cita = '';
+                    merged.fecha_cita = '';
+                    merged.hora_cita = '';
+                    merged.accion = '';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`❌📅 CITA CANCELADA: ${existingAppt.id} | ${existingAppt.clientName} | ${existingAppt.date} ${existingAppt.time}`);
+                    sendPushToUser(ownerId, { title: '❌ Cita Cancelada', body: `${existingAppt.clientName || 'Cliente'} canceló su cita del ${existingAppt.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                  } else {
+                    log(`⚠️ No se encontró cita activa para cancelar de ${phoneCleanC}`);
+                  }
+                } catch (cancelErr: any) {
+                  console.error('❌ Error cancelando cita:', cancelErr.message);
+                }
+              }
+
+              // ═══ ❌ CANCELAR RESERVA ═══
+              if (actionToTake === 'cancelar_reserva' && merged.reserva === 'creada') {
+                try {
+                  const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingRes = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'reservation', clientPhone: { endsWith: phoneCleanC.slice(-10) }, status: { notIn: ['cancelled'] } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingRes) {
+                    await prisma.appointment.update({
+                      where: { id: existingRes.id },
+                      data: { status: 'cancelled', notes: existingRes.notes + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                    });
+                    merged.reserva = '';
+                    merged.fecha_reserva = '';
+                    merged.hora_reserva = '';
+                    merged.accion = '';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`❌🏨 RESERVA CANCELADA: ${existingRes.id} | ${existingRes.clientName} | ${existingRes.date} ${existingRes.time}`);
+                    sendPushToUser(ownerId, { title: '❌ Reserva Cancelada', body: `${existingRes.clientName || 'Cliente'} canceló su reserva del ${existingRes.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                  } else {
+                    log(`⚠️ No se encontró reserva activa para cancelar de ${phoneCleanC}`);
+                  }
+                } catch (cancelErr: any) {
+                  console.error('❌ Error cancelando reserva:', cancelErr.message);
+                }
+              }
+
+              // ═══ ❌ CANCELAR PEDIDO ═══
+              if (actionToTake === 'cancelar_pedido' && merged.pedido === 'creado') {
+                try {
+                  const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
+                  const existingOrder = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, type: 'order', clientPhone: { endsWith: phoneCleanC.slice(-10) }, status: { notIn: ['cancelled'] } },
+                    orderBy: { createdAt: 'desc' }
+                  });
+                  if (existingOrder) {
+                    await prisma.appointment.update({
+                      where: { id: existingOrder.id },
+                      data: { status: 'cancelled', notes: existingOrder.notes + '\n\n❌ CANCELADO por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                    });
+                    merged.pedido = '';
+                    merged.fecha_entrega = '';
+                    merged.accion = '';
+                    await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    log(`❌🛒 PEDIDO CANCELADO: ${existingOrder.id} | ${existingOrder.clientName}`);
+                    sendPushToUser(ownerId, { title: '❌ Pedido Cancelado', body: `${existingOrder.clientName || 'Cliente'} canceló su pedido`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                  } else {
+                    log(`⚠️ No se encontró pedido activo para cancelar de ${phoneCleanC}`);
+                  }
+                } catch (cancelErr: any) {
+                  console.error('❌ Error cancelando pedido:', cancelErr.message);
                 }
               }
               

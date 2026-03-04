@@ -4,7 +4,8 @@ import {
   Calendar, Clock, Plus, Trash2, Edit3, Save, X, CheckCircle,
   XCircle, Users, Settings, ChevronLeft, ChevronRight, Loader2,
   AlertTriangle, RefreshCw, LayoutGrid, Armchair, Car, Scissors,
-  UtensilsCrossed, Building, Dumbbell, Briefcase, Heart, Wrench
+  UtensilsCrossed, Building, Dumbbell, Briefcase, Heart, Wrench,
+  Copy, Check
 } from 'lucide-react';
 import { useSelectedLine } from '../layout';
 
@@ -16,6 +17,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 interface Resource {
   id: string; name: string; type: string; capacity: number;
   isActive: boolean; order: number; notes: string | null;
+  whatsappLineId?: string | null;
 }
 
 interface DaySchedule {
@@ -32,8 +34,8 @@ interface SlotInfo {
 
 interface AvailabilityData {
   date: string; dayName: string; isOpen: boolean;
-  schedule: { start: string; end: string; slotDuration: number };
-  resources: { id: string; name: string; type: string }[];
+  schedule: { start: string; end: string; slotDuration: number; breakStart?: string; breakEnd?: string } | null;
+  resources: { id: string; name: string; type: string; capacity?: number }[];
   totalSlots: number; availableSlots: number; occupiedSlots: number;
   slots: SlotInfo[];
 }
@@ -53,6 +55,49 @@ const RESOURCE_TYPES: Record<string, { label: string; icon: any; examples: strin
   generic: { label: 'Genérico', icon: LayoutGrid, examples: 'Cualquier tipo' },
 };
 
+const SLOT_DURATIONS = [
+  { value: 10, label: '10 min' },
+  { value: 15, label: '15 min' },
+  { value: 20, label: '20 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '1 hora' },
+  { value: 90, label: '1.5 horas' },
+  { value: 120, label: '2 horas' },
+  { value: 180, label: '3 horas' },
+  { value: 240, label: '4 horas' },
+];
+
+// ═══════════════════════════════════════
+// TOAST NOTIFICATION COMPONENT
+// ═══════════════════════════════════════
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'error' | 'info'; onClose: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 4000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const colors = {
+    success: 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300',
+    error: 'bg-red-500/20 border-red-500/40 text-red-300',
+    info: 'bg-blue-500/20 border-blue-500/40 text-blue-300',
+  };
+
+  const icons = {
+    success: <CheckCircle className="w-5 h-5" />,
+    error: <XCircle className="w-5 h-5" />,
+    info: <AlertTriangle className="w-5 h-5" />,
+  };
+
+  return (
+    <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-5 py-3 rounded-xl border shadow-2xl backdrop-blur-sm animate-in slide-in-from-top-2 ${colors[type]}`}>
+      {icons[type]}
+      <span className="text-sm font-medium">{message}</span>
+      <button onClick={onClose} className="ml-2 hover:opacity-70"><X className="w-4 h-4" /></button>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════
@@ -63,13 +108,22 @@ export default function RecursosPage() {
   const [resources, setResources] = useState<Resource[]>([]);
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
   const [availability, setAvailability] = useState<AvailabilityData | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    // [FIX] Use Colombia timezone for default date
+    const now = new Date();
+    const colombiaTime = new Date(now.getTime() + (-5 - now.getTimezoneOffset() / 60) * 3600000);
+    return colombiaTime.toISOString().split('T')[0];
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showAddResource, setShowAddResource] = useState(false);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [newResource, setNewResource] = useState({ name: '', type: 'generic', capacity: 1, notes: '' });
   const [error, setError] = useState('');
+  // [FIX] Toast state for user feedback
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  // [FIX] Track if schedule has unsaved changes
+  const [scheduleChanged, setScheduleChanged] = useState(false);
 
   const headers = useCallback(() => ({
     'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -87,7 +141,11 @@ export default function RecursosPage() {
   const loadSchedule = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/resources/schedule${lineId ? `?lineId=${lineId}` : ''}`, { headers: headers() });
-      if (res.ok) { const data = await res.json(); setSchedule(data.schedule || []); }
+      if (res.ok) {
+        const data = await res.json();
+        setSchedule(data.schedule || []);
+        setScheduleChanged(false);
+      }
     } catch (e) { console.error(e); }
   }, [headers, lineId]);
 
@@ -99,6 +157,7 @@ export default function RecursosPage() {
   }, [headers, selectedDate, lineId]);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([loadResources(), loadSchedule(), loadAvailability()]).finally(() => setLoading(false));
   }, [loadResources, loadSchedule, loadAvailability]);
 
@@ -112,10 +171,15 @@ export default function RecursosPage() {
       const res = await fetch(`${API_URL}/api/resources`, {
         method: 'POST', headers: headers(), body: JSON.stringify({ ...newResource, whatsappLineId: lineId || null })
       });
+      const data = await res.json();
       if (res.ok) {
         await loadResources(); await loadAvailability();
         setNewResource({ name: '', type: 'generic', capacity: 1, notes: '' });
         setShowAddResource(false); setError('');
+        setToast({ message: `Recurso "${data.resource?.name}" creado`, type: 'success' });
+      } else {
+        // [FIX] Show backend validation errors
+        setError(data.error || 'Error creando recurso');
       }
     } catch (e) { setError('Error creando recurso'); }
     setSaving(false);
@@ -124,21 +188,34 @@ export default function RecursosPage() {
   const updateResource = async (resource: Resource) => {
     setSaving(true);
     try {
-      await fetch(`${API_URL}/api/resources/${resource.id}`, {
+      const res = await fetch(`${API_URL}/api/resources/${resource.id}`, {
         method: 'PUT', headers: headers(), body: JSON.stringify(resource)
       });
-      await loadResources(); await loadAvailability();
-      setEditingResource(null);
-    } catch (e) { setError('Error actualizando'); }
+      if (res.ok) {
+        await loadResources(); await loadAvailability();
+        setEditingResource(null);
+        setToast({ message: 'Recurso actualizado', type: 'success' });
+      } else {
+        const data = await res.json();
+        setToast({ message: data.error || 'Error actualizando', type: 'error' });
+      }
+    } catch (e) { setToast({ message: 'Error actualizando', type: 'error' }); }
     setSaving(false);
   };
 
   const deleteResource = async (id: string) => {
-    if (!confirm('¿Eliminar este recurso?')) return;
+    if (!confirm('¿Eliminar este recurso? Si tiene citas pendientes, deberás desactivarlo en su lugar.')) return;
     try {
-      await fetch(`${API_URL}/api/resources/${id}`, { method: 'DELETE', headers: headers() });
-      await loadResources(); await loadAvailability();
-    } catch (e) { setError('Error eliminando'); }
+      const res = await fetch(`${API_URL}/api/resources/${id}`, { method: 'DELETE', headers: headers() });
+      const data = await res.json();
+      if (res.ok) {
+        await loadResources(); await loadAvailability();
+        setToast({ message: 'Recurso eliminado', type: 'success' });
+      } else {
+        // [FIX] Show server error (e.g. "has pending appointments")
+        setToast({ message: data.error || 'Error eliminando recurso', type: 'error' });
+      }
+    } catch (e) { setToast({ message: 'Error eliminando', type: 'error' }); }
   };
 
   const toggleResourceActive = async (resource: Resource) => {
@@ -149,11 +226,23 @@ export default function RecursosPage() {
   const saveSchedule = async () => {
     setSaving(true);
     try {
-      await fetch(`${API_URL}/api/resources/schedule`, {
+      const res = await fetch(`${API_URL}/api/resources/schedule`, {
         method: 'PUT', headers: headers(), body: JSON.stringify({ schedule, whatsappLineId: lineId || null })
       });
-      await loadAvailability();
-    } catch (e) { setError('Error guardando horario'); }
+      const data = await res.json();
+      if (res.ok) {
+        // [FIX] Show success feedback + reload availability
+        setSchedule(data.schedule || schedule);
+        setScheduleChanged(false);
+        await loadAvailability();
+        setToast({ message: '✅ Horarios guardados correctamente', type: 'success' });
+      } else {
+        // [FIX] Show validation error from backend
+        setToast({ message: data.error || 'Error guardando horario', type: 'error' });
+      }
+    } catch (e) {
+      setToast({ message: 'Error de conexión al guardar horario', type: 'error' });
+    }
     setSaving(false);
   };
 
@@ -161,11 +250,36 @@ export default function RecursosPage() {
     setSchedule(prev => prev.map(d =>
       d.dayOfWeek === dayOfWeek ? { ...d, [field]: value } : d
     ));
+    setScheduleChanged(true); // [FIX] Track unsaved changes
+  };
+
+  // [FIX] Copy schedule from one day to all similar days
+  const copyDayToWeekdays = (sourceDayOfWeek: number) => {
+    const sourceDay = schedule.find(d => d.dayOfWeek === sourceDayOfWeek);
+    if (!sourceDay) return;
+
+    setSchedule(prev => prev.map(d => {
+      // Copy to all weekdays (Mon-Fri) except source
+      if (d.dayOfWeek >= 1 && d.dayOfWeek <= 5 && d.dayOfWeek !== sourceDayOfWeek) {
+        return {
+          ...d,
+          isOpen: sourceDay.isOpen,
+          startTime: sourceDay.startTime,
+          endTime: sourceDay.endTime,
+          slotDuration: sourceDay.slotDuration,
+          breakStart: sourceDay.breakStart,
+          breakEnd: sourceDay.breakEnd,
+        };
+      }
+      return d;
+    }));
+    setScheduleChanged(true);
+    setToast({ message: `Horario de ${DAY_NAMES[sourceDayOfWeek]} copiado a Lunes-Viernes`, type: 'info' });
   };
 
   // ═══ DATE NAVIGATION ═══
   const changeDate = (offset: number) => {
-    const d = new Date(selectedDate);
+    const d = new Date(selectedDate + 'T12:00:00');
     d.setDate(d.getDate() + offset);
     setSelectedDate(d.toISOString().split('T')[0]);
   };
@@ -178,6 +292,9 @@ export default function RecursosPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
       {/* ═══ HEADER ═══ */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
@@ -192,6 +309,10 @@ export default function RecursosPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => { loadResources(); loadSchedule(); loadAvailability(); setToast({ message: 'Datos actualizados', type: 'info' }); }}
+            className="flex items-center gap-2 px-3 py-2.5 bg-white/5 border border-white/10 text-gray-400 font-semibold rounded-xl text-sm hover:bg-white/10 transition-all">
+            <RefreshCw className="w-4 h-4" /> Actualizar
+          </button>
           <button onClick={() => setShowAddResource(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold rounded-xl text-sm hover:brightness-110 transition-all">
             <Plus className="w-4 h-4" /> Nuevo Recurso
@@ -227,12 +348,16 @@ export default function RecursosPage() {
           { id: 'schedule', label: '🕐 Horarios', icon: Clock },
         ].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
-            className={`px-4 py-3 text-sm font-semibold border-b-2 transition-all ${
+            className={`px-4 py-3 text-sm font-semibold border-b-2 transition-all relative ${
               tab === t.id 
                 ? 'border-purple-400 text-purple-300 bg-purple-500/5' 
                 : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}>
             {t.label}
+            {/* [FIX] Unsaved indicator on schedule tab */}
+            {t.id === 'schedule' && scheduleChanged && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full animate-pulse" />
+            )}
           </button>
         ))}
       </div>
@@ -249,7 +374,7 @@ export default function RecursosPage() {
             </button>
             <div className="flex items-center gap-3">
               <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
-                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm" />
+                className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white text-sm [color-scheme:dark]" />
               <span className="text-lg font-bold text-white">{availability?.dayName || ''}</span>
               {availability && !availability.isOpen && (
                 <span className="px-3 py-1 bg-red-500/20 text-red-300 rounded-full text-xs font-bold">CERRADO</span>
@@ -277,6 +402,20 @@ export default function RecursosPage() {
             })}
           </div>
 
+          {/* Schedule summary */}
+          {availability && availability.isOpen && availability.schedule && (
+            <div className="flex items-center gap-4 text-xs text-gray-500 px-1">
+              <span>🕐 {availability.schedule.start} - {availability.schedule.end}</span>
+              <span>⏱️ Turnos de {availability.schedule.slotDuration} min</span>
+              {availability.schedule.breakStart && (
+                <span>☕ Descanso {availability.schedule.breakStart} - {availability.schedule.breakEnd}</span>
+              )}
+              {availability.resources.length > 0 && (
+                <span>🏪 {availability.resources.length} recurso{availability.resources.length > 1 ? 's' : ''}</span>
+              )}
+            </div>
+          )}
+
           {/* Availability grid */}
           {availability && availability.isOpen ? (
             <div className="rounded-2xl border border-white/10 overflow-hidden">
@@ -299,7 +438,7 @@ export default function RecursosPage() {
 
               {/* Slot rows */}
               <div className="max-h-[500px] overflow-y-auto">
-                {availability.slots.map((slot, idx) => (
+                {availability.slots.map((slot) => (
                   <div key={slot.time}
                     className={`grid gap-0 border-b border-white/5 last:border-b-0 transition ${
                       slot.available ? 'hover:bg-emerald-500/5' : 'bg-red-500/5'
@@ -361,8 +500,12 @@ export default function RecursosPage() {
           ) : availability && !availability.isOpen ? (
             <div className="text-center py-16">
               <XCircle className="w-16 h-16 text-red-400/30 mx-auto mb-4" />
-              <p className="text-lg font-bold text-white">Cerrado este día</p>
+              <p className="text-lg font-bold text-white">Cerrado este día ({availability?.dayName})</p>
               <p className="text-sm text-gray-500 mt-1">Configura los horarios en la pestaña "🕐 Horarios"</p>
+              <button onClick={() => setTab('schedule')}
+                className="mt-3 px-4 py-2 bg-purple-500/20 text-purple-300 rounded-xl text-sm font-semibold border border-purple-500/30 hover:bg-purple-500/30 transition">
+                Ir a Horarios
+              </button>
             </div>
           ) : (
             <div className="text-center py-16">
@@ -384,9 +527,9 @@ export default function RecursosPage() {
             <div className="rounded-2xl border border-purple-500/30 bg-purple-500/5 p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold text-white">Nuevo Recurso</h3>
-                <button onClick={() => setShowAddResource(false)}><X className="w-5 h-5 text-gray-500" /></button>
+                <button onClick={() => { setShowAddResource(false); setError(''); }}><X className="w-5 h-5 text-gray-500" /></button>
               </div>
-              {error && <p className="text-xs text-red-400">{error}</p>}
+              {error && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</p>}
 
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Tipo de recurso</label>
@@ -467,16 +610,38 @@ export default function RecursosPage() {
                       <div className="space-y-3">
                         <input value={editingResource!.name} onChange={(e) => setEditingResource({ ...editingResource!, name: e.target.value })}
                           className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
-                        <input type="number" min={1} value={editingResource!.capacity}
-                          onChange={(e) => setEditingResource({ ...editingResource!, capacity: parseInt(e.target.value) || 1 })}
-                          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-1">Capacidad</label>
+                            <input type="number" min={1} value={editingResource!.capacity}
+                              onChange={(e) => setEditingResource({ ...editingResource!, capacity: parseInt(e.target.value) || 1 })}
+                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 block mb-1">Tipo</label>
+                            <select value={editingResource!.type}
+                              onChange={(e) => setEditingResource({ ...editingResource!, type: e.target.value })}
+                              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm [&>option]:bg-gray-900 [&>option]:text-white">
+                              {Object.entries(RESOURCE_TYPES).map(([key, val]) => (
+                                <option key={key} value={key}>{val.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 block mb-1">Notas</label>
+                          <input value={editingResource!.notes || ''} 
+                            onChange={(e) => setEditingResource({ ...editingResource!, notes: e.target.value || null })}
+                            placeholder="Notas opcionales"
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600" />
+                        </div>
                         <div className="flex gap-2">
                           <button onClick={() => updateResource(editingResource!)}
-                            className="flex-1 flex items-center justify-center gap-1 py-2 bg-emerald-500/20 text-emerald-300 rounded-lg text-xs font-bold">
+                            className="flex-1 flex items-center justify-center gap-1 py-2 bg-emerald-500/20 text-emerald-300 rounded-lg text-xs font-bold hover:bg-emerald-500/30 transition">
                             <Save className="w-3.5 h-3.5" /> Guardar
                           </button>
                           <button onClick={() => setEditingResource(null)}
-                            className="flex-1 flex items-center justify-center gap-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs">
+                            className="flex-1 flex items-center justify-center gap-1 py-2 bg-white/5 text-gray-400 rounded-lg text-xs hover:bg-white/10 transition">
                             <X className="w-3.5 h-3.5" /> Cancelar
                           </button>
                         </div>
@@ -501,7 +666,7 @@ export default function RecursosPage() {
                             }`}>
                             {r.isActive ? 'Desactivar' : 'Activar'}
                           </button>
-                          <button onClick={() => setEditingResource(r)}
+                          <button onClick={() => setEditingResource({...r})}
                             className="p-2 rounded-lg bg-white/5 text-gray-400 hover:bg-white/10 transition">
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
@@ -531,9 +696,13 @@ export default function RecursosPage() {
               <p className="text-xs text-gray-500">Define qué días y horas está abierto tu negocio</p>
             </div>
             <button onClick={saveSchedule} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-500 to-cyan-500 text-white font-bold rounded-xl text-sm hover:brightness-110 transition disabled:opacity-50">
+              className={`flex items-center gap-2 px-5 py-2.5 font-bold rounded-xl text-sm transition disabled:opacity-50 ${
+                scheduleChanged 
+                  ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:brightness-110 animate-pulse'
+                  : 'bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:brightness-110'
+              }`}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Guardar Horarios
+              {scheduleChanged ? 'Guardar Cambios *' : 'Guardar Horarios'}
             </button>
           </div>
 
@@ -564,28 +733,24 @@ export default function RecursosPage() {
                         <label className="text-[10px] text-gray-500">Abre</label>
                         <input type="time" value={day.startTime}
                           onChange={(e) => updateDay(day.dayOfWeek, 'startTime', e.target.value)}
-                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm" />
+                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm [color-scheme:dark]" />
                       </div>
                       <div className="flex items-center gap-2">
                         <label className="text-[10px] text-gray-500">Cierra</label>
                         <input type="time" value={day.endTime}
                           onChange={(e) => updateDay(day.dayOfWeek, 'endTime', e.target.value)}
-                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm" />
+                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm [color-scheme:dark]" />
                       </div>
 
-                      {/* Slot duration */}
+                      {/* Slot duration — [FIX] Dark mode styling */}
                       <div className="flex items-center gap-2">
                         <label className="text-[10px] text-gray-500">Turno</label>
                         <select value={day.slotDuration}
                           onChange={(e) => updateDay(day.dayOfWeek, 'slotDuration', parseInt(e.target.value))}
-                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm">
-                          <option value={15}>15 min</option>
-                          <option value={20}>20 min</option>
-                          <option value={30}>30 min</option>
-                          <option value={45}>45 min</option>
-                          <option value={60}>1 hora</option>
-                          <option value={90}>1.5 horas</option>
-                          <option value={120}>2 horas</option>
+                          className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-white text-sm [&>option]:bg-gray-900 [&>option]:text-white">
+                          {SLOT_DURATIONS.map(d => (
+                            <option key={d.value} value={d.value}>{d.label}</option>
+                          ))}
                         </select>
                       </div>
 
@@ -594,18 +759,35 @@ export default function RecursosPage() {
                         <label className="text-[10px] text-gray-500">Descanso</label>
                         <input type="time" value={day.breakStart || ''}
                           onChange={(e) => updateDay(day.dayOfWeek, 'breakStart', e.target.value || null)}
-                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs w-[90px]" />
+                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs w-[100px] [color-scheme:dark]" />
                         <span className="text-gray-600">-</span>
                         <input type="time" value={day.breakEnd || ''}
                           onChange={(e) => updateDay(day.dayOfWeek, 'breakEnd', e.target.value || null)}
-                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs w-[90px]" />
+                          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs w-[100px] [color-scheme:dark]" />
                       </div>
+
+                      {/* [FIX] Copy to weekdays button */}
+                      {day.dayOfWeek >= 1 && day.dayOfWeek <= 5 && (
+                        <button onClick={() => copyDayToWeekdays(day.dayOfWeek)}
+                          title="Copiar este horario a todos los días de semana"
+                          className="p-1.5 rounded-lg bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300 transition">
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
             ))}
           </div>
+
+          {/* [FIX] Unsaved changes warning */}
+          {scheduleChanged && (
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+              <p className="text-xs text-amber-300">Tienes cambios sin guardar. Haz clic en "Guardar Horarios" para aplicarlos.</p>
+            </div>
+          )}
         </div>
       )}
 

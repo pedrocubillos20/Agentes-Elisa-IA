@@ -34,112 +34,39 @@ const getOwnerId = async (userId: string): Promise<string> => {
 };
 
 // =============================================
-// 🏪 RESOURCES CRUD
+// 🌎 TIMEZONE HELPER — Colombia is UTC-5
+// Ensures consistent date handling regardless of server timezone
 // =============================================
+const COLOMBIA_OFFSET = -5; // UTC-5
 
-// GET /api/resources — List all resources (filtered by lineId)
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autorizado' });
-    const ownerId = await getOwnerId(userId);
-    const lineId = req.query.lineId as string || null;
+function getColombiaDate(dateStr: string): Date {
+  // Parse YYYY-MM-DD as Colombia midnight
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const utcHour = -COLOMBIA_OFFSET; // 5 AM UTC = midnight Colombia
+  return new Date(Date.UTC(year, month - 1, day, utcHour, 0, 0, 0));
+}
 
-    const where: any = { userId: ownerId };
-    if (lineId) {
-      where.OR = [{ whatsappLineId: lineId }, { whatsappLineId: null }];
-    }
+function getColombiaDayOfWeek(dateStr: string): number {
+  const d = getColombiaDate(dateStr);
+  // Adjust to Colombia timezone before getting day
+  const colombiaTime = new Date(d.getTime() + COLOMBIA_OFFSET * 60 * 60 * 1000);
+  return colombiaTime.getUTCDay();
+}
 
-    const resources = await prisma.resource.findMany({
-      where,
-      orderBy: [{ order: 'asc' }, { name: 'asc' }]
-    });
-
-    res.json({ resources });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// POST /api/resources — Create resource
-router.post('/', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autorizado' });
-    const ownerId = await getOwnerId(userId);
-
-    const { name, type, capacity, notes, order, whatsappLineId } = req.body;
-    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
-
-    const resource = await prisma.resource.create({
-      data: {
-        userId: ownerId,
-        name,
-        type: type || 'generic',
-        capacity: capacity || 1,
-        notes: notes || null,
-        order: order || 0,
-        whatsappLineId: whatsappLineId || null
-      }
-    });
-
-    res.status(201).json({ resource });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// PUT /api/resources/:id — Update resource
-router.put('/:id', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autorizado' });
-    const ownerId = await getOwnerId(userId);
-    const { id } = req.params;
-
-    const existing = await prisma.resource.findFirst({ where: { id, userId: ownerId } });
-    if (!existing) return res.status(404).json({ error: 'Recurso no encontrado' });
-
-    const { name, type, capacity, notes, order, isActive } = req.body;
-
-    const resource = await prisma.resource.update({
-      where: { id },
-      data: {
-        name: name !== undefined ? name : existing.name,
-        type: type !== undefined ? type : existing.type,
-        capacity: capacity !== undefined ? capacity : existing.capacity,
-        notes: notes !== undefined ? notes : existing.notes,
-        order: order !== undefined ? order : existing.order,
-        isActive: isActive !== undefined ? isActive : existing.isActive,
-      }
-    });
-
-    res.json({ resource });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// DELETE /api/resources/:id
-router.delete('/:id', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: 'No autorizado' });
-    const ownerId = await getOwnerId(userId);
-    const { id } = req.params;
-
-    const existing = await prisma.resource.findFirst({ where: { id, userId: ownerId } });
-    if (!existing) return res.status(404).json({ error: 'Recurso no encontrado' });
-
-    await prisma.resource.delete({ where: { id } });
-    res.json({ message: 'Recurso eliminado' });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
+function getColombiaDayRange(dateStr: string): { dayStart: Date; dayEnd: Date } {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const utcHour = -COLOMBIA_OFFSET; // 5 AM UTC = midnight Colombia
+  const dayStart = new Date(Date.UTC(year, month - 1, day, utcHour, 0, 0, 0));
+  const dayEnd = new Date(Date.UTC(year, month - 1, day, utcHour + 23, 59, 59, 999));
+  return { dayStart, dayEnd };
+}
 
 // =============================================
 // 🕐 BUSINESS SCHEDULE CRUD
+// 
+// ⚠️ CRITICAL: These MUST be defined BEFORE /:id routes!
+// Express matches routes in order, and PUT /schedule would
+// be caught by PUT /:id (with id="schedule") if /:id comes first.
 // =============================================
 
 // GET /api/resources/schedule — Get business hours (filtered by lineId)
@@ -159,6 +86,25 @@ router.get('/schedule', async (req: Request, res: Response) => {
       orderBy: { dayOfWeek: 'asc' }
     });
 
+    // [FIX] Dedup: if multiple entries per day exist (no @@unique in schema), keep only latest
+    const seenDays = new Map<number, typeof schedule[0]>();
+    for (const s of schedule) {
+      const existing = seenDays.get(s.dayOfWeek);
+      if (!existing || new Date(s.updatedAt) > new Date(existing.updatedAt)) {
+        seenDays.set(s.dayOfWeek, s);
+      }
+    }
+    if (schedule.length > seenDays.size) {
+      // Duplicates found — clean them up in background
+      const keepIds = new Set([...seenDays.values()].map(s => s.id));
+      const dupeIds = schedule.filter(s => !keepIds.has(s.id)).map(s => s.id);
+      if (dupeIds.length > 0) {
+        prisma.businessSchedule.deleteMany({ where: { id: { in: dupeIds } } }).catch(() => {});
+        console.log(`🧹 Cleaned ${dupeIds.length} duplicate schedule entries for user ${ownerId}`);
+      }
+      schedule = [...seenDays.values()].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+    }
+
     // Auto-create default schedule if empty for this line
     if (schedule.length === 0) {
       const defaults = [];
@@ -166,22 +112,59 @@ router.get('/schedule', async (req: Request, res: Response) => {
         defaults.push({
           userId: ownerId,
           dayOfWeek: day,
-          isOpen: day >= 1 && day <= 6,
+          isOpen: day >= 1 && day <= 5, // [FIX] Mon-Fri open, Sat+Sun closed (more realistic default)
           startTime: '08:00',
           endTime: '18:00',
           slotDuration: 60,
           whatsappLineId: lineId || null
         });
       }
-      try {
-        await prisma.businessSchedule.createMany({ data: defaults, skipDuplicates: true });
-      } catch (e: any) {
-        console.log(`⚠️ Schedule auto-create skipped (duplicates): ${e.message?.substring(0, 80)}`);
+
+      // [FIX] Check for existing entries first to avoid duplicates (since no @@unique)
+      const existingCount = await prisma.businessSchedule.count({
+        where: { userId: ownerId, whatsappLineId: lineId }
+      });
+
+      if (existingCount === 0) {
+        try {
+          await prisma.businessSchedule.createMany({ data: defaults });
+        } catch (e: any) {
+          console.log(`⚠️ Schedule auto-create failed: ${e.message?.substring(0, 80)}`);
+        }
       }
+
       schedule = await prisma.businessSchedule.findMany({
         where,
         orderBy: { dayOfWeek: 'asc' }
       });
+    }
+
+    // [FIX] Ensure all 7 days exist (fill gaps)
+    const existingDays = new Set(schedule.map(s => s.dayOfWeek));
+    const missingDays = [];
+    for (let day = 0; day <= 6; day++) {
+      if (!existingDays.has(day)) {
+        missingDays.push({
+          userId: ownerId,
+          dayOfWeek: day,
+          isOpen: false,
+          startTime: '08:00',
+          endTime: '18:00',
+          slotDuration: 60,
+          whatsappLineId: lineId || null
+        });
+      }
+    }
+    if (missingDays.length > 0) {
+      try {
+        await prisma.businessSchedule.createMany({ data: missingDays });
+        schedule = await prisma.businessSchedule.findMany({
+          where,
+          orderBy: { dayOfWeek: 'asc' }
+        });
+      } catch (e) {
+        // Ignore — will be created on next load
+      }
     }
 
     res.json({ schedule });
@@ -201,24 +184,97 @@ router.put('/schedule', async (req: Request, res: Response) => {
     if (!Array.isArray(schedule)) return res.status(400).json({ error: 'schedule debe ser un array' });
     const lineId = whatsappLineId || null;
 
+    // [FIX] Validate schedule data before saving
+    for (const day of schedule) {
+      if (day.dayOfWeek === undefined || day.dayOfWeek < 0 || day.dayOfWeek > 6) {
+        return res.status(400).json({ error: `dayOfWeek inválido: ${day.dayOfWeek}` });
+      }
+
+      if (day.isOpen) {
+        // Validate time format
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if (day.startTime && !timeRegex.test(day.startTime)) {
+          return res.status(400).json({ error: `Hora de apertura inválida: ${day.startTime}` });
+        }
+        if (day.endTime && !timeRegex.test(day.endTime)) {
+          return res.status(400).json({ error: `Hora de cierre inválida: ${day.endTime}` });
+        }
+
+        // Validate startTime < endTime
+        if (day.startTime && day.endTime && day.startTime >= day.endTime) {
+          return res.status(400).json({ 
+            error: `${['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][day.dayOfWeek]}: hora de apertura (${day.startTime}) debe ser anterior a hora de cierre (${day.endTime})` 
+          });
+        }
+
+        // Validate slotDuration
+        if (day.slotDuration && (day.slotDuration < 5 || day.slotDuration > 480)) {
+          return res.status(400).json({ error: `Duración de turno inválida: ${day.slotDuration} min` });
+        }
+
+        // Validate break times
+        if (day.breakStart && day.breakEnd) {
+          if (!timeRegex.test(day.breakStart) || !timeRegex.test(day.breakEnd)) {
+            return res.status(400).json({ error: 'Formato de hora de descanso inválido' });
+          }
+          if (day.breakStart >= day.breakEnd) {
+            return res.status(400).json({ error: 'Inicio de descanso debe ser antes del fin' });
+          }
+          // Break should be within business hours
+          if (day.startTime && day.breakStart < day.startTime) {
+            return res.status(400).json({ error: 'Descanso no puede empezar antes de la hora de apertura' });
+          }
+          if (day.endTime && day.breakEnd > day.endTime) {
+            return res.status(400).json({ error: 'Descanso no puede terminar después de la hora de cierre' });
+          }
+        }
+      }
+    }
+
     for (const day of schedule) {
       // findFirst + update/create (upsert doesn't work well with nullable compound unique)
       const existing = await prisma.businessSchedule.findFirst({
         where: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId }
       });
+
+      // [FIX] Handle break fields correctly - empty strings → null
+      const breakStart = day.breakStart && day.breakStart.trim() ? day.breakStart.trim() : null;
+      const breakEnd = day.breakEnd && day.breakEnd.trim() ? day.breakEnd.trim() : null;
+
       const data = {
         isOpen: day.isOpen ?? true,
         startTime: day.startTime || '08:00',
         endTime: day.endTime || '18:00',
         slotDuration: day.slotDuration || 60,
-        breakStart: day.breakStart || null,
-        breakEnd: day.breakEnd || null,
+        breakStart: (breakStart && breakEnd) ? breakStart : null, // [FIX] Both or neither
+        breakEnd: (breakStart && breakEnd) ? breakEnd : null,
       };
+
       if (existing) {
         await prisma.businessSchedule.update({ where: { id: existing.id }, data });
       } else {
-        await prisma.businessSchedule.create({ data: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId, ...data } });
+        await prisma.businessSchedule.create({ 
+          data: { userId: ownerId, dayOfWeek: day.dayOfWeek, whatsappLineId: lineId, ...data } 
+        });
       }
+    }
+
+    // [FIX] Also clean up any duplicates while we're here
+    const allForLine = await prisma.businessSchedule.findMany({
+      where: { userId: ownerId, whatsappLineId: lineId },
+      orderBy: [{ dayOfWeek: 'asc' }, { updatedAt: 'desc' }]
+    });
+    const seenDays = new Map<number, string>();
+    const dupeIds: string[] = [];
+    for (const s of allForLine) {
+      if (seenDays.has(s.dayOfWeek)) {
+        dupeIds.push(s.id);
+      } else {
+        seenDays.set(s.dayOfWeek, s.id);
+      }
+    }
+    if (dupeIds.length > 0) {
+      await prisma.businessSchedule.deleteMany({ where: { id: { in: dupeIds } } });
     }
 
     const updated = await prisma.businessSchedule.findMany({
@@ -226,8 +282,9 @@ router.put('/schedule', async (req: Request, res: Response) => {
       orderBy: { dayOfWeek: 'asc' }
     });
 
-    res.json({ schedule: updated });
+    res.json({ schedule: updated, message: 'Horarios guardados correctamente' });
   } catch (e: any) {
+    console.error('❌ Schedule save error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -247,11 +304,11 @@ router.get('/availability', async (req: Request, res: Response) => {
     const { date, resourceId, lineId } = req.query;
     if (!date) return res.status(400).json({ error: 'Fecha requerida (date=YYYY-MM-DD)' });
 
-    const targetDate = new Date(date as string);
-    const dayOfWeek = targetDate.getDay();
+    // [FIX] Use Colombia timezone for correct day-of-week
+    const dayOfWeek = getColombiaDayOfWeek(date as string);
     const selectedLineId = lineId as string || null;
 
-    // 1. Get business schedule for this day (line-specific or global)
+    // 1. Get business schedule for this day (line-specific or global fallback)
     let daySchedule = await prisma.businessSchedule.findFirst({
       where: { userId: ownerId, dayOfWeek, whatsappLineId: selectedLineId }
     });
@@ -263,7 +320,10 @@ router.get('/availability', async (req: Request, res: Response) => {
     }
 
     if (!daySchedule || !daySchedule.isOpen) {
-      return res.json({ available: false, message: 'Cerrado este día', slots: [] });
+      return res.json({ available: false, message: 'Cerrado este día', slots: [], totalSlots: 0, availableSlots: 0, occupiedSlots: 0, isOpen: false,
+        date, dayOfWeek, dayName: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][dayOfWeek],
+        resources: [], schedule: null
+      });
     }
 
     // 2. Get active resources (line-specific + global)
@@ -277,15 +337,21 @@ router.get('/availability', async (req: Request, res: Response) => {
     });
 
     // 3. Get existing appointments for this date
-    const dayStart = new Date(date as string + 'T00:00:00');
-    const dayEnd = new Date(date as string + 'T23:59:59');
+    // [FIX] Use Colombia timezone for date range
+    const { dayStart, dayEnd } = getColombiaDayRange(date as string);
+
+    // [FIX] Filter appointments by line if specified
+    const appointmentWhere: any = {
+      userId: ownerId,
+      date: { gte: dayStart, lte: dayEnd },
+      status: { notIn: ['cancelled'] }
+    };
+    if (selectedLineId) {
+      appointmentWhere.whatsappLineId = selectedLineId;
+    }
 
     const appointments = await prisma.appointment.findMany({
-      where: {
-        userId: ownerId,
-        date: { gte: dayStart, lte: dayEnd },
-        status: { notIn: ['cancelled'] }
-      },
+      where: appointmentWhere,
       select: { time: true, duration: true, resourceId: true, resourceName: true, clientName: true, type: true, status: true }
     });
 
@@ -308,8 +374,11 @@ router.get('/availability', async (req: Request, res: Response) => {
     }
 
     for (let m = startMin; m + slotDuration <= endMin; m += slotDuration) {
-      // Skip break time
-      if (breakStartMin >= 0 && m >= breakStartMin && m < breakEndMin) continue;
+      // Skip break time — [FIX] check if slot OVERLAPS with break, not just starts in it
+      if (breakStartMin >= 0) {
+        const slotEnd = m + slotDuration;
+        if (m < breakEndMin && slotEnd > breakStartMin) continue;
+      }
       
       const h = Math.floor(m / 60);
       const min = m % 60;
@@ -318,7 +387,7 @@ router.get('/availability', async (req: Request, res: Response) => {
 
     // 5. Calculate availability per slot
     const hasResources = resources.length > 0;
-    const totalCapacity = hasResources ? resources.length : 1; // If no resources configured, treat as single slot
+    const totalCapacity = hasResources ? resources.length : 1;
 
     const availability = slots.map(slot => {
       // Count appointments at this time slot
@@ -326,7 +395,6 @@ router.get('/availability', async (req: Request, res: Response) => {
         const apptTime = a.time;
         if (!apptTime) return false;
         
-        // Check if appointment overlaps with this slot
         const [aH, aM] = apptTime.split(':').map(Number);
         const apptStartMin = aH * 60 + aM;
         const apptDuration = a.duration || slotDuration;
@@ -341,7 +409,7 @@ router.get('/availability', async (req: Request, res: Response) => {
       });
 
       const occupiedCount = slotAppointments.length;
-      const freeCount = totalCapacity - occupiedCount;
+      const freeCount = Math.max(0, totalCapacity - occupiedCount);
 
       // Per-resource detail
       let resourceDetail: any[] = [];
@@ -413,8 +481,8 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
     if (!date) return res.status(400).json({ error: 'Fecha requerida' });
     const selectedLineId = lineId as string || null;
 
-    const targetDate = new Date(date as string);
-    const dayOfWeek = targetDate.getDay();
+    // [FIX] Colombia timezone
+    const dayOfWeek = getColombiaDayOfWeek(date as string);
     const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
     // Schedule (line-specific or global fallback)
@@ -439,15 +507,17 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
       orderBy: { order: 'asc' }
     });
 
-    // Appointments
-    const dayStart = new Date(date as string + 'T00:00:00');
-    const dayEnd = new Date(date as string + 'T23:59:59');
+    // Appointments — [FIX] use Colombia timezone + filter by line
+    const { dayStart, dayEnd } = getColombiaDayRange(date as string);
+    const appointmentWhere: any = {
+      userId: ownerId,
+      date: { gte: dayStart, lte: dayEnd },
+      status: { notIn: ['cancelled'] }
+    };
+    if (selectedLineId) appointmentWhere.whatsappLineId = selectedLineId;
+
     const appointments = await prisma.appointment.findMany({
-      where: {
-        userId: ownerId,
-        date: { gte: dayStart, lte: dayEnd },
-        status: { notIn: ['cancelled'] }
-      },
+      where: appointmentWhere,
       select: { time: true, duration: true, resourceId: true, resourceName: true }
     });
 
@@ -470,7 +540,11 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
     const occupiedSlots: string[] = [];
 
     for (let m = startMin; m + slotDuration <= endMin; m += slotDuration) {
-      if (breakStartMin >= 0 && m >= breakStartMin && m < breakEndMin) continue;
+      // [FIX] Overlap-based break check
+      if (breakStartMin >= 0) {
+        const slotEnd = m + slotDuration;
+        if (m < breakEndMin && slotEnd > breakStartMin) continue;
+      }
 
       const h = Math.floor(m / 60);
       const min = m % 60;
@@ -528,8 +602,8 @@ router.post('/check-slot', async (req: Request, res: Response) => {
     if (!date || !time) return res.status(400).json({ error: 'date y time requeridos' });
     const lineId = whatsappLineId || null;
 
-    const targetDate = new Date(date);
-    const dayOfWeek = targetDate.getDay();
+    // [FIX] Colombia timezone
+    const dayOfWeek = getColombiaDayOfWeek(date);
 
     // Check if open (line-specific or global)
     let daySchedule = await prisma.businessSchedule.findFirst({
@@ -564,10 +638,9 @@ router.post('/check-slot', async (req: Request, res: Response) => {
       }
     }
 
-    // Check conflicts
+    // Check conflicts — [FIX] use Colombia timezone + filter by line
     const slotDuration = duration || daySchedule.slotDuration || 60;
-    const dayStart = new Date(date + 'T00:00:00');
-    const dayEnd = new Date(date + 'T23:59:59');
+    const { dayStart, dayEnd } = getColombiaDayRange(date);
 
     const conflictWhere: any = {
       userId: ownerId,
@@ -575,6 +648,7 @@ router.post('/check-slot', async (req: Request, res: Response) => {
       status: { notIn: ['cancelled'] }
     };
     if (resourceId) conflictWhere.resourceId = resourceId;
+    if (lineId) conflictWhere.whatsappLineId = lineId;
 
     const conflicts = await prisma.appointment.findMany({
       where: conflictWhere,
@@ -617,6 +691,139 @@ router.post('/check-slot', async (req: Request, res: Response) => {
       available: true,
       suggestedResource: freeResource ? { id: freeResource.id, name: freeResource.name } : null
     });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// =============================================
+// 🏪 RESOURCES CRUD
+// 
+// ⚠️ These parametric routes (/:id) MUST come AFTER
+// all static routes (/schedule, /availability, etc.)
+// =============================================
+
+// GET /api/resources — List all resources (filtered by lineId)
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    const ownerId = await getOwnerId(userId);
+    const lineId = req.query.lineId as string || null;
+
+    const where: any = { userId: ownerId };
+    if (lineId) {
+      where.OR = [{ whatsappLineId: lineId }, { whatsappLineId: null }];
+    }
+
+    const resources = await prisma.resource.findMany({
+      where,
+      orderBy: [{ order: 'asc' }, { name: 'asc' }]
+    });
+
+    res.json({ resources });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/resources — Create resource
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    const ownerId = await getOwnerId(userId);
+
+    const { name, type, capacity, notes, order, whatsappLineId } = req.body;
+    if (!name) return res.status(400).json({ error: 'Nombre requerido' });
+
+    // [FIX] Validate unique name per user+line
+    const existing = await prisma.resource.findFirst({
+      where: { userId: ownerId, name: name.trim(), whatsappLineId: whatsappLineId || null }
+    });
+    if (existing) {
+      return res.status(400).json({ error: `Ya existe un recurso llamado "${name.trim()}"` });
+    }
+
+    const resource = await prisma.resource.create({
+      data: {
+        userId: ownerId,
+        name: name.trim(),
+        type: type || 'generic',
+        capacity: Math.max(1, parseInt(capacity) || 1),
+        notes: notes || null,
+        order: order || 0,
+        whatsappLineId: whatsappLineId || null
+      }
+    });
+
+    res.status(201).json({ resource });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/resources/:id — Update resource
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    const ownerId = await getOwnerId(userId);
+    const { id } = req.params;
+
+    const existing = await prisma.resource.findFirst({ where: { id, userId: ownerId } });
+    if (!existing) return res.status(404).json({ error: 'Recurso no encontrado' });
+
+    // [FIX] Added whatsappLineId to updatable fields
+    const { name, type, capacity, notes, order, isActive, whatsappLineId } = req.body;
+
+    const resource = await prisma.resource.update({
+      where: { id },
+      data: {
+        name: name !== undefined ? name.trim() : existing.name,
+        type: type !== undefined ? type : existing.type,
+        capacity: capacity !== undefined ? Math.max(1, parseInt(capacity) || 1) : existing.capacity,
+        notes: notes !== undefined ? (notes || null) : existing.notes,
+        order: order !== undefined ? order : existing.order,
+        isActive: isActive !== undefined ? isActive : existing.isActive,
+        whatsappLineId: whatsappLineId !== undefined ? (whatsappLineId || null) : existing.whatsappLineId,
+      }
+    });
+
+    res.json({ resource });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/resources/:id
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    const ownerId = await getOwnerId(userId);
+    const { id } = req.params;
+
+    const existing = await prisma.resource.findFirst({ where: { id, userId: ownerId } });
+    if (!existing) return res.status(404).json({ error: 'Recurso no encontrado' });
+
+    // [FIX] Check if resource has upcoming appointments before deleting
+    const upcomingAppointments = await prisma.appointment.count({
+      where: {
+        resourceId: id,
+        date: { gte: new Date() },
+        status: { notIn: ['cancelled'] }
+      }
+    });
+
+    if (upcomingAppointments > 0) {
+      return res.status(400).json({ 
+        error: `Este recurso tiene ${upcomingAppointments} cita(s) pendiente(s). Desactívalo en vez de eliminarlo, o cancela las citas primero.` 
+      });
+    }
+
+    await prisma.resource.delete({ where: { id } });
+    res.json({ message: 'Recurso eliminado' });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

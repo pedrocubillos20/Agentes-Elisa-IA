@@ -19,20 +19,41 @@ router.get('/', async (req: Request, res: Response) => {
     if (stage && stage !== 'all') where.stage = stage as string;
     if (lineId) where.whatsappLineId = lineId as string;
 
-    const conversations = await prisma.conversation.findMany({
-      where, orderBy: { updatedAt: 'desc' },
-      select: {
-        id: true, recipientId: true, recipientName: true, stage: true,
-        aiPaused: true, updatedAt: true, lastMessage: true, contextData: true,
-        whatsappLineId: true, isGroup: true, assignedTo: true,
-        messages: { orderBy: { timestamp: 'desc' }, take: 1, select: { content: true, timestamp: true, fromMe: true } }
-      }
-    });
+    // [FIX] Paginación para evitar OOM con miles de conversaciones
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
+    const search = (req.query.search as string || '').trim();
+    if (search) {
+      where.OR = [
+        { recipientName: { contains: search, mode: 'insensitive' } },
+        { recipientId: { contains: search } },
+        { lastMessage: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [conversations, total] = await Promise.all([
+      prisma.conversation.findMany({
+        where, orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, recipientId: true, recipientName: true, stage: true,
+          aiPaused: true, updatedAt: true, lastMessage: true, contextData: true,
+          whatsappLineId: true, isGroup: true, assignedTo: true,
+          messages: { orderBy: { timestamp: 'desc' }, take: 1, select: { content: true, timestamp: true, fromMe: true } }
+        }
+      }),
+      prisma.conversation.count({ where })
+    ]);
 
     res.json({
       conversations: conversations.map(c => ({
         ...c, lastMessage: c.messages[0]?.content || c.lastMessage || null, messages: undefined
-      }))
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page * limit < total
     });
   } catch (error) {
     console.error('Error:', error);
@@ -44,8 +65,10 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId); // [FIX] sub-usuarios ven stats del owner
     const { lineId } = req.query;
-    const where: any = { userId };
+    const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId as string;
 
     const [stats, total] = await Promise.all([
@@ -130,13 +153,21 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       yesterdayMessages,
       rangeNewConvs,
       prevRangeNewConvs,
-      rangeConvertedConvs,
+      rangeConvertedConvs,  // [FIX] = citas agendadas en el rango (no etapa conversación)
       stageStats
     ] = await Promise.all([
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: yesterdayStart, lt: todayStart } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
+      // [FIX] Convertidos = citas creadas en el rango (Agenda), no etapas de conversación
+      prisma.appointment.count({ 
+        where: { 
+          userId: ownerId, 
+          status: { notIn: ['cancelled'] },
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+          ...(lineId ? { whatsappLineId: lineId as string } : {})
+        } 
+      }),
       prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
     ]);
 
@@ -150,12 +181,28 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       atRiskConvs,
       totalAppointments
     ] = await Promise.all([
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
+      // [FIX] prevRangeConverted = citas del período anterior
+      prisma.appointment.count({ 
+        where: { 
+          userId: ownerId, 
+          status: { notIn: ['cancelled'] },
+          createdAt: { gte: prevRangeStart, lt: prevRangeEnd },
+          ...(lineId ? { whatsappLineId: lineId as string } : {})
+        } 
+      }),
       prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] } } }),
+      // [FIX] convertedTotal = TOTAL de citas activas (no canceladas) — es la métrica real del negocio
+      prisma.appointment.count({ 
+        where: { 
+          userId: ownerId, 
+          status: { notIn: ['cancelled'] },
+          ...(lineId ? { whatsappLineId: lineId as string } : {})
+        } 
+      }),
       prisma.conversation.count({ 
         where: { ...convWhere, updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) }, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } } 
       }),
+      // totalAppointments = mismo que convertedTotal (alias para compatibilidad)
       prisma.appointment.count({ where: { userId: ownerId, ...(lineId ? { whatsappLineId: lineId as string } : {}) } }),
     ]);
 
@@ -343,7 +390,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const lostCount = stageStats.filter(s => lostStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
     const activeCount = stageStats.filter(s => activeStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
     const pendingCount = Math.max(totalConversations - resolvedCount - lostCount - activeCount - atRiskConvs, 0);
-    const conversionRate = totalConversations > 0 ? ((convertedTotal / totalConversations) * 100).toFixed(1) : '0';
+    // [FIX] conversionRate = % de nuevas conversaciones del rango que se convirtieron en citas
+    // Lógica empresarial real: de cada 100 leads que escriben, cuántos agendan
+    const conversionRate = rangeNewConvs > 0 
+      ? Math.min(((rangeConvertedConvs / rangeNewConvs) * 100), 100).toFixed(1) 
+      : convertedTotal > 0 ? '100' : '0';
     const avgMsgsPerConv = totalConversations > 0 ? (totalMessages / totalConversations).toFixed(1) : '0';
 
     // Oldest wait
@@ -389,19 +440,22 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 
     // AI metrics
     const aiTransferRate = totalConversations > 0 ? Math.round((aiPausedCount / totalConversations) * 100) : 0;
-    const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - aiPausedCount, 0) : 0;
+    // [FIX] aiResolvedCount = citas generadas sin intervención humana (IA autónoma)
+    // = total citas - citas de conversaciones que fueron pausadas/transferidas
+    // Proxy: asumimos que si la conv fue pausada, el humano cerró la venta
+    const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - Math.round(aiPausedCount * (convertedTotal / Math.max(totalConversations, 1))), 0) : 0;
     const aiResolvedRate = convertedTotal > 0 ? Math.round((aiResolvedCount / Math.max(convertedTotal, 1)) * 100) : 0;
 
     res.json({
       rangeLabel, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(),
       totalConversations, totalMessages,
       rangeMessages, todayMessages, yesterdayMessages,
-      rangeNewConvs, rangeConvertedConvs, convertedTotal,
+      rangeNewConvs, rangeConvertedConvs, convertedTotal, // rangeConvertedConvs y convertedTotal = citas de Agenda
       msgGrowth, convGrowth, convertedGrowth,
       avgFRT, slaCompliance, contactRate, avgCycleTime, aiAutoRate, conversionRate,
       avgMsgsPerConv, aiPausedCount, atRiskConvs,
       abandonmentRate, aiTransferRate, aiResolvedRate, aiResolvedCount,
-      stageDistribution: { resolved: convertedTotal, active: activeCount, pending: pendingCount, atRisk: atRiskConvs, lost: lostCount, total: totalConversations },
+      stageDistribution: { resolved: convertedTotal, active: activeCount, pending: pendingCount, atRisk: atRiskConvs, lost: lostCount, total: totalConversations }, // resolved = citas agendadas
       whatsappStats: { sent: rangeMsgsFromMe, received: rangeMsgsIncoming, total: rangeMessages },
       oldestWait, oldestWaitName: oldestUnresponded?.recipientName || '',
       funnelData, funnelRates, hourlyData,
@@ -649,31 +703,51 @@ router.get('/export-contacts', async (req: Request, res: Response) => {
     const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId as string;
 
-    const convs = await prisma.conversation.findMany({ where, orderBy: { updatedAt: 'desc' } });
+    // [FIX] Límite para evitar OOM + campos genéricos para cualquier nicho
+    const convs = await prisma.conversation.findMany({
+      where, orderBy: { updatedAt: 'desc' },
+      take: 5000 // seguridad contra exports masivos
+    });
     const exportData = convs.map(c => {
       const ctx = (c as any).contextData || {};
-      return {
+      // Campos base universales para cualquier negocio
+      const base: Record<string, any> = {
         nombre: c.recipientName || ctx.nombre || '',
-        telefono: c.recipientId?.replace('@c.us', '').replace('@s.whatsapp.net', '') || '',
+        telefono: c.recipientId?.replace('@c.us','').replace('@s.whatsapp.net','').replace('@lid','') || '',
         etapa: c.stage || '',
+        email: ctx.email || '',
         ciudad: ctx.ciudad || '',
         barrio: ctx.barrio || '',
         direccion: ctx.direccion || '',
-        producto: ctx.producto_servicio || ctx.producto || '',
-        talla: ctx.talla || '',
-        color: ctx.color || '',
-        calidad: ctx.calidad || '',
-        bordado: ctx.bordado || '',
-        total: ctx.total || ctx.precio || '',
+        nombre_empresa: ctx.nombre_empresa || '',
+        tipo_negocio: ctx.tipo_negocio || '',
+        producto_servicio: ctx.producto_servicio || ctx.producto || '',
+        detalles_producto: ctx.detalles_producto || '',
+        cantidad: ctx.cantidad || '',
+        precio: ctx.precio || '',
+        descuento: ctx.descuento || '',
+        total: ctx.total || '',
         metodo_pago: ctx.metodo_pago || '',
         fecha_entrega: ctx.fecha_entrega || '',
-        envio: ctx.envio || '',
-        email: ctx.email || '',
+        fecha_cita: ctx.fecha_cita || '',
+        hora_cita: ctx.hora_cita || '',
+        tipo_cita: ctx.tipo_cita || '',
+        fecha_reserva: ctx.fecha_reserva || '',
+        hora_reserva: ctx.hora_reserva || '',
+        tipo_reserva: ctx.tipo_reserva || '',
+        num_personas: ctx.num_personas || '',
         notas: ctx.notas || '',
-        fecha: c.updatedAt?.toISOString().split('T')[0] || ''
+        ia_pausada: c.aiPaused ? 'Sí' : 'No',
+        ultima_actividad: c.updatedAt?.toISOString().split('T')[0] || ''
       };
+      // Campos adicionales dinámicos del contextData (para nichos específicos)
+      const knownKeys = new Set(Object.keys(base).concat(['accion','pedido','cita','reserva','duracion_reserva','etapa_actual']));
+      for (const [k, v] of Object.entries(ctx)) {
+        if (!knownKeys.has(k) && v !== '' && v !== null && v !== undefined) base[k] = v;
+      }
+      return base;
     });
-    res.json({ data: exportData, count: exportData.length });
+    res.json({ data: exportData, count: exportData.length, truncated: convs.length === 5000 });
   } catch (error) {
     console.error('Error export contacts:', error);
     res.status(500).json({ error: 'Error al exportar' });

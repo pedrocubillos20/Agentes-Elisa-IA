@@ -110,6 +110,8 @@ export default function CRMPage() {
   // Filtro para masivo clientes
   const [clientMassFilter, setClientMassFilter] = useState<'all' | 'importado' | 'lead' | 'active' | 'vip'>('all');
   const [selectedMassTags, setSelectedMassTags] = useState<string[]>([]);
+  const [massDateFrom, setMassDateFrom] = useState<string>('');
+  const [massDateTo, setMassDateTo] = useState<string>('');
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
@@ -481,7 +483,10 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         : c.status === clientMassFilter;
       const matchTags = selectedMassTags.length === 0 ? true
         : selectedMassTags.every(tag => c.tags?.includes(tag));
-      return matchSearch && matchFilter && matchTags;
+      const clientDate = c.createdAt ? new Date(c.createdAt) : null;
+      const matchDateFrom = !massDateFrom ? true : clientDate ? clientDate >= new Date(massDateFrom) : true;
+      const matchDateTo = !massDateTo ? true : clientDate ? clientDate <= new Date(massDateTo + 'T23:59:59') : true;
+      return matchSearch && matchFilter && matchTags && matchDateFrom && matchDateTo;
     });
     if (!filteredClients.length) { alert('No hay clientes para enviar'); return; }
     setSendingMass(true);
@@ -1095,14 +1100,47 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                 </div>
               );
             })()}
+            {/* Filtro por fecha de importación */}
+            <div className="mb-3 p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">📅 <span>Filtrar por fecha de importación</span></p>
+                {(massDateFrom || massDateTo) && (
+                  <button onClick={() => { setMassDateFrom(''); setMassDateTo(''); }} className="text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[9px] text-[var(--text-muted)] mb-1">Desde</p>
+                  <input type="date" value={massDateFrom} onChange={e => setMassDateFrom(e.target.value)}
+                    className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
+                </div>
+                <div>
+                  <p className="text-[9px] text-[var(--text-muted)] mb-1">Hasta</p>
+                  <input type="date" value={massDateTo} onChange={e => setMassDateTo(e.target.value)}
+                    className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
+                </div>
+              </div>
+              {(massDateFrom || massDateTo) && (() => {
+                const count = clients.filter(c => {
+                  const d = c.createdAt ? new Date(c.createdAt) : null;
+                  const from = massDateFrom ? new Date(massDateFrom) : null;
+                  const to = massDateTo ? new Date(massDateTo + 'T23:59:59') : null;
+                  return (!from || !d || d >= from) && (!to || !d || d <= to);
+                }).length;
+                return <p className="text-[10px] text-[var(--accent-primary)] mt-1.5">{count} clientes en este rango de fechas</p>;
+              })()}
+            </div>
             <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
               Enviar a: <strong className="text-white">{clients.filter(c => {
                 const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm);
                 const matchFilter = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter;
                 const matchTags = selectedMassTags.length === 0 ? true : selectedMassTags.every(tag => c.tags?.includes(tag));
-                return matchSearch && matchFilter && matchTags;
+                const d = c.createdAt ? new Date(c.createdAt) : null;
+                const matchFrom = !massDateFrom ? true : !d ? true : d >= new Date(massDateFrom);
+                const matchTo = !massDateTo ? true : !d ? true : d <= new Date(massDateTo + 'T23:59:59');
+                return matchSearch && matchFilter && matchTags && matchFrom && matchTo;
               }).length} clientes</strong>
-              {(clientMassFilter !== 'all' || selectedMassTags.length > 0) && <span className="text-violet-400"> · filtros activos</span>}
+              {(clientMassFilter !== 'all' || selectedMassTags.length > 0 || massDateFrom || massDateTo) && <span className="text-violet-400"> · filtros activos</span>}
               {searchTerm && <span className="text-amber-400"> · búsqueda: &quot;{searchTerm}&quot;</span>}
             </p>
             <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." disabled={sendingMass}
@@ -1127,7 +1165,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <div className="mb-3"><div className="flex justify-between text-xs text-[var(--text-muted)] mb-1"><span>Enviando...</span><span>{massSentCount}/{massTotal}</span></div><div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2"><div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} /></div></div>
             )}
             <button onClick={sendClientMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 text-sm disabled:opacity-50">
-              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => { const ms = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm); const mf = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter; const mt = selectedMassTags.length === 0 ? true : selectedMassTags.every(tag => c.tags?.includes(tag)); return ms && mf && mt; }).length} clientes`}
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => { const ms = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm); const mf = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter; const mt = selectedMassTags.length === 0 ? true : selectedMassTags.every(tag => c.tags?.includes(tag)); const d = c.createdAt ? new Date(c.createdAt) : null; const mdf = !massDateFrom ? true : !d ? true : d >= new Date(massDateFrom); const mdt = !massDateTo ? true : !d ? true : d <= new Date(massDateTo + 'T23:59:59'); return ms && mf && mt && mdf && mdt; }).length} clientes`}
             </button>
           </div>
         </div>

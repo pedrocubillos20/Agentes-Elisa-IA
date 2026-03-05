@@ -77,6 +77,8 @@ export default function ProgramadosPage() {
   const [clients, setClients] = useState<any[]>([]);
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [selectedProgTags, setSelectedProgTags] = useState<string[]>([]);
+  const [progDateFrom, setProgDateFrom] = useState<string>('');
+  const [progDateTo, setProgDateTo] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
@@ -120,6 +122,8 @@ export default function ProgramadosPage() {
     setEditing(null);
     setClientFilter('all');
     setSelectedProgTags([]);
+    setProgDateFrom('');
+    setProgDateTo('');
   };
 
   const openCreate = () => {
@@ -179,7 +183,10 @@ export default function ProgramadosPage() {
             : c.status === clientFilter;
           const matchTags = selectedProgTags.length === 0 ? true
             : selectedProgTags.every(tag => c.tags?.includes(tag));
-          return matchFilter && matchTags;
+          const d = c.createdAt ? new Date(c.createdAt) : null;
+          const matchFrom = !progDateFrom ? true : !d ? true : d >= new Date(progDateFrom);
+          const matchTo = !progDateTo ? true : !d ? true : d <= new Date(progDateTo + 'T23:59:59');
+          return matchFilter && matchTags && matchFrom && matchTo;
         })
       : [];
 
@@ -637,12 +644,37 @@ export default function ProgramadosPage() {
                       );
                     })()}
 
+                    {/* Filtro por fecha de importación */}
+                    <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">📅 <span>Fecha de importación</span></p>
+                        {(progDateFrom || progDateTo) && (
+                          <button onClick={() => { setProgDateFrom(''); setProgDateTo(''); }} className="text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[9px] text-[var(--text-muted)] mb-1">Desde</p>
+                          <input type="date" value={progDateFrom} onChange={e => setProgDateFrom(e.target.value)}
+                            className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-[var(--text-muted)] mb-1">Hasta</p>
+                          <input type="date" value={progDateTo} onChange={e => setProgDateTo(e.target.value)}
+                            className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Preview destinatarios */}
                     {(() => {
                       const preview = clients.filter(c => {
                         const mf = clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter;
                         const mt = selectedProgTags.length === 0 ? true : selectedProgTags.every(tag => c.tags?.includes(tag));
-                        return mf && mt;
+                        const d = c.createdAt ? new Date(c.createdAt) : null;
+                        const mdf = !progDateFrom ? true : !d ? true : d >= new Date(progDateFrom);
+                        const mdt = !progDateTo ? true : !d ? true : d <= new Date(progDateTo + 'T23:59:59');
+                        return mf && mt && mdf && mdt;
                       });
                       if (preview.length === 0) return (
                         <p className="text-xs text-amber-400 p-2 bg-amber-500/10 rounded-lg border border-amber-500/20">⚠️ No hay clientes con estos filtros.</p>

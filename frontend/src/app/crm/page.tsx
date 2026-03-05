@@ -213,6 +213,16 @@ export default function CRMPage() {
 
   const getConvsByStage = (stageId: string) => conversations.filter(c => c.stage === stageId);
 
+  // Find a conversation matching a client phone number
+  const getConvByPhone = (phone: string): Conversation | null => {
+    if (!phone) return null;
+    const clean = phone.replace(/\D/g, '').replace(/^0+/, '');
+    return conversations.find(c => {
+      const rid = (c.recipientId || '').replace('@c.us', '').replace(/\D/g, '').replace(/^0+/, '');
+      return rid === clean || rid.endsWith(clean) || clean.endsWith(rid);
+    }) || null;
+  };
+
   const sendMassMessage = async () => {
     if (!selectedStage || (!massMessageText.trim() && !massMediaFile)) return;
     setSendingMass(true);
@@ -896,6 +906,22 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                         </div>
                       </div>
                       <div className="flex items-center gap-0.5 flex-shrink-0">
+                        {(() => {
+                          const conv = getConvByPhone(client.phone);
+                          return conv ? (
+                            <a href={`/conversaciones?id=${conv.id}`}
+                              className="p-1 md:p-1.5 hover:bg-[var(--accent-primary)]/10 rounded-lg"
+                              title="Ver conversación">
+                              <MessageSquare className="w-3 h-3 md:w-3.5 md:h-3.5 text-[var(--accent-primary)]" />
+                            </a>
+                          ) : (
+                            <a href={`/conversaciones?phone=${client.phone}&name=${encodeURIComponent(client.name || '')}`}
+                              className="p-1 md:p-1.5 hover:bg-blue-500/10 rounded-lg"
+                              title="Iniciar conversación">
+                              <MessageSquare className="w-3 h-3 md:w-3.5 md:h-3.5 text-blue-400/60" />
+                            </a>
+                          );
+                        })()}
                         <button onClick={() => sendMessageToClient(client.phone, client.name)} className="p-1 md:p-1.5 hover:bg-emerald-500/10 rounded-lg"><Send className="w-3 h-3 md:w-3.5 md:h-3.5 text-emerald-400" /></button>
                         <button onClick={() => { setEditingItem(client); setClientForm({ ...client, address: client.address || '', notes: client.notes || '', tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1 md:p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-[var(--text-muted)]" /></button>
                         <button onClick={() => handleDelete('client', client.id)} className="p-1 md:p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-red-400" /></button>

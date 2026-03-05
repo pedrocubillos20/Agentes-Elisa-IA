@@ -179,9 +179,10 @@ router.get('/callback', async (req: Request, res: Response) => {
     let locationName = '';
     try { const lr = await fetch(`${GHL_BASE}/locations/${tokens.locationId}`, { headers: { 'Authorization': `Bearer ${tokens.access_token}`, 'Version': '2021-07-28' } }); if (lr.ok) { const ld: any = await lr.json(); locationName = ld.location?.name || ld.name || ''; } } catch {}
 
+    const ownerId = userId; // OAuth callback: el userId del state ES el owner (no sub-usuario)
     await prisma.ghlIntegration.upsert({
       where: { userId: ownerId },
-      create: { userId, authMethod: 'oauth', accessToken: tokens.access_token, refreshToken: tokens.refresh_token, tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 86400) * 1000), locationId: tokens.locationId || '', locationName, companyId: tokens.companyId || null },
+      create: { userId: ownerId, authMethod: 'oauth', accessToken: tokens.access_token, refreshToken: tokens.refresh_token, tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 86400) * 1000), locationId: tokens.locationId || '', locationName, companyId: tokens.companyId || null },
       update: { authMethod: 'oauth', accessToken: tokens.access_token, refreshToken: tokens.refresh_token, tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 86400) * 1000), locationId: tokens.locationId || '', locationName, isActive: true, lastError: null },
     });
 
@@ -199,6 +200,7 @@ router.get('/callback', async (req: Request, res: Response) => {
 router.get('/status', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const ownerId = await getOwnerId(userId);
     const integ = await prisma.ghlIntegration.findUnique({ where: { userId: ownerId } });
     if (!integ) return res.json({ connected: false, oauthAvailable: !!GHL_CLIENT_ID });
 
@@ -253,6 +255,7 @@ router.delete('/disconnect', async (req: any, res: Response) => {
 router.post('/sync/push', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const ownerId = await getOwnerId(userId);
     const integ = await prisma.ghlIntegration.findUnique({ where: { userId: ownerId } });
     if (!integ?.isActive) return res.status(400).json({ error: 'GHL no conectado' });
 

@@ -3489,8 +3489,15 @@ const processBufferedMessages = async (bufferKey: string) => {
     return;
   }
 
-  // 🔒 Activar lock
+  // 🔒 Activar lock + timeout de seguridad (evita lock permanente ante crashes)
   processingLock.add(bufferKey);
+  // [FIX 5] Safety timeout: si en 90s no se liberó el lock (crash/timeout de IA), forzar limpieza
+  const lockSafetyTimer = setTimeout(() => {
+    if (processingLock.has(bufferKey)) {
+      processingLock.delete(bufferKey);
+      clog(`⚠️ Lock de seguridad liberado para ${bufferKey} (90s timeout)`);
+    }
+  }, 90000);
 
   const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId, firstTimestamp } = buf;
   const burstDuration = Date.now() - firstTimestamp;
@@ -3791,7 +3798,8 @@ const processBufferedMessages = async (bufferKey: string) => {
   } catch (e: any) {
     console.error(`❌ Error procesando buffer de ${senderName}:`, e.message);
   } finally {
-    // 🔓 Liberar lock
+    // 🔓 Liberar lock + cancelar safety timer
+    clearTimeout(lockSafetyTimer);
     processingLock.delete(bufferKey);
 
     // 🔄 Verificar si llegaron mensajes mientras procesábamos
@@ -4139,7 +4147,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           name: line.sessionName,
           start: true,
           engine: 'WEBJS',
-          config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] }
+          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS }] }
         })
       });
       log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName}`);
@@ -4151,7 +4159,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
       // Actualizar webhooks
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
-        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] } })
+        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS }] } })
       });
     }
     
@@ -4337,7 +4345,7 @@ router.post('/connect', async (req: Request, res: Response) => {
           start: true,
           engine: 'WEBJS',
           config: {
-            webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }]
+            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS }]
           }
         })
       });
@@ -4386,7 +4394,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
         config: {
           webhooks: [{ 
             url: webhookUrl, 
-            events: ['message', 'session.status']
+            events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS
           }]
         }
       })
@@ -4400,7 +4408,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
       message: updateRes.ok ? 'Webhooks reconfigurados' : 'Error al reconfigurar',
       session: sessionName,
       webhookUrl,
-      events: ['message', 'session.status']
+      events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS
     });
   } catch (e: any) {
     console.error('❌ Error reconfigurando:', e.message);
@@ -5092,7 +5100,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
-    if (!event || event !== 'message') { res.json({ success: true }); return; }
+    // [FIX 1] Aceptar TODOS los eventos de mensaje de WAHA Plus:
+    // WEBJS engine: 'message' | NOWEB engine: 'message.any' | ambos posibles
+    // También ignorar session.status y otros eventos no relevantes
+    const isMessageEvent = event === 'message' || event === 'message.any' || event === 'message.new';
+    if (!event || !isMessageEvent) { res.json({ success: true }); return; }
     
     // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):
     // - Guardar en DB si fue enviado manualmente desde el celular
@@ -5175,17 +5187,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
       setTimeout(() => recentlyProcessed.delete(msgId), 60000); // 60s en vez de 30s
     }
 
-    // 🔒 DEDUP NIVEL 2: Por contenido + remitente (protege contra webhooks duplicados con IDs diferentes)
+    // [FIX 2] Dedup SOLO si NO tenemos msgId confiable (evitar desechar mensajes legítimos)
+    // Ventana reducida a 3s (era 10s) — solo para webhooks duplicados reales
     const rawBody = payload?.body || payload?.text || payload?.content || '';
     const rawFrom = payload?.from || payload?.chatId || '';
-    const contentDedupKey = `${rawFrom}:${rawBody.substring(0, 80)}:${Math.floor(Date.now() / 10000)}`; // ventana de 10s
-    if (rawBody && recentlyProcessed.has(contentDedupKey)) {
-      log(`🔄 Duplicado por contenido ignorado: "${rawBody.substring(0, 40)}"`);
-      res.json({ success: true }); return;
-    }
-    if (rawBody) {
+    // Solo aplicar dedup por contenido si el msgId era vacío (no lo pudo deduplicar por ID)
+    if (!msgId && rawBody) {
+      const contentDedupKey = `${rawFrom}:${rawBody.substring(0, 80)}:${Math.floor(Date.now() / 3000)}`; // ventana 3s
+      if (recentlyProcessed.has(contentDedupKey)) {
+        log(`🔄 Duplicado por contenido (sin ID) ignorado: "${rawBody.substring(0, 40)}"`);
+        res.json({ success: true }); return;
+      }
       recentlyProcessed.add(contentDedupKey);
-      setTimeout(() => recentlyProcessed.delete(contentDedupKey), 15000);
+      setTimeout(() => recentlyProcessed.delete(contentDedupKey), 5000);
     }
 
     const from = payload?.from || payload?.chatId || payload?.key?.remoteJid || '';
@@ -5366,9 +5380,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // Si después de todo aún no hay body, ignorar
+    // [FIX 4] Si no hay body pero hay media detectada, usar placeholder
+    // Esto evita que la conversación no se cree cuando el cliente manda
+    // un sticker/audio que falla en descargar
     if (!body) {
-      res.json({ success: true }); return;
+      if (media.hasMedia) {
+        body = `📎 [Archivo multimedia - ${media.mediaType || 'desconocido'}]`;
+      } else if (payload?.type && payload.type !== 'chat') {
+        // Tipo de mensaje no estándar (reacción, contacto, etc.)
+        body = `[Mensaje ${payload.type}]`;
+      } else {
+        // Realmente vacío — ignorar
+        res.json({ success: true }); return;
+      }
     }
 
     // 👥 Para grupos: recipientId es el JID del grupo, para chats: es el número limpio

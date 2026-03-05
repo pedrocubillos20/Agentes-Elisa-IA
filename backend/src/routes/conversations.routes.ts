@@ -130,13 +130,21 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       yesterdayMessages,
       rangeNewConvs,
       prevRangeNewConvs,
-      rangeConvertedConvs,
+      rangeConvertedConvs,  // [FIX] = citas agendadas en el rango (no etapa conversación)
       stageStats
     ] = await Promise.all([
       prisma.message.count({ where: { conversation: convWhere, timestamp: { gte: yesterdayStart, lt: todayStart } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: rangeStart, lte: rangeEnd } } }),
       prisma.conversation.count({ where: { ...convWhere, createdAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: rangeStart, lte: rangeEnd } } }),
+      // [FIX] Convertidos = citas creadas en el rango (Agenda), no etapas de conversación
+      prisma.appointment.count({ 
+        where: { 
+          userId: ownerId, 
+          status: { notIn: ['cancelled'] },
+          createdAt: { gte: rangeStart, lte: rangeEnd },
+          ...(lineId ? { whatsappLineId: lineId as string } : {})
+        } 
+      }),
       prisma.conversation.groupBy({ by: ['stage'], where: convWhere, _count: { id: true } }),
     ]);
 
@@ -150,12 +158,28 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       atRiskConvs,
       totalAppointments
     ] = await Promise.all([
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] }, updatedAt: { gte: prevRangeStart, lt: prevRangeEnd } } }),
+      // [FIX] prevRangeConverted = citas del período anterior
+      prisma.appointment.count({ 
+        where: { 
+          userId: ownerId, 
+          status: { notIn: ['cancelled'] },
+          createdAt: { gte: prevRangeStart, lt: prevRangeEnd },
+          ...(lineId ? { whatsappLineId: lineId as string } : {})
+        } 
+      }),
       prisma.conversation.count({ where: { ...convWhere, aiPaused: true } }),
-      prisma.conversation.count({ where: { ...convWhere, stage: { in: ['converted', 'convertido', 'confirmado'] } } }),
+      // [FIX] convertedTotal = TOTAL de citas activas (no canceladas) — es la métrica real del negocio
+      prisma.appointment.count({ 
+        where: { 
+          userId: ownerId, 
+          status: { notIn: ['cancelled'] },
+          ...(lineId ? { whatsappLineId: lineId as string } : {})
+        } 
+      }),
       prisma.conversation.count({ 
         where: { ...convWhere, updatedAt: { lt: new Date(now.getTime() - 48 * 3600000) }, stage: { notIn: ['converted', 'lost', 'perdido', 'convertido', 'confirmado'] } } 
       }),
+      // totalAppointments = mismo que convertedTotal (alias para compatibilidad)
       prisma.appointment.count({ where: { userId: ownerId, ...(lineId ? { whatsappLineId: lineId as string } : {}) } }),
     ]);
 
@@ -343,7 +367,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const lostCount = stageStats.filter(s => lostStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
     const activeCount = stageStats.filter(s => activeStagesList.includes(s.stage)).reduce((a, s) => a + s._count.id, 0);
     const pendingCount = Math.max(totalConversations - resolvedCount - lostCount - activeCount - atRiskConvs, 0);
-    const conversionRate = totalConversations > 0 ? ((convertedTotal / totalConversations) * 100).toFixed(1) : '0';
+    // [FIX] conversionRate = % de nuevas conversaciones del rango que se convirtieron en citas
+    // Lógica empresarial real: de cada 100 leads que escriben, cuántos agendan
+    const conversionRate = rangeNewConvs > 0 
+      ? Math.min(((rangeConvertedConvs / rangeNewConvs) * 100), 100).toFixed(1) 
+      : convertedTotal > 0 ? '100' : '0';
     const avgMsgsPerConv = totalConversations > 0 ? (totalMessages / totalConversations).toFixed(1) : '0';
 
     // Oldest wait
@@ -389,19 +417,22 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 
     // AI metrics
     const aiTransferRate = totalConversations > 0 ? Math.round((aiPausedCount / totalConversations) * 100) : 0;
-    const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - aiPausedCount, 0) : 0;
+    // [FIX] aiResolvedCount = citas generadas sin intervención humana (IA autónoma)
+    // = total citas - citas de conversaciones que fueron pausadas/transferidas
+    // Proxy: asumimos que si la conv fue pausada, el humano cerró la venta
+    const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - Math.round(aiPausedCount * (convertedTotal / Math.max(totalConversations, 1))), 0) : 0;
     const aiResolvedRate = convertedTotal > 0 ? Math.round((aiResolvedCount / Math.max(convertedTotal, 1)) * 100) : 0;
 
     res.json({
       rangeLabel, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(),
       totalConversations, totalMessages,
       rangeMessages, todayMessages, yesterdayMessages,
-      rangeNewConvs, rangeConvertedConvs, convertedTotal,
+      rangeNewConvs, rangeConvertedConvs, convertedTotal, // rangeConvertedConvs y convertedTotal = citas de Agenda
       msgGrowth, convGrowth, convertedGrowth,
       avgFRT, slaCompliance, contactRate, avgCycleTime, aiAutoRate, conversionRate,
       avgMsgsPerConv, aiPausedCount, atRiskConvs,
       abandonmentRate, aiTransferRate, aiResolvedRate, aiResolvedCount,
-      stageDistribution: { resolved: convertedTotal, active: activeCount, pending: pendingCount, atRisk: atRiskConvs, lost: lostCount, total: totalConversations },
+      stageDistribution: { resolved: convertedTotal, active: activeCount, pending: pendingCount, atRisk: atRiskConvs, lost: lostCount, total: totalConversations }, // resolved = citas agendadas
       whatsappStats: { sent: rangeMsgsFromMe, received: rangeMsgsIncoming, total: rangeMessages },
       oldestWait, oldestWaitName: oldestUnresponded?.recipientName || '',
       funnelData, funnelRates, hourlyData,

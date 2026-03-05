@@ -394,7 +394,8 @@ router.get('/availability', async (req: Request, res: Response) => {
     const appointmentWhere: any = {
       userId: ownerId,
       date: { gte: dayStart, lte: dayEnd },
-      status: { notIn: ['cancelled'] }
+      // [FIX] Only ACTIVE appointments block slots — completed/cancelled/no_show do NOT count
+      status: { in: ['pending', 'confirmed'] }
     };
     if (selectedLineId) {
       appointmentWhere.whatsappLineId = selectedLineId;
@@ -460,13 +461,16 @@ router.get('/availability', async (req: Request, res: Response) => {
         return apptStartMin < slotEndMin && apptEndMin > slotStartMin;
       });
 
-      const occupiedCount = slotAppointments.length;
-      const freeCount = Math.max(0, totalCapacity - occupiedCount);
-
-      // Per-resource detail with CAPACITY support
+      // [FIX] Per-resource detail with CAPACITY support
+      // When resources exist, only count appointments assigned to a specific resource
+      // Appointments without resourceId are ignored to avoid phantom occupancy
       let resourceDetail: any[] = [];
+      let slotOccupied = 0;
+      let slotFree = totalCapacity;
+
       if (hasResources) {
         resourceDetail = resources.map(r => {
+          // Only count appointments explicitly assigned to this resource
           const resourceAppts = slotAppointments.filter(a => a.resourceId === r.id);
           const resourceOccupied = resourceAppts.length;
           const resourceCapacity = r.capacity || 1;
@@ -484,14 +488,24 @@ router.get('/availability', async (req: Request, res: Response) => {
             occupants: resourceAppts.map(a => ({ name: a.clientName, type: a.type }))
           };
         });
+
+        // [FIX] slot.available is consistent with resource-level: any resource free = slot available
+        const totalResourceFree = resourceDetail.reduce((s, r) => s + r.free, 0);
+        slotOccupied = resourceDetail.reduce((s, r) => s + r.occupied, 0);
+        slotFree = totalResourceFree;
+      } else {
+        // No resources: use appointment count vs capacity=1
+        const occupiedCount = slotAppointments.length;
+        slotOccupied = occupiedCount;
+        slotFree = Math.max(0, totalCapacity - occupiedCount);
       }
 
       return {
         time: slot,
         totalCapacity,
-        occupied: occupiedCount,
-        free: freeCount,
-        available: freeCount > 0,
+        occupied: slotOccupied,
+        free: slotFree,
+        available: slotFree > 0,
         resources: hasResources ? resourceDetail : undefined
       };
     });
@@ -593,7 +607,7 @@ router.get('/ai-availability', async (req: Request, res: Response) => {
     const appointmentWhere: any = {
       userId: ownerId,
       date: { gte: dayStart, lte: dayEnd },
-      status: { notIn: ['cancelled'] }
+      status: { in: ['pending', 'confirmed'] } // [FIX] only active bookings block slots
     };
     if (selectedLineId) appointmentWhere.whatsappLineId = selectedLineId;
 
@@ -744,7 +758,7 @@ router.post('/check-slot', async (req: Request, res: Response) => {
     const conflictWhere: any = {
       userId: ownerId,
       date: { gte: dayStart, lte: dayEnd },
-      status: { notIn: ['cancelled'] }
+      status: { in: ['pending', 'confirmed'] } // [FIX] only active appointments are real conflicts
     };
     if (resourceId) conflictWhere.resourceId = resourceId;
     if (lineId) conflictWhere.whatsappLineId = lineId;

@@ -19,20 +19,41 @@ router.get('/', async (req: Request, res: Response) => {
     if (stage && stage !== 'all') where.stage = stage as string;
     if (lineId) where.whatsappLineId = lineId as string;
 
-    const conversations = await prisma.conversation.findMany({
-      where, orderBy: { updatedAt: 'desc' },
-      select: {
-        id: true, recipientId: true, recipientName: true, stage: true,
-        aiPaused: true, updatedAt: true, lastMessage: true, contextData: true,
-        whatsappLineId: true, isGroup: true, assignedTo: true,
-        messages: { orderBy: { timestamp: 'desc' }, take: 1, select: { content: true, timestamp: true, fromMe: true } }
-      }
-    });
+    // [FIX] Paginación para evitar OOM con miles de conversaciones
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const search = (req.query.search as string || '').trim();
+    if (search) {
+      where.OR = [
+        { recipientName: { contains: search, mode: 'insensitive' } },
+        { recipientId: { contains: search } },
+        { lastMessage: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const [conversations, total] = await Promise.all([
+      prisma.conversation.findMany({
+        where, orderBy: { updatedAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true, recipientId: true, recipientName: true, stage: true,
+          aiPaused: true, updatedAt: true, lastMessage: true, contextData: true,
+          whatsappLineId: true, isGroup: true, assignedTo: true,
+          messages: { orderBy: { timestamp: 'desc' }, take: 1, select: { content: true, timestamp: true, fromMe: true } }
+        }
+      }),
+      prisma.conversation.count({ where })
+    ]);
 
     res.json({
       conversations: conversations.map(c => ({
         ...c, lastMessage: c.messages[0]?.content || c.lastMessage || null, messages: undefined
-      }))
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      hasMore: page * limit < total
     });
   } catch (error) {
     console.error('Error:', error);
@@ -44,8 +65,10 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId); // [FIX] sub-usuarios ven stats del owner
     const { lineId } = req.query;
-    const where: any = { userId };
+    const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId as string;
 
     const [stats, total] = await Promise.all([
@@ -680,31 +703,51 @@ router.get('/export-contacts', async (req: Request, res: Response) => {
     const where: any = { userId: ownerId };
     if (lineId) where.whatsappLineId = lineId as string;
 
-    const convs = await prisma.conversation.findMany({ where, orderBy: { updatedAt: 'desc' } });
+    // [FIX] Límite para evitar OOM + campos genéricos para cualquier nicho
+    const convs = await prisma.conversation.findMany({
+      where, orderBy: { updatedAt: 'desc' },
+      take: 5000 // seguridad contra exports masivos
+    });
     const exportData = convs.map(c => {
       const ctx = (c as any).contextData || {};
-      return {
+      // Campos base universales para cualquier negocio
+      const base: Record<string, any> = {
         nombre: c.recipientName || ctx.nombre || '',
-        telefono: c.recipientId?.replace('@c.us', '').replace('@s.whatsapp.net', '') || '',
+        telefono: c.recipientId?.replace('@c.us','').replace('@s.whatsapp.net','').replace('@lid','') || '',
         etapa: c.stage || '',
+        email: ctx.email || '',
         ciudad: ctx.ciudad || '',
         barrio: ctx.barrio || '',
         direccion: ctx.direccion || '',
-        producto: ctx.producto_servicio || ctx.producto || '',
-        talla: ctx.talla || '',
-        color: ctx.color || '',
-        calidad: ctx.calidad || '',
-        bordado: ctx.bordado || '',
-        total: ctx.total || ctx.precio || '',
+        nombre_empresa: ctx.nombre_empresa || '',
+        tipo_negocio: ctx.tipo_negocio || '',
+        producto_servicio: ctx.producto_servicio || ctx.producto || '',
+        detalles_producto: ctx.detalles_producto || '',
+        cantidad: ctx.cantidad || '',
+        precio: ctx.precio || '',
+        descuento: ctx.descuento || '',
+        total: ctx.total || '',
         metodo_pago: ctx.metodo_pago || '',
         fecha_entrega: ctx.fecha_entrega || '',
-        envio: ctx.envio || '',
-        email: ctx.email || '',
+        fecha_cita: ctx.fecha_cita || '',
+        hora_cita: ctx.hora_cita || '',
+        tipo_cita: ctx.tipo_cita || '',
+        fecha_reserva: ctx.fecha_reserva || '',
+        hora_reserva: ctx.hora_reserva || '',
+        tipo_reserva: ctx.tipo_reserva || '',
+        num_personas: ctx.num_personas || '',
         notas: ctx.notas || '',
-        fecha: c.updatedAt?.toISOString().split('T')[0] || ''
+        ia_pausada: c.aiPaused ? 'Sí' : 'No',
+        ultima_actividad: c.updatedAt?.toISOString().split('T')[0] || ''
       };
+      // Campos adicionales dinámicos del contextData (para nichos específicos)
+      const knownKeys = new Set(Object.keys(base).concat(['accion','pedido','cita','reserva','duracion_reserva','etapa_actual']));
+      for (const [k, v] of Object.entries(ctx)) {
+        if (!knownKeys.has(k) && v !== '' && v !== null && v !== undefined) base[k] = v;
+      }
+      return base;
     });
-    res.json({ data: exportData, count: exportData.length });
+    res.json({ data: exportData, count: exportData.length, truncated: convs.length === 5000 });
   } catch (error) {
     console.error('Error export contacts:', error);
     res.status(500).json({ error: 'Error al exportar' });

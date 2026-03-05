@@ -204,6 +204,20 @@ router.post('/', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Se requiere mensaje o media' }); return;
     }
 
+    // [FIX] Límite de mensajes programados por plan
+    const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
+    const planScheduledLimits: Record<string, number> = { trial: 10, starter: 100, business: 9999 };
+    const maxScheduled = planScheduledLimits[owner?.plan || 'trial'] ?? 10;
+    const currentScheduled = await prisma.scheduledMessage.count({
+      where: { userId: ownerId, status: { in: ['pending', 'scheduled'] } }
+    });
+    if (currentScheduled >= maxScheduled) {
+      res.status(403).json({
+        error: `Has alcanzado el límite de ${maxScheduled} mensajes programados activos para tu plan ${owner?.plan || 'trial'}.`,
+        limit: maxScheduled, current: currentScheduled, needsUpgrade: owner?.plan !== 'business'
+      }); return;
+    }
+
     // 🖼️ Si mediaUrl es base64, subir a R2 primero
     let finalMediaUrl = mediaUrl || null;
     if (mediaUrl && mediaUrl.startsWith('data:')) {

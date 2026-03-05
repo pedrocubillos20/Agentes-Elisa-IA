@@ -8,6 +8,17 @@ import prisma from '../lib/prisma';
 import crypto from 'crypto';
 
 const router = Router();
+
+// ⚡ getOwnerId — sub-usuarios resuelven al owner admin
+const _ownerIdCache = new Map<string, {v: string; ts: number}>();
+const getOwnerId = async (uid: string): Promise<string> => {
+  const c = _ownerIdCache.get(uid);
+  if (c && Date.now() - c.ts < 300000) return c.v;
+  const u = await db.user.findUnique({ where: { id: uid }, select: { parentUserId: true } });
+  const oid = u?.parentUserId || uid;
+  _ownerIdCache.set(uid, { v: oid, ts: Date.now() });
+  return oid;
+};
 const db = prisma as any;
 
 // ============================================
@@ -48,12 +59,11 @@ function twilioAuth() {
 router.get('/config', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    let config = await db.callConfig.findUnique({ where: { userId } });
+    const ownerId = await getOwnerId(userId);
+    let config = await db.callConfig.findUnique({ where: { userId: ownerId } });
     if (!config) {
-      config = await db.callConfig.create({ data: { id: crypto.randomUUID(), userId, agentName: 'Asistente', agentLanguage: 'es', voiceId: '11labs-Adrian' } });
+      config = await db.callConfig.create({ data: { id: crypto.randomUUID(), userId: ownerId, agentName: 'Asistente', agentLanguage: 'es', voiceId: '11labs-Adrian' } });
     }
-    const ownerRow = await db.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-    const ownerId = ownerRow?.parentUserId || userId;
     const hasAddon = !!(await db.payment.findFirst({ where: { userId: ownerId, plan: 'ai_calls', status: 'approved' } }));
     res.json({ ...config, hasRetellKey: !!RETELL_KEY, hasTwilio: !!(TWILIO_SID && TWILIO_TOKEN), hasAddon });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -65,13 +75,14 @@ router.get('/config', async (req: any, res) => {
 router.put('/config', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const ownerId = await getOwnerId(userId);
     const allowed = ['agentName','agentGreeting','agentPrompt','agentLanguage','voiceId','voiceProvider','voiceSpeed','voiceTemperature','enableAutoReminders','reminderHoursBefore','enableBackchannel','maxCallDuration'];
     const data: any = {};
     for (const key of allowed) { if (req.body[key] !== undefined) data[key] = req.body[key]; }
 
-    let config = await db.callConfig.findUnique({ where: { userId } });
-    if (!config) { config = await db.callConfig.create({ data: { id: crypto.randomUUID(), userId, ...data } }); }
-    else { config = await db.callConfig.update({ where: { userId }, data }); }
+    let config = await db.callConfig.findUnique({ where: { userId: ownerId } });
+    if (!config) { config = await db.callConfig.create({ data: { id: crypto.randomUUID(), userId: ownerId, ...data } }); }
+    else { config = await db.callConfig.update({ where: { userId: ownerId }, data }); }
 
     // Sync con Retell si activo
     if (config.isActive && config.retellAgentId) {
@@ -84,8 +95,8 @@ router.put('/config', async (req: any, res) => {
         if (Object.keys(agentUpdate).length) await retellFetch(`/update-agent/${config.retellAgentId}`, 'PATCH', agentUpdate);
 
         if ((data.agentPrompt !== undefined || data.agentGreeting !== undefined || data.agentName !== undefined) && config.retellLlmId) {
-          const assistant = await prisma.assistant.findFirst({ where: { userId }, select: { name: true, context: true, personality: true, businessInfo: true, instructions: true } });
-          const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+          const assistant = await prisma.assistant.findFirst({ where: { userId: ownerId }, select: { name: true, context: true, personality: true, businessInfo: true, instructions: true } });
+          const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } });
           const llmUpdate: any = { general_prompt: buildAgentPrompt(config, assistant, user?.name || 'Negocio') };
           if (data.agentGreeting !== undefined) llmUpdate.begin_message = data.agentGreeting || `Hola, ¿en qué puedo ayudarle?`;
           await retellFetch(`/update-retell-llm/${config.retellLlmId}`, 'PATCH', llmUpdate);
@@ -219,12 +230,13 @@ router.post('/activate', async (req: any, res) => {
 router.post('/deactivate', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const config = await db.callConfig.findUnique({ where: { userId } });
+    const ownerId = await getOwnerId(userId);
+    const config = await db.callConfig.findUnique({ where: { userId: ownerId } });
     if (!config) return res.status(404).json({ error: 'No config' });
     if (config.retellPhoneNumber) { try { await retellFetch(`/delete-phone-number/${config.retellPhoneNumber}`, 'DELETE'); } catch {} }
     if (config.retellAgentId) { try { await retellFetch(`/delete-agent/${config.retellAgentId}`, 'DELETE'); } catch {} }
     if (config.retellLlmId) { try { await retellFetch(`/delete-retell-llm/${config.retellLlmId}`, 'DELETE'); } catch {} }
-    await db.callConfig.update({ where: { userId }, data: { retellAgentId: null, retellLlmId: null, retellPhoneNumber: null, retellPhoneNumberId: null, isActive: false } });
+    await db.callConfig.update({ where: { userId: ownerId }, data: { retellAgentId: null, retellLlmId: null, retellPhoneNumber: null, retellPhoneNumberId: null, isActive: false } });
     res.json({ success: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -313,16 +325,17 @@ router.post('/twilio/setup-sip', async (req: any, res) => {
 router.post('/call', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const ownerId = await getOwnerId(userId);
     const { toNumber, toName, clientId, appointmentId, callType = 'manual', countryCode = 'CO' } = req.body;
     if (!toNumber) return res.status(400).json({ error: 'Número requerido' });
-    const config = await db.callConfig.findUnique({ where: { userId } });
+    const config = await db.callConfig.findUnique({ where: { userId: ownerId } });
     if (!config?.isActive || !config.retellAgentId) return res.status(400).json({ error: 'Línea no activada' });
     if (!config.retellPhoneNumber) return res.status(400).json({ error: 'No hay número asignado' });
     const formatted = formatE164(toNumber, countryCode);
     let clientName = toName;
     const ctx: string[] = [];
     if (clientId) {
-      const cl = await prisma.client.findUnique({ where: { id: clientId }, select: { name: true, email: true, notes: true } });
+      const cl = await prisma.client.findFirst({ where: { id: clientId, userId: ownerId }, select: { name: true, email: true, notes: true } });
       if (cl) { clientName = clientName || cl.name; ctx.push(`Cliente: ${cl.name}${cl.email ? ` | ${cl.email}` : ''}${cl.notes ? ` | ${cl.notes}` : ''}`); }
     }
     if (appointmentId) {
@@ -335,7 +348,7 @@ router.post('/call', async (req: any, res) => {
       ...(ctx.length && { retell_llm_dynamic_variables: { client_context: ctx.join('\n') } }),
     });
     const call = await db.call.create({
-      data: { id: crypto.randomUUID(), userId, callConfigId: config.id, retellCallId: rc.call_id, retellCallStatus: rc.call_status || 'registered', direction: 'outbound', fromNumber: config.retellPhoneNumber, toNumber: formatted, toName: clientName || null, clientId: clientId || null, appointmentId: appointmentId || null, status: 'initiated', callType, startedAt: new Date() }
+      data: { id: crypto.randomUUID(), userId: ownerId, callConfigId: config.id, retellCallId: rc.call_id, retellCallStatus: rc.call_status || 'registered', direction: 'outbound', fromNumber: config.retellPhoneNumber, toNumber: formatted, toName: clientName || null, clientId: clientId || null, appointmentId: appointmentId || null, status: 'initiated', callType, startedAt: new Date() }
     });
     console.log(`📞 Llamada: ${call.id} → ${formatted}`);
     res.json({ success: true, call: { id: call.id, retellCallId: rc.call_id, status: 'initiated', toNumber: formatted, toName: clientName } });
@@ -370,9 +383,10 @@ router.get('/call/:id', async (req: any, res) => {
 router.get('/history', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const ownerId = await getOwnerId(userId);
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
-    const where: any = { userId };
+    const where: any = { userId: ownerId };
     if (req.query.status) where.status = req.query.status;
     if (req.query.search) where.OR = [{ toName: { contains: req.query.search } }, { toNumber: { contains: req.query.search } }, { transcript: { contains: req.query.search } }];
     const [calls, total] = await Promise.all([db.call.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit }), db.call.count({ where })]);
@@ -383,9 +397,10 @@ router.get('/history', async (req: any, res) => {
 router.get('/stats', async (req: any, res) => {
   try {
     const userId = req.user?.id || req.user?.userId;
+    const ownerId = await getOwnerId(userId);
     const som = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const [tc, mc, cc, tm] = await Promise.all([db.call.count({ where: { userId } }), db.call.count({ where: { userId, createdAt: { gte: som } } }), db.call.count({ where: { userId, status: 'completed' } }), db.call.aggregate({ where: { userId, duration: { not: null } }, _sum: { duration: true } })]);
-    const cfg = await db.callConfig.findUnique({ where: { userId }, select: { minutesUsed: true, minutesLimit: true, isActive: true, retellPhoneNumber: true } });
+    const [tc, mc, cc, tm] = await Promise.all([db.call.count({ where: { userId: ownerId } }), db.call.count({ where: { userId: ownerId, createdAt: { gte: som } } }), db.call.count({ where: { userId: ownerId, status: 'completed' } }), db.call.aggregate({ where: { userId: ownerId, duration: { not: null } }, _sum: { duration: true } })]);
+    const cfg = await db.callConfig.findUnique({ where: { userId: ownerId }, select: { minutesUsed: true, minutesLimit: true, isActive: true, retellPhoneNumber: true } });
     res.json({ totalCalls: tc, monthCalls: mc, completedCalls: cc, totalMinutes: Math.round((tm._sum.duration || 0) / 60 * 10) / 10, minutesUsed: cfg?.minutesUsed || 0, isActive: cfg?.isActive || false, phoneNumber: cfg?.retellPhoneNumber || null });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });

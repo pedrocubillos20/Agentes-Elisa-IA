@@ -110,6 +110,9 @@ router.put('/', async (req: Request, res: Response) => {
     }
 
     if (lineId) {
+      // [FIX] Verificar ownership antes de actualizar
+      const line = await prisma.whatsappLine.findFirst({ where: { id: lineId, userId: ownerId } });
+      if (!line) { res.status(403).json({ error: 'Línea no encontrada o sin permisos' }); return; }
       await prisma.whatsappLine.update({
         where: { id: lineId },
         data: { customStages: stages, stagesConfigured: true }
@@ -160,6 +163,9 @@ router.post('/sync', async (req: Request, res: Response) => {
       return;
     }
 
+    // [FIX] Verify ownership before updating
+    const syncLine = await prisma.whatsappLine.findFirst({ where: { id: lineId, userId: ownerId } });
+    if (!syncLine) { res.status(403).json({ error: 'Línea no encontrada o sin permisos' }); return; }
     await prisma.whatsappLine.update({
       where: { id: lineId },
       data: { customStages: stages, stagesConfigured: true }

@@ -2636,7 +2636,10 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
                 const orderConfirmPatterns = [
                   /(?:he registrado|pedido registrado|confirmar.*pedido|proceder|resumen final|información.*registrada)/i,
                   /(?:gracias por los datos|datos.*completos|todo listo|pedido.*confirmado)/i,
-                  /(?:procederé|vamos a.*confirmar|queda.*registrad)/i
+                  /(?:procederé|vamos a.*confirmar|queda.*registrad)/i,
+                  /(?:coordinamos|coordinaré|te contactamos|día de la entrega|entrega.*mañana|mañana.*entrega)/i,
+                  /(?:listo.*[nombre]|perfecto.*[nombre]|excelente.*[nombre])/i,
+                  /(?:📦|🎉|🙌).*(?:pedido|listo|confirmado)/i
                 ];
                 const aiConfirmedOrder = orderConfirmPatterns.some(p => p.test(reply));
                 
@@ -5605,6 +5608,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
 
+    // 🚫 ANTI-LOOP: ignorar mensajes del propio número de la línea
+    // Previene loops infinitos donde el bot se responde a sí mismo
+    if (waLine?.phone) {
+      const linePhone = waLine.phone.replace(/\D/g, '').slice(-10);
+      const senderPhone = recipientId.replace(/\D/g, '').slice(-10);
+      if (linePhone === senderPhone) {
+        log(`🚫 ANTI-LOOP: mensaje ignorado — remitente (${senderPhone}) ES la línea propia`);
+        res.json({ success: true }); return;
+      }
+    }
+
     log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
     // 🔍 Búsqueda de conversación POR LÍNEA
@@ -5661,20 +5675,28 @@ router.post('/webhook', async (req: Request, res: Response) => {
     
     // Crear nueva conversación si no existe
     if (!conv) {
-      // 🔍 ÚLTIMA BÚSQUEDA ANTI-DUPLICADOS: buscar por últimos 7 dígitos SIN filtro de línea
+      // 🔍 ÚLTIMA BÚSQUEDA ANTI-DUPLICADOS: buscar por últimos 7 dígitos
       if (!isGroup && recipientId.length >= 7) {
         const last7 = recipientId.replace(/\D/g, '').slice(-7);
-        conv = await prisma.conversation.findFirst({ 
-          where: { userId, recipientId: { endsWith: last7 }, isGroup: { not: true } },
-          orderBy: { updatedAt: 'desc' }
-        });
+        // Primero en la misma línea
+        if (whatsappLineId) {
+          conv = await prisma.conversation.findFirst({ 
+            where: { userId, recipientId: { endsWith: last7 }, whatsappLineId, isGroup: { not: true } },
+            orderBy: { updatedAt: 'desc' }
+          });
+        }
+        // Solo buscar en otras líneas si la conv no tiene línea asignada aún
+        if (!conv) {
+          conv = await prisma.conversation.findFirst({ 
+            where: { userId, recipientId: { endsWith: last7 }, whatsappLineId: null, isGroup: { not: true } },
+            orderBy: { updatedAt: 'desc' }
+          });
+        }
         if (conv) {
-          log(`🔗 Anti-duplicado: encontrada conv existente ${conv.recipientId} para ${recipientId} (match últimos 7)`);
-          // Actualizar línea si faltaba
+          log(\`🔗 Anti-duplicado: encontrada conv existente \${conv.recipientId} para \${recipientId} (match últimos 7)\`);
           if (whatsappLineId && !conv.whatsappLineId) {
             await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
           }
-          // Actualizar recipientId si el nuevo es más completo
           if (recipientId.length > (conv.recipientId?.length || 0)) {
             await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId } }).catch(() => {});
           }
@@ -6317,6 +6339,16 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const msgType = msg.type;
       const msgId = msg.id;
       
+      // 🚫 ANTI-LOOP Cloud: ignorar si el remitente ES el número de la línea propia
+      if (line.phone) {
+        const linePhone = line.phone.replace(/\D/g, '').slice(-10);
+        const senderPhone = from.replace(/\D/g, '').slice(-10);
+        if (linePhone === senderPhone) {
+          console.log(`☁️ 🚫 ANTI-LOOP: ignorado auto-mensaje de ${from} (es la línea propia)`);
+          continue;
+        }
+      }
+      
       console.log(`☁️ [CLOUD] 📩 Mensaje de ${from} | tipo: ${msgType} | id: ${msgId}`);
       
       if (msgId && recentlyProcessed.has(msgId)) { console.log(`☁️ [CLOUD] ⏭️ Duplicado, ignorando`); continue; }
@@ -6470,14 +6502,25 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       // Find or create conversation
       let conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
       if (!conv) conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: recipientId.slice(-10) }, whatsappLineId } });
-      // 🔍 ANTI-DUPLICADOS: búsqueda amplia sin filtro de línea
+      // 🔍 ANTI-DUPLICADOS: buscar en misma línea primero, luego global
       if (!conv && recipientId.length >= 7) {
-        conv = await prisma.conversation.findFirst({ 
-          where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, isGroup: { not: true } },
-          orderBy: { updatedAt: 'desc' }
-        });
-        if (conv && whatsappLineId && !conv.whatsappLineId) {
-          await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
+        // Primero buscar en la misma línea (evita cross-line contamination)
+        if (whatsappLineId) {
+          conv = await prisma.conversation.findFirst({ 
+            where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, whatsappLineId, isGroup: { not: true } },
+            orderBy: { updatedAt: 'desc' }
+          });
+        }
+        // Solo si no encontramos en la línea actual, buscar en conversaciones SIN línea asignada
+        if (!conv) {
+          conv = await prisma.conversation.findFirst({ 
+            where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, whatsappLineId: null, isGroup: { not: true } },
+            orderBy: { updatedAt: 'desc' }
+          });
+          if (conv && whatsappLineId) {
+            // Asignar la línea correcta a esta conversación huérfana
+            await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
+          }
         }
       }
       if (!conv) {

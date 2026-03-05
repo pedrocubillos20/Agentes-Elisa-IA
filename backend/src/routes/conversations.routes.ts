@@ -21,7 +21,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     // [FIX] Paginación para evitar OOM con miles de conversaciones
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
     const search = (req.query.search as string || '').trim();
     if (search) {
       where.OR = [

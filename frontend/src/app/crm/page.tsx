@@ -850,8 +850,8 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       {importProgress.active && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[var(--bg-secondary)] border border-[var(--accent-primary)]/40 rounded-xl shadow-2xl p-3 w-80 animate-fade-in">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-white font-medium">{importProgress.label}</span>
-            <span className="text-xs text-[var(--accent-primary)] font-bold">{importProgress.percent}%</span>
+            <span className="text-sm text-white font-medium">{importProgress.label}</span>
+            <span className="text-sm text-[var(--accent-primary)] font-bold">{importProgress.percent}%</span>
           </div>
           <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
             <div
@@ -999,7 +999,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <h3 className="font-bold text-white text-sm md:text-base">Mensaje Masivo</h3>
               <button onClick={() => !sendingMass && setShowMassMessage(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
-            <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
+            <p className="text-sm text-[var(--text-muted)] mb-3">
               Enviar a: <strong className="text-white">{stages.find(s => s.id === selectedStage)?.label}</strong> ({getConvsByStage(selectedStage).length} contactos)
             </p>
             <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." disabled={sendingMass}
@@ -1072,50 +1072,28 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                 { id: 'vip', label: '⭐ VIP', count: clients.filter(c => c.status === 'vip').length },
               ].map(f => (
                 <button key={f.id} onClick={() => { setClientMassFilter(f.id as any); setSelectedMassTags([]); }}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] border transition-all ${clientMassFilter === f.id && selectedMassTags.length === 0 ? 'bg-violet-500/30 border-violet-500/50 text-violet-300' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
+                  className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${clientMassFilter === f.id && selectedMassTags.length === 0 ? 'bg-violet-500/30 border-violet-500/50 text-violet-300' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
                   {f.label} ({f.count})
                 </button>
               ))}
             </div>
-            {/* Filtro por Tags — genérico para cualquier negocio */}
-            {(() => {
-              const allTags = Array.from(new Set(clients.flatMap(c => c.tags || []))).filter(Boolean).sort();
-              if (allTags.length === 0) return null;
-              return (
-                <div className="mb-3 p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
-                  <p className="text-[10px] text-[var(--text-muted)] mb-1.5 flex items-center gap-1">
-                    🏷️ <span>Filtrar por etiqueta <span className="text-[var(--accent-primary)]">(puedes combinar varios)</span></span>
-                    {selectedMassTags.length > 0 && (
-                      <button onClick={() => setSelectedMassTags([])} className="ml-auto text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
-                    )}
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {allTags.map(tag => (
-                      <button key={tag} onClick={() => setSelectedMassTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
-                        className={`px-2 py-0.5 rounded-full text-[10px] border transition-all ${selectedMassTags.includes(tag) ? 'bg-[var(--accent-primary)]/30 border-[var(--accent-primary)]/60 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white hover:border-white/20'}`}>
-                        {tag}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
+
             {/* Filtro por fecha de importación */}
             <div className="mb-3 p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
               <div className="flex items-center justify-between mb-1.5">
-                <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">📅 <span>Filtrar por fecha de importación</span></p>
+                <p className="text-xs font-medium text-[var(--text-muted)] flex items-center gap-1">📅 <span>Filtrar por fecha de importación</span></p>
                 {(massDateFrom || massDateTo) && (
                   <button onClick={() => { setMassDateFrom(''); setMassDateTo(''); }} className="text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <p className="text-[9px] text-[var(--text-muted)] mb-1">Desde</p>
+                  <p className="text-xs text-[var(--text-muted)] mb-1">Desde</p>
                   <input type="date" value={massDateFrom} onChange={e => setMassDateFrom(e.target.value)}
                     className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
                 </div>
                 <div>
-                  <p className="text-[9px] text-[var(--text-muted)] mb-1">Hasta</p>
+                  <p className="text-xs text-[var(--text-muted)] mb-1">Hasta</p>
                   <input type="date" value={massDateTo} onChange={e => setMassDateTo(e.target.value)}
                     className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
                 </div>
@@ -1127,10 +1105,10 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                   const to = massDateTo ? new Date(massDateTo + 'T23:59:59') : null;
                   return (!from || !d || d >= from) && (!to || !d || d <= to);
                 }).length;
-                return <p className="text-[10px] text-[var(--accent-primary)] mt-1.5">{count} clientes en este rango de fechas</p>;
+                return <p className="text-xs text-[var(--accent-primary)] font-medium mt-1.5">{count} clientes en este rango</p>;
               })()}
             </div>
-            <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
+            <p className="text-sm text-[var(--text-muted)] mb-3">
               Enviar a: <strong className="text-white">{clients.filter(c => {
                 const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm);
                 const matchFilter = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter;

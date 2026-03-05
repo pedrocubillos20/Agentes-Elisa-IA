@@ -304,8 +304,8 @@ export default function ProgramadosPage() {
         <div className="flex items-center gap-3">
           <Clock className="w-7 h-7 text-[var(--accent-primary)]" />
           <div>
-            <h1 className="text-2xl font-bold text-white">Mensajes Programados</h1>
-            <p className="text-sm text-[var(--text-muted)]">Programa envíos automáticos a contactos, grupos o etapas</p>
+            <h1 className="text-3xl font-bold text-white">Mensajes Programados</h1>
+            <p className="text-base text-[var(--text-muted)]">Programa envíos automáticos a contactos, grupos o etapas</p>
           </div>
         </div>
         <button onClick={openCreate} className="btn-primary flex items-center gap-2 px-4 py-2">
@@ -315,31 +315,31 @@ export default function ProgramadosPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="card p-3 flex items-center gap-3 cursor-pointer hover:border-yellow-500/50 transition-all" onClick={() => setFilter(filter === 'pending' ? 'all' : 'pending')}>
-          <div className="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center">
-            <Clock className="w-5 h-5 text-yellow-400" />
+        <div className="card p-5 flex items-center gap-4 cursor-pointer hover:border-yellow-500/50 transition-all" onClick={() => setFilter(filter === 'pending' ? 'all' : 'pending')}>
+          <div className="w-12 h-12 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+            <Clock className="w-6 h-6 text-yellow-400" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-white">{stats.pending}</p>
-            <p className="text-xs text-[var(--text-muted)]">Pendientes</p>
+            <p className="text-3xl font-bold text-white">{stats.pending}</p>
+            <p className="text-sm font-medium text-[var(--text-muted)]">Pendientes</p>
           </div>
         </div>
-        <div className="card p-3 flex items-center gap-3 cursor-pointer hover:border-emerald-500/50 transition-all" onClick={() => setFilter(filter === 'sent' ? 'all' : 'sent')}>
-          <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-            <CheckCircle className="w-5 h-5 text-emerald-400" />
+        <div className="card p-5 flex items-center gap-4 cursor-pointer hover:border-emerald-500/50 transition-all" onClick={() => setFilter(filter === 'sent' ? 'all' : 'sent')}>
+          <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+            <CheckCircle className="w-6 h-6 text-emerald-400" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-white">{stats.sent}</p>
-            <p className="text-xs text-[var(--text-muted)]">Enviados</p>
+            <p className="text-3xl font-bold text-white">{stats.sent}</p>
+            <p className="text-sm font-medium text-[var(--text-muted)]">Enviados</p>
           </div>
         </div>
-        <div className="card p-3 flex items-center gap-3 cursor-pointer hover:border-red-500/50 transition-all" onClick={() => setFilter(filter === 'failed' ? 'all' : 'failed')}>
-          <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
-            <AlertCircle className="w-5 h-5 text-red-400" />
+        <div className="card p-5 flex items-center gap-4 cursor-pointer hover:border-red-500/50 transition-all" onClick={() => setFilter(filter === 'failed' ? 'all' : 'failed')}>
+          <div className="w-12 h-12 rounded-xl bg-red-500/20 flex items-center justify-center">
+            <AlertCircle className="w-6 h-6 text-red-400" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-white">{stats.failed}</p>
-            <p className="text-xs text-[var(--text-muted)]">Fallidos</p>
+            <p className="text-3xl font-bold text-white">{stats.failed}</p>
+            <p className="text-sm font-medium text-[var(--text-muted)]">Fallidos</p>
           </div>
         </div>
       </div>
@@ -352,7 +352,7 @@ export default function ProgramadosPage() {
           { id: 'sent', label: 'Enviados' },
           { id: 'failed', label: 'Fallidos' },
         ].map(f => (
-          <button key={f.id} onClick={() => setFilter(f.id)} className={`px-3 py-1.5 rounded-lg text-xs transition-all ${filter === f.id ? 'bg-[var(--accent-primary)] text-white' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-white'}`}>
+          <button key={f.id} onClick={() => setFilter(f.id)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filter === f.id ? 'bg-[var(--accent-primary)] text-white' : 'bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-white'}`}>
             {f.label}
           </button>
         ))}
@@ -378,7 +378,7 @@ export default function ProgramadosPage() {
                     {/* Target info */}
                     <div className="flex items-center gap-2 mb-1">
                       <TargetIcon className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                      <span className="text-sm font-medium text-white truncate">
+                      <span className="text-base font-semibold text-white truncate">
                         {item.targetName || item.targetId}
                       </span>
                       <span className={`px-1.5 py-0.5 rounded text-[9px] ${status.bg} ${status.text}`}>
@@ -393,12 +393,12 @@ export default function ProgramadosPage() {
                     </div>
 
                     {/* Message preview */}
-                    <p className="text-xs text-[var(--text-muted)] truncate mb-1.5">
+                    <p className="text-sm text-[var(--text-muted)] truncate mb-1.5">
                       {item.mediaUrl && '📎 '}{item.message || '[Solo media]'}
                     </p>
 
                     {/* Date/time */}
-                    <div className="flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
+                    <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
                         {dt.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' })}
@@ -438,7 +438,7 @@ export default function ProgramadosPage() {
         {filteredScheduled.length === 0 && (
           <div className="card p-12 text-center">
             <Clock className="w-12 h-12 mx-auto mb-3 text-[var(--text-muted)] opacity-30" />
-            <p className="text-[var(--text-muted)]">
+            <p className="text-base text-[var(--text-muted)]">
               {filter === 'all' ? 'No hay mensajes programados' : `No hay mensajes ${filter === 'pending' ? 'pendientes' : filter === 'sent' ? 'enviados' : 'fallidos'}`}
             </p>
             <button onClick={openCreate} className="btn-primary mt-4 inline-flex items-center gap-2">
@@ -470,7 +470,7 @@ export default function ProgramadosPage() {
             <div className="p-4 space-y-4">
               {/* Tipo de destinatario */}
               <div>
-                <label className="text-xs text-[var(--text-muted)] mb-2 block">Enviar a</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Enviar a</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {TARGET_TYPES.map(t => {
                     const Icon = t.icon;
@@ -485,8 +485,8 @@ export default function ProgramadosPage() {
                         }`}
                       >
                         <Icon className={`w-5 h-5 mx-auto mb-1 ${targetType === t.id ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
-                        <p className="text-xs text-white">{t.label}</p>
-                        <p className="text-[9px] text-[var(--text-muted)]">{t.desc}</p>
+                        <p className="text-sm font-medium text-white">{t.label}</p>
+                        <p className="text-xs text-[var(--text-muted)]">{t.desc}</p>
                       </button>
                     );
                   })}
@@ -495,7 +495,7 @@ export default function ProgramadosPage() {
 
               {/* Selector de destinatario */}
               <div>
-                <label className="text-xs text-[var(--text-muted)] mb-1.5 block">
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">
                   {targetType === 'contact' ? 'Contacto' : targetType === 'group' ? 'Grupo' : 'Etapa'}
                 </label>
                 
@@ -619,47 +619,24 @@ export default function ProgramadosPage() {
                       ))}
                     </div>
 
-                    {/* Filtro por Tags — genérico */}
-                    {(() => {
-                      const allTags = Array.from(new Set(clients.flatMap(c => c.tags || []))).filter(Boolean).sort() as string[];
-                      if (allTags.length === 0) return null;
-                      return (
-                        <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
-                          <p className="text-[10px] text-[var(--text-muted)] mb-1.5 flex items-center gap-1">
-                            🏷️ <span>Filtrar por etiqueta <span className="text-[var(--accent-primary)]">(combínalas)</span></span>
-                            {selectedProgTags.length > 0 && (
-                              <button onClick={() => setSelectedProgTags([])} className="ml-auto text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
-                            )}
-                          </p>
-                          <div className="flex flex-wrap gap-1">
-                            {allTags.map(tag => (
-                              <button key={tag}
-                                onClick={() => { const next = selectedProgTags.includes(tag) ? selectedProgTags.filter(t => t !== tag) : [...selectedProgTags, tag]; setSelectedProgTags(next); setTargetId(`clients:${clientFilter}:tags:${next.join(',')}`); }}
-                                className={`px-2 py-0.5 rounded-full text-[10px] border transition-all ${selectedProgTags.includes(tag) ? 'bg-[var(--accent-primary)]/30 border-[var(--accent-primary)]/60 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white hover:border-white/20'}`}>
-                                {tag}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
+
 
                     {/* Filtro por fecha de importación */}
                     <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
                       <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">📅 <span>Fecha de importación</span></p>
+                        <p className="text-xs font-semibold text-[var(--text-muted)] flex items-center gap-1">📅 <span>Fecha de importación</span></p>
                         {(progDateFrom || progDateTo) && (
                           <button onClick={() => { setProgDateFrom(''); setProgDateTo(''); }} className="text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
                         )}
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <p className="text-[9px] text-[var(--text-muted)] mb-1">Desde</p>
+                          <p className="text-xs text-[var(--text-muted)] mb-1">Desde</p>
                           <input type="date" value={progDateFrom} onChange={e => setProgDateFrom(e.target.value)}
                             className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
                         </div>
                         <div>
-                          <p className="text-[9px] text-[var(--text-muted)] mb-1">Hasta</p>
+                          <p className="text-xs text-[var(--text-muted)] mb-1">Hasta</p>
                           <input type="date" value={progDateTo} onChange={e => setProgDateTo(e.target.value)}
                             className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]" />
                         </div>
@@ -704,7 +681,7 @@ export default function ProgramadosPage() {
 
               {/* Mensaje */}
               <div>
-                <label className="text-xs text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
                 <textarea
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
@@ -749,7 +726,7 @@ export default function ProgramadosPage() {
               {/* Fecha y hora */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-[var(--text-muted)] mb-1.5 block">Fecha</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Fecha</label>
                   <input
                     type="date"
                     value={scheduledDate}
@@ -758,7 +735,7 @@ export default function ProgramadosPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[var(--text-muted)] mb-1.5 block">Hora</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Hora</label>
                   <input
                     type="time"
                     value={scheduledTime}
@@ -770,7 +747,7 @@ export default function ProgramadosPage() {
 
               {/* Recurrencia */}
               <div>
-                <label className="text-xs text-[var(--text-muted)] mb-2 block">Repetir</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Repetir</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {RECURRENCE_OPTIONS.map(r => (
                     <button
@@ -783,7 +760,7 @@ export default function ProgramadosPage() {
                       }`}
                     >
                       <span className="text-lg">{r.icon}</span>
-                      <p className="text-[10px] text-white mt-0.5">{r.label}</p>
+                      <p className="text-xs font-medium text-white mt-0.5">{r.label}</p>
                     </button>
                   ))}
                 </div>
@@ -814,7 +791,7 @@ export default function ProgramadosPage() {
               {/* Fecha de fin de recurrencia */}
               {recurrence !== 'once' && (
                 <div>
-                  <label className="text-xs text-[var(--text-muted)] mb-1.5 block">Repetir hasta (opcional)</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Repetir hasta (opcional)</label>
                   <input
                     type="date"
                     value={recurrenceEnd}

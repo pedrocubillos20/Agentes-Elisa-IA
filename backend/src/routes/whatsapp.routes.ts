@@ -4147,7 +4147,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           name: line.sessionName,
           start: true,
           engine: 'WEBJS',
-          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS }] }
+          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] }
         })
       });
       log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName}`);
@@ -4159,7 +4159,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
       // Actualizar webhooks
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
-        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS }] } })
+        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] } })
       });
     }
     
@@ -4345,7 +4345,7 @@ router.post('/connect', async (req: Request, res: Response) => {
           start: true,
           engine: 'WEBJS',
           config: {
-            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS }]
+            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }]
           }
         })
       });
@@ -4394,7 +4394,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
         config: {
           webhooks: [{ 
             url: webhookUrl, 
-            events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS
+            events: ['message', 'message.any', 'message.new', 'session.status']
           }]
         }
       })
@@ -4408,7 +4408,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
       message: updateRes.ok ? 'Webhooks reconfigurados' : 'Error al reconfigurar',
       session: sessionName,
       webhookUrl,
-      events: ['message', 'message.any', 'message.new', 'session.status'] // [FIX 3] NOWEB+WEBJS
+      events: ['message', 'message.any', 'message.new', 'session.status']
     });
   } catch (e: any) {
     console.error('❌ Error reconfigurando:', e.message);

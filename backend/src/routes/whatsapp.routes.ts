@@ -5693,7 +5693,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           });
         }
         if (conv) {
-          log(\`🔗 Anti-duplicado: encontrada conv existente \${conv.recipientId} para \${recipientId} (match últimos 7)\`);
+          log(`Anti-duplicado: encontrada conv existente ${conv.recipientId} para ${recipientId} (match ultimos 7)`);
           if (whatsappLineId && !conv.whatsappLineId) {
             await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
           }

@@ -109,6 +109,7 @@ export default function CRMPage() {
   const [importProgress, setImportProgress] = useState<{ active: boolean; percent: number; label: string }>({ active: false, percent: 0, label: '' });
   // Filtro para masivo clientes
   const [clientMassFilter, setClientMassFilter] = useState<'all' | 'importado' | 'lead' | 'active' | 'vip'>('all');
+  const [selectedMassTags, setSelectedMassTags] = useState<string[]>([]);
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
@@ -478,7 +479,9 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       const matchFilter = clientMassFilter === 'all' ? true
         : clientMassFilter === 'importado' ? (c.tags?.includes('importado'))
         : c.status === clientMassFilter;
-      return matchSearch && matchFilter;
+      const matchTags = selectedMassTags.length === 0 ? true
+        : selectedMassTags.every(tag => c.tags?.includes(tag));
+      return matchSearch && matchFilter && matchTags;
     });
     if (!filteredClients.length) { alert('No hay clientes para enviar'); return; }
     setSendingMass(true);
@@ -1055,7 +1058,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <button onClick={() => !sendingMass && setShowClientMass(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
             {/* Filtros de segmento */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
+            <div className="flex flex-wrap gap-1.5 mb-2">
               {[
                 { id: 'all', label: 'Todos', count: clients.length },
                 { id: 'importado', label: '📥 Importados', count: clients.filter(c => c.tags?.includes('importado')).length },
@@ -1063,19 +1066,43 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                 { id: 'active', label: '✅ Activos', count: clients.filter(c => c.status === 'active').length },
                 { id: 'vip', label: '⭐ VIP', count: clients.filter(c => c.status === 'vip').length },
               ].map(f => (
-                <button key={f.id} onClick={() => setClientMassFilter(f.id as any)}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] border transition-all ${clientMassFilter === f.id ? 'bg-violet-500/30 border-violet-500/50 text-violet-300' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
+                <button key={f.id} onClick={() => { setClientMassFilter(f.id as any); setSelectedMassTags([]); }}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] border transition-all ${clientMassFilter === f.id && selectedMassTags.length === 0 ? 'bg-violet-500/30 border-violet-500/50 text-violet-300' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
                   {f.label} ({f.count})
                 </button>
               ))}
             </div>
+            {/* Filtro por Tags — genérico para cualquier negocio */}
+            {(() => {
+              const allTags = Array.from(new Set(clients.flatMap(c => c.tags || []))).filter(Boolean).sort();
+              if (allTags.length === 0) return null;
+              return (
+                <div className="mb-3 p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+                  <p className="text-[10px] text-[var(--text-muted)] mb-1.5 flex items-center gap-1">
+                    🏷️ <span>Filtrar por etiqueta <span className="text-[var(--accent-primary)]">(puedes combinar varios)</span></span>
+                    {selectedMassTags.length > 0 && (
+                      <button onClick={() => setSelectedMassTags([])} className="ml-auto text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
+                    )}
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {allTags.map(tag => (
+                      <button key={tag} onClick={() => setSelectedMassTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                        className={`px-2 py-0.5 rounded-full text-[10px] border transition-all ${selectedMassTags.includes(tag) ? 'bg-[var(--accent-primary)]/30 border-[var(--accent-primary)]/60 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white hover:border-white/20'}`}>
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
               Enviar a: <strong className="text-white">{clients.filter(c => {
                 const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm);
                 const matchFilter = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter;
-                return matchSearch && matchFilter;
+                const matchTags = selectedMassTags.length === 0 ? true : selectedMassTags.every(tag => c.tags?.includes(tag));
+                return matchSearch && matchFilter && matchTags;
               }).length} clientes</strong>
-              {clientMassFilter !== 'all' && <span className="text-violet-400"> · filtro activo</span>}
+              {(clientMassFilter !== 'all' || selectedMassTags.length > 0) && <span className="text-violet-400"> · filtros activos</span>}
               {searchTerm && <span className="text-amber-400"> · búsqueda: &quot;{searchTerm}&quot;</span>}
             </p>
             <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." disabled={sendingMass}
@@ -1100,7 +1127,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <div className="mb-3"><div className="flex justify-between text-xs text-[var(--text-muted)] mb-1"><span>Enviando...</span><span>{massSentCount}/{massTotal}</span></div><div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2"><div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} /></div></div>
             )}
             <button onClick={sendClientMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 text-sm disabled:opacity-50">
-              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => { const ms = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm); const mf = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter; return ms && mf; }).length} clientes`}
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => { const ms = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm); const mf = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter; const mt = selectedMassTags.length === 0 ? true : selectedMassTags.every(tag => c.tags?.includes(tag)); return ms && mf && mt; }).length} clientes`}
             </button>
           </div>
         </div>

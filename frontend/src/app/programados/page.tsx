@@ -76,6 +76,7 @@ export default function ProgramadosPage() {
   const [stages, setStages] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [clientFilter, setClientFilter] = useState<string>('all');
+  const [selectedProgTags, setSelectedProgTags] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
@@ -118,6 +119,7 @@ export default function ProgramadosPage() {
     setMediaPreview(null);
     setEditing(null);
     setClientFilter('all');
+    setSelectedProgTags([]);
   };
 
   const openCreate = () => {
@@ -172,9 +174,12 @@ export default function ProgramadosPage() {
     // For 'clients' type: save as multiple contact schedules or as a special bulk type
     const filteredClients = targetType === 'clients'
       ? clients.filter(c => {
-          if (clientFilter === 'importado') return c.tags?.includes('importado');
-          if (clientFilter === 'all') return true;
-          return c.status === clientFilter;
+          const matchFilter = clientFilter === 'all' ? true
+            : clientFilter === 'importado' ? c.tags?.includes('importado')
+            : c.status === clientFilter;
+          const matchTags = selectedProgTags.length === 0 ? true
+            : selectedProgTags.every(tag => c.tags?.includes(tag));
+          return matchFilter && matchTags;
         })
       : [];
 
@@ -183,7 +188,7 @@ export default function ProgramadosPage() {
       targetType,
       targetId: targetType === 'clients' ? `clients:${clientFilter}` : targetId,
       targetName: targetType === 'clients'
-        ? `${filteredClients.length} clientes (${clientFilter === 'importado' ? 'Importados' : clientFilter === 'all' ? 'Todos' : clientFilter})`
+        ? `${filteredClients.length} clientes (${clientFilter === 'importado' ? 'Importados' : clientFilter === 'all' ? 'Todos' : clientFilter}${selectedProgTags.length > 0 ? ' · ' + selectedProgTags.join(', ') : ''})`
         : (targetName || undefined),
       message: message || undefined,
       ...(mediaUrl && { mediaUrl, mediaType }),
@@ -591,7 +596,7 @@ export default function ProgramadosPage() {
 
                 {targetType === 'clients' && (
                   <div className="space-y-3">
-                    {/* Filtros de segmento */}
+                    {/* Filtros de estado */}
                     <div className="flex flex-wrap gap-1.5">
                       {[
                         { id: 'all', label: 'Todos', count: clients.length },
@@ -600,34 +605,67 @@ export default function ProgramadosPage() {
                         { id: 'active', label: '✅ Activos', count: clients.filter(c => c.status === 'active').length },
                         { id: 'vip', label: '⭐ VIP', count: clients.filter(c => c.status === 'vip').length },
                       ].map(f => (
-                        <button key={f.id} onClick={() => { setClientFilter(f.id); setTargetId(`clients:${f.id}`); setTargetName(`${f.count} clientes`); }}
-                          className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${clientFilter === f.id ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/50 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
+                        <button key={f.id} onClick={() => { setClientFilter(f.id); setSelectedProgTags([]); setTargetId(`clients:${f.id}`); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${clientFilter === f.id && selectedProgTags.length === 0 ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/50 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
                           {f.label} <span className="opacity-70">({f.count})</span>
                         </button>
                       ))}
                     </div>
-                    {/* Preview list */}
-                    {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length > 0 && (
-                      <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)] max-h-32 overflow-y-auto">
-                        <p className="text-[10px] text-[var(--text-muted)] mb-1.5">Vista previa de destinatarios:</p>
-                        {clients
-                          .filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter)
-                          .slice(0, 8)
-                          .map((c, i) => (
-                            <div key={i} className="text-[10px] text-white py-0.5 flex items-center gap-1.5">
-                              <span className="text-[var(--accent-primary)]">✓</span>
-                              <span className="truncate">{c.name || 'Sin nombre'}</span>
-                              <span className="text-[var(--text-muted)]">{c.phone}</span>
-                            </div>
-                          ))}
-                        {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length > 8 && (
-                          <p className="text-[10px] text-[var(--text-muted)] mt-1">... y {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length - 8} más</p>
-                        )}
-                      </div>
-                    )}
-                    {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length === 0 && (
-                      <p className="text-xs text-amber-400 p-2 bg-amber-500/10 rounded-lg">No hay clientes en este segmento.</p>
-                    )}
+
+                    {/* Filtro por Tags — genérico */}
+                    {(() => {
+                      const allTags = Array.from(new Set(clients.flatMap(c => c.tags || []))).filter(Boolean).sort() as string[];
+                      if (allTags.length === 0) return null;
+                      return (
+                        <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+                          <p className="text-[10px] text-[var(--text-muted)] mb-1.5 flex items-center gap-1">
+                            🏷️ <span>Filtrar por etiqueta <span className="text-[var(--accent-primary)]">(combínalas)</span></span>
+                            {selectedProgTags.length > 0 && (
+                              <button onClick={() => setSelectedProgTags([])} className="ml-auto text-[9px] text-red-400 hover:text-red-300 underline">Limpiar</button>
+                            )}
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {allTags.map(tag => (
+                              <button key={tag}
+                                onClick={() => { const next = selectedProgTags.includes(tag) ? selectedProgTags.filter(t => t !== tag) : [...selectedProgTags, tag]; setSelectedProgTags(next); setTargetId(`clients:${clientFilter}:tags:${next.join(',')}`); }}
+                                className={`px-2 py-0.5 rounded-full text-[10px] border transition-all ${selectedProgTags.includes(tag) ? 'bg-[var(--accent-primary)]/30 border-[var(--accent-primary)]/60 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white hover:border-white/20'}`}>
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Preview destinatarios */}
+                    {(() => {
+                      const preview = clients.filter(c => {
+                        const mf = clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter;
+                        const mt = selectedProgTags.length === 0 ? true : selectedProgTags.every(tag => c.tags?.includes(tag));
+                        return mf && mt;
+                      });
+                      if (preview.length === 0) return (
+                        <p className="text-xs text-amber-400 p-2 bg-amber-500/10 rounded-lg border border-amber-500/20">⚠️ No hay clientes con estos filtros.</p>
+                      );
+                      return (
+                        <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-[10px] text-[var(--text-muted)]">Vista previa</p>
+                            <span className="text-[10px] font-bold text-[var(--accent-primary)]">{preview.length} destinatarios</span>
+                          </div>
+                          <div className="max-h-28 overflow-y-auto space-y-0.5">
+                            {preview.slice(0, 8).map((c, i) => (
+                              <div key={i} className="text-[10px] text-white flex items-center gap-1.5">
+                                <span className="text-emerald-400">✓</span>
+                                <span className="truncate flex-1">{c.name || 'Sin nombre'}</span>
+                                <span className="text-[var(--text-muted)] flex-shrink-0">{c.phone}</span>
+                              </div>
+                            ))}
+                            {preview.length > 8 && <p className="text-[10px] text-[var(--text-muted)]">... y {preview.length - 8} más</p>}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -763,7 +801,7 @@ export default function ProgramadosPage() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !targetId || !scheduledDate || !scheduledTime || (!message && !mediaFile) || (targetType === 'clients' && clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length === 0)}
+                disabled={saving || !targetId || !scheduledDate || !scheduledTime || (!message && !mediaFile) || (targetType === 'clients' && clients.filter(c => { const mf = clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter; const mt = selectedProgTags.length === 0 ? true : selectedProgTags.every(tag => c.tags?.includes(tag)); return mf && mt; }).length === 0)}
                 className="btn-primary flex-1 py-2 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

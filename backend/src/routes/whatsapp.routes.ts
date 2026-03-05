@@ -1815,367 +1815,184 @@ REGLAS DE TRANSFERENCIA:
     if (isInternalAssistant) {
       try {
         const msgLower = message.toLowerCase();
+        const isAgendaQuery = /cita|agenda|reunión|reunion|horario|programad|cronograma|calendario|consulta.*hoy|hoy.*cita|cita.*hoy|mañana.*cita|cita.*mañana|semana/i.test(msgLower);
+        const isPedidoQuery = /pedido|orden|venta|despacho|entreg|envío|envio|compra|factur/i.test(msgLower);
+        const isReservaQuery = /reserva|booking|habitación|habitacion|mesa|cancha|turno|espacio/i.test(msgLower);
+        const isUpdateQuery = /actualiz|cambiar|mover|reagend|modific|cancel|eliminar|reprogramar/i.test(msgLower);
+        const isStatsQuery = /resumen|resum|dashboard|estadístic|estadistic|cómo vamos|como vamos|cuántas|cuantas|conversacion|métrica|metrica|rendimiento|reporte|informe|estado/i.test(msgLower);
+        const isGeneralQuery = /qué tenemos|que tenemos|qué hay|que hay|novedades|pendiente|notifica|alerta/i.test(msgLower);
+        const wantsData = isAgendaQuery || isPedidoQuery || isReservaQuery || isUpdateQuery || isStatsQuery || isGeneralQuery;
 
-        // ═══════════════════════════════════════════════════════
-        // 🎯 DETECCIÓN DE INTENCIONES — Asistente Personal v2.0
-        // ═══════════════════════════════════════════════════════
-        const isAgendaQuery    = /cita|agenda|reunión|reunion|horario|programad|cronograma|calendario|consulta.*hoy|hoy.*cita|cita.*hoy|mañana.*cita|cita.*mañana|semana/i.test(msgLower);
-        const isPedidoQuery    = /pedido|orden|venta|despacho|entreg|envío|envio|compra|factur/i.test(msgLower);
-        const isReservaQuery   = /reserva|booking|habitación|habitacion|mesa|cancha|turno|espacio/i.test(msgLower);
-        const isUpdateQuery    = /actualiz|cambiar|mover|reagend|modific|cancel|eliminar|reprogramar/i.test(msgLower);
-        const isStatsQuery     = /resumen|resum|dashboard|estadístic|estadistic|cómo vamos|como vamos|cuántas|cuantas|conversacion|métrica|metrica|rendimiento|reporte|informe|estado/i.test(msgLower);
-        const isGeneralQuery   = /qué tenemos|que tenemos|qué hay|que hay|novedades|pendiente|notifica|alerta/i.test(msgLower);
-        // [NEW] Intenciones avanzadas del Asistente Personal
-        const isProductQuery   = /producto|catálogo|catalogo|inventario|stock|precio|servicio.*lista|lista.*servicio/i.test(msgLower);
-        const isClientQuery    = /cliente|lead|contacto|quien.*compro|quien.*compró|top.*cliente|mejor.*cliente/i.test(msgLower);
-        const isFollowUpQuery  = /seguimiento|follow.?up|sin respuesta|abandonado|perdido|retomar|recordar|llamar/i.test(msgLower);
-        const isFunnelQuery    = /embudo|funnel|conversión|conversion|tasa|etapa.*venta|pipeline.*analisis|análisis.*pipeline/i.test(msgLower);
-        const isSalesplanQuery = /plan.*venta|plan.*negocio|estrategia|objetivo|meta|proyección|proyeccion|crecimiento/i.test(msgLower);
-        const isSendMsgQuery   = /enviar.*mensaje|mandar.*mensaje|escribir.*a |escríbele|notificar.*cliente|avisar.*a /i.test(msgLower);
-        const isLearnQuery     = /aprend|patrón|patron|tendencia|comportamiento|análisis.*conversacion|que dicen.*clientes/i.test(msgLower);
-        const isRevenueQuery   = /ingreso|revenue|total.*venta|cuanto.*vendí|cuanto.*vendimos|facturaci|ganancia/i.test(msgLower);
-        const isTeamQuery      = /equipo|team|miembro|asignado|agente/i.test(msgLower);
-
-        const wantsData = isAgendaQuery || isPedidoQuery || isReservaQuery || isUpdateQuery ||
-                          isStatsQuery || isGeneralQuery || isProductQuery || isClientQuery ||
-                          isFollowUpQuery || isFunnelQuery || isSalesplanQuery || isSendMsgQuery ||
-                          isLearnQuery || isRevenueQuery || isTeamQuery;
-
+        // Para Asistente Personal: inyectar SIEMPRE datos de plataforma completos
+        // Para Grupos: solo cuando preguntan algo específico
         if (wantsData || isPersonalAssistant) {
           const biLines: string[] = [];
-          const assistantLabel = isPersonalAssistant ? 'Asistente Personal BIZONNE' : (conversation?.groupName || 'Grupo');
+          const assistantLabel = isPersonalAssistant ? 'Asistente Personal' : (conversation?.groupName || 'Grupo');
           biLines.push(`\n=== 📊 DATOS DE PLATAFORMA EN TIEMPO REAL (${assistantLabel}) ===`);
           biLines.push(`Fecha: ${formatDateColombia()} | Hora: ${formatTimeColombia()}`);
 
-          const todayStart  = new Date(getTodayStringColombia() + "T05:00:00.000Z");
-          const weekStart7  = getNowColombia(); weekStart7.setDate(weekStart7.getDate() - 7);
-          const monthStart  = getNowColombia(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
-
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 1️⃣  PIPELINE Y CONVERSACIONES
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          if (isStatsQuery || isGeneralQuery || isFunnelQuery || isPersonalAssistant) {
-            const [totalConvs, todayConvs, weekConvs, convsByStage, aiPausedCount] = await Promise.all([
+          // ━━━ ESTADÍSTICAS DE CONVERSACIONES ━━━
+          if (isStatsQuery || isGeneralQuery || isPersonalAssistant) {
+            const todayStart = new Date(getTodayStringColombia() + "T05:00:00.000Z");
+            const weekStart = getNowColombia(); weekStart.setDate(weekStart.getDate() - 7);
+            
+            const [totalConvs, todayConvs, weekConvs, convsByStage] = await Promise.all([
               prisma.conversation.count({ where: { userId: ownerId, isGroup: false } }),
               prisma.conversation.count({ where: { userId: ownerId, isGroup: false, createdAt: { gte: todayStart } } }),
-              prisma.conversation.count({ where: { userId: ownerId, isGroup: false, createdAt: { gte: weekStart7 } } }),
-              prisma.conversation.groupBy({ by: ['stage'], where: { userId: ownerId, isGroup: false }, _count: true, orderBy: { _count: { id: 'desc' } } }),
-              prisma.conversation.count({ where: { userId: ownerId, isGroup: false, aiPaused: true } }),
+              prisma.conversation.count({ where: { userId: ownerId, isGroup: false, createdAt: { gte: weekStart } } }),
+              prisma.conversation.groupBy({ by: ['stage'], where: { userId: ownerId, isGroup: false }, _count: true }),
             ]);
 
-            // Cargar etapas personalizadas del usuario
-            const userLine = await prisma.whatsappLine.findFirst({
-              where: { userId: ownerId },
-              select: { customStages: true }
-            });
-            const customStages: any[] = (userLine?.customStages as any[]) || [];
-            const stageNameMap: Record<string, string> = {};
-            customStages.forEach((s: any) => { if (s.id) stageNameMap[s.id] = s.label || s.id; });
-
-            biLines.push(`\n━━━ 💬 PIPELINE CRM ━━━`);
-            biLines.push(`Total leads: ${totalConvs} | Nuevos hoy: ${todayConvs} | Esta semana: ${weekConvs} | IA pausada: ${aiPausedCount}`);
-
+            biLines.push(`\n━━━ 💬 CONVERSACIONES ━━━`);
+            biLines.push(`Total: ${totalConvs} | Nuevas hoy: ${todayConvs} | Esta semana: ${weekConvs}`);
             if (convsByStage.length > 0) {
-              const stageSummary = convsByStage.map((s: any) => {
-                const name = stageNameMap[s.stage] || s.stage || 'Sin etapa';
-                const pct = totalConvs > 0 ? Math.round((s._count / totalConvs) * 100) : 0;
-                return `${name}: ${s._count} (${pct}%)`;
-              }).join(' | ');
-              biLines.push(`Por etapa: ${stageSummary}`);
-            }
-
-            // Leads atascados: sin actividad > 3 días y no convertidos
-            if (isFunnelQuery || isFollowUpQuery || isPersonalAssistant) {
-              const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-              const stuckLeads = await prisma.conversation.findMany({
-                where: {
-                  userId: ownerId, isGroup: false,
-                  updatedAt: { lt: threeDaysAgo },
-                  stage: { notIn: ['converted', 'convertido', 'lost', 'perdido', 'closed', 'cerrado'] }
-                },
-                orderBy: { updatedAt: 'asc' },
-                take: 10,
-                select: { id: true, recipientName: true, recipientId: true, stage: true, updatedAt: true, lastMessage: true, whatsappLineId: true }
-              });
-              if (stuckLeads.length > 0) {
-                biLines.push(`\n⚠️ LEADS ATASCADOS (sin actividad +3 días): ${stuckLeads.length}`);
-                stuckLeads.slice(0, 5).forEach(l => {
-                  const days = Math.floor((Date.now() - new Date(l.updatedAt).getTime()) / 86400000);
-                  const stageName = stageNameMap[l.stage || ''] || l.stage || 'sin etapa';
-                  const phone = l.recipientId?.replace('@c.us','').replace('@s.whatsapp.net','') || '';
-                  biLines.push(`  • ${l.recipientName || phone} | Etapa: ${stageName} | ${days}d sin actividad | Tel: ${phone}`);
-                });
-              }
+              const stageMap: Record<string, string> = {
+                new: 'Nuevo', interested: 'Interesado', quoting: 'Cotización', negotiating: 'Negociando',
+                pending_confirm: 'Pendiente', converted: 'Convertido', follow_up: 'Seguimiento', lost: 'Perdido'
+              };
+              biLines.push(`Por etapa: ${convsByStage.map((s: any) => `${stageMap[s.stage] || s.stage}: ${s._count}`).join(' | ')}`);
             }
           }
 
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 2️⃣  AGENDA COMPLETA (Citas + Pedidos + Reservas)
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // ━━━ AGENDA: CITAS, PEDIDOS, RESERVAS ━━━
           const rangeStart = new Date(getTodayStringColombia() + "T05:00:00.000Z");
-          const rangeEnd   = getNowColombia(); rangeEnd.setDate(rangeEnd.getDate() + 7); rangeEnd.setHours(23, 59, 59, 999);
-          const allAppts   = await prisma.appointment.findMany({
+          const rangeEnd = getNowColombia(); rangeEnd.setDate(rangeEnd.getDate() + 7); rangeEnd.setHours(23, 59, 59, 999);
+
+          const allAppts = await prisma.appointment.findMany({
             where: { userId: ownerId, date: { gte: rangeStart, lte: rangeEnd }, status: { notIn: ['cancelled'] } },
             orderBy: [{ date: 'asc' }, { time: 'asc' }],
-            take: 60
+            take: 50
           });
 
-          const citas   = allAppts.filter((a: any) => a.type === 'appointment');
-          const pedidos = allAppts.filter((a: any) => a.type === 'order');
-          const reservas= allAppts.filter((a: any) => a.type === 'reservation');
+          const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
-          biLines.push(`\n━━━ 📋 AGENDA PRÓXIMOS 7 DÍAS ━━━`);
+          // Resumen por tipo
+          const citas = allAppts.filter(a => a.type === 'appointment');
+          const pedidos = allAppts.filter(a => a.type === 'order');
+          const reservas = allAppts.filter(a => a.type === 'reservation');
+
+          biLines.push(`\n━━━ 📋 RESUMEN SEMANAL ━━━`);
           biLines.push(`📅 Citas: ${citas.length} | 🛒 Pedidos: ${pedidos.length} | 🏨 Reservas: ${reservas.length} | Total: ${allAppts.length}`);
 
-          const dayNames     = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+          // Agrupar por día
           const filterTypes: string[] = [];
-          if (isAgendaQuery)  filterTypes.push('appointment');
-          if (isPedidoQuery)  filterTypes.push('order');
+          if (isAgendaQuery) filterTypes.push('appointment');
+          if (isPedidoQuery) filterTypes.push('order');
           if (isReservaQuery) filterTypes.push('reservation');
-          if (filterTypes.length === 0) filterTypes.push('appointment','order','reservation');
+          if (filterTypes.length === 0) filterTypes.push('appointment', 'order', 'reservation');
+
           const typeLabels: Record<string, string> = { appointment: '📅 Cita', order: '🛒 Pedido', reservation: '🏨 Reserva' };
           const byDay = new Map<string, any[]>();
           for (const apt of allAppts) {
-            const dk = new Date(apt.date).toISOString().split('T')[0];
-            if (!byDay.has(dk)) byDay.set(dk, []);
-            byDay.get(dk)!.push(apt);
+            const dateKey = new Date(apt.date).toISOString().split('T')[0];
+            if (!byDay.has(dateKey)) byDay.set(dateKey, []);
+            byDay.get(dateKey)!.push(apt);
           }
+
           let totalItems = 0;
           for (const [dateKey, appts] of byDay.entries()) {
             const d = new Date(dateKey + 'T12:00:00');
-            const isToday    = dateKey === getTodayStringColombia();
-            const tmrCol     = getNowColombia(); tmrCol.setDate(tmrCol.getDate()+1);
-            const tmrStr     = `${tmrCol.getFullYear()}-${String(tmrCol.getMonth()+1).padStart(2,'0')}-${String(tmrCol.getDate()).padStart(2,'0')}`;
-            const isTomorrow = dateKey === tmrStr;
-            const dayLabel   = isToday ? '📌 HOY' : isTomorrow ? '📌 MAÑANA' : dayNames[d.getDay()];
-            const filtered   = appts.filter((a: any) => filterTypes.includes(a.type));
+            const isToday = dateKey === getTodayStringColombia();
+            const tomorrowCol = getNowColombia(); tomorrowCol.setDate(tomorrowCol.getDate() + 1); const isTomorrow = dateKey === `${tomorrowCol.getFullYear()}-${String(tomorrowCol.getMonth()+1).padStart(2,"0")}-${String(tomorrowCol.getDate()).padStart(2,"0")}`;
+            const dayLabel = isToday ? '📌 HOY' : isTomorrow ? '📌 MAÑANA' : `${dayNames[d.getDay()]}`;
+            
+            const filtered = appts.filter((a: any) => filterTypes.includes(a.type));
             if (filtered.length === 0) continue;
+
             biLines.push(`\n━━━ ${dayLabel} ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} ━━━`);
+            
             for (const apt of filtered) {
               totalItems++;
-              const typeEmoji  = typeLabels[(apt as any).type] || '📅';
-              const statusEmoji= apt.status==='confirmed'?'✅':apt.status==='pending'?'⏳':'📋';
-              let det = `${typeEmoji} ${statusEmoji} ${apt.clientName||'Sin nombre'}`;
-              if (apt.clientPhone) det += ` | 📞 ${apt.clientPhone}`;
-              det += ` | 🕐 ${to12h(apt.time)}`;
-              if (apt.duration) det += ` (${apt.duration}min)`;
-              if ((apt as any).notes)   det += ` | 📝 ${(apt as any).notes}`;
-              if ((apt as any).address) det += ` | 📍 ${(apt as any).address}`;
-              if ((apt as any).total)   det += ` | 💰 $${(apt as any).total}`;
-              det += ` | ID:${apt.id.slice(-6)}`;
-              biLines.push(`  ${det}`);
+              const typeEmoji = typeLabels[apt.type] || '📅 Cita';
+              const timeStr = to12h(apt.time);
+              const statusEmoji = apt.status === 'confirmed' ? '✅' : apt.status === 'pending' ? '⏳' : '📋';
+              
+              let details = `${typeEmoji} | ${statusEmoji} ${apt.status === 'confirmed' ? 'Confirmado' : apt.status === 'pending' ? 'Pendiente' : apt.status}`;
+              details += `\n   🕐 Hora: ${timeStr}`;
+              details += `\n   👤 Cliente: ${apt.clientName || 'Sin nombre'}`;
+              if (apt.clientPhone) details += ` | 📞 ${apt.clientPhone}`;
+              if ((apt as any).notes) details += `\n   📝 ${(apt as any).notes}`;
+              if ((apt as any).address) details += `\n   📍 ${(apt as any).address}`;
+              if (apt.duration) details += ` | ⏱️ ${apt.duration} min`;
+              details += ` | 🆔 ${apt.id.slice(-6)}`;
+              
+              biLines.push(details);
             }
           }
+
           if (totalItems === 0 && (isAgendaQuery || isPedidoQuery || isReservaQuery)) {
             biLines.push('\n📭 No hay registros para el período consultado.');
           }
 
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 3️⃣  INGRESOS Y VENTAS
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          if (isStatsQuery || isGeneralQuery || isPedidoQuery || isRevenueQuery || isPersonalAssistant) {
+          // ━━━ VENTAS / INGRESOS ━━━
+          if (isStatsQuery || isGeneralQuery || isPedidoQuery) {
+            const todayStart = new Date(getTodayStringColombia() + "T05:00:00.000Z");
+            const monthStart = getNowColombia(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+            
             const [todayOrders, monthOrders] = await Promise.all([
-              prisma.appointment.findMany({ where: { userId: ownerId, type: 'order', date: { gte: todayStart }, status: { notIn: ['cancelled'] } }, select: { total: true, clientName: true } }),
-              prisma.appointment.findMany({ where: { userId: ownerId, type: 'order', date: { gte: monthStart }, status: { notIn: ['cancelled'] } }, select: { total: true } }),
-            ]);
-            const todayRevenue = todayOrders.reduce((sum: number, o: any) => sum + (parseFloat(o.total) || 0), 0);
-            const monthRevenue = monthOrders.reduce((sum: number, o: any) => sum + (parseFloat(o.total) || 0), 0);
-            biLines.push(`\n━━━ 💰 VENTAS E INGRESOS ━━━`);
-            biLines.push(`Hoy: ${todayOrders.length} pedidos | Ingresos hoy: $${todayRevenue.toLocaleString('es-CO')}`);
-            biLines.push(`Este mes: ${monthOrders.length} pedidos | Ingresos mes: $${monthRevenue.toLocaleString('es-CO')}`);
-          }
-
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 4️⃣  PRODUCTOS / CATÁLOGO
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          if (isProductQuery || isSalesplanQuery || isPersonalAssistant) {
-            const products = await prisma.product.findMany({
-              where: { userId: ownerId, isActive: true },
-              orderBy: { createdAt: 'desc' },
-              take: 30,
-              select: { name: true, price: true, category: true, stock: true, description: true }
-            });
-            if (products.length > 0) {
-              biLines.push(`\n━━━ 🛍️ CATÁLOGO DE PRODUCTOS (${products.length}) ━━━`);
-              const byCategory = new Map<string, any[]>();
-              products.forEach((p: any) => {
-                const cat = p.category || 'General';
-                if (!byCategory.has(cat)) byCategory.set(cat, []);
-                byCategory.get(cat)!.push(p);
-              });
-              for (const [cat, prods] of byCategory.entries()) {
-                biLines.push(`  ${cat}:`);
-                prods.forEach((p: any) => {
-                  let line = `    • ${p.name}`;
-                  if (p.price) line += ` | $${parseFloat(p.price).toLocaleString('es-CO')}`;
-                  if (p.stock !== null && p.stock !== undefined) line += ` | Stock: ${p.stock}`;
-                  biLines.push(line);
-                });
-              }
-            }
-          }
-
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 5️⃣  CLIENTES TOP Y SEGUIMIENTO
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          if (isClientQuery || isFollowUpQuery || isSalesplanQuery || isPersonalAssistant) {
-            const [topClients, recentClients] = await Promise.all([
-              prisma.client.findMany({
-                where: { userId: ownerId },
-                orderBy: { updatedAt: 'desc' },
-                take: 10,
-                select: { name: true, phone: true, status: true, tags: true, totalPurchases: true, notes: true }
-              }),
-              prisma.conversation.findMany({
-                where: { userId: ownerId, isGroup: false, updatedAt: { gte: weekStart7 } },
-                orderBy: { updatedAt: 'desc' },
-                take: 10,
-                select: { recipientName: true, recipientId: true, stage: true, updatedAt: true, lastMessage: true }
-              })
-            ]);
-            if (topClients.length > 0) {
-              biLines.push(`\n━━━ 👥 CLIENTES RECIENTES (${topClients.length}) ━━━`);
-              topClients.forEach((c: any) => {
-                let line = `  • ${c.name} | ${c.phone || 'Sin tel'}`;
-                if (c.status) line += ` | ${c.status}`;
-                if (c.totalPurchases) line += ` | Compras: ${c.totalPurchases}`;
-                if (c.notes) line += ` | Nota: ${c.notes.substring(0,50)}`;
-                biLines.push(line);
-              });
-            }
-            if (recentClients.length > 0) {
-              biLines.push(`\n━━━ 🔔 CONVERSACIONES ACTIVAS ESTA SEMANA ━━━`);
-              recentClients.forEach((c: any) => {
-                const phone = c.recipientId?.replace('@c.us','').replace('@s.whatsapp.net','') || '';
-                const ago = Math.floor((Date.now() - new Date(c.updatedAt).getTime()) / 3600000);
-                biLines.push(`  • ${c.recipientName||phone} | Etapa: ${c.stage||'nueva'} | Hace ${ago}h | "${(c.lastMessage||'').substring(0,60)}"`);
-              });
-            }
-          }
-
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 6️⃣  AUTO-APRENDIZAJE — PATRONES DE CONVERSACIONES
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          if (isLearnQuery || isFunnelQuery || isSalesplanQuery || isPersonalAssistant) {
-            const [convertedConvs, lostConvs, allStageConvs] = await Promise.all([
-              prisma.conversation.findMany({
-                where: { userId: ownerId, isGroup: false, stage: { in: ['converted','convertido','confirmed','confirmado'] } },
-                orderBy: { updatedAt: 'desc' }, take: 5,
-                select: { recipientName: true, contextData: true, updatedAt: true }
-              }),
-              prisma.conversation.findMany({
-                where: { userId: ownerId, isGroup: false, stage: { in: ['lost','perdido','lost_lead','descartado'] } },
-                orderBy: { updatedAt: 'desc' }, take: 5,
-                select: { recipientName: true, contextData: true, lastMessage: true }
-              }),
-              prisma.conversation.groupBy({
-                by: ['stage'], where: { userId: ownerId, isGroup: false },
-                _count: true, orderBy: { _count: { id: 'desc' } }
-              })
+              prisma.appointment.findMany({ where: { userId: ownerId, type: 'order', date: { gte: todayStart }, status: { notIn: ['cancelled'] } } }),
+              prisma.appointment.findMany({ where: { userId: ownerId, type: 'order', date: { gte: monthStart }, status: { notIn: ['cancelled'] } } }),
             ]);
 
-            if (allStageConvs.length > 1) {
-              const totalLeads = allStageConvs.reduce((sum: number, s: any) => sum + s._count, 0);
-              const convertedCount = allStageConvs.filter((s: any) =>
-                ['converted','convertido','confirmed','confirmado'].includes(s.stage || '')
-              ).reduce((sum: number, s: any) => sum + s._count, 0);
-              const conversionRate = totalLeads > 0 ? Math.round((convertedCount / totalLeads) * 100) : 0;
-
-              biLines.push(`\n━━━ 📈 ANÁLISIS DE EMBUDO ━━━`);
-              biLines.push(`Tasa de conversión global: ${conversionRate}% (${convertedCount}/${totalLeads} leads)`);
-
-              if (convertedConvs.length > 0) {
-                const commonProducts = convertedConvs
-                  .map((c: any) => (c.contextData as any)?.producto_servicio || (c.contextData as any)?.producto || '')
-                  .filter(Boolean);
-                if (commonProducts.length > 0) biLines.push(`Productos más vendidos: ${[...new Set(commonProducts)].join(', ')}`);
-              }
-              if (lostConvs.length > 0) {
-                biLines.push(`Leads perdidos recientes: ${lostConvs.map((c: any) => c.recipientName || 'Anónimo').join(', ')}`);
-              }
-            }
+            biLines.push(`\n━━━ 💰 VENTAS ━━━`);
+            biLines.push(`Hoy: ${todayOrders.length} pedidos | Este mes: ${monthOrders.length} pedidos`);
           }
 
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 7️⃣  EQUIPO (si activo)
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          if (isTeamQuery || isPersonalAssistant) {
-            const teamMembers = await prisma.user.findMany({
-              where: { parentUserId: ownerId, isActive: true },
-              select: { name: true, role: true },
-              take: 10
-            });
-            if (teamMembers.length > 0) {
-              biLines.push(`\n━━━ 👨‍💼 EQUIPO (${teamMembers.length} miembros) ━━━`);
-              teamMembers.forEach((m: any) => biLines.push(`  • ${m.name} | ${m.role || 'Agente'}`));
-            }
-          }
-
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          // 8️⃣  INSTRUCCIONES ASISTENTE PERSONAL v2.0
-          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // ━━━ INSTRUCCIONES AVANZADAS ━━━
           biLines.push(`
-=== INSTRUCCIONES — ${isPersonalAssistant ? 'ASISTENTE PERSONAL BIZONNE v2.0' : 'MODO GRUPO INTERNO'} ===
+=== INSTRUCCIONES — ${isPersonalAssistant ? 'ASISTENTE PERSONAL AVANZADO' : 'MODO GRUPO INTERNO'} ===
 
-${isPersonalAssistant ? `Eres el CEREBRO DIGITAL del negocio. Tienes acceso total y en tiempo real a todos los sistemas de la plataforma Bizonne.
-Tu zona horaria: COLOMBIA (GMT-5). TODAS las fechas/horas en los datos son de esta zona.
+${isPersonalAssistant ? `Eres el ASISTENTE PERSONAL INTELIGENTE del administrador de este negocio.
+Tu zona horaria es COLOMBIA (GMT-5, America/Bogota). TODAS las fechas y horas en los datos de arriba son de esta zona.
 
-🧠 LO QUE PUEDES HACER:
-1. AGENDA: Ver, crear, actualizar y cancelar citas/pedidos/reservas usando acciones en MEMORY_JSON
-2. CRM PIPELINE: Analizar el embudo, mover leads entre etapas, identificar atascados
-3. CLIENTES: Ver historial, buscar contactos, analizar comportamiento
-4. PRODUCTOS: Consultar catálogo, precios y stock
-5. VENTAS: Calcular ingresos, proyecciones, comparativas
-6. SEGUIMIENTO: Identificar leads fríos, sugerir acciones, crear plan de seguimiento personalizado
-7. EMBUDO: Analizar tasa de conversión, cuellos de botella, mejoras por etapa
-8. PLAN DE VENTAS: Crear estrategias basadas en datos reales de la plataforma
-9. AUTO-APRENDIZAJE: Detectar patrones en conversaciones ganadas/perdidas
-10. MENSAJES: Cuando pidan "enviar mensaje a [cliente]" → usa accion:"enviar_mensaje" con destinatario y texto
+LOGICA OBLIGATORIA:
+1. FECHA Y HORA: La fecha y hora EXACTA de Colombia esta arriba en "Fecha:" y "Hora:". SIEMPRE usala como referencia absoluta.
+2. HOY vs AYER: Si preguntan "que tenemos HOY", SOLO muestra registros cuya fecha coincida con la fecha de HOY de arriba. NUNCA mezcles con dias anteriores.
+3. FUTURO vs PASADO: Si una entrega/cita/reserva ya paso (fecha anterior a hoy), indicalo claramente como "YA PASO" o "COMPLETADO".
+4. PROXIMAS: Si preguntan "que tenemos" sin especificar, prioriza lo PENDIENTE (hoy y futuro). Lo pasado solo mencionalo si es relevante.
+5. CONTEXTO INTELIGENTE: Los datos de la seccion "DATOS DE PLATAFORMA" arriba son REALES y en TIEMPO REAL. Basate SOLO en ellos.
+6. PROACTIVIDAD: Si ves algo urgente (entrega en menos de 1 hora, cita proxima), mencionalo aunque no pregunten.
+7. CALCULOS: Cuando pregunten totales, suma los valores reales de los datos que ves arriba. No inventes numeros.
+8. DISTINGUE TIPOS: Pedidos (entregas de productos), Citas (reuniones/consultas), Reservas (mesas/canchas/espacios) son cosas DIFERENTES.
 
-📋 REGLAS CRÍTICAS:
+CAPACIDADES:
+- Dashboard ejecutivo del negocio en tiempo real
+- Informar pedidos, citas, reservas con TODOS los detalles (nombre, telefono, direccion, producto, hora, estado)
+- Detectar entregas proximas y urgentes
+- Crear, actualizar y cancelar registros via acciones
+- Calcular totales de ventas y metricas
+- Alertar sobre situaciones que necesitan atencion inmediata
+- Responder con datos precisos — NUNCA inventar informacion
+
+REGLAS CRITICAS:
 - SOLO reporta datos que VES en los datos de arriba. Si no hay datos, di "No hay registros".
 - Horarios SIEMPRE en formato 12h (2:00 PM, no 14:00).
-- Sé conciso pero COMPLETO. No omitas detalles importantes.
+- Se conciso pero COMPLETO. No omitas detalles importantes.
 - Organiza con emojis y estructura clara.
-- Si preguntan algo vago como "que hay", da un RESUMEN EJECUTIVO con los 3 puntos más urgentes.
-- Para SEGUIMIENTO: sugiere mensajes personalizados con el nombre del cliente.
-- Para EMBUDO: identifica la etapa con más pérdidas y sugiere mejora concreta.
-- Para PLAN DE VENTAS: basa TODO en los números reales que tienes arriba.
-- HOY vs AYER: Si preguntan "que tenemos HOY", SOLO muestra registros de HOY.
-- URGENCIAS: Si hay entrega en < 1 hora o cita próxima, menciónalo PRIMERO.
+- Si el admin pregunta algo vago como "que hay", da un resumen ejecutivo rapido.` : `Estas en un GRUPO DE TRABAJO INTERNO. Los que escriben son miembros del equipo, NO clientes.`}
 
-🎬 ACCIONES DISPONIBLES (en MEMORY_JSON):
-- accion: "crear_cita" → crear cita/reunión/consulta
-- accion: "crear_pedido" → crear pedido/venta
-- accion: "crear_reserva" → crear reserva de mesa/espacio
-- accion: "actualizar_cita" / "actualizar_pedido" / "actualizar_reserva" → modificar
-- accion: "cancelar_cita" / "cancelar_pedido" / "cancelar_reserva" → cancelar
-- accion: "enviar_mensaje" → enviar WhatsApp a cliente (requiere: destinatario_telefono, mensaje_texto, linea_id)
-- accion: "mover_etapa" → cambiar etapa de un lead (requiere: conversacion_id, nueva_etapa)
-
-RECUERDA: Siempre incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final de tu respuesta.` 
-
-: `Estás en un GRUPO DE TRABAJO INTERNO. Los que escriben son miembros del equipo, NO clientes.
-Puedes coordinar tareas, dar información de la agenda y responder consultas del equipo.`}
+GESTION (usa acciones en el bloque MEMORY_JSON):
+- "Agendar cita con Maria a las 10am" -> accion = "crear_cita"
+- "Nuevo pedido: 2 buzos para Carlos" -> accion = "crear_pedido"  
+- "Cancelar la cita de Miguel" -> accion = "cancelar_cita"
+- "Cancelar la reserva" -> accion = "cancelar_reserva"
+- "Cancelar el pedido" -> accion = "cancelar_pedido"
+- "Mover la cita al viernes" -> accion = "actualizar_cita"
+- "Mover el pedido al viernes" -> accion = "actualizar_pedido"
 `);
 
-          if (biLines.length > 2) {
-            promptParts.push(biLines.join('\n'));
-          }
-          log(`🤖📊 BI inyectado (${isPersonalAssistant ? 'Personal v2.0' : 'Grupo'}): ${totalItems} agenda + 7 sistemas`);
+          log(`🤖📊 BI inyectado (${isPersonalAssistant ? 'Personal' : 'Grupo'}): ${totalItems} agenda + stats`);
         }
       } catch (agendaErr: any) {
         log(`⚠️ Error cargando datos internos: ${agendaErr.message}`);
       }
     }
 
-
     const systemPrompt = promptParts.join('\n\n') || 'Eres un asistente virtual amable por WhatsApp.';
     log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
 
-    // Construir mensajes para OpenAI: 50 para asistente personal, 30 para clientes
-    const historyLimit = (conversation?.isGroup || isPersonalAssistant) ? 50 : 30;
-    const recent = [...history].reverse().slice(-historyLimit);
+    // Construir mensajes para OpenAI (30 mensajes = cubre flujo completo de venta)
+    const recent = [...history].reverse().slice(-30);
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
     
@@ -2184,7 +2001,8 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
-    // 💰 MODELO FIJO: gpt-4o-mini para todos (económico y potente)
+    // 💰 MODELO FIJO: gpt-4o-mini (económico y potente, ~60x más barato que gpt-4-turbo)
+    // NO se cambia desde el panel — siempre usa este modelo
     const FIXED_MODEL = 'gpt-4o-mini';
     for (const model of [FIXED_MODEL]) {
       try {
@@ -2197,7 +2015,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 500)
+            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? Math.max(assistant.maxTokens || 500, 1000) : (assistant.maxTokens || 500)
           }),
           signal: ctrl.signal
         });
@@ -2636,10 +2454,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
                 const orderConfirmPatterns = [
                   /(?:he registrado|pedido registrado|confirmar.*pedido|proceder|resumen final|información.*registrada)/i,
                   /(?:gracias por los datos|datos.*completos|todo listo|pedido.*confirmado)/i,
-                  /(?:procederé|vamos a.*confirmar|queda.*registrad)/i,
-                  /(?:coordinamos|coordinaré|te contactamos|día de la entrega|entrega.*mañana|mañana.*entrega)/i,
-                  /(?:listo.*[nombre]|perfecto.*[nombre]|excelente.*[nombre])/i,
-                  /(?:📦|🎉|🙌).*(?:pedido|listo|confirmado)/i
+                  /(?:procederé|vamos a.*confirmar|queda.*registrad)/i
                 ];
                 const aiConfirmedOrder = orderConfirmPatterns.some(p => p.test(reply));
                 
@@ -3674,15 +3489,8 @@ const processBufferedMessages = async (bufferKey: string) => {
     return;
   }
 
-  // 🔒 Activar lock + timeout de seguridad (evita lock permanente ante crashes)
+  // 🔒 Activar lock
   processingLock.add(bufferKey);
-  // [FIX 5] Safety timeout: si en 90s no se liberó el lock (crash/timeout de IA), forzar limpieza
-  const lockSafetyTimer = setTimeout(() => {
-    if (processingLock.has(bufferKey)) {
-      processingLock.delete(bufferKey);
-      clog(`⚠️ Lock de seguridad liberado para ${bufferKey} (90s timeout)`);
-    }
-  }, 90000);
 
   const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId, firstTimestamp } = buf;
   const burstDuration = Date.now() - firstTimestamp;
@@ -3983,8 +3791,7 @@ const processBufferedMessages = async (bufferKey: string) => {
   } catch (e: any) {
     console.error(`❌ Error procesando buffer de ${senderName}:`, e.message);
   } finally {
-    // 🔓 Liberar lock + cancelar safety timer
-    clearTimeout(lockSafetyTimer);
+    // 🔓 Liberar lock
     processingLock.delete(bufferKey);
 
     // 🔄 Verificar si llegaron mensajes mientras procesábamos
@@ -4332,7 +4139,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           name: line.sessionName,
           start: true,
           engine: 'WEBJS',
-          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] }
+          config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] }
         })
       });
       log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName}`);
@@ -4344,7 +4151,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
       // Actualizar webhooks
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
-        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] } })
+        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }] } })
       });
     }
     
@@ -4530,7 +4337,7 @@ router.post('/connect', async (req: Request, res: Response) => {
           start: true,
           engine: 'WEBJS',
           config: {
-            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }]
+            webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }]
           }
         })
       });
@@ -4579,7 +4386,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
         config: {
           webhooks: [{ 
             url: webhookUrl, 
-            events: ['message', 'message.any', 'message.new', 'session.status']
+            events: ['message', 'session.status']
           }]
         }
       })
@@ -4593,7 +4400,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
       message: updateRes.ok ? 'Webhooks reconfigurados' : 'Error al reconfigurar',
       session: sessionName,
       webhookUrl,
-      events: ['message', 'message.any', 'message.new', 'session.status']
+      events: ['message', 'session.status']
     });
   } catch (e: any) {
     console.error('❌ Error reconfigurando:', e.message);
@@ -5285,11 +5092,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
-    // [FIX 1] Aceptar TODOS los eventos de mensaje de WAHA Plus:
-    // WEBJS engine: 'message' | NOWEB engine: 'message.any' | ambos posibles
-    // También ignorar session.status y otros eventos no relevantes
-    const isMessageEvent = event === 'message' || event === 'message.any' || event === 'message.new';
-    if (!event || !isMessageEvent) { res.json({ success: true }); return; }
+    if (!event || event !== 'message') { res.json({ success: true }); return; }
     
     // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):
     // - Guardar en DB si fue enviado manualmente desde el celular
@@ -5372,19 +5175,17 @@ router.post('/webhook', async (req: Request, res: Response) => {
       setTimeout(() => recentlyProcessed.delete(msgId), 60000); // 60s en vez de 30s
     }
 
-    // [FIX 2] Dedup SOLO si NO tenemos msgId confiable (evitar desechar mensajes legítimos)
-    // Ventana reducida a 3s (era 10s) — solo para webhooks duplicados reales
+    // 🔒 DEDUP NIVEL 2: Por contenido + remitente (protege contra webhooks duplicados con IDs diferentes)
     const rawBody = payload?.body || payload?.text || payload?.content || '';
     const rawFrom = payload?.from || payload?.chatId || '';
-    // Solo aplicar dedup por contenido si el msgId era vacío (no lo pudo deduplicar por ID)
-    if (!msgId && rawBody) {
-      const contentDedupKey = `${rawFrom}:${rawBody.substring(0, 80)}:${Math.floor(Date.now() / 3000)}`; // ventana 3s
-      if (recentlyProcessed.has(contentDedupKey)) {
-        log(`🔄 Duplicado por contenido (sin ID) ignorado: "${rawBody.substring(0, 40)}"`);
-        res.json({ success: true }); return;
-      }
+    const contentDedupKey = `${rawFrom}:${rawBody.substring(0, 80)}:${Math.floor(Date.now() / 10000)}`; // ventana de 10s
+    if (rawBody && recentlyProcessed.has(contentDedupKey)) {
+      log(`🔄 Duplicado por contenido ignorado: "${rawBody.substring(0, 40)}"`);
+      res.json({ success: true }); return;
+    }
+    if (rawBody) {
       recentlyProcessed.add(contentDedupKey);
-      setTimeout(() => recentlyProcessed.delete(contentDedupKey), 5000);
+      setTimeout(() => recentlyProcessed.delete(contentDedupKey), 15000);
     }
 
     const from = payload?.from || payload?.chatId || payload?.key?.remoteJid || '';
@@ -5565,19 +5366,9 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // [FIX 4] Si no hay body pero hay media detectada, usar placeholder
-    // Esto evita que la conversación no se cree cuando el cliente manda
-    // un sticker/audio que falla en descargar
+    // Si después de todo aún no hay body, ignorar
     if (!body) {
-      if (media.hasMedia) {
-        body = `📎 [Archivo multimedia - ${media.mediaType || 'desconocido'}]`;
-      } else if (payload?.type && payload.type !== 'chat') {
-        // Tipo de mensaje no estándar (reacción, contacto, etc.)
-        body = `[Mensaje ${payload.type}]`;
-      } else {
-        // Realmente vacío — ignorar
-        res.json({ success: true }); return;
-      }
+      res.json({ success: true }); return;
     }
 
     // 👥 Para grupos: recipientId es el JID del grupo, para chats: es el número limpio
@@ -5607,17 +5398,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🔗 Buscar whatsappLineId por sessionName
     const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
-
-    // 🚫 ANTI-LOOP: ignorar mensajes del propio número de la línea
-    // Previene loops infinitos donde el bot se responde a sí mismo
-    if (waLine?.phone) {
-      const linePhone = waLine.phone.replace(/\D/g, '').slice(-10);
-      const senderPhone = recipientId.replace(/\D/g, '').slice(-10);
-      if (linePhone === senderPhone) {
-        log(`🚫 ANTI-LOOP: mensaje ignorado — remitente (${senderPhone}) ES la línea propia`);
-        res.json({ success: true }); return;
-      }
-    }
 
     log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
@@ -5675,28 +5455,20 @@ router.post('/webhook', async (req: Request, res: Response) => {
     
     // Crear nueva conversación si no existe
     if (!conv) {
-      // 🔍 ÚLTIMA BÚSQUEDA ANTI-DUPLICADOS: buscar por últimos 7 dígitos
+      // 🔍 ÚLTIMA BÚSQUEDA ANTI-DUPLICADOS: buscar por últimos 7 dígitos SIN filtro de línea
       if (!isGroup && recipientId.length >= 7) {
         const last7 = recipientId.replace(/\D/g, '').slice(-7);
-        // Primero en la misma línea
-        if (whatsappLineId) {
-          conv = await prisma.conversation.findFirst({ 
-            where: { userId, recipientId: { endsWith: last7 }, whatsappLineId, isGroup: { not: true } },
-            orderBy: { updatedAt: 'desc' }
-          });
-        }
-        // Solo buscar en otras líneas si la conv no tiene línea asignada aún
-        if (!conv) {
-          conv = await prisma.conversation.findFirst({ 
-            where: { userId, recipientId: { endsWith: last7 }, whatsappLineId: null, isGroup: { not: true } },
-            orderBy: { updatedAt: 'desc' }
-          });
-        }
+        conv = await prisma.conversation.findFirst({ 
+          where: { userId, recipientId: { endsWith: last7 }, isGroup: { not: true } },
+          orderBy: { updatedAt: 'desc' }
+        });
         if (conv) {
-          log(`Anti-duplicado: encontrada conv existente ${conv.recipientId} para ${recipientId} (match ultimos 7)`);
+          log(`🔗 Anti-duplicado: encontrada conv existente ${conv.recipientId} para ${recipientId} (match últimos 7)`);
+          // Actualizar línea si faltaba
           if (whatsappLineId && !conv.whatsappLineId) {
             await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
           }
+          // Actualizar recipientId si el nuevo es más completo
           if (recipientId.length > (conv.recipientId?.length || 0)) {
             await prisma.conversation.update({ where: { id: conv.id }, data: { recipientId } }).catch(() => {});
           }
@@ -6339,16 +6111,6 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const msgType = msg.type;
       const msgId = msg.id;
       
-      // 🚫 ANTI-LOOP Cloud: ignorar si el remitente ES el número de la línea propia
-      if (line.phone) {
-        const linePhone = line.phone.replace(/\D/g, '').slice(-10);
-        const senderPhone = from.replace(/\D/g, '').slice(-10);
-        if (linePhone === senderPhone) {
-          console.log(`☁️ 🚫 ANTI-LOOP: ignorado auto-mensaje de ${from} (es la línea propia)`);
-          continue;
-        }
-      }
-      
       console.log(`☁️ [CLOUD] 📩 Mensaje de ${from} | tipo: ${msgType} | id: ${msgId}`);
       
       if (msgId && recentlyProcessed.has(msgId)) { console.log(`☁️ [CLOUD] ⏭️ Duplicado, ignorando`); continue; }
@@ -6502,25 +6264,14 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       // Find or create conversation
       let conv = await prisma.conversation.findFirst({ where: { userId, recipientId, whatsappLineId } });
       if (!conv) conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: recipientId.slice(-10) }, whatsappLineId } });
-      // 🔍 ANTI-DUPLICADOS: buscar en misma línea primero, luego global
+      // 🔍 ANTI-DUPLICADOS: búsqueda amplia sin filtro de línea
       if (!conv && recipientId.length >= 7) {
-        // Primero buscar en la misma línea (evita cross-line contamination)
-        if (whatsappLineId) {
-          conv = await prisma.conversation.findFirst({ 
-            where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, whatsappLineId, isGroup: { not: true } },
-            orderBy: { updatedAt: 'desc' }
-          });
-        }
-        // Solo si no encontramos en la línea actual, buscar en conversaciones SIN línea asignada
-        if (!conv) {
-          conv = await prisma.conversation.findFirst({ 
-            where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, whatsappLineId: null, isGroup: { not: true } },
-            orderBy: { updatedAt: 'desc' }
-          });
-          if (conv && whatsappLineId) {
-            // Asignar la línea correcta a esta conversación huérfana
-            await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
-          }
+        conv = await prisma.conversation.findFirst({ 
+          where: { userId, recipientId: { endsWith: recipientId.slice(-7) }, isGroup: { not: true } },
+          orderBy: { updatedAt: 'desc' }
+        });
+        if (conv && whatsappLineId && !conv.whatsappLineId) {
+          await prisma.conversation.update({ where: { id: conv.id }, data: { whatsappLineId } }).catch(() => {});
         }
       }
       if (!conv) {

@@ -284,7 +284,7 @@ export default function DashboardPage() {
   }));
 
   const distSegments = [
-    { value: dist.resolved || 0, color: '#10b981', label: 'Agendados' },  // = citas en Agenda
+    { value: dist.resolved || 0, color: '#10b981', label: 'Convertidos' },
     { value: dist.active || 0, color: '#3b82f6', label: 'Activos' },
     { value: dist.pending || 0, color: '#eab308', label: 'Pendientes' },
     { value: dist.atRisk || 0, color: '#ef4444', label: 'En Riesgo' },
@@ -292,7 +292,7 @@ export default function DashboardPage() {
   ];
 
   const aiSegments = [
-    { value: d.aiResolvedCount || 0, color: '#10b981', label: 'IA agendó' },
+    { value: d.aiResolvedCount || 0, color: '#10b981', label: 'IA Resolvió' },
     { value: d.aiPausedCount || 0, color: '#f59e0b', label: 'Transferido' },
     { value: Math.max((d.totalConversations||0)-(d.aiResolvedCount||0)-(d.aiPausedCount||0), 0), color: '#3b82f6', label: 'En proceso' },
   ];
@@ -351,9 +351,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
         <KPI icon={MessageSquare} label="Mensajes" value={d.rangeMessages||0} sub={`${d.todayMessages||0} hoy`} growth={d.msgGrowth} color="text-emerald-400" spark={sparkM}/>
         <KPI icon={Users} label="Nuevos Leads" value={d.rangeNewConvs||0} sub={`${d.totalConversations||0} total`} growth={d.convGrowth} color="text-blue-400" spark={sparkC}/>
-        <KPI icon={Target} label="Convertidos" value={d.rangeConvertedConvs||0} 
-          sub={`${d.conversionRate||0}% conv · ${d.convertedTotal||0} total`} 
-          growth={d.convertedGrowth} color="text-emerald-400"/>
+        <KPI icon={Target} label="Convertidos" value={d.rangeConvertedConvs||0} sub={`${d.conversionRate||0}% tasa`} growth={d.convertedGrowth} color="text-emerald-400"/>
         <KPI icon={Timer} label="FRT Prom." value={d.avgFRT?`${d.avgFRT}m`:'—'} sub="1era respuesta" color="text-amber-400"/>
         <KPI icon={UserCheck} label="Contacto" value={`${d.contactRate||0}%`} sub="Contactados" color="text-cyan-400"/>
         <KPI icon={Bot} label="IA Autónoma" value={`${d.aiAutoRate||0}%`} sub={`${d.aiPausedCount||0} transfer.`} color="text-purple-400"/>
@@ -366,12 +364,9 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2 mb-2"><ShieldCheck className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400"/><span className="text-[11px] md:text-xs font-semibold text-white">SLA & Eficiencia</span></div>
           <div className="flex items-center justify-around mb-2">
             <GaugeChart value={d.slaCompliance||0} color={d.slaCompliance>=80?'#10b981':d.slaCompliance>=50?'#f59e0b':'#ef4444'} size={90} label="SLA < 5min"/>
-            <GaugeChart 
-              value={Number(d.conversionRate)||0} 
-              color={Number(d.conversionRate) >= 30 ? '#10b981' : Number(d.conversionRate) >= 10 ? '#f59e0b' : Number(d.conversionRate) > 0 ? '#ef4444' : '#6b7280'} 
-              size={90} label="Conv. Agendados"/>
+            <GaugeChart value={Number(d.conversionRate)||0} color="#8b5cf6" size={90} label="Conversión"/>
           </div>
-          <Metric label="Ciclo lead→cita" value={d.avgCycleTime?`${d.avgCycleTime} días`:'—'} icon="📅" color="text-blue-400"/>
+          <Metric label="Ciclo de Venta" value={d.avgCycleTime?`${d.avgCycleTime} días`:'—'} icon="📅" color="text-blue-400"/>
           <Metric label="Msgs/Conv" value={d.avgMsgsPerConv||0} icon="💬" color="text-cyan-400"/>
           <Metric label="Mayor espera" value={d.oldestWait||'0h'} icon="🔴" color="text-red-400"/>
         </div>
@@ -391,8 +386,8 @@ export default function DashboardPage() {
             </div>
           </div>
           <Metric label="Transferencia" value={`${d.aiTransferRate||0}%`} icon="🔄" color="text-amber-400"/>
-          <Metric label="IA agendó cita" value={`${d.aiResolvedRate||0}%`} icon="🤖" color="text-emerald-400"/>
-          <Metric label="Sin respuesta" value={`${d.abandonmentRate||0}%`} icon="🚪" color="text-red-400"/>
+          <Metric label="Resolución IA" value={`${d.aiResolvedRate||0}%`} icon="🤖" color="text-emerald-400"/>
+          <Metric label="Abandono" value={`${d.abandonmentRate||0}%`} icon="🚪" color="text-red-400"/>
         </div>
 
         {/* WhatsApp */}
@@ -412,7 +407,7 @@ export default function DashboardPage() {
           <Metric label="Ratio Env/Rec" value={ws.received>0?(ws.sent/ws.received).toFixed(1):'—'} icon="⚖️" color="text-purple-400"/>
           <Metric label="En Riesgo (+48h)" value={d.atRiskConvs||0} icon="⚠️" color={d.atRiskConvs>10?'text-red-400':'text-amber-400'}/>
           <Metric label="IA Pausada" value={d.aiPausedCount||0} icon="⏸️" color="text-amber-400"/>
-          <Metric label="Citas Pend." value={`${d.pendingAppointments||0} / ${d.totalAppointments||0}`} icon="📋" color="text-blue-400"/>
+          <Metric label="Citas Pend." value={d.pendingAppointments||0} icon="📋" color="text-blue-400"/>
         </div>
       </div>
 
@@ -441,17 +436,9 @@ export default function DashboardPage() {
       {/* ══════ ROW 4: PIPELINE + DISTRIBUTION + CONVERSION ══════ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
         <div className="card p-3 md:p-4">
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2"><Target className="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-400"/><span className="text-[11px] md:text-xs font-semibold text-white">Pipeline</span></div>
             <Link href="/crm" className="text-[9px] md:text-[10px] text-[var(--accent-primary)] hover:underline flex items-center gap-0.5">CRM<ArrowUpRight className="w-3 h-3"/></Link>
-          </div>
-          <div className="flex items-center gap-3 mb-3 px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-            <span className="text-xs">📅</span>
-            <span className="text-[10px] text-emerald-300 flex-1">
-              <span className="font-bold text-white">{d.rangeConvertedConvs||0}</span> citas en período · 
-              <span className="font-bold text-white"> {d.conversionRate||0}%</span> conversión
-            </span>
-            <Link href="/agenda" className="text-[9px] text-emerald-400 hover:underline">Agenda →</Link>
           </div>
           <HBarChart data={pipelineData}/>
         </div>

@@ -2,344 +2,666 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { 
-  Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
-  Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText,
-  Flame, TrendingUp, Target, Star, ArrowUpRight, Filter, Download, Upload,
-  ChevronDown, ChevronUp, Eye, EyeOff, List
+  MessageSquare, Search, Send, X, Trash2,
+  Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap,
+  Download, Upload, ChevronLeft, StickyNote, Calendar, UserPlus, Check, Clock, Save, User
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-interface Stage { id: string; label: string; color: string; }
-interface Conversation { id: string; recipientId: string; recipientName: string; lastMessage: string; stage: string; updatedAt: string; aiPaused: boolean; contextData?: Record<string, any>; }
+// Helper: Validar si un recipientId es un número real de WhatsApp (7-13 dígitos)
+const isValidWhatsAppPhone = (recipientId: string): boolean => {
+  if (!recipientId) return false;
+  const clean = recipientId.replace(/@c\.us|@g\.us/g, '').replace(/\D/g, '');
+  return clean.length >= 7 && clean.length <= 13;
+};
 
-const DEFAULT_STAGES: Stage[] = [];
+// Helper: Detectar si es un LID (Linked ID) de NOWEB engine
+const isLidNumber = (recipientId: string): boolean => {
+  if (!recipientId) return false;
+  const clean = recipientId.replace(/\D/g, '');
+  return clean.length > 13;
+};
 
-// 🔥 LEAD SCORING — dinámico basado en posición real en el pipeline del usuario
-const calculateLeadScore = (conv: any, stages: Stage[]): { score: number; label: string; color: string; emoji: string; reasons: string[] } => {
-  let score = 0;
-  const reasons: string[] = [];
+// Helper: Formatear número para mostrar
+const formatPhoneDisplay = (recipientId: string): string => {
+  if (!recipientId) return '';
+  if (isLidNumber(recipientId)) return ''; // No mostrar LIDs largos
+  return `+${recipientId.replace(/@c\.us|@s\.whatsapp\.net/g, '')}`;
+};
 
-  const stageIndex = stages.findIndex(s => s.id === conv.stage);
-  const totalStages = stages.length || 1;
-  if (stageIndex >= 0) {
-    const stageProgress = ((stageIndex + 1) / totalStages) * 35;
-    score += stageProgress;
-    if (stageProgress > 20) reasons.push('Avanzado en embudo');
-  }
-  // Score dinámico por posición relativa en el pipeline real del usuario
-  const stagePos = stageIndex >= 0 ? (stageIndex + 1) / totalStages : 0;
-  if (stagePos >= 0.7) { score += 15; reasons.push('Etapa de cierre'); }
-  else if (stagePos >= 0.35) { score += 8; reasons.push('Etapa intermedia'); }
+// Helper: Ocultar primeros 6 dígitos del número para roles sin permiso
+const maskPhone = (phone: string): string => {
+  if (!phone) return '';
+  const clean = phone.replace(/\+/g, '');
+  if (clean.length <= 6) return '••••••';
+  return '••••••' + clean.substring(6);
+};
 
-  const ctx = conv.contextData || {};
-  const ctxKeys = Object.keys(ctx).filter(k => ctx[k] && String(ctx[k]).trim() !== '');
-  if (ctxKeys.length >= 5) { score += 25; reasons.push('Datos completos'); }
-  else if (ctxKeys.length >= 3) { score += 15; reasons.push(`${ctxKeys.length} datos recopilados`); }
-  else if (ctxKeys.length >= 1) { score += 5; reasons.push('Datos parciales'); }
+// Helper: Obtener rol del usuario actual
+const getCurrentUserRole = (): { role: string; isSubUser: boolean } => {
+  try {
+    const cached = localStorage.getItem('bizonne_user_cache');
+    if (cached) {
+      const u = JSON.parse(cached);
+      return { role: u.role || 'admin', isSubUser: !!u.isSubUser };
+    }
+  } catch {}
+  return { role: 'admin', isSubUser: false };
+};
 
-  if (ctx.telefono || ctx.phone || ctx.celular) { score += 5; }
-  if (ctx.nombre || ctx.name) { score += 3; }
-  if (ctx.direccion || ctx.address || ctx.ciudad || ctx.city) { score += 3; }
-  if (ctx.total || ctx.precio || ctx.price || ctx.cantidad || ctx.quantity) { score += 5; reasons.push('Tiene datos de compra'); }
-  if (ctx.metodo_pago || ctx.payment) { score += 5; reasons.push('Método de pago definido'); }
+// Helper: Verificar si el usuario puede ver números completos
+const canSeeFullPhone = (): boolean => {
+  const { role, isSubUser } = getCurrentUserRole();
+  if (!isSubUser) return true; // Admin (dueño) siempre ve todo
+  return role === 'manager' || role === 'admin';
+};
 
-  if (conv.updatedAt) {
-    const hoursAgo = (Date.now() - new Date(conv.updatedAt).getTime()) / (1000 * 60 * 60);
-    if (hoursAgo < 1) { score += 15; reasons.push('Activo hace minutos'); }
-    else if (hoursAgo < 6) { score += 12; }
-    else if (hoursAgo < 24) { score += 8; reasons.push('Activo hoy'); }
-    else if (hoursAgo < 72) { score += 4; }
-  }
-
-  if (conv.lastMessage && conv.lastMessage.length > 10) { score += 5; }
-  if (!conv.aiPaused) { score += 3; }
-
-  score = Math.min(100, Math.round(score));
-
-  if (score >= 70) return { score, label: 'Caliente', color: 'text-red-400', emoji: '🔥', reasons };
-  if (score >= 40) return { score, label: 'Tibio', color: 'text-amber-400', emoji: '🟡', reasons };
-  return { score, label: 'Frío', color: 'text-blue-400', emoji: '🔵', reasons };
+// Helper: Verificar si el usuario puede eliminar conversaciones (solo admin/gerente)
+const canDeleteConversation = (): boolean => {
+  const { role, isSubUser } = getCurrentUserRole();
+  if (!isSubUser) return true; // Admin (dueño) siempre puede
+  return role === 'manager' || role === 'admin';
 };
 
 const STAGE_COLORS: Record<string, string> = {
   blue: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+  green: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   yellow: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   orange: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  purple: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-  green: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-  pink: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
   red: 'bg-red-500/20 text-red-400 border-red-500/30',
+  purple: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  pink: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
 };
 
-export default function CRMPage() {
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'leads' | 'clients' | 'products'>('pipeline');
-  const [stages, setStages] = useState<Stage[]>(DEFAULT_STAGES);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+// ❌ Sin etapas por defecto — se cargan de la base de conocimiento de cada línea
+const DEFAULT_STAGES: any[] = [];
+
+export default function ConversacionesPage() {
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [selectedConv, setSelectedConv] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStage, setSelectedStage] = useState('');
-  const [leadFilter, setLeadFilter] = useState<'all' | 'hot' | 'warm' | 'cold'>('all');
-  
-  // 🆕 Collapsible stages
-  const [showStages, setShowStages] = useState(true);
-  
+  const [deleteConfirm, setDeleteConfirm] = useState<any>(null); // conversation to delete
+  const [filterStage, setFilterStage] = useState('all');
+  const [filterType, setFilterType] = useState<'all' | 'chats' | 'groups'>('all');
+  const [newMessage, setNewMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [funnelStages, setFunnelStages] = useState<any[]>(DEFAULT_STAGES);
   const [showMassMessage, setShowMassMessage] = useState(false);
-  const [showClientModal, setShowClientModal] = useState(false);
-  const [showProductModal, setShowProductModal] = useState(false);
-  
-  const [massMessageText, setMassMessageText] = useState('');
+  const [massText, setMassText] = useState('');
   const [sendingMass, setSendingMass] = useState(false);
-  const [massMediaFile, setMassMediaFile] = useState<File | null>(null);
-  const [massMediaPreview, setMassMediaPreview] = useState<string | null>(null);
   const [massSentCount, setMassSentCount] = useState(0);
   const [massTotal, setMassTotal] = useState(0);
-  const massFileInputRef = useRef<HTMLInputElement>(null);
+  const [massMediaFile, setMassMediaFile] = useState<File | null>(null);
+  const [massMediaPreview, setMassMediaPreview] = useState<string | null>(null);
+  const [groupSettingsLocal, setGroupSettingsLocal] = useState<any>(null);
+  
+  // 📎 Chat media
+  const [chatMediaFile, setChatMediaFile] = useState<File | null>(null);
+  const [chatMediaPreview, setChatMediaPreview] = useState<string | null>(null);
+  // ⚡ Quick replies
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [editingQuickReplies, setEditingQuickReplies] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
+  const [newQuickReply, setNewQuickReply] = useState('');
+  const [showFullPhone] = useState(() => canSeeFullPhone());
+  
+  // 📝 NOTAS + 👤 ASIGNACIÓN + 📅 CITA RÁPIDA
+  const [convNotes, setConvNotes] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
 
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [showClientMass, setShowClientMass] = useState(false);
-  const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', address: '', notes: '', status: 'lead', tags: '' });
-  const [productForm, setProductForm] = useState({ name: '', description: '', price: '', stock: '', category: '' });
+  // ✏️ EDICIÓN DE NOMBRE Y DATOS
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editFieldValue, setEditFieldValue] = useState('');
+  const [showContactDetails, setShowContactDetails] = useState(false);
+
+  // 💾 Guardar nombre del contacto
+  const saveContactName = async (newName: string) => {
+    if (!selectedConv || !newName.trim()) return;
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipientName: newName.trim() })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, recipientName: newName.trim() } : prev);
+      setConversations((prev: any[]) => prev.map(c => c.id === selectedConv.id ? { ...c, recipientName: newName.trim() } : c));
+      setEditingName(false);
+    } catch (e) { console.error('Error actualizando nombre:', e); }
+  };
+
+  // 💾 Guardar campo de contextData
+  const saveContextField = async (key: string, value: string) => {
+    if (!selectedConv) return;
+    try {
+      const token = localStorage.getItem('token');
+      const updatedContext = { ...(selectedConv.contextData || {}), [key]: value };
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contextData: updatedContext })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, contextData: updatedContext } : prev);
+      setEditingField(null);
+    } catch (e) { console.error('Error actualizando campo:', e); }
+  };
+
+  // 💾 Guardar etapa manualmente
+  const saveStage = async (newStage: string) => {
+    if (!selectedConv) return;
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: newStage })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, stage: newStage } : prev);
+      setConversations((prev: any[]) => prev.map(c => c.id === selectedConv.id ? { ...c, stage: newStage } : c));
+    } catch (e) { console.error('Error actualizando etapa:', e); }
+  };
+
+  // 🔥 Lead temperature helpers
+  const getLeadTemp = (conv: any) => {
+    const ctx = (conv?.contextData as any) || {};
+    return ctx._leadTemp || 'frio';
+  };
+  const leadTempOptions = [
+    { id: 'caliente', label: '🔥 Caliente', color: 'text-red-400 bg-red-500/15 border-red-500/30' },
+    { id: 'tibio', label: '🟡 Tibio', color: 'text-yellow-400 bg-yellow-500/15 border-yellow-500/30' },
+    { id: 'frio', label: '🔵 Frío', color: 'text-blue-400 bg-blue-500/15 border-blue-500/30' },
+  ];
+  const saveLeadTemp = async (temp: string) => {
+    if (!selectedConv) return;
+    const updatedContext = { ...(selectedConv.contextData || {}), _leadTemp: temp };
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/api/whatsapp/conversations/${selectedConv.id}/update-contact`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contextData: updatedContext })
+      });
+      setSelectedConv((prev: any) => prev ? { ...prev, contextData: updatedContext } : prev);
+      setConversations((prev: any[]) => prev.map(c => c.id === selectedConv.id ? { ...c, contextData: updatedContext } : c));
+    } catch (e) { console.error('Error actualizando temperatura:', e); }
+  };
+  const [notesSaved, setNotesSaved] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [assigningChat, setAssigningChat] = useState(false);
+  const [showAppointment, setShowAppointment] = useState(false);
+  const [appointmentData, setAppointmentData] = useState({ date: '', time: '', type: 'appointment', notes: '' });
+  const [savingAppointment, setSavingAppointment] = useState(false);
+  const [userRole, setUserRole] = useState('admin'); // rol del usuario actual
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const massFileInputRef = useRef<HTMLInputElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const selectedConvRef = useRef<any>(null); // Ref para polling de mensajes
+  const lastMessageCountRef = useRef<number>(0);
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
-  useEffect(() => {
-    try {
-      const cu = localStorage.getItem('bizonne_user_cache');
-      if (cu) setUser(JSON.parse(cu));
-      const cc = localStorage.getItem('bizonne_crm_convs');
-      if (cc) { setConversations(JSON.parse(cc)); setLoading(false); }
-      const cs = localStorage.getItem('bizonne_crm_stages');
-      if (cs) { const parsed = JSON.parse(cs); if (parsed?.length) setStages(parsed); }
-    } catch {}
-
-    fetchAll();
-    const onLineChanged = () => { setLoading(true); fetchAll(); };
-    window.addEventListener('lineChanged', onLineChanged);
-    
-    const autoRefreshInterval = setInterval(() => { fetchConversationsOnly(); }, 15000);
-    const stageSyncInterval = setInterval(() => { syncStages(); }, 60000);
-    
-    return () => {
-      window.removeEventListener('lineChanged', onLineChanged);
-      clearInterval(autoRefreshInterval);
-      clearInterval(stageSyncInterval);
-    };
-  }, []);
-
-  const syncStages = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      await fetch(`${API_URL}/api/whatsapp/quick-stage-sync`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineId: getLineId() })
-      });
-    } catch (e) { /* silencioso */ }
+  const getStageColor = (stageId: string) => {
+    const stage = funnelStages.find(s => s.id === stageId);
+    return STAGE_COLORS[stage?.color || 'blue'] || STAGE_COLORS.blue;
   };
 
-  const [detecting, setDetecting] = useState(false);
-  const detectStages = async () => {
-    const token = localStorage.getItem('token');
-    if (!token || detecting) return;
-    setDetecting(true);
+  // Mantener ref sincronizado con state
+  useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
+
+  // 🔥 CARGA INICIAL: stages + quick-stage-sync (solo una vez)
+  const initialLoadDone = useRef(false);
+  const isFetchingRef = useRef(false);
+  
+  useEffect(() => {
+    // ⚡ INSTANT LOAD: Mostrar conversaciones cacheadas mientras carga
     try {
-      const res = await fetch(`${API_URL}/api/whatsapp/analyze-stages`, {
+      const cachedConvs = localStorage.getItem('bizonne_convs_cache');
+      if (cachedConvs) {
+        const parsed = JSON.parse(cachedConvs);
+        if (parsed?.length) { setConversations(parsed); setLoading(false); }
+      }
+    } catch {}
+
+    if (!initialLoadDone.current) {
+      initialLoadDone.current = true;
+      // Stage sync y stages solo al montar (NO en polling)
+      const token = localStorage.getItem('token');
+      const lineId = getLineId();
+      fetch(`${API_URL}/api/whatsapp/quick-stage-sync`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineId: getLineId() })
+        body: JSON.stringify({ lineId })
+      }).catch(() => {});
+      fetch(`${API_URL}/api/stages?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.stages?.length) setFunnelStages(d.stages); })
+        .catch(() => {});
+      // 👤 Cargar miembros del equipo (para asignar chats)
+      fetch(`${API_URL}/api/team`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.members) setTeamMembers(d.members); })
+        .catch(() => {});
+      // 🔑 Obtener rol del usuario actual
+      try { 
+        const decoded = JSON.parse(atob(token!.split('.')[1]));
+        if (decoded.role) setUserRole(decoded.role);
+      } catch {}
+    }
+    // Polling de conversaciones (solo lista, sin stages ni sync)
+    fetchConversations();
+    const interval = setInterval(fetchConversations, 5000); // 5s en vez de 2s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Re-cargar stages cuando cambia la línea
+  useEffect(() => {
+    const onLineChanged = () => {
+      setLoading(true);
+      setConversations([]);
+      setSelectedConv(null);
+      setMessages([]);
+      const token = localStorage.getItem('token');
+      const lineId = getLineId();
+      fetch(`${API_URL}/api/stages?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.stages?.length) setFunnelStages(d.stages); })
+        .catch(() => {});
+      fetchConversations();
+    };
+    window.addEventListener('lineChanged', onLineChanged);
+    return () => window.removeEventListener('lineChanged', onLineChanged);
+  }, []);
+
+  // Cargar mensajes cuando se selecciona una conversación
+  useEffect(() => {
+    if (selectedConv) {
+      setMessages([]); // ✅ Limpiar mensajes inmediatamente al cambiar de conversación
+      setLoadingMessages(true); // ✅ Mostrar loading
+      lastMessageCountRef.current = 0;
+      fetchMessages(selectedConv.id);
+      // 📝 Cargar notas del contextData
+      const ctx = (selectedConv.contextData as any) || {};
+      setConvNotes(ctx._userNotes || '');
+      setNotesSaved(false);
+      // ✏️ Reset editing states
+      setEditingName(false);
+      setEditingField(null);
+      setShowContactDetails(false);
+      // 📅 Reset appointment form
+      setShowAppointment(false);
+      setAppointmentData({ date: '', time: '', type: 'appointment', notes: '' });
+    }
+    // Load group settings if it's a group
+    if (selectedConv?.isGroup) {
+      const gs = (selectedConv.groupSettings as any) || { aiEnabled: true, respondTo: 'all', triggerWords: [] };
+      setGroupSettingsLocal(gs);
+    } else {
+      setGroupSettingsLocal(null);
+    }
+  }, [selectedConv?.id]);
+
+  // 🔥 POLLING DE MENSAJES — refresca cada 3s la conversación activa
+  useEffect(() => {
+    const pollMessages = async () => {
+      const conv = selectedConvRef.current;
+      if (!conv) return;
+      
+      const convIdBefore = conv.id; // ✅ Guardar ID antes del fetch
+      const token = localStorage.getItem('token');
+      try {
+        const res = await fetch(`${API_URL}/api/conversations/${conv.id}/messages?limit=100`, { 
+          headers: { 'Authorization': `Bearer ${token}` } 
+        });
+        // ✅ Verificar que no cambió de conversación durante el fetch
+        if (selectedConvRef.current?.id !== convIdBefore) return;
+        if (res.ok) {
+          const data = await res.json();
+          const newMsgs = data.messages || [];
+          setMessages(prev => {
+            const prevLast = prev[prev.length - 1];
+            const newLast = newMsgs[newMsgs.length - 1];
+            if (prev.length !== newMsgs.length || 
+                prevLast?.id !== newLast?.id || 
+                prevLast?.content !== newLast?.content) {
+              lastMessageCountRef.current = newMsgs.length;
+              return newMsgs;
+            }
+            return prev;
+          });
+        }
+      } catch {}
+    };
+
+    const msgInterval = setInterval(pollMessages, 3000);
+    return () => clearInterval(msgInterval);
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // ====================================================
+  // 📝 GUARDAR NOTAS
+  // ====================================================
+  const saveNotes = async () => {
+    if (!selectedConv) return;
+    setSavingNotes(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/notes`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: convNotes })
+      });
+      if (res.ok) {
+        setNotesSaved(true);
+        setTimeout(() => setNotesSaved(false), 2000);
+        // Actualizar contextData local
+        setSelectedConv((prev: any) => prev ? { 
+          ...prev, 
+          contextData: { ...(prev.contextData || {}), _userNotes: convNotes } 
+        } : prev);
+      }
+    } catch (e) { console.error('Error guardando notas:', e); }
+    finally { setSavingNotes(false); }
+  };
+
+  // ====================================================
+  // 👤 ASIGNAR CHAT A MIEMBRO
+  // ====================================================
+  const assignChat = async (memberId: string | null) => {
+    if (!selectedConv) return;
+    setAssigningChat(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/assign`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignedTo: memberId })
       });
       if (res.ok) {
         const data = await res.json();
-        alert(`✅ Detección completada!\n\n📊 Analizadas: ${data.analyzed}\n🔄 Actualizadas: ${data.updated}`);
-        fetchConversationsOnly();
-      } else {
-        const err = await res.json();
-        alert(`❌ Error: ${err.error || 'Error desconocido'}`);
+        setSelectedConv((prev: any) => prev ? { 
+          ...prev, 
+          assignedTo: data.assignedTo, 
+          assignedName: data.assignedName 
+        } : prev);
+        // Actualizar en la lista de conversaciones
+        setConversations(prev => prev.map(c => 
+          c.id === selectedConv.id ? { ...c, assignedTo: data.assignedTo, assignedName: data.assignedName } : c
+        ));
       }
-    } catch (e: any) {
-      alert(`❌ Error: ${e.message}`);
-    } finally {
-      setDetecting(false);
-    }
+    } catch (e) { console.error('Error asignando chat:', e); }
+    finally { setAssigningChat(false); }
   };
 
-  const fetchConversationsOnly = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+  // ====================================================
+  // 📅 CREAR CITA RÁPIDA
+  // ====================================================
+  const createQuickAppointment = async () => {
+    if (!selectedConv || !appointmentData.date || !appointmentData.time) return;
+    setSavingAppointment(true);
     try {
-      const res = await fetch(`${API_URL}/api/conversations?lineId=${getLineId()}&limit=200`, { 
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/quick-appointment`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(appointmentData)
+      });
+      if (res.ok) {
+        setShowAppointment(false);
+        setAppointmentData({ date: '', time: '', type: 'appointment', notes: '' });
+        // Mini toast de éxito
+        alert('✅ Cita agendada correctamente');
+      }
+    } catch (e) { console.error('Error creando cita:', e); }
+    finally { setSavingAppointment(false); }
+  };
+
+  const canAssign = userRole === 'admin' || userRole === 'manager' || !localStorage.getItem('parentUserId');
+
+  // 📋 Fetch SOLO conversaciones (sin stages ni sync)
+  const fetchConversations = async () => {
+    if (isFetchingRef.current) return; // Guard: no concurrent fetches
+    isFetchingRef.current = true;
+    const token = localStorage.getItem('token');
+    try {
+      const lineId = getLineId();
+      const res = await fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { 
         headers: { 'Authorization': `Bearer ${token}` } 
       });
       if (res.ok) {
         const data = await res.json();
-        setConversations(data.conversations || []);
+        const convs = data.conversations || [];
+        setConversations(convs);
+        // ⚡ Cache para instant load
+        try { localStorage.setItem('bizonne_convs_cache', JSON.stringify(convs.slice(0, 50))); } catch {}
+        
+        // Mantener selectedConv sincronizado
+        const currentSelected = selectedConvRef.current;
+        if (currentSelected) {
+          const updated = convs.find((c: any) => c.id === currentSelected.id);
+          if (updated) {
+            if (updated.lastMessage !== currentSelected.lastMessage || 
+                updated.aiPaused !== currentSelected.aiPaused ||
+                updated.stageId !== currentSelected.stageId ||
+                updated.recipientName !== currentSelected.recipientName) {
+              setSelectedConv(updated);
+            }
+          }
+        }
       }
-    } catch (e) { /* silencioso */ }
-  };
-
-  const fetchAll = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      try { const cu = localStorage.getItem('bizonne_user_cache'); if (cu) setUser(JSON.parse(cu)); } catch {}
-
-      const [stagesRes, convsRes, clientsRes, productsRes] = await Promise.all([
-        fetch(`${API_URL}/api/stages?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations?lineId=${getLineId()}&limit=200`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/clients?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/products?lineId=${getLineId()}`, { headers: { 'Authorization': `Bearer ${token}` } }),
-      ]);
-      if (stagesRes.ok) { const d = await stagesRes.json(); if (d.stages?.length) { setStages(d.stages); try { localStorage.setItem('bizonne_crm_stages', JSON.stringify(d.stages)); } catch {} } }
-      if (convsRes.ok) { const convs = (await convsRes.json()).conversations || []; setConversations(convs); try { localStorage.setItem('bizonne_crm_convs', JSON.stringify(convs.slice(0, 100))); } catch {} }
-      if (clientsRes.ok) setClients((await clientsRes.json()).clients || []);
-      if (productsRes.ok) setProducts((await productsRes.json()).products || []);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  };
-
-  const getConvsByStage = (stageId: string) => conversations.filter(c => c.stage === stageId);
-
-  const sendMassMessage = async () => {
-    if (!selectedStage || (!massMessageText.trim() && !massMediaFile)) return;
-    setSendingMass(true);
-    const token = localStorage.getItem('token');
-    const stageConvs = getConvsByStage(selectedStage);
-    setMassTotal(stageConvs.length);
-    setMassSentCount(0);
-    
-    try {
-      let mediaUrl: string | null = null;
-      let mediaType: string | null = null;
-      
-      if (massMediaFile) {
-        mediaUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(massMediaFile);
-        });
-        if (massMediaFile.type.startsWith('image/')) mediaType = 'image';
-        else if (massMediaFile.type.startsWith('audio/')) mediaType = 'audio';
-        else if (massMediaFile.type.startsWith('video/')) mediaType = 'video';
-        else mediaType = 'document';
-      }
-
-      const contacts = stageConvs.map(c => ({
-        phone: c.recipientId,
-        name: c.recipientName || c.recipientId,
-        conversationId: c.id
-      }));
-
-      const res = await fetch(`${API_URL}/api/whatsapp/send-bulk`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contacts, message: massMessageText || null, whatsappLineId: getLineId(), ...(mediaUrl && { mediaUrl, mediaType }) })
-      });
-
-      if (res.ok) {
-        let count = 0;
-        const progressInterval = setInterval(() => {
-          count += 1;
-          setMassSentCount(Math.min(count, stageConvs.length));
-          if (count >= stageConvs.length) clearInterval(progressInterval);
-        }, 3500);
-
-        setTimeout(() => {
-          clearInterval(progressInterval);
-          setMassSentCount(stageConvs.length);
-          alert(`✅ Mensaje masivo enviado a ${stageConvs.length} contactos`);
-          setSendingMass(false);
-          setShowMassMessage(false);
-          setMassMessageText('');
-          setMassMediaFile(null);
-          setMassMediaPreview(null);
-          setMassSentCount(0);
-          setMassTotal(0);
-          fetchAll();
-        }, Math.min(stageConvs.length * 3500 + 2000, 60000));
-      } else { throw new Error('Error'); }
-    } catch {
-      alert('❌ Error al enviar mensaje masivo');
-      setSendingMass(false);
+    } catch {}
+    finally { 
+      setLoading(false); 
+      isFetchingRef.current = false;
     }
   };
 
-  const handleMassFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const fetchMessages = async (convId: string) => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${convId}/messages?limit=100`, { headers: { 'Authorization': `Bearer ${token}` } });
+      // ✅ Verificar que seguimos en la misma conversación
+      if (selectedConvRef.current?.id !== convId) return;
+      if (res.ok) setMessages((await res.json()).messages || []);
+    } catch {}
+    finally { setLoadingMessages(false); }
+  };
+
+  // ====================================================
+  // ✉️ ENVIAR MENSAJE — Con whatsappLineId correcto + media + optimistic
+  // ====================================================
+  const sendMessage = async () => {
+    if (!selectedConv || (!newMessage.trim() && !chatMediaFile) || sending) return;
+    setSending(true);
+    const token = localStorage.getItem('token');
+    const messageText = newMessage;
+    
+    // Convertir archivo a base64 si hay media
+    let mediaUrl: string | null = null;
+    let mediaType: string | null = null;
+    
+    if (chatMediaFile) {
+      mediaUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(chatMediaFile);
+      });
+      if (chatMediaFile.type.startsWith('image/')) mediaType = 'image';
+      else if (chatMediaFile.type.startsWith('audio/')) mediaType = 'audio';
+      else if (chatMediaFile.type.startsWith('video/')) mediaType = 'video';
+      else mediaType = 'document';
+    }
+
+    // 🔥 MOSTRAR MENSAJE INMEDIATAMENTE en el chat (optimistic update)
+    const optimisticMsg = {
+      id: `temp-${Date.now()}`,
+      content: messageText || (mediaType === 'image' ? '📷 [Imagen]' : mediaType === 'audio' ? '🎤 [Audio]' : '📎 [Archivo]'),
+      fromMe: true,
+      timestamp: new Date().toISOString(),
+      role: 'assistant',
+      ...(mediaType === 'image' && chatMediaPreview ? { mediaType: 'image', mediaUrl: chatMediaPreview } : {}),
+      ...(mediaType && mediaType !== 'image' ? { mediaType } : {})
+    };
+    setMessages(prev => [...prev, optimisticMsg]);
+    setNewMessage('');
+    setChatMediaFile(null);
+    setChatMediaPreview(null);
+    if (chatFileInputRef.current) chatFileInputRef.current.value = '';
+
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/send`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          to: selectedConv.recipientId, 
+          message: messageText || null, 
+          whatsappLineId: getLineId(),
+          ...(mediaUrl && { mediaUrl, mediaType })
+        })
+      });
+      if (res.ok) {
+        setTimeout(() => fetchMessages(selectedConv.id), 1500);
+      } else {
+        setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+        setNewMessage(messageText);
+      }
+    } catch {
+      setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+      setNewMessage(messageText);
+    }
+    finally { setSending(false); }
+  };
+
+  // 📎 Chat media handlers
+  const handleChatFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMassMediaFile(file);
+    setChatMediaFile(file);
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
-      reader.onload = () => setMassMediaPreview(reader.result as string);
+      reader.onload = () => setChatMediaPreview(reader.result as string);
       reader.readAsDataURL(file);
-    } else { setMassMediaPreview(null); }
+    } else {
+      setChatMediaPreview(null);
+    }
   };
 
-  const removeMassMedia = () => {
-    setMassMediaFile(null);
-    setMassMediaPreview(null);
-    if (massFileInputRef.current) massFileInputRef.current.value = '';
+  const removeChatMedia = () => {
+    setChatMediaFile(null);
+    setChatMediaPreview(null);
+    if (chatFileInputRef.current) chatFileInputRef.current.value = '';
   };
 
-  const handleSaveClient = async () => {
-    const token = localStorage.getItem('token');
-    const method = editingItem ? 'PUT' : 'POST';
-    const url = editingItem ? `${API_URL}/api/clients/${editingItem.id}` : `${API_URL}/api/clients`;
+  // ⚡ Quick Replies — Guardadas en localStorage por línea
+  const qrKey = `quickReplies_${getLineId() || 'default'}`;
+  
+  useEffect(() => {
     try {
-      const res = await fetch(url, {
-        method, headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...clientForm, tags: clientForm.tags ? clientForm.tags.split(',').map(t => t.trim()) : [], lineId: getLineId() })
-      });
-      if (res.ok) { fetchAll(); setShowClientModal(false); resetForms(); }
-    } catch (e) { console.error(e); }
+      const saved = localStorage.getItem(qrKey);
+      if (saved) setQuickReplies(JSON.parse(saved));
+      else setQuickReplies(['¡Hola! ¿En qué puedo ayudarte?', 'Gracias por tu compra 🎉', 'Déjame verificar y te confirmo', 'Listo, tu pedido ha sido enviado ✅', '¿Necesitas algo más?']);
+    } catch { setQuickReplies([]); }
+  }, [qrKey]);
+
+  const saveQuickReplies = (replies: string[]) => {
+    setQuickReplies(replies);
+    localStorage.setItem(qrKey, JSON.stringify(replies));
   };
 
-  const handleSaveProduct = async () => {
+  const addQuickReply = () => {
+    if (!newQuickReply.trim()) return;
+    saveQuickReplies([...quickReplies, newQuickReply.trim()]);
+    setNewQuickReply('');
+  };
+
+  const removeQuickReply = (index: number) => {
+    saveQuickReplies(quickReplies.filter((_, i) => i !== index));
+  };
+
+  const useQuickReply = (text: string) => {
+    setNewMessage(text);
+    setShowQuickReplies(false);
+  };
+
+  const toggleAIPause = async () => {
+    if (!selectedConv) return;
     const token = localStorage.getItem('token');
-    const method = editingItem ? 'PUT' : 'POST';
-    const url = editingItem ? `${API_URL}/api/products/${editingItem.id}` : `${API_URL}/api/products`;
     try {
-      const res = await fetch(url, {
-        method, headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...productForm, price: parseFloat(productForm.price) || 0, stock: parseInt(productForm.stock) || 0, lineId: getLineId() })
+      await fetch(`${API_URL}/api/conversations/${selectedConv.id}/ai-pause`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused: !selectedConv.aiPaused })
       });
-      if (res.ok) { fetchAll(); setShowProductModal(false); resetForms(); }
-      else if (res.status === 403) {
-        const err = await res.json();
-        alert(err.error || 'Límite de productos alcanzado.');
-      }
-    } catch (e) { console.error(e); }
+      setSelectedConv({ ...selectedConv, aiPaused: !selectedConv.aiPaused });
+      fetchConversations();
+    } catch {}
   };
 
-  const exportClients = async () => {
+  // 👥 Actualizar configuración de grupo
+  const updateGroupSettings = async (updates: any) => {
+    if (!selectedConv?.isGroup) return;
+    const token = localStorage.getItem('token');
+    const newSettings = { ...groupSettingsLocal, ...updates };
+    setGroupSettingsLocal(newSettings);
+    try {
+      await fetch(`${API_URL}/api/conversations/${selectedConv.id}/group-settings`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings)
+      });
+      setSelectedConv({ ...selectedConv, groupSettings: newSettings });
+    } catch {}
+  };
+
+  // ====================================================
+  // 📢 ENVÍO MASIVO — Usa /send-bulk con delays en backend + media
+  // ====================================================
+  // 📤 Exportar contactos de conversaciones como XLSX profesional
+  const exportContacts = async () => {
     try {
       const token = localStorage.getItem('token');
       const lineId = getLineId();
-      const res = await fetch(`${API_URL}/api/clients/export?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(`${API_URL}/api/conversations/export-contacts?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const { data } = await res.json();
-      if (!data?.length) { alert('No hay clientes para exportar'); return; }
+      if (!data?.length) { alert('No hay contactos para exportar'); return; }
 
       const columns = [
         { key: 'nombre', label: 'Nombre' },
         { key: 'telefono', label: 'Teléfono' },
-        { key: 'email', label: 'Email' },
+        { key: 'etapa', label: 'Etapa' },
+        { key: 'ciudad', label: 'Ciudad' },
+        { key: 'barrio', label: 'Barrio' },
         { key: 'direccion', label: 'Dirección' },
-        { key: 'estado', label: 'Estado' },
-        { key: 'total_compras', label: 'Total Compras' },
-        { key: 'notas', label: 'Notas' },
-        { key: 'tags', label: 'Tags' },
-        { key: 'fecha', label: 'Fecha' }
+        { key: 'producto', label: 'Producto' },
+        { key: 'talla', label: 'Talla' },
+        { key: 'color', label: 'Color' },
+        { key: 'calidad', label: 'Calidad' },
+        { key: 'total', label: 'Total $' },
+        { key: 'metodo_pago', label: 'Método Pago' },
+        { key: 'fecha_entrega', label: 'Fecha Entrega' },
+        { key: 'envio', label: 'Envío' },
+        { key: 'fecha', label: 'Última Actividad' }
       ];
 
-      const statusColors: Record<string, string> = {
-        'active': '#27ae60', 'lead': '#3498db', 'inactive': '#e74c3c', 'vip': '#9b59b6'
+      const stageColors: Record<string, string> = {
+        'Confirmado': '#27ae60', 'Interesado': '#f39c12', 'En Cotización': '#3498db',
+        'Nuevo Contacto': '#9b59b6', 'Pendiente Color': '#e67e22', 'Pendiente Talla': '#e67e22',
+        'Pendiente Ciudad': '#e67e22', 'Pendiente Calidad': '#e67e22', 'No Interesado': '#e74c3c'
       };
+
       const esc = (v: string) => v.replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const colLen = columns.length;
       const dateStr = new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -347,7 +669,7 @@ export default function CRMPage() {
       let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
 <head><meta charset="UTF-8">
 <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
-<x:Name>Clientes</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+<x:Name>Contactos</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
 </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
 <style>
 td,th{padding:6px 10px;font-family:Calibri,Arial;font-size:11pt;border:1px solid #d5d5d5}
@@ -357,91 +679,69 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
 .st td{background:#0f3460;color:#aaa;font-size:10pt;border:none;padding:4px 12px}
 .sp td{border:none;height:6px}
 </style></head><body><table>
-<tr class="tt"><td colspan="${colLen}">👥 Clientes — BizonneCRM</td></tr>
-<tr class="st"><td colspan="${colLen}">Exportado: ${dateStr} · Total: ${data.length} clientes</td></tr>
+<tr class="tt"><td colspan="${colLen}">📋 Contactos WhatsApp — BizonneCRM</td></tr>
+<tr class="st"><td colspan="${colLen}">Exportado: ${dateStr} · Total: ${data.length} contactos</td></tr>
 <tr class="sp"><td colspan="${colLen}"></td></tr>
 <tr>${columns.map((c: any) => `<th>${c.label}</th>`).join('')}</tr>`;
 
       data.forEach((row: any, i: number) => {
         html += `<tr class="${i % 2 === 0 ? 're' : 'ro'}">`;
         columns.forEach((col: any) => {
-          let val = esc((row[col.key] ?? '').toString());
+          let val = esc((row[col.key] || '').toString());
           let s = '';
-          if (col.key === 'estado' && val) {
-            const bg = statusColors[val] || '#95a5a6';
+          if (col.key === 'etapa' && val) {
+            const bg = stageColors[val] || '#95a5a6';
             s = `background:${bg};color:#fff;font-weight:bold;text-align:center`;
-          } else if (col.key === 'total_compras' && val && val !== '0') {
+          } else if (col.key === 'total' && val) {
+            const num = val.replace(/[^0-9]/g, '');
+            val = num ? `$${Number(num).toLocaleString('es-CO')}` : val;
             s = 'font-weight:bold;color:#27ae60;text-align:right';
-            val = `$${Number(val).toLocaleString('es-CO')}`;
           } else if (col.key === 'telefono') { s = 'color:#2980b9;mso-number-format:\@'; }
           else if (col.key === 'nombre') { s = 'font-weight:bold'; }
-          else if (col.key === 'tags' && val) { s = 'color:#9b59b6;font-style:italic'; }
           html += `<td style="${s}">${val}</td>`;
         });
         html += '</tr>';
       });
 
-      const totalV = data.reduce((s: number, r: any) => s + (Number(r.total_compras) || 0), 0);
-      const activos = data.filter((r: any) => r.estado === 'active').length;
-      const leadsCount = data.filter((r: any) => r.estado === 'lead').length;
+      const conf = data.filter((r: any) => r.etapa === 'Confirmado').length;
+      const inter = data.filter((r: any) => r.etapa === 'Interesado').length;
+      const totalV = data.reduce((s: number, r: any) => { const n = (r.total||'').toString().replace(/[^0-9]/g,''); return s + (n ? Number(n) : 0); }, 0);
 
       html += `<tr class="sp"><td colspan="${colLen}"></td></tr>
 <tr><td colspan="2" style="background:#0f3460;color:#00d4aa;font-weight:bold">📊 Resumen</td>
-<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:center">✅ ${activos} activos</td>
-<td colspan="2" style="background:#3498db;color:#fff;font-weight:bold;text-align:center">🔵 ${leadsCount} leads</td>
-<td colspan="2" style="background:#0f3460;color:#aaa">Total: ${data.length} clientes</td>
+<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:center">✅ ${conf} confirmados</td>
+<td colspan="2" style="background:#f39c12;color:#fff;font-weight:bold;text-align:center">🟡 ${inter} interesados</td>
+<td colspan="3" style="background:#0f3460;color:#aaa">Total: ${data.length} contactos</td>
+<td colspan="2" style="background:#0f3460;color:#aaa">Pendientes: ${data.length - conf - inter}</td>
 <td style="background:#27ae60;color:#fff;font-weight:bold;text-align:right">$${totalV.toLocaleString('es-CO')}</td>
-<td style="background:#0f3460"></td>
+<td colspan="${colLen - 11 > 0 ? colLen - 11 : 1}" style="background:#0f3460"></td>
 </tr></table></body></html>`;
 
       const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Clientes_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
+      a.download = `Contactos_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
       a.click();
       URL.revokeObjectURL(url);
     } catch { alert('Error al exportar'); }
   };
 
-  const importClients = async (file: File) => {
+
+  // 📥 Importar contactos desde CSV al CRM
+  const importContacts = async (file: File) => {
     try {
-      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
-      let contacts: any[] = [];
-
-      if (isExcel) {
-        const XLSX: any = await new Promise((resolve, reject) => {
-          if ((window as any).XLSX) { resolve((window as any).XLSX); return; }
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-          script.onload = () => resolve((window as any).XLSX);
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
-        const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        contacts = rows.map((row: any) => {
-          const normalized: any = {};
-          Object.keys(row).forEach(k => { normalized[k.toLowerCase().trim().replace(/\s+/g, '_')] = row[k]; });
-          return normalized;
-        }).filter((c: any) => c.telefono || c.phone || c.celular);
-      } else {
-        const text = await file.text();
-        const lines = text.split('\n').filter(l => l.trim());
-        if (lines.length < 2) { alert('Archivo vacío o sin datos'); return; }
-        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-        contacts = lines.slice(1).map(line => {
-          const values = line.match(/(?:"[^"]*"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
-          const obj: any = {};
-          headers.forEach((h, i) => { obj[h] = values[i] || ''; });
-          return obj;
-        }).filter(c => c.telefono || c.phone || c.celular);
-      }
-
-      if (contacts.length === 0) { alert('No se encontraron contactos válidos.\n\nAsegúrate que el archivo tenga columnas: nombre, telefono'); return; }
-
+      const text = await file.text();
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) { alert('Archivo vacío'); return; }
+      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+      const contacts = lines.slice(1).map(line => {
+        const values = line.match(/(?:\"[^\"]*\"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
+        const obj: any = {};
+        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
+        return obj;
+      }).filter(c => c.telefono || c.phone || c.celular);
+      if (contacts.length === 0) { alert('No se encontraron contactos. Columnas requeridas: nombre, telefono'); return; }
       const token = localStorage.getItem('token');
       const lineId = getLineId();
       const res = await fetch(`${API_URL}/api/clients/import`, {
@@ -450,24 +750,56 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         body: JSON.stringify({ contacts, lineId })
       });
       const result = await res.json();
-      if (res.ok) {
-        alert(`✅ Importación completa:\n• ${result.imported} nuevos\n• ${result.skipped} duplicados\n• ${result.errors} errores`);
-        fetchAll();
-      } else { alert(result.error || 'Error al importar'); }
-    } catch (e: any) { alert('Error al leer archivo: ' + (e?.message || 'Error desconocido')); }
+      if (res.ok) alert(`✅ Importados: ${result.imported} nuevos, ${result.skipped} duplicados`);
+      else alert(result.error || 'Error');
+    } catch { alert('Error al leer archivo'); }
   };
 
-  const sendClientMassMessage = async () => {
-    if (!massMessageText.trim() && !massMediaFile) return;
-    const filteredClients = clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm));
-    if (!filteredClients.length) { alert('No hay clientes para enviar'); return; }
+  // 🛡️ REF-BASED LOCK: Prevents re-sends even if state has race conditions
+  const bulkSendLockRef = useRef(false);
+  const bulkJobIdRef = useRef<string | null>(null);
+
+  const sendMassMessage = async () => {
+    if ((!massText.trim() && !massMediaFile) || filterStage === 'all') return;
+    
+    // 🛡️ LOCK: Absolutely prevent double-sends
+    if (bulkSendLockRef.current) {
+      console.warn('🛡️ Envío masivo bloqueado: ya hay uno en curso');
+      return;
+    }
+    bulkSendLockRef.current = true;
+    
     setSendingMass(true);
     const token = localStorage.getItem('token');
-    setMassTotal(filteredClients.length);
+    const targets = conversations.filter(c => c.stage === filterStage);
+    
+    // ===== 🛡️ DEDUPLICAR POR TELÉFONO EN FRONTEND =====
+    const seenPhones = new Set<string>();
+    const uniqueTargets = targets.filter(c => {
+      const phone = (c.recipientId || '').replace(/\D/g, '');
+      const normalized = phone.length >= 10 ? phone.slice(-10) : phone;
+      if (!normalized || seenPhones.has(normalized)) return false;
+      seenPhones.add(normalized);
+      return true;
+    });
+    
+    const duplicatesRemoved = targets.length - uniqueTargets.length;
+    if (duplicatesRemoved > 0) {
+      console.log(`🛡️ Deduplicación frontend: ${duplicatesRemoved} duplicados removidos`);
+    }
+    
+    setMassTotal(uniqueTargets.length);
     setMassSentCount(0);
+    
+    // 🛡️ Generar ID único para este batch
+    const jobId = `bulk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    bulkJobIdRef.current = jobId;
+
     try {
+      // Convertir archivo a base64 si hay media
       let mediaUrl: string | null = null;
       let mediaType: string | null = null;
+      
       if (massMediaFile) {
         mediaUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -475,602 +807,940 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
           reader.onerror = reject;
           reader.readAsDataURL(massMediaFile);
         });
+        
         if (massMediaFile.type.startsWith('image/')) mediaType = 'image';
         else if (massMediaFile.type.startsWith('audio/')) mediaType = 'audio';
         else if (massMediaFile.type.startsWith('video/')) mediaType = 'video';
         else mediaType = 'document';
       }
-      const contacts = filteredClients.map(c => ({ phone: c.phone, name: c.name }));
+
+      const contacts = uniqueTargets.map(c => ({
+        phone: c.recipientId,
+        name: c.recipientName || c.recipientId,
+        conversationId: c.id
+      }));
+
+      // 🚀 ENVIAR TODO AL BACKEND
       const res = await fetch(`${API_URL}/api/whatsapp/send-bulk`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contacts, message: massMessageText || null, whatsappLineId: getLineId(), ...(mediaUrl && { mediaUrl, mediaType }) })
+        body: JSON.stringify({ 
+          contacts,
+          message: massText || null,
+          whatsappLineId: getLineId(),
+          bulkJobId: jobId,
+          ...(mediaUrl && { mediaUrl, mediaType })
+        })
+      });
+
+      const resData = await res.json();
+      
+      // 🛡️ Check if backend rejected (duplicate batch)
+      if (resData.alreadyRunning || resData.alreadyProcessed) {
+        alert('⚠️ Ya hay un envío masivo en curso. Espera a que termine.');
+        setSendingMass(false);
+        bulkSendLockRef.current = false;
+        return;
+      }
+
+      if (res.ok && resData.success) {
+        const actualTotal = resData.total || uniqueTargets.length;
+        setMassTotal(actualTotal);
+        
+        // 🛡️ Estimación de tiempo REAL basada en delays del backend
+        // Backend: 5-18s por mensaje + 30-60s pausa cada 15 mensajes
+        const avgDelayPerMsg = actualTotal <= 20 ? 7 : actualTotal <= 50 ? 10 : 14;
+        const batchPauses = Math.floor(actualTotal / 15);
+        const totalEstimatedMs = (actualTotal * avgDelayPerMsg * 1000) + (batchPauses * 45000) + 5000;
+        const progressStepMs = totalEstimatedMs / actualTotal;
+        
+        // Simular progreso con timing realista
+        let count = 0;
+        const progressInterval = setInterval(() => {
+          count += 1;
+          setMassSentCount(Math.min(count, actualTotal));
+          if (count >= actualTotal) clearInterval(progressInterval);
+        }, progressStepMs);
+
+        // Esperar tiempo estimado y cerrar
+        setTimeout(() => {
+          clearInterval(progressInterval);
+          setMassSentCount(actualTotal);
+          alert(`✅ Mensaje masivo enviado a ${actualTotal} contactos` + 
+                (duplicatesRemoved > 0 ? ` (${duplicatesRemoved} duplicados omitidos)` : ''));
+          setSendingMass(false);
+          setShowMassMessage(false);
+          setMassText('');
+          setMassMediaFile(null);
+          setMassMediaPreview(null);
+          setMassSentCount(0);
+          setMassTotal(0);
+          
+          // 🛡️ Mantener lock 15s adicionales después de "completar" para evitar re-envíos
+          setTimeout(() => {
+            bulkSendLockRef.current = false;
+            bulkJobIdRef.current = null;
+          }, 15000);
+          
+          fetchConversations();
+        }, totalEstimatedMs);
+      } else {
+        throw new Error(resData.error || 'Error al enviar');
+      }
+    } catch (e) {
+      alert('❌ Error al enviar mensaje masivo');
+      setSendingMass(false);
+      bulkSendLockRef.current = false;
+      bulkJobIdRef.current = null;
+    }
+  };
+
+  // 🛡️ Contar contactos ÚNICOS por etapa (sin duplicados por teléfono)
+  const getUniqueStageCount = (stage: string) => {
+    const targets = conversations.filter(c => c.stage === stage);
+    const seen = new Set<string>();
+    return targets.filter(c => {
+      const phone = (c.recipientId || '').replace(/\D/g, '');
+      const norm = phone.length >= 10 ? phone.slice(-10) : phone;
+      if (!norm || seen.has(norm)) return false;
+      seen.add(norm);
+      return true;
+    }).length;
+  };
+
+  // 📎 Manejar selección de archivo para masivo
+  const handleMassFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMassMediaFile(file);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = () => setMassMediaPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setMassMediaPreview(null);
+    }
+  };
+
+  const removeMassMedia = () => {
+    setMassMediaFile(null);
+    setMassMediaPreview(null);
+    if (massFileInputRef.current) massFileInputRef.current.value = '';
+  };
+
+  // 🗑️ Eliminar conversación (solo admin/gerente)
+  const deleteConversation = async (conv: any) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${conv.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {
-        let count = 0;
-        const iv = setInterval(() => { count++; setMassSentCount(Math.min(count, filteredClients.length)); if (count >= filteredClients.length) clearInterval(iv); }, 3500);
-        setTimeout(() => { clearInterval(iv); setMassSentCount(filteredClients.length); alert(`✅ Enviado a ${filteredClients.length} clientes`); setSendingMass(false); setShowClientMass(false); setMassMessageText(''); setMassMediaFile(null); setMassMediaPreview(null); setMassSentCount(0); setMassTotal(0); }, Math.min(filteredClients.length * 3500 + 2000, 60000));
-      } else throw new Error('Error');
-    } catch { alert('❌ Error al enviar'); setSendingMass(false); }
+        setConversations(prev => prev.filter(c => c.id !== conv.id));
+        if (selectedConv?.id === conv.id) {
+          setSelectedConv(null);
+          setMessages([]);
+        }
+        setDeleteConfirm(null);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Error al eliminar');
+        setDeleteConfirm(null);
+      }
+    } catch (e) {
+      console.error('Error eliminando:', e);
+      alert('Error al eliminar conversación');
+      setDeleteConfirm(null);
+    }
   };
 
-  const sendMessageToClient = async (phone: string, name: string) => {
-    const message = prompt(`Enviar mensaje a ${name}:`);
-    if (!message) return;
-    try {
-      const token = localStorage.getItem('token');
-      const lineId = getLineId();
-      const res = await fetch(`${API_URL}/api/whatsapp/send`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: phone, message, lineId })
-      });
-      if (res.ok) alert(`✅ Mensaje enviado a ${name}`);
-      else alert('❌ Error al enviar mensaje');
-    } catch { alert('Error de conexión'); }
-  };
+  const filteredConversations = conversations.filter(c => {
+    const matchSearch = !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm);
+    const matchStage = filterStage === 'all' || c.stage === filterStage;
+    const matchType = filterType === 'all' || (filterType === 'groups' ? c.isGroup : !c.isGroup);
+    return matchSearch && matchStage && matchType;
+  });
 
-  const handleDelete = async (type: 'client' | 'product', id: string) => {
-    if (!confirm('¿Eliminar?')) return;
-    const token = localStorage.getItem('token');
-    await fetch(`${API_URL}/api/${type === 'client' ? 'clients' : 'products'}/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-    fetchAll();
-  };
+  const groupCount = conversations.filter(c => c.isGroup).length;
+  const chatCount = conversations.filter(c => !c.isGroup).length;
 
-  const resetForms = () => {
-    setEditingItem(null);
-    setClientForm({ name: '', phone: '', email: '', address: '', notes: '', status: 'lead', tags: '' });
-    setProductForm({ name: '', description: '', price: '', stock: '', category: '' });
-  };
+  const stageStats = funnelStages.map(s => ({
+    ...s,
+    count: conversations.filter(c => c.stage === s.id).length
+  }));
 
-  const stats = {
-    total: conversations.length,
-    clients: clients.length,
-    revenue: clients.reduce((sum, c) => sum + (c.totalPurchases || 0), 0),
-    products: products.length
-  };
-
-  const baseProdLimits: Record<string, number> = { trial: 10, starter: 10, business: 20 };
-  const maxProducts = user?.effectiveLimits?.maxProducts || baseProdLimits[user?.plan || 'trial'] || 10;
-  const canAddProduct = products.length < maxProducts;
-
-  const scoredLeads = conversations
-    .map(conv => ({ ...conv, leadScore: calculateLeadScore(conv, stages) }))
-    .sort((a, b) => b.leadScore.score - a.leadScore.score);
-  const hotLeads = scoredLeads.filter(l => l.leadScore.score >= 70);
-  const warmLeads = scoredLeads.filter(l => l.leadScore.score >= 40 && l.leadScore.score < 70);
-  const coldLeads = scoredLeads.filter(l => l.leadScore.score < 40);
-  const filteredLeads = leadFilter === 'hot' ? hotLeads : leadFilter === 'warm' ? warmLeads : leadFilter === 'cold' ? coldLeads : scoredLeads;
-
-  if (user && user.plan === 'starter' && !user.parentUserId) {
+  if (loading) {
     return (
-      <div className="h-[calc(100vh-120px)] flex items-center justify-center p-4">
-        <div className="text-center p-6 md:p-8 bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] max-w-md">
-          <Users className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-4 text-[var(--accent-primary)]" />
-          <h2 className="text-lg md:text-xl font-bold text-white mb-2">CRM en Plan Business</h2>
-          <p className="text-[var(--text-muted)] text-sm mb-4">Gestiona tu pipeline con vista completa.</p>
-          <a href="/subscription" className="btn-primary inline-flex items-center gap-2"><Sparkles className="w-4 h-4" /> Actualizar</a>
-        </div>
+      <div className="h-[calc(100vh-120px)] flex items-center justify-center">
+        <div className="loading-spinner w-8 h-8" />
       </div>
     );
   }
 
-  if (loading) return <div className="h-[calc(100vh-120px)] flex items-center justify-center"><div className="loading-spinner w-8 h-8" /></div>;
-
   return (
-    <div className="h-[calc(100vh-110px)] md:h-[calc(100vh-120px)] flex flex-col gap-2 md:gap-3 overflow-hidden max-w-full">
+    <div className="h-[calc(100vh-120px)] md:h-[calc(100vh-120px)] flex flex-col gap-2 md:gap-3 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <LayoutGrid className="w-4 h-4 md:w-5 md:h-5 text-[var(--accent-primary)] flex-shrink-0" />
-          <div className="min-w-0">
-            <h1 className="text-sm md:text-xl font-bold text-white truncate">CRM Pipeline</h1>
-            <p className="text-[9px] md:text-xs text-[var(--text-muted)]">{stats.total} conv. • {stats.clients} clientes</p>
+      <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
+        <div className="flex items-center gap-2 md:gap-3">
+          <MessageSquare className="w-5 h-5 md:w-6 md:h-6 text-[var(--accent-primary)]" />
+          <div>
+            <h1 className="text-base md:text-xl font-bold text-white">Conversaciones</h1>
+            <p className="text-[10px] md:text-xs text-[var(--text-muted)]">{conversations.length} chats</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button onClick={() => {
-            if (activeTab === 'products') {
-              if (!canAddProduct) { alert(`Límite de ${maxProducts} productos alcanzado.`); return; }
-              setShowProductModal(true);
-            } else setShowClientModal(true);
-          }} className={`btn-primary py-1.5 px-2 md:px-3 text-[10px] md:text-sm ${activeTab === 'products' && !canAddProduct ? 'opacity-50' : ''}`}>
-            <Plus className="w-3.5 h-3.5 md:w-4 md:h-4" /><span className="hidden sm:inline ml-1">Nuevo</span>
+        <div className="flex items-center gap-1 md:gap-2">
+          <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="input py-1.5 px-2 md:px-3 text-xs md:text-sm bg-[var(--bg-secondary)] max-w-[140px] md:max-w-none">
+            <option value="all">Todas ({conversations.length})</option>
+            {stageStats.map(stage => (
+              <option key={stage.id} value={stage.id}>{stage.label} ({stage.count})</option>
+            ))}
+          </select>
+          <button onClick={() => setShowMassMessage(true)} disabled={filterStage === 'all'} className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50" title={filterStage === 'all' ? 'Selecciona una etapa primero' : 'Mensaje masivo'}>
+            <Megaphone className="w-4 h-4" />
           </button>
+          <button onClick={exportContacts} className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos Excel">
+            <Download className="w-4 h-4" />
+          </button>
+          <label className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">
+            <Upload className="w-4 h-4" />
+            <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importContacts(e.target.files[0]); e.target.value = ''; }} />
+          </label>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 md:gap-2 border-b border-[var(--border-primary)] pb-2 md:pb-3 flex-shrink-0 overflow-x-auto scrollbar-hide">
-        {(['pipeline', 'leads', 'clients', 'products'] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`flex items-center gap-1 md:gap-1.5 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
-              activeTab === tab ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
-            }`}>
-            {tab === 'pipeline' ? <LayoutGrid className="w-3 h-3 md:w-4 md:h-4" /> : tab === 'leads' ? <Target className="w-3 h-3 md:w-4 md:h-4" /> : tab === 'clients' ? <Users className="w-3 h-3 md:w-4 md:h-4" /> : <Package className="w-3 h-3 md:w-4 md:h-4" />}
-            {tab === 'pipeline' ? 'Pipeline' : tab === 'leads' ? `Leads (${hotLeads.length})` : tab === 'clients' ? 'Clientes' : 'Productos'}
-          </button>
-        ))}
-        {activeTab === 'pipeline' && (
-          <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-            <button 
-              onClick={detectStages}
-              disabled={detecting}
-              className={`text-[10px] md:text-xs px-2 md:px-3 py-1 md:py-1.5 rounded-lg border flex items-center gap-1 transition-all ${
-                detecting ? 'text-gray-400 bg-gray-500/10 border-gray-500/30 cursor-wait' : 'text-purple-400 bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20'
-              }`}>
-              {detecting ? <div className="w-2.5 h-2.5 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin"/> : <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3" />}
-              <span className="hidden sm:inline">{detecting ? 'Detectando...' : 'Detectar'}</span>
-            </button>
-            <span className="text-[9px] md:text-xs text-emerald-400 bg-emerald-500/10 px-1.5 md:px-2 py-0.5 md:py-1 rounded-lg border border-emerald-500/30 flex items-center gap-1">
-              <span className="relative flex h-1.5 w-1.5 md:h-2 md:w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 md:h-2 md:w-2 bg-emerald-500"></span>
-              </span>
-              <span className="hidden sm:inline">Auto-refresh</span>
-            </span>
+      {/* Main */}
+      <div className="flex-1 flex gap-3 min-h-0 overflow-hidden">
+        {/* Lista */}
+        <div className={`conv-list-panel w-full lg:w-64 lg:flex-shrink-0 flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] overflow-hidden ${selectedConv ? 'hidden lg:flex' : 'flex'}`}>
+          <div className="p-2 border-b border-[var(--border-primary)]">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+              <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-1.5 pl-8 pr-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+            </div>
+            {/* 🔀 Filtro: Todas | Chats | Grupos */}
+            <div className="flex mt-2 bg-[var(--bg-tertiary)] rounded-lg p-0.5 gap-0.5">
+              {([
+                { id: 'all' as const, label: 'Todas', count: conversations.length },
+                { id: 'chats' as const, label: '💬 Chats', count: chatCount },
+                { id: 'groups' as const, label: '👥 Grupos', count: groupCount },
+              ]).map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilterType(tab.id)}
+                  className={`flex-1 py-1 px-1.5 rounded-md text-[10px] font-medium transition-all ${
+                    filterType === tab.id
+                      ? 'bg-[var(--accent-primary)] text-white shadow-sm'
+                      : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {tab.label} <span className="opacity-70">({tab.count})</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {filteredConversations.map((conv) => (
+              <div key={conv.id} onClick={() => setSelectedConv(conv)} className={`group p-2.5 border-b border-[var(--border-primary)] cursor-pointer hover:bg-white/5 transition-all ${selectedConv?.id === conv.id ? 'bg-[var(--accent-primary)]/10 border-l-2 border-l-[var(--accent-primary)]' : ''}`}>
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-full ${conv.isGroup ? 'bg-blue-500/20' : 'bg-[var(--accent-primary)]/20'} flex items-center justify-center flex-shrink-0`}>
+                    <span className={`text-sm font-bold ${conv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{conv.isGroup ? '👥' : (conv.recipientName?.[0] || '?')}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1">
+                      <p className="font-semibold text-white text-[13px] truncate">{conv.isGroup ? (conv.groupName || conv.recipientName || 'Grupo') : (conv.recipientName || 'Sin nombre')}</p>
+                      {conv.isGroup && <span className="text-[9px] bg-blue-500/20 text-blue-400 px-1 rounded">👥</span>}
+                      
+                      {conv.aiPaused && <PauseCircle className="w-3 h-3 text-yellow-400 flex-shrink-0" />}
+                    </div>
+                    <p className="text-[11px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
+                    {conv.stage && (
+                      <span className={`inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium border ${getStageColor(conv.stage)}`}>
+                        {funnelStages.find(s => s.id === conv.stage)?.label || conv.stage}
+                      </span>
+                    )}
+                    {conv.assignedName && (
+                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9px] bg-cyan-500/15 text-cyan-400 border border-cyan-500/20">
+                        👤 {conv.assignedName.split(' ')[0]}
+                      </span>
+                    )}
+                  </div>
+                  {/* 🗑️ Delete button - solo admin/gerente */}
+                  {canDeleteConversation() && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirm(conv); }}
+                      className="p-1.5 rounded-lg opacity-40 hover:opacity-100 hover:bg-red-500/20 transition-all flex-shrink-0"
+                      title="Eliminar conversación"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {filteredConversations.length === 0 && <div className="p-4 text-center text-[var(--text-muted)] text-sm">No hay conversaciones</div>}
+          </div>
+        </div>
+
+        {/* Chat */}
+        <div className={`conv-chat-panel flex-1 flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] overflow-hidden min-w-0 ${selectedConv ? 'flex' : 'hidden lg:flex'}`}>
+          {selectedConv ? (
+            <>
+              <div className="p-3 border-b border-[var(--border-primary)] flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button onClick={() => setSelectedConv(null)} className="lg:hidden p-1.5 -ml-1 mr-1 rounded-lg hover:bg-white/10 text-[var(--text-muted)]">
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <div className={`w-9 h-9 rounded-full ${selectedConv.isGroup ? 'bg-blue-500/20' : 'bg-[var(--accent-primary)]/20'} flex items-center justify-center flex-shrink-0`}>
+                    <span className={`text-sm font-bold ${selectedConv.isGroup ? 'text-blue-400' : 'text-[var(--accent-primary)]'}`}>{selectedConv.isGroup ? '👥' : (selectedConv.recipientName?.[0] || '?')}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-white text-[15px] truncate">{selectedConv.isGroup ? (selectedConv.groupName || selectedConv.recipientName || 'Grupo') : (selectedConv.recipientName || selectedConv.recipientId)}</h3>
+                    <p className="text-[11px] text-[var(--text-muted)]">{selectedConv.isGroup ? '👥 Grupo' : (showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp'))}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {selectedConv.stage && (
+                    <span className={`px-2 py-1 rounded text-xs border ${getStageColor(selectedConv.stage)}`}>
+                      {funnelStages.find(s => s.id === selectedConv.stage)?.label || selectedConv.stage}
+                    </span>
+                  )}
+                  <button onClick={toggleAIPause} className={`px-2 py-1 rounded text-xs flex items-center gap-1 ${selectedConv.aiPaused ? 'bg-yellow-500/20 text-yellow-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                    {selectedConv.aiPaused ? <PauseCircle className="w-3 h-3" /> : <PlayCircle className="w-3 h-3" />}
+                    {selectedConv.aiPaused ? 'Pausada' : 'Activa'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {loadingMessages && messages.length === 0 && (
+                  <div className="flex-1 flex items-center justify-center h-full">
+                    <div className="loading-spinner w-6 h-6" />
+                  </div>
+                )}
+                {messages.map((msg, idx) => (
+                  <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`${msg.mediaType === 'image' ? 'max-w-[85%]' : 'max-w-[75%]'} px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
+                      {msg.mediaType === 'image' && msg.mediaUrl && (() => {
+                        const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+                        const imgSrc = msg.mediaUrl.startsWith('data:') ? msg.mediaUrl 
+                          : msg.mediaUrl.startsWith('/api/') ? `${API_URL}${msg.mediaUrl}?token=${t}`
+                          : msg.mediaUrl.startsWith('http') ? msg.mediaUrl
+                          : `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
+                        return (
+                          <img 
+                            src={imgSrc}
+                            alt="" 
+                            className="max-w-full w-full rounded-lg mb-1 cursor-pointer hover:opacity-90 transition" 
+                            style={{ maxWidth: '420px', imageRendering: 'auto' }}
+                            onClick={() => window.open(imgSrc, '_blank')}
+                            onError={(e) => { 
+                              const el = e.target as HTMLImageElement;
+                              if (!el.dataset.retried) {
+                                el.dataset.retried = '1';
+                                el.src = `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
+                              } else {
+                                el.style.display = 'none';
+                              }
+                            }}
+                            loading="lazy"
+                          />
+                        );
+                      })()}
+                      {msg.mediaType === 'image' && !msg.mediaUrl && (
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
+                          <Image className="w-4 h-4 opacity-60" />
+                          <span className="text-xs opacity-60">Imagen recibida</span>
+                        </div>
+                      )}
+                      {msg.mediaType === 'audio' && (
+                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
+                          <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                            <span className="text-xs">🎤</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex gap-[2px] items-end h-3">
+                                {[3,5,7,4,6,8,5,7,3,5,6,4,7,5,3].map((h,i) => (
+                                  <div key={i} className="w-[2px] rounded-full bg-emerald-400/60" style={{height: `${h * 1.5}px`}} />
+                                ))}
+                              </div>
+                              <span className="text-[9px] opacity-60 ml-1">Audio</span>
+                            </div>
+                            {msg.content && !msg.content.includes('[Audio') && (
+                              <p className="text-[9px] text-emerald-400/80 mt-0.5">✨ Transcrito por IA</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      <p className="whitespace-pre-wrap break-words">
+                        {msg.mediaType === 'image' && msg.mediaUrl && (msg.content === '📷 [Imagen]' || msg.content === '📷 [Imagen enviada por el cliente]' || msg.content?.startsWith('📷 [Imagen'))
+                          ? '' 
+                          : msg.mediaType === 'image' && msg.content?.startsWith('[El cliente envió una imagen')
+                            ? msg.content.replace(/^\[El cliente envió una imagen[^.]*\.\s*Contenido(?:\s*de la imagen)?:\s*/, '👁️ ').replace(/\]$/, '')
+                            : msg.content
+                        }
+                      </p>
+                      <p className={`text-[9px] mt-1 ${msg.fromMe ? 'text-white/60' : 'text-[var(--text-muted)]'}`}>
+                        {new Date(msg.timestamp).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+
+              <div className="p-3 border-t border-[var(--border-primary)] flex-shrink-0">
+                <input ref={chatFileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleChatFileSelect} className="hidden" />
+                
+                {/* 📎 Media preview */}
+                {chatMediaFile && (
+                  <div className="flex items-center gap-2 p-2 mb-2 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-primary)]">
+                    {chatMediaPreview ? (
+                      <img src={chatMediaPreview} alt="" className="w-12 h-12 rounded object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                        {chatMediaFile.type.startsWith('audio/') ? <Mic className="w-4 h-4 text-[var(--accent-primary)]" /> : <FileText className="w-4 h-4 text-[var(--accent-primary)]" />}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-white truncate">{chatMediaFile.name}</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">{(chatMediaFile.size / 1024).toFixed(0)} KB</p>
+                    </div>
+                    <button onClick={removeChatMedia} className="p-1 hover:bg-white/10 rounded"><X className="w-4 h-4 text-red-400" /></button>
+                  </div>
+                )}
+
+                {/* ⚡ Quick Replies dropdown */}
+                {showQuickReplies && (
+                  <div className="mb-2 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-2 max-h-[200px] overflow-y-auto">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-[var(--text-muted)]">⚡ Respuestas rápidas</span>
+                      <button onClick={() => setEditingQuickReplies(!editingQuickReplies)} className="text-[10px] text-[var(--accent-primary)] hover:underline">
+                        {editingQuickReplies ? 'Listo' : 'Editar'}
+                      </button>
+                    </div>
+                    {quickReplies.map((qr, i) => (
+                      <div key={i} className="flex items-center gap-1 group">
+                        <button onClick={() => useQuickReply(qr)} className="flex-1 text-left text-xs text-white px-2 py-1.5 rounded hover:bg-white/10 transition truncate">
+                          {qr}
+                        </button>
+                        {editingQuickReplies && (
+                          <button onClick={() => removeQuickReply(i)} className="p-0.5 hover:bg-red-500/20 rounded"><X className="w-3 h-3 text-red-400" /></button>
+                        )}
+                      </div>
+                    ))}
+                    {editingQuickReplies && (
+                      <div className="flex gap-1 mt-2 pt-2 border-t border-[var(--border-primary)]">
+                        <input value={newQuickReply} onChange={(e) => setNewQuickReply(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && addQuickReply()}
+                          placeholder="Nueva respuesta..." className="flex-1 bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded px-2 py-1 text-xs text-white placeholder-[var(--text-muted)] focus:outline-none" />
+                        <button onClick={addQuickReply} className="px-2 py-1 bg-[var(--accent-primary)] rounded text-xs text-white">+</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Input row: media buttons + quick replies + text + send */}
+                <div className="flex items-center gap-1.5">
+                  {/* Media buttons */}
+                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'image/*'; chatFileInputRef.current.click(); } }}
+                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Imagen">
+                    <Image className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'audio/*'; chatFileInputRef.current.click(); } }}
+                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Audio">
+                    <Mic className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = '*/*'; chatFileInputRef.current.click(); } }}
+                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Archivo">
+                    <Paperclip className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                  <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                    className={`p-2 hover:bg-white/10 rounded-lg transition ${showQuickReplies ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : ''}`} title="Respuestas rápidas">
+                    <Zap className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+
+                  <div className="h-5 w-px bg-[var(--border-primary)]" />
+
+                  {/* Text input */}
+                  <input type="text" placeholder="Escribe un mensaje..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} className="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+                  <button onClick={sendMessage} disabled={sending || (!newMessage.trim() && !chatMediaFile)} className="btn-primary px-4 py-2 disabled:opacity-50">
+                    {sending ? <div className="loading-spinner w-4 h-4" /> : <Send className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]">
+              <MessageSquare className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-sm">Selecciona una conversación</p>
+            </div>
+          )}
+        </div>
+
+        {/* Panel info — ENHANCED: Notas + Asignar + Cita */}
+        {selectedConv && (
+          <div className="w-64 flex-shrink-0 hidden xl:flex flex-col bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] p-3 gap-2.5 overflow-y-auto">
+            {/* Header: Avatar + Name (editable) + Phone */}
+            <div className="text-center">
+              <div className="w-14 h-14 mx-auto rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center mb-2">
+                <span className="text-xl font-bold text-[var(--accent-primary)]">{selectedConv.recipientName?.[0] || selectedConv.groupName?.[0] || '?'}</span>
+              </div>
+              {/* Editable Name */}
+              {editingName && !selectedConv.isGroup ? (
+                <div className="flex items-center gap-1 justify-center mb-1">
+                  <input
+                    autoFocus
+                    value={editNameValue}
+                    onChange={(e) => setEditNameValue(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveContactName(editNameValue); if (e.key === 'Escape') setEditingName(false); }}
+                    className="bg-[var(--bg-tertiary)] border border-[var(--accent-primary)] rounded px-2 py-1 text-sm text-white text-center focus:outline-none w-40"
+                  />
+                  <button onClick={() => saveContactName(editNameValue)} className="text-emerald-400 hover:text-emerald-300"><Check className="w-4 h-4" /></button>
+                  <button onClick={() => setEditingName(false)} className="text-red-400 hover:text-red-300"><X className="w-4 h-4" /></button>
+                </div>
+              ) : (
+                <h4
+                  className="font-bold text-white text-base cursor-pointer hover:text-[var(--accent-primary)] transition-colors"
+                  onClick={() => { if (!selectedConv.isGroup) { setEditNameValue(selectedConv.recipientName || ''); setEditingName(true); } }}
+                  title="Clic para editar nombre"
+                >
+                  {selectedConv.groupName || selectedConv.recipientName || 'Sin nombre'}
+                  {!selectedConv.isGroup && <span className="inline-block ml-1 text-[var(--text-muted)] text-[10px]">✏️</span>}
+                </h4>
+              )}
+              <p className="text-xs text-[var(--text-muted)]">
+                {selectedConv.isGroup ? '👥 Grupo' : (showFullPhone ? (formatPhoneDisplay(selectedConv.recipientId) || 'WhatsApp') : (maskPhone(formatPhoneDisplay(selectedConv.recipientId)) || 'WhatsApp'))}
+              </p>
+              {/* Lead Temperature */}
+              {!selectedConv.isGroup && (
+                <div className="flex items-center justify-center gap-1 mt-2">
+                  {leadTempOptions.map(opt => (
+                    <button key={opt.id} onClick={() => saveLeadTemp(opt.id)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-all ${getLeadTemp(selectedConv) === opt.id ? opt.color : 'text-[var(--text-muted)] bg-white/5 border-transparent hover:border-white/10'}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 👤 ASIGNAR CHAT — Solo admin/manager */}
+            {canAssign && teamMembers.length > 0 && !selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <p className="text-[10px] text-[var(--text-muted)] mb-1.5 flex items-center gap-1">
+                  <UserPlus className="w-3 h-3" /> Asignar a
+                </p>
+                <select
+                  value={selectedConv.assignedTo || ''}
+                  onChange={(e) => assignChat(e.target.value || null)}
+                  disabled={assigningChat}
+                  className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1.5 px-2 text-[11px] text-white focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50 appearance-none cursor-pointer"
+                >
+                  <option value="">Sin asignar</option>
+                  {teamMembers.filter(m => m.isActive !== false).map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.role === 'admin' ? '👑' : m.role === 'manager' ? '📊' : m.role === 'agent' ? '🛒' : m.role === 'support' ? '🎧' : '👁️'} {m.name || m.email}
+                    </option>
+                  ))}
+                </select>
+                {selectedConv.assignedName && (
+                  <p className="text-[9px] text-emerald-400 mt-1 text-center">✅ {selectedConv.assignedName}</p>
+                )}
+              </div>
+            )}
+
+            {/* Asignado badge (para roles que no pueden cambiar) */}
+            {!canAssign && selectedConv.assignedName && (
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <p className="text-[10px] text-emerald-400 text-center flex items-center justify-center gap-1">
+                  <User className="w-3 h-3" /> Asignado a: <strong>{selectedConv.assignedName}</strong>
+                </p>
+              </div>
+            )}
+
+            {/* 👥 GRUPO: Configuración de IA */}
+            {selectedConv.isGroup && groupSettingsLocal && (
+              <div className="space-y-2">
+                <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                  <p className="text-[10px] text-[var(--text-muted)] mb-2">🤖 IA en grupo</p>
+                  <button
+                    onClick={() => updateGroupSettings({ aiEnabled: !groupSettingsLocal.aiEnabled })}
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center justify-between ${
+                      groupSettingsLocal.aiEnabled 
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    }`}
+                  >
+                    <span>{groupSettingsLocal.aiEnabled ? '✅ IA Activa' : '❌ IA Desactivada'}</span>
+                  </button>
+                </div>
+                {groupSettingsLocal.aiEnabled && (
+                  <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                    <p className="text-[10px] text-[var(--text-muted)] mb-2">Responder a</p>
+                    <div className="space-y-1">
+                      {[
+                        { id: 'all', label: 'Todos', desc: 'Responde a todo' },
+                        { id: 'mentions', label: 'Menciones', desc: 'Cuando mencionan al bot' },
+                        { id: 'keywords', label: 'Keywords', desc: 'Solo si usan una keyword' },
+                      ].map(mode => (
+                        <button key={mode.id} onClick={() => updateGroupSettings({ respondTo: mode.id })}
+                          className={`w-full text-left px-2 py-1 rounded text-[10px] transition-all ${
+                            groupSettingsLocal.respondTo === mode.id
+                              ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
+                              : 'text-[var(--text-muted)] hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          <p className="font-medium">{mode.label}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {groupSettingsLocal.aiEnabled && groupSettingsLocal.respondTo === 'keywords' && (
+                  <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                    <p className="text-[10px] text-[var(--text-muted)] mb-1.5">Palabras clave</p>
+                    <input type="text" value={(groupSettingsLocal.triggerWords || []).join(', ')}
+                      onChange={(e) => { const words = e.target.value.split(',').map((w: string) => w.trim()).filter(Boolean); updateGroupSettings({ triggerWords: words }); }}
+                      placeholder="bizonne, ayuda, info"
+                      className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 🤖 Asistente Personal toggle — solo admin/manager */}
+            {!selectedConv.isGroup && (userRole === 'admin' || userRole === 'manager') && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <p className="text-[10px] text-[var(--text-muted)] mb-2">🤖 Asistente Personal</p>
+                <button
+                  onClick={async () => {
+                    const current = (selectedConv.contextData as any)?._isPersonalAssistant || false;
+                    if (!current) {
+                      const confirmed = window.confirm(`¿Seguro deseas activar el Asistente Personal en este número?\n\n${selectedConv.recipientName || selectedConv.recipientId}\n\nLa IA te enviará notificaciones automáticas de pedidos, citas y reservas a este WhatsApp.`);
+                      if (!confirmed) return;
+                    }
+                    try {
+                      const token = localStorage.getItem('token');
+                      await fetch(`${API_URL}/api/conversations/${selectedConv.id}/personal-assistant`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ enabled: !current })
+                      });
+                      setSelectedConv((prev: any) => ({
+                        ...prev,
+                        contextData: { ...(prev.contextData || {}), _isPersonalAssistant: !current }
+                      }));
+                    } catch {}
+                  }}
+                  className={`w-full px-2 py-1.5 rounded-lg text-xs flex items-center gap-2 transition-all ${
+                    (selectedConv.contextData as any)?._isPersonalAssistant
+                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                      : 'bg-white/5 text-[var(--text-muted)] border border-[var(--border-primary)]'
+                  }`}
+                >
+                  <span>{(selectedConv.contextData as any)?._isPersonalAssistant ? '🧠' : '💤'}</span>
+                  <span>{(selectedConv.contextData as any)?._isPersonalAssistant ? 'Asistente Activo' : 'Activar Asistente'}</span>
+                </button>
+                {(selectedConv.contextData as any)?._isPersonalAssistant && (
+                  <p className="text-[9px] text-purple-400 mt-1.5">
+                    ✨ Pregunta: resumen, citas, pedidos, ventas, reservas...
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Etapa (editable) */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <p className="text-[10px] text-[var(--text-muted)] mb-1">Etapa actual</p>
+                <select
+                  value={selectedConv.stage || ''}
+                  onChange={(e) => saveStage(e.target.value)}
+                  className={`w-full px-2 py-1.5 rounded text-xs text-center font-medium border cursor-pointer focus:outline-none focus:border-[var(--accent-primary)] bg-[var(--bg-secondary)] ${getStageColor(selectedConv.stage || '')}`}
+                >
+                  <option value="">Sin etapa</option>
+                  {funnelStages.map(s => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* 📋 Datos del cliente — Expandable + Editable */}
+            {selectedConv.contextData && Object.keys(selectedConv.contextData).length > 0 && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <button
+                  onClick={() => setShowContactDetails(!showContactDetails)}
+                  className="w-full flex items-center justify-between text-[11px] text-[var(--text-muted)] hover:text-white transition-colors"
+                >
+                  <span className="flex items-center gap-1">📋 Datos del cliente</span>
+                  <span className={`transition-transform ${showContactDetails ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {showContactDetails && (
+                  <div className="space-y-1.5 mt-2">
+                    {Object.entries(selectedConv.contextData as Record<string, any>)
+                      .filter(([k, v]) => v && v !== '' && !['etapa_actual', 'paso_actual', 'accion', 'pedido', 'cita', 'reserva', '_userNotes', '_isPersonalAssistant', '_leadTemp'].includes(k))
+                      .map(([key, value]) => (
+                        <div key={key} className="group/field">
+                          {editingField === key ? (
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-[var(--text-muted)] capitalize w-16 flex-shrink-0">{key.replace(/_/g, ' ')}</span>
+                              <input
+                                autoFocus
+                                value={editFieldValue}
+                                onChange={(e) => setEditFieldValue(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') saveContextField(key, editFieldValue); if (e.key === 'Escape') setEditingField(null); }}
+                                className="flex-1 bg-[var(--bg-secondary)] border border-[var(--accent-primary)] rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none"
+                              />
+                              <button onClick={() => saveContextField(key, editFieldValue)} className="text-emerald-400"><Check className="w-3 h-3" /></button>
+                              <button onClick={() => setEditingField(null)} className="text-red-400"><X className="w-3 h-3" /></button>
+                            </div>
+                          ) : (
+                            <div
+                              className="flex justify-between text-[11px] cursor-pointer hover:bg-white/5 rounded px-1 py-0.5 transition-colors"
+                              onClick={() => { setEditingField(key); setEditFieldValue(String(value)); }}
+                              title="Clic para editar"
+                            >
+                              <span className="text-[var(--text-muted)] capitalize">{key.replace(/_/g, ' ')}</span>
+                              <span className="text-white font-medium truncate ml-2 max-w-[100px]">
+                                {(!showFullPhone && (key.toLowerCase() === 'telefono' || key.toLowerCase() === 'phone' || key.toLowerCase() === 'celular'))
+                                  ? maskPhone(String(value))
+                                  : String(value)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 📝 NOTAS MANUALES */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
+                    <StickyNote className="w-3 h-3" /> Notas
+                  </p>
+                  {convNotes !== ((selectedConv.contextData as any)?._userNotes || '') && (
+                    <button
+                      onClick={saveNotes}
+                      disabled={savingNotes}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 transition-all disabled:opacity-50 flex items-center gap-0.5"
+                    >
+                      {savingNotes ? <Clock className="w-2.5 h-2.5 animate-spin" /> : <Save className="w-2.5 h-2.5" />}
+                      Guardar
+                    </button>
+                  )}
+                  {notesSaved && (
+                    <span className="text-[9px] text-emerald-400 flex items-center gap-0.5">
+                      <Check className="w-2.5 h-2.5" /> Guardado
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={convNotes}
+                  onChange={(e) => setConvNotes(e.target.value)}
+                  placeholder="Escribir notas sobre este cliente..."
+                  rows={3}
+                  className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1.5 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)] resize-none leading-relaxed"
+                />
+              </div>
+            )}
+
+            {/* 📅 AGENDAR CITA RÁPIDA */}
+            {!selectedConv.isGroup && (
+              <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
+                {!showAppointment ? (
+                  <button
+                    onClick={() => setShowAppointment(true)}
+                    className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20 hover:bg-amber-500/25 transition-all"
+                  >
+                    <Calendar className="w-3 h-3" />
+                    Agendar cita
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] text-amber-400 font-medium flex items-center gap-1">
+                        <Calendar className="w-3 h-3" /> Nueva cita
+                      </p>
+                      <button onClick={() => setShowAppointment(false)} className="text-[var(--text-muted)] hover:text-white">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      <input
+                        type="date"
+                        value={appointmentData.date}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, date: e.target.value }))}
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white focus:outline-none focus:border-amber-400"
+                      />
+                      <input
+                        type="time"
+                        value={appointmentData.time}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, time: e.target.value }))}
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white focus:outline-none focus:border-amber-400"
+                      />
+                      <select
+                        value={appointmentData.type}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, type: e.target.value }))}
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white focus:outline-none focus:border-amber-400 appearance-none"
+                      >
+                        <option value="appointment">📅 Cita</option>
+                        <option value="order">📦 Pedido/Entrega</option>
+                        <option value="followup">📞 Seguimiento</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={appointmentData.notes}
+                        onChange={(e) => setAppointmentData(prev => ({ ...prev, notes: e.target.value }))}
+                        placeholder="Notas de la cita..."
+                        className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-amber-400"
+                      />
+                      <button
+                        onClick={createQuickAppointment}
+                        disabled={savingAppointment || !appointmentData.date || !appointmentData.time}
+                        className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-medium bg-amber-500 text-black hover:bg-amber-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {savingAppointment ? <Clock className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                        Agendar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* PIPELINE */}
-      {activeTab === 'pipeline' && (
-        <div className="flex-1 flex flex-col gap-2 overflow-hidden">
-          {/* Search + Stage Filter + Toggle */}
-          <div className="flex items-center gap-1.5 md:gap-2 flex-shrink-0 flex-wrap">
-            <div className="relative flex-1 min-w-[120px] max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
-              <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Buscar..." className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 pl-8 pr-3 text-xs md:text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-            </div>
-            <select 
-              value={selectedStage} 
-              onChange={(e) => setSelectedStage(e.target.value)}
-              className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-lg py-1.5 px-2 md:px-3 text-xs md:text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] max-w-[140px] md:max-w-none"
-            >
-              <option value="">Todas ({conversations.length})</option>
-              {stages.map(stage => (
-                <option key={stage.id} value={stage.id}>{stage.label} ({getConvsByStage(stage.id).length})</option>
-              ))}
-            </select>
-            <button 
-              onClick={() => setShowMassMessage(true)} 
-              disabled={!selectedStage}
-              className="btn-secondary py-1.5 px-2 md:px-3 text-xs disabled:opacity-30"
-              title={!selectedStage ? 'Selecciona una etapa' : 'Mensaje masivo'}
-            >
-              <Send className="w-3.5 h-3.5" />
-            </button>
-            {/* 🆕 Toggle stages visibility */}
-            <button 
-              onClick={() => setShowStages(!showStages)} 
-              className={`py-1.5 px-2 rounded-lg border text-xs flex items-center gap-1 transition-all ${showStages ? 'bg-white/5 border-[var(--border-secondary)] text-white' : 'bg-[var(--bg-secondary)] border-[var(--border-primary)] text-[var(--text-muted)]'}`}
-              title={showStages ? 'Ocultar etapas' : 'Mostrar etapas'}
-            >
-              {showStages ? <EyeOff className="w-3.5 h-3.5"/> : <Eye className="w-3.5 h-3.5"/>}
-              <span className="hidden md:inline">{showStages ? 'Ocultar' : 'Etapas'}</span>
-            </button>
-          </div>
-
-          {/* 🆕 Collapsible Stage Chips */}
-          {showStages && stages.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 md:gap-2 flex-shrink-0 animate-fade-in">
-              {stages.map(stage => {
-                const count = getConvsByStage(stage.id).length;
-                return (
-                  <button
-                    key={stage.id}
-                    onClick={() => setSelectedStage(selectedStage === stage.id ? '' : stage.id)}
-                    className={`px-2 md:px-2.5 py-0.5 md:py-1 rounded-lg text-[10px] md:text-xs font-medium transition-all border ${
-                      selectedStage === stage.id 
-                        ? STAGE_COLORS[stage.color] || STAGE_COLORS.blue
-                        : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border-transparent hover:border-[var(--border-primary)]'
-                    }`}
-                  >
-                    {stage.label} ({count})
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Conversations Grid */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {stages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 md:py-16 text-center px-4">
-                <div className="w-12 h-12 md:w-16 md:h-16 rounded-2xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mb-4">
-                  <Sparkles className="w-6 h-6 md:w-8 md:h-8 text-purple-400" />
-                </div>
-                <h3 className="text-base md:text-lg font-semibold text-white mb-2">Configura tus etapas</h3>
-                <p className="text-[var(--text-muted)] text-xs md:text-sm max-w-md mb-4">
-                  Las etapas se generan desde la base de conocimiento de tu asistente IA. 
-                  Ve a <strong className="text-white">Asistentes IA</strong> y define las etapas de tu negocio.
-                </p>
-                <button onClick={detectStages} disabled={detecting}
-                  className="px-4 py-2 bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-all text-xs md:text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  {detecting ? 'Detectando...' : 'Detectar etapas ahora'}
-                </button>
-              </div>
-            ) : (
-            <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3">
-              {(selectedStage ? getConvsByStage(selectedStage) : conversations)
-                .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm))
-                .map((conv) => {
-                  const stage = stages.find(s => s.id === conv.stage);
-                  const tAgo = () => { const df=Math.floor((Date.now()-new Date(conv.updatedAt).getTime())/1000); if(df<60)return'Ahora'; if(df<3600)return`${Math.floor(df/60)}m`; if(df<86400)return`${Math.floor(df/3600)}h`; return`${Math.floor(df/86400)}d`; };
-                  return (
-                    <div key={conv.id} className="p-2.5 md:p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 transition-all group">
-                      <div className="flex items-start gap-2">
-                        <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-[var(--accent-primary)]/20 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs md:text-sm font-semibold text-[var(--accent-primary)]">{conv.recipientName?.[0] || '?'}</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-1">
-                            <p className="font-medium text-white text-xs md:text-sm truncate">{conv.recipientName || conv.recipientId}</p>
-                            <span className="text-[8px] md:text-[9px] text-[var(--text-muted)] flex-shrink-0">{tAgo()}</span>
-                          </div>
-                          <p className="text-[9px] md:text-[10px] text-[var(--text-muted)] truncate">{conv.lastMessage || 'Sin mensajes'}</p>
-                          <div className="flex items-center justify-between mt-1.5 md:mt-2">
-                            <span className={`px-1.5 py-0.5 rounded text-[8px] md:text-[9px] font-medium border ${STAGE_COLORS[stage?.color || 'blue']}`}>
-                              {stage?.label || conv.stage}
-                            </span>
-                            <a href={`/conversaciones?id=${conv.id}`} className="text-[9px] md:text-[10px] text-[var(--accent-primary)] hover:underline opacity-0 group-hover:opacity-100 transition-opacity">Ver →</a>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-            {conversations.length === 0 && (
-              <div className="text-center py-12 text-[var(--text-muted)]">
-                <MessageSquare className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No hay conversaciones</p>
-              </div>
-            )}
-            </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 🔥 LEADS CALIFICADOS */}
-      {activeTab === 'leads' && (
-        <div className="flex-1 flex flex-col gap-2 md:gap-3 min-h-0 w-full" style={{ maxWidth: '100%' }}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 md:gap-2 flex-shrink-0">
-            <button onClick={() => setLeadFilter('all')} className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl border text-center transition-all ${leadFilter === 'all' ? 'border-[var(--accent-primary)]/50 bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
-              <div className="text-lg md:text-xl font-black text-white">{scoredLeads.length}</div>
-              <div className="text-[9px] md:text-[10px] text-[var(--text-muted)]">Total</div>
-            </button>
-            <button onClick={() => setLeadFilter('hot')} className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl border text-center transition-all ${leadFilter === 'hot' ? 'border-red-500/50 bg-red-500/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
-              <div className="text-lg md:text-xl font-black text-red-400">🔥 {hotLeads.length}</div>
-              <div className="text-[9px] md:text-[10px] text-red-400/70">Calientes</div>
-            </button>
-            <button onClick={() => setLeadFilter('warm')} className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl border text-center transition-all ${leadFilter === 'warm' ? 'border-amber-500/50 bg-amber-500/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
-              <div className="text-lg md:text-xl font-black text-amber-400">🟡 {warmLeads.length}</div>
-              <div className="text-[9px] md:text-[10px] text-amber-400/70">Tibios</div>
-            </button>
-            <button onClick={() => setLeadFilter('cold')} className={`px-2 md:px-3 py-1.5 md:py-2 rounded-xl border text-center transition-all ${leadFilter === 'cold' ? 'border-blue-500/50 bg-blue-500/10' : 'border-[var(--border-primary)] bg-[var(--bg-secondary)] hover:bg-white/5'}`}>
-              <div className="text-lg md:text-xl font-black text-blue-400">🔵 {coldLeads.length}</div>
-              <div className="text-[9px] md:text-[10px] text-blue-400/70">Fríos</div>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <div className="space-y-1.5 md:space-y-2">
-              {filteredLeads
-                .filter(c => !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()))
-                .map((conv) => {
-                  const ls = conv.leadScore;
-                  const stage = stages.find(s => s.id === conv.stage);
-                  const ctx = conv.contextData || {};
-                  const ctxEntries = Object.entries(ctx).filter(([_, v]) => v && String(v).trim() !== '');
-                  return (
-                    <div key={conv.id} className="p-2.5 md:p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
-                      <div className="flex items-center gap-2 md:gap-3" style={{ width: '100%' }}>
-                        <div className={`w-9 h-9 md:w-11 md:h-11 rounded-xl flex flex-col items-center justify-center flex-shrink-0 ${
-                          ls.score >= 70 ? 'bg-red-500/20 border border-red-500/30' : ls.score >= 40 ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-blue-500/20 border border-blue-500/30'
-                        }`}>
-                          <span className="text-xs md:text-sm">{ls.emoji}</span>
-                          <span className={`text-[8px] md:text-[9px] font-black ${ls.color}`}>{ls.score}</span>
-                        </div>
-                        <div className="w-0 flex-1">
-                          <div className="flex items-center gap-1.5 md:gap-2">
-                            <span className="font-semibold text-white text-xs md:text-sm truncate">{conv.recipientName || conv.recipientId}</span>
-                            <span className={`px-1 md:px-1.5 py-0.5 rounded text-[8px] md:text-[9px] font-medium border flex-shrink-0 whitespace-nowrap ${STAGE_COLORS[stage?.color || 'blue']}`}>
-                              {stage?.label || conv.stage}
-                            </span>
-                          </div>
-                          <p className="text-[9px] md:text-[10px] text-[var(--text-muted)] truncate mt-0.5">{conv.lastMessage || 'Sin mensajes'}</p>
-                          {ctxEntries.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {ctxEntries.slice(0, 3).map(([k, v]) => (
-                                <span key={k} className="inline-block px-1 md:px-1.5 py-0.5 rounded bg-white/5 text-[8px] md:text-[9px] text-gray-400">
-                                  {k}: <span className="text-white">{String(v).slice(0, 10)}</span>
-                                </span>
-                              ))}
-                              {ctxEntries.length > 3 && <span className="text-[8px] md:text-[9px] text-gray-500">+{ctxEntries.length - 3}</span>}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex-shrink-0 w-12 md:w-16 hidden sm:block">
-                          <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${ls.score >= 70 ? 'bg-red-500' : ls.score >= 40 ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${ls.score}%` }} />
-                          </div>
-                          <p className="text-[7px] md:text-[8px] text-gray-500 truncate mt-0.5 text-right">{ls.reasons[0]}</p>
-                        </div>
-                        <a href={`/conversaciones?id=${conv.id}`} className="p-1 md:p-1.5 rounded-lg hover:bg-white/10 transition-all flex-shrink-0">
-                          <ArrowUpRight className="w-3.5 h-3.5 md:w-4 md:h-4 text-[var(--accent-primary)]" />
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })}
-              {filteredLeads.length === 0 && (
-                <div className="text-center py-12 text-[var(--text-muted)]">
-                  <Target className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No hay leads {leadFilter !== 'all' ? `${leadFilter === 'hot' ? 'calientes' : leadFilter === 'warm' ? 'tibios' : 'fríos'}` : ''}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CLIENTES */}
-      {activeTab === 'clients' && (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-3 flex-shrink-0 flex-wrap">
-            <button onClick={exportClients} className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
-              <Download className="w-3 h-3 md:w-3.5 md:h-3.5" /> Excel
-            </button>
-            <label className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all cursor-pointer">
-              <Upload className="w-3 h-3 md:w-3.5 md:h-3.5" /> Excel
-              <input type="file" accept=".csv,.txt,.xls,.xlsx" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importClients(e.target.files[0]); e.target.value = ''; }} />
-            </label>
-            <button onClick={() => { setShowClientMass(true); setMassMessageText(''); setMassMediaFile(null); setMassMediaPreview(null); }} className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-all" disabled={clients.length === 0}>
-              <Send className="w-3 h-3 md:w-3.5 md:h-3.5" /> <span className="hidden sm:inline">Masivo</span> ({clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length})
-            </button>
-            <span className="text-[9px] md:text-[10px] text-[var(--text-muted)]">{clients.length} clientes</span>
-          </div>
-
-          <div className="flex-1 overflow-y-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
-              {clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm))
-                .map((client) => (
-                  <div key={client.id} className="p-3 md:p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs md:text-sm font-semibold text-cyan-400">{client.name?.[0] || '?'}</span>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-white text-xs md:text-sm truncate">{client.name}</p>
-                          <p className="text-[10px] md:text-xs text-[var(--text-muted)] flex items-center gap-1"><Phone className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />{client.phone}</p>
-                          {client.email && <p className="text-[10px] md:text-xs text-[var(--text-muted)] flex items-center gap-1 truncate"><Mail className="w-2.5 h-2.5 md:w-3 md:h-3 flex-shrink-0" />{client.email}</p>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-0.5 flex-shrink-0">
-                        <button onClick={() => sendMessageToClient(client.phone, client.name)} className="p-1 md:p-1.5 hover:bg-emerald-500/10 rounded-lg"><Send className="w-3 h-3 md:w-3.5 md:h-3.5 text-emerald-400" /></button>
-                        <button onClick={() => { setEditingItem(client); setClientForm({ ...client, address: client.address || '', notes: client.notes || '', tags: client.tags?.join(', ') || '' }); setShowClientModal(true); }} className="p-1 md:p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-[var(--text-muted)]" /></button>
-                        <button onClick={() => handleDelete('client', client.id)} className="p-1 md:p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-red-400" /></button>
-                      </div>
-                    </div>
-                    <div className="mt-1.5 md:mt-2 space-y-0.5 md:space-y-1">
-                      {client.address && <p className="text-[10px] md:text-xs text-[var(--text-muted)] truncate">📍 {client.address}</p>}
-                      {client.notes && <p className="text-[10px] md:text-xs text-amber-400/80 truncate">📝 {client.notes}</p>}
-                      <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
-                        {client.status && (
-                          <span className={`text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 rounded-full font-medium ${client.status === 'active' ? 'bg-emerald-500/20 text-emerald-400' : client.status === 'lead' ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                            {client.status === 'active' ? '✅ Activo' : client.status === 'lead' ? '🔵 Lead' : client.status}
-                          </span>
-                        )}
-                        {client.totalPurchases > 0 && <span className="text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium">💰 ${client.totalPurchases.toLocaleString()}</span>}
-                        {client.tags?.length > 0 && client.tags.slice(0,2).map((t: string, i: number) => (
-                          <span key={i} className="text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-400">{t}</span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-            {clients.length === 0 && (
-              <div className="text-center py-12 text-[var(--text-muted)]">
-                <Users className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No hay clientes</p>
-                <button onClick={() => setShowClientModal(true)} className="btn-primary mt-4 text-sm"><Plus className="w-4 h-4" /> Agregar</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* PRODUCTOS */}
-      {activeTab === 'products' && (
-        <div className="flex-1 overflow-y-auto">
-          <div className="mb-3 md:mb-4 flex items-center justify-between">
-            <span className="text-xs md:text-sm text-[var(--text-muted)]">{products.length}/{maxProducts} productos</span>
-          </div>
-          
-          {!canAddProduct ? (
-            <div className="mb-3 md:mb-4 p-3 md:p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
-              <div className="flex items-center gap-2 md:gap-3">
-                <span className="text-xl md:text-2xl">📦</span>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-xs md:text-sm font-bold text-white">Límite alcanzado</h4>
-                  <p className="text-[10px] md:text-xs text-gray-400">Máximo {maxProducts} productos.</p>
-                </div>
-                <a href="/subscription#addons" className="px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-[10px] md:text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-all whitespace-nowrap">
-                  +10 — $20
-                </a>
-              </div>
-            </div>
-          ) : products.length >= maxProducts - 3 && products.length > 0 ? (
-            <div className="mb-3 p-2.5 md:p-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5">
-              <div className="flex items-center gap-2 md:gap-3">
-                <span className="text-base md:text-lg">📦</span>
-                <div className="flex-1"><p className="text-[10px] md:text-xs text-gray-400">{maxProducts - products.length} disponibles</p></div>
-                <a href="/subscription#addons" className="px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all whitespace-nowrap">+10 — $20</a>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3">
-            {products.filter(p => !searchTerm || p.name?.toLowerCase().includes(searchTerm.toLowerCase()))
-              .map((product) => (
-                <div key={product.id} className="p-3 md:p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)]">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-white text-xs md:text-sm truncate">{product.name}</p>
-                      <p className="text-base md:text-lg font-bold text-emerald-400">${product.price?.toLocaleString()}</p>
-                      <p className="text-[10px] md:text-xs text-[var(--text-muted)]">Stock: {product.stock}</p>
-                      {product.category && <span className="inline-block mt-1 px-1.5 md:px-2 py-0.5 rounded text-[9px] md:text-[10px] bg-purple-500/20 text-purple-400">{product.category}</span>}
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                      <button onClick={() => { setEditingItem(product); setProductForm({ ...product, price: product.price?.toString() || '', stock: product.stock?.toString() || '' }); setShowProductModal(true); }} className="p-1 md:p-1.5 hover:bg-white/10 rounded-lg"><Edit2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-[var(--text-muted)]" /></button>
-                      <button onClick={() => handleDelete('product', product.id)} className="p-1 md:p-1.5 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5 text-red-400" /></button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-          </div>
-          {products.length === 0 && (
-            <div className="text-center py-12 text-[var(--text-muted)]">
-              <Package className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">No hay productos</p>
-              <button onClick={() => setShowProductModal(true)} className="btn-primary mt-4 text-sm"><Plus className="w-4 h-4" /> Agregar</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ══════ MODALES ══════ */}
-      
-      {/* Modal Mensaje Masivo Pipeline */}
+      {/* ====================================================
+          📢 MODAL MENSAJE MASIVO — Con media + barra de progreso
+          ==================================================== */}
       {showMassMessage && (
-        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => !sendingMass && setShowMassMessage(false)}>
-          <div className="bg-[var(--bg-secondary)] rounded-t-2xl sm:rounded-xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-white text-sm md:text-base">Mensaje Masivo</h3>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !sendingMass && setShowMassMessage(false)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-4 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-white">Mensaje Masivo</h3>
               <button onClick={() => !sendingMass && setShowMassMessage(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
-            <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
-              Enviar a: <strong className="text-white">{stages.find(s => s.id === selectedStage)?.label}</strong> ({getConvsByStage(selectedStage).length} contactos)
+            <p className="text-sm text-[var(--text-muted)] mb-3">
+              Enviar a: <strong className="text-white">{funnelStages.find(s => s.id === filterStage)?.label}</strong> ({getUniqueStageCount(filterStage)} contactos únicos)
             </p>
-            <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." disabled={sendingMass}
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[80px] md:min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50" />
+            <textarea 
+              value={massText} onChange={(e) => setMassText(e.target.value)}
+              placeholder="Escribe tu mensaje..." disabled={sendingMass}
+              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)] min-h-[100px] resize-none mb-3 disabled:opacity-50"
+            />
+
+            {/* 📎 Adjuntar media */}
             <div className="mb-3">
               <input ref={massFileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleMassFileSelect} className="hidden" />
+              
               {massMediaFile ? (
                 <div className="flex items-center gap-2 p-2 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-primary)]">
-                  {massMediaPreview ? <img src={massMediaPreview} alt="" className="w-10 h-10 md:w-12 md:h-12 rounded object-cover" /> : <div className="w-10 h-10 md:w-12 md:h-12 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">{massMediaFile.type.startsWith('audio/') ? <Mic className="w-4 h-4 md:w-5 md:h-5 text-[var(--accent-primary)]" /> : <FileText className="w-4 h-4 md:w-5 md:h-5 text-[var(--accent-primary)]" />}</div>}
-                  <div className="flex-1 min-w-0"><p className="text-xs text-white truncate">{massMediaFile.name}</p><p className="text-[10px] text-[var(--text-muted)]">{(massMediaFile.size / 1024).toFixed(0)} KB</p></div>
-                  <button onClick={removeMassMedia} className="p-1 hover:bg-white/10 rounded" disabled={sendingMass}><X className="w-4 h-4 text-red-400" /></button>
+                  {massMediaPreview ? (
+                    <img src={massMediaPreview} alt="" className="w-12 h-12 rounded object-cover" />
+                  ) : (
+                    <div className="w-12 h-12 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">
+                      {massMediaFile.type.startsWith('audio/') ? <Mic className="w-5 h-5 text-[var(--accent-primary)]" /> : <FileText className="w-5 h-5 text-[var(--accent-primary)]" />}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{massMediaFile.name}</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">{(massMediaFile.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <button onClick={removeMassMedia} className="p-1 hover:bg-white/10 rounded" disabled={sendingMass}>
+                    <X className="w-4 h-4 text-red-400" />
+                  </button>
                 </div>
               ) : (
-                <div className="flex gap-1.5 md:gap-2">
-                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'image/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1 px-2 md:px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-[10px] md:text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}><Image className="w-3 h-3 md:w-3.5 md:h-3.5" /> Imagen</button>
-                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'audio/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1 px-2 md:px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-[10px] md:text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}><Mic className="w-3 h-3 md:w-3.5 md:h-3.5" /> Audio</button>
-                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = '*/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1 px-2 md:px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-[10px] md:text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}><Paperclip className="w-3 h-3 md:w-3.5 md:h-3.5" /> Archivo</button>
+                <div className="flex gap-2">
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'image/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Image className="w-3.5 h-3.5" /> Imagen
+                  </button>
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'audio/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Mic className="w-3.5 h-3.5" /> Audio
+                  </button>
+                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = '*/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}>
+                    <Paperclip className="w-3.5 h-3.5" /> Archivo
+                  </button>
                 </div>
               )}
             </div>
+
+            {/* Progreso de envío */}
             {sendingMass && massTotal > 0 && (
-              <div className="mb-3"><div className="flex justify-between text-xs text-[var(--text-muted)] mb-1"><span>Enviando...</span><span>{massSentCount}/{massTotal}</span></div><div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2"><div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} /></div></div>
-            )}
-            <button onClick={sendMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 text-sm disabled:opacity-50">
-              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${getConvsByStage(selectedStage).length} contactos`}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Cliente */}
-      {showClientModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => { setShowClientModal(false); resetForms(); }}>
-          <div className="bg-[var(--bg-secondary)] rounded-t-2xl sm:rounded-xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-white text-sm md:text-base">{editingItem ? 'Editar' : 'Nuevo'} Cliente</h3>
-              <button onClick={() => { setShowClientModal(false); resetForms(); }} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-2.5 md:space-y-3">
-              <input type="text" value={clientForm.name} onChange={(e) => setClientForm({ ...clientForm, name: e.target.value })} placeholder="Nombre *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <input type="text" value={clientForm.phone} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} placeholder="Teléfono *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <input type="email" value={clientForm.email} onChange={(e) => setClientForm({ ...clientForm, email: e.target.value })} placeholder="Email" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <input type="text" value={clientForm.address} onChange={(e) => setClientForm({ ...clientForm, address: e.target.value })} placeholder="Dirección" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <textarea value={clientForm.notes} onChange={(e) => setClientForm({ ...clientForm, notes: e.target.value })} placeholder="Notas" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[50px] resize-none focus:outline-none focus:border-[var(--accent-primary)]" />
-              <input type="text" value={clientForm.tags} onChange={(e) => setClientForm({ ...clientForm, tags: e.target.value })} placeholder="Tags (separadas por coma)" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <select value={clientForm.status} onChange={(e) => setClientForm({ ...clientForm, status: e.target.value })} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)]">
-                <option value="lead">Lead</option><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="vip">VIP</option>
-              </select>
-              <button onClick={handleSaveClient} className="btn-primary w-full py-2 text-sm">{editingItem ? 'Actualizar' : 'Guardar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Mensaje Masivo Clientes */}
-      {showClientMass && (
-        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => !sendingMass && setShowClientMass(false)}>
-          <div className="bg-[var(--bg-secondary)] rounded-t-2xl sm:rounded-xl p-4 w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-white text-sm md:text-base">📩 Masivo — Clientes</h3>
-              <button onClick={() => !sendingMass && setShowClientMass(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
-            </div>
-            <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
-              Enviar a: <strong className="text-white">{clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length} clientes</strong>
-              {searchTerm && <span className="text-amber-400"> (filtro: &quot;{searchTerm}&quot;)</span>}
-            </p>
-            <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." disabled={sendingMass}
-              className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[80px] md:min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50" />
-            <div className="mb-3">
-              <input ref={massFileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx" onChange={handleMassFileSelect} className="hidden" />
-              {massMediaFile ? (
-                <div className="flex items-center gap-2 p-2 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border-primary)]">
-                  {massMediaPreview ? <img src={massMediaPreview} alt="" className="w-10 h-10 md:w-12 md:h-12 rounded object-cover" /> : <div className="w-10 h-10 md:w-12 md:h-12 rounded bg-[var(--accent-primary)]/20 flex items-center justify-center">{massMediaFile.type.startsWith('audio/') ? <Mic className="w-4 h-4 md:w-5 md:h-5 text-[var(--accent-primary)]" /> : <FileText className="w-4 h-4 md:w-5 md:h-5 text-[var(--accent-primary)]" />}</div>}
-                  <div className="flex-1 min-w-0"><p className="text-xs text-white truncate">{massMediaFile.name}</p><p className="text-[10px] text-[var(--text-muted)]">{(massMediaFile.size / 1024).toFixed(0)} KB</p></div>
-                  <button onClick={removeMassMedia} className="p-1 hover:bg-white/10 rounded" disabled={sendingMass}><X className="w-4 h-4 text-red-400" /></button>
+              <div className="mb-3">
+                <div className="flex justify-between text-xs text-[var(--text-muted)] mb-1">
+                  <span>Enviando...</span>
+                  <span>{massSentCount}/{massTotal}</span>
                 </div>
-              ) : (
-                <div className="flex gap-1.5 md:gap-2">
-                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'image/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1 px-2 md:px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-[10px] md:text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}><Image className="w-3 h-3 md:w-3.5 md:h-3.5" /> Imagen</button>
-                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = 'audio/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1 px-2 md:px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-[10px] md:text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}><Mic className="w-3 h-3 md:w-3.5 md:h-3.5" /> Audio</button>
-                  <button onClick={() => { if (massFileInputRef.current) { massFileInputRef.current.accept = '*/*'; massFileInputRef.current.click(); } }} className="flex items-center gap-1 px-2 md:px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-[10px] md:text-xs text-[var(--text-muted)] hover:text-white hover:bg-white/10 transition-all border border-[var(--border-primary)]" disabled={sendingMass}><Paperclip className="w-3 h-3 md:w-3.5 md:h-3.5" /> Archivo</button>
+                <div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2">
+                  <div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} />
                 </div>
-              )}
-            </div>
-            {sendingMass && massTotal > 0 && (
-              <div className="mb-3"><div className="flex justify-between text-xs text-[var(--text-muted)] mb-1"><span>Enviando...</span><span>{massSentCount}/{massTotal}</span></div><div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2"><div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} /></div></div>
-            )}
-            <button onClick={sendClientMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 text-sm disabled:opacity-50">
-              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length} clientes`}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Producto */}
-      {showProductModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={() => setShowProductModal(false)}>
-          <div className="bg-[var(--bg-secondary)] rounded-t-2xl sm:rounded-xl p-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-white text-sm md:text-base">{editingItem ? 'Editar' : 'Nuevo'} Producto</h3>
-              <button onClick={() => { setShowProductModal(false); resetForms(); }} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-2.5 md:space-y-3">
-              <input type="text" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} placeholder="Nombre *" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <textarea value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} placeholder="Descripción" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[50px] resize-none focus:outline-none focus:border-[var(--accent-primary)]" />
-              <div className="grid grid-cols-2 gap-2 md:gap-3">
-                <input type="number" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: e.target.value })} placeholder="Precio" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-                <input type="number" value={productForm.stock} onChange={(e) => setProductForm({ ...productForm, stock: e.target.value })} placeholder="Stock" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+                <p className="text-[10px] text-[var(--text-muted)] mt-1 text-center">
+                  ⏱️ ~{(() => {
+                    const remaining = massTotal - massSentCount;
+                    const avgDelay = massTotal <= 20 ? 7 : massTotal <= 50 ? 10 : 14;
+                    const batchPauses = Math.floor(remaining / 15) * 45;
+                    const totalSecs = remaining * avgDelay + batchPauses;
+                    return totalSecs > 60 ? `${Math.ceil(totalSecs / 60)}min` : `${totalSecs}s`;
+                  })()}  restantes
+                </p>
               </div>
-              <input type="text" value={productForm.category} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} placeholder="Categoría" className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-              <button onClick={handleSaveProduct} className="btn-primary w-full py-2 text-sm">{editingItem ? 'Actualizar' : 'Guardar'}</button>
+            )}
+
+            <button onClick={sendMassMessage} disabled={sendingMass || bulkSendLockRef.current || (!massText.trim() && !massMediaFile)} className="btn-primary w-full py-2 disabled:opacity-50">
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${getUniqueStageCount(filterStage)} contactos`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🗑️ Modal de confirmación de eliminación */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-[var(--bg-secondary)] rounded-xl p-6 w-full max-w-sm border border-red-500/30" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white">¿Eliminar conversación?</h3>
+                <p className="text-xs text-[var(--text-muted)]">Esta acción no se puede deshacer</p>
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[var(--bg-tertiary)] mb-4">
+              <p className="text-sm text-white font-medium">{deleteConfirm.recipientName || deleteConfirm.groupName || 'Sin nombre'}</p>
+              <p className="text-xs text-[var(--text-muted)]">{deleteConfirm.recipientId}</p>
+              <p className="text-xs text-red-400 mt-1">Se eliminarán todos los mensajes de esta conversación.</p>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setDeleteConfirm(null)} 
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium bg-white/5 text-[var(--text-muted)] hover:bg-white/10 border border-[var(--border-primary)]"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={() => deleteConversation(deleteConfirm)} 
+                className="flex-1 py-2.5 rounded-lg text-sm font-bold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
+              >
+                🗑️ Sí, eliminar
+              </button>
             </div>
           </div>
         </div>
       )}
+
     </div>
   );
 }

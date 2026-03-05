@@ -5,31 +5,6 @@ import prisma from '../lib/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
-
-// ⚡ In-memory brute force protection para login
-// Para producción con múltiples instancias, migrar a Redis
-const loginAttempts = new Map<string, { count: number; firstAttempt: number }>();
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutos
-const checkLoginRateLimit = (key: string): { blocked: boolean; remaining: number } => {
-  const now = Date.now();
-  const entry = loginAttempts.get(key);
-  if (!entry || now - entry.firstAttempt > LOGIN_WINDOW_MS) {
-    loginAttempts.set(key, { count: 1, firstAttempt: now });
-    return { blocked: false, remaining: MAX_LOGIN_ATTEMPTS - 1 };
-  }
-  entry.count++;
-  if (entry.count > MAX_LOGIN_ATTEMPTS) return { blocked: true, remaining: 0 };
-  return { blocked: false, remaining: MAX_LOGIN_ATTEMPTS - entry.count };
-};
-const resetLoginAttempts = (key: string) => loginAttempts.delete(key);
-// Limpiar entradas viejas cada hora (evitar memory leak)
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of loginAttempts.entries()) {
-    if (now - v.firstAttempt > LOGIN_WINDOW_MS) loginAttempts.delete(k);
-  }
-}, 60 * 60 * 1000);
 // 🔒 SEGURIDAD: JWT_SECRET obligatorio — NO fallback hardcodeado
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -294,17 +269,8 @@ router.post('/login', async (req: Request, res: Response) => {
     const email = rawEmail?.trim().toLowerCase();
     if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
 
-    // [FIX] Rate limit: bloquear brute force antes de consultar BD
-    const rlResult = checkLoginRateLimit(email);
-    if (rlResult.blocked) {
-      res.status(429).json({ error: 'Demasiados intentos fallidos. Espera 15 minutos e intenta de nuevo.' }); return;
-    }
-
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      checkLoginRateLimit(email); // contar intento
-      res.status(401).json({ error: 'Credenciales inválidas' }); return;
-    }
+    if (!user) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
 
     // Sub-usuario desactivado
     if (user.parentUserId && !user.isActive) {
@@ -312,11 +278,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) {
-      checkLoginRateLimit(email); // contar intento
-      res.status(401).json({ error: 'Credenciales inválidas' }); return;
-    }
-    resetLoginAttempts(email); // Login OK: resetear contador
+    if (!valid) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
 
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '3d' });
 

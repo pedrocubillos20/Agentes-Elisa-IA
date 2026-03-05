@@ -4,17 +4,6 @@ import crypto from 'crypto';
 
 const router = Router();
 
-// ⚡ getOwnerId — sub-usuarios usan integración del admin owner
-const _ghlOwnerCache = new Map<string, {v: string; ts: number}>();
-const getOwnerId = async (uid: string): Promise<string> => {
-  const c = _ghlOwnerCache.get(uid);
-  if (c && Date.now() - c.ts < 300000) return c.v;
-  const u = await prisma.user.findUnique({ where: { id: uid }, select: { parentUserId: true } });
-  const oid = u?.parentUserId || uid;
-  _ghlOwnerCache.set(uid, { v: oid, ts: Date.now() });
-  return oid;
-};
-
 // ====================================================
 // ⚙️ GHL CONFIG
 // ====================================================
@@ -97,7 +86,6 @@ async function ghlFetch(integ: any, path: string, opts: any = {}) {
 router.post('/connect-apikey', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
     const { apiKey, locationId } = req.body;
 
     if (!apiKey || !locationId) {
@@ -122,7 +110,7 @@ router.post('/connect-apikey', async (req: any, res: Response) => {
 
     // Save integration
     await prisma.ghlIntegration.upsert({
-      where: { userId: ownerId },
+      where: { userId },
       create: {
         userId, authMethod: 'apikey', ghlApiKey: apiKey, locationId, locationName,
       },
@@ -179,10 +167,9 @@ router.get('/callback', async (req: Request, res: Response) => {
     let locationName = '';
     try { const lr = await fetch(`${GHL_BASE}/locations/${tokens.locationId}`, { headers: { 'Authorization': `Bearer ${tokens.access_token}`, 'Version': '2021-07-28' } }); if (lr.ok) { const ld: any = await lr.json(); locationName = ld.location?.name || ld.name || ''; } } catch {}
 
-    const ownerId = userId; // OAuth callback: el userId del state ES el owner (no sub-usuario)
     await prisma.ghlIntegration.upsert({
-      where: { userId: ownerId },
-      create: { userId: ownerId, authMethod: 'oauth', accessToken: tokens.access_token, refreshToken: tokens.refresh_token, tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 86400) * 1000), locationId: tokens.locationId || '', locationName, companyId: tokens.companyId || null },
+      where: { userId },
+      create: { userId, authMethod: 'oauth', accessToken: tokens.access_token, refreshToken: tokens.refresh_token, tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 86400) * 1000), locationId: tokens.locationId || '', locationName, companyId: tokens.companyId || null },
       update: { authMethod: 'oauth', accessToken: tokens.access_token, refreshToken: tokens.refresh_token, tokenExpiresAt: new Date(Date.now() + (tokens.expires_in || 86400) * 1000), locationId: tokens.locationId || '', locationName, isActive: true, lastError: null },
     });
 
@@ -200,8 +187,7 @@ router.get('/callback', async (req: Request, res: Response) => {
 router.get('/status', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
-    const integ = await prisma.ghlIntegration.findUnique({ where: { userId: ownerId } });
+    const integ = await prisma.ghlIntegration.findUnique({ where: { userId } });
     if (!integ) return res.json({ connected: false, oauthAvailable: !!GHL_CLIENT_ID });
 
     let pipelines: any[] = [], calendars: any[] = [];
@@ -220,10 +206,9 @@ router.get('/status', async (req: any, res: Response) => {
 router.put('/settings', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
     const { syncContacts, syncPipeline, syncCalendar, syncConversations, syncDirection, pipelineId, pipelineStages, calendarId, isActive } = req.body;
     await prisma.ghlIntegration.update({
-      where: { userId: ownerId },
+      where: { userId },
       data: {
         ...(syncContacts !== undefined && { syncContacts }), ...(syncPipeline !== undefined && { syncPipeline }),
         ...(syncCalendar !== undefined && { syncCalendar }), ...(syncConversations !== undefined && { syncConversations }),
@@ -242,8 +227,7 @@ router.put('/settings', async (req: any, res: Response) => {
 router.delete('/disconnect', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
-    await prisma.ghlIntegration.delete({ where: { userId: ownerId } });
+    await prisma.ghlIntegration.delete({ where: { userId } });
     console.log(`🔌 GHL disconnected (user: ${userId})`);
     res.json({ success: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -255,8 +239,7 @@ router.delete('/disconnect', async (req: any, res: Response) => {
 router.post('/sync/push', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
-    const integ = await prisma.ghlIntegration.findUnique({ where: { userId: ownerId } });
+    const integ = await prisma.ghlIntegration.findUnique({ where: { userId } });
     if (!integ?.isActive) return res.status(400).json({ error: 'GHL no conectado' });
 
     const results = { contacts: 0, opportunities: 0, appointments: 0, errors: [] as string[] };
@@ -264,7 +247,7 @@ router.post('/sync/push', async (req: any, res: Response) => {
     // 1. CONTACTS
     if (integ.syncContacts) {
       const convs = await prisma.conversation.findMany({
-        where: { userId: ownerId, isGroup: false }, select: { id: true, recipientId: true, recipientName: true, stage: true, contextData: true },
+        where: { userId, isGroup: false }, select: { id: true, recipientId: true, recipientName: true, stage: true, contextData: true },
       });
       for (const c of convs) {
         try {
@@ -325,7 +308,7 @@ router.post('/sync/push', async (req: any, res: Response) => {
       }
     }
 
-    await prisma.ghlIntegration.update({ where: { userId: ownerId }, data: { lastSyncAt: new Date(), totalSynced: { increment: results.contacts + results.opportunities + results.appointments }, lastError: results.errors[0] || null } });
+    await prisma.ghlIntegration.update({ where: { userId }, data: { lastSyncAt: new Date(), totalSynced: { increment: results.contacts + results.opportunities + results.appointments }, lastError: results.errors[0] || null } });
     console.log(`📤 GHL push: ${results.contacts}C ${results.opportunities}O ${results.appointments}A (user: ${userId})`);
     res.json({ success: true, results });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -337,8 +320,7 @@ router.post('/sync/push', async (req: any, res: Response) => {
 router.post('/sync/pull', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
-    const integ = await prisma.ghlIntegration.findUnique({ where: { userId: ownerId } });
+    const integ = await prisma.ghlIntegration.findUnique({ where: { userId } });
     if (!integ?.isActive) return res.status(400).json({ error: 'GHL no conectado' });
 
     const results = { contacts: 0, opportunities: 0, appointments: 0, errors: [] as string[] };
@@ -392,7 +374,7 @@ router.post('/sync/pull', async (req: any, res: Response) => {
       } catch (e: any) { results.errors.push(`Pull calendar: ${e.message}`); }
     }
 
-    await prisma.ghlIntegration.update({ where: { userId: ownerId }, data: { lastSyncAt: new Date(), totalSynced: { increment: results.contacts + results.opportunities + results.appointments }, lastError: results.errors[0] || null } });
+    await prisma.ghlIntegration.update({ where: { userId }, data: { lastSyncAt: new Date(), totalSynced: { increment: results.contacts + results.opportunities + results.appointments }, lastError: results.errors[0] || null } });
     console.log(`📥 GHL pull: ${results.contacts}C ${results.opportunities}O ${results.appointments}A (user: ${userId})`);
     res.json({ success: true, results });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -404,7 +386,6 @@ router.post('/sync/pull', async (req: any, res: Response) => {
 router.get('/logs', async (req: any, res: Response) => {
   try {
     const userId = req.user?.id || req.user?.userId;
-    const ownerId = await getOwnerId(userId);
     const logs = await prisma.ghlSyncLog.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 50 });
     res.json(logs);
   } catch (e: any) { res.status(500).json({ error: e.message }); }

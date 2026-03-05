@@ -178,13 +178,13 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
       body: JSON.stringify({
-        model: 'gpt-4o',  // [FIX] Base de conocimiento requiere máxima calidad
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.4,  // [FIX] Más precisión en extracción de datos del PDF
-        max_tokens: 12000  // [FIX] MD completo necesita más tokens
+        temperature: 0.6,
+        max_tokens: 8000
       })
     });
 
@@ -203,23 +203,10 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
       return;
     }
 
-    // [FIX 8] Post-process: limpiar backticks + validar secciones críticas
+    // Post-process: clean up any markdown code fences the AI may have added
     generated = generated.replace(/^```(?:markdown|json|md)?\n?/gm, '').replace(/\n?```$/gm, '').trim();
 
-    // Verificar secciones críticas para la plataforma
-    const hasPipeline = /##.*ETAPAS.*PIPELINE/i.test(generated) || /\n- [A-ZÁ-Ú]/.test(generated);
-    const hasFlow = /##.*FLUJO/i.test(generated);
-    const hasRules = /##.*REGLAS/i.test(generated);
-    const hasMemory = /##.*MEMORIA|MEMORY_JSON|etapa_actual/i.test(generated);
-    const hasVoice = /##.*VOZ|ElevenLabs|<<VOZ>>/i.test(generated);
-    
-    const warnings: string[] = [];
-    if (!hasPipeline) warnings.push('⚠️ Falta sección ETAPAS DEL PIPELINE — el CRM no tendrá etapas automáticas');
-    if (!hasFlow) warnings.push('⚠️ Falta sección FLUJO CONVERSACIONAL — el bot no sabrá el orden de pasos');
-    if (!hasRules) warnings.push('⚠️ Falta sección REGLAS — el bot puede cometer errores críticos');
-    
-    console.log(`✅ AI Config v3 generado: ${generated.length} chars | Pipeline:${hasPipeline} Flow:${hasFlow} Rules:${hasRules} Memory:${hasMemory}`);
-    if (warnings.length) console.warn(warnings.join('\n'));
+    console.log(`✅ AI Config v2 generado: ${generated.length} caracteres`);
 
     res.json({
       success: true,
@@ -230,12 +217,7 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
         inputChars: pdfText.length,
         outputChars: generated.length,
         mediaItemsDetected: mediaItems.length,
-        tokensUsed: aiData.usage?.total_tokens || 0,
-        hasPipeline: /##.*ETAPAS.*PIPELINE/i.test(generated) || /\n- [A-ZÁ-Ú]/.test(generated),
-        hasFlow: /##.*FLUJO/i.test(generated),
-        hasRules: /##.*REGLAS/i.test(generated),
-        sectionsFound: (generated.match(/^## /gm) || []).length,
-        hasVoice: /##.*VOZ|ElevenLabs|<<VOZ>>/i.test(generated)
+        tokensUsed: aiData.usage?.total_tokens || 0
       }
     });
   } catch (e: any) {
@@ -340,12 +322,6 @@ function detectBusinessType(pdfText: string, userType: string): string {
   if (/vehículo|vehiculo|auto|carro|moto|alquiler.*auto|rent.*car/i.test(text)) return 'vehiculos';
   if (/tienda|producto|precio|envío|envio|talla|color|compra|pedido|catálogo|catalogo/i.test(text)) return 'tienda';
   if (/servicio|cotización|cotizacion|consultoría|consultoria|asesoría|asesoria|proyecto/i.test(text)) return 'servicios';
-  if (/veterinaria|veterinario|mascota|perro|gato|animal|clínica.*animal/i.test(text)) return 'veterinaria';
-  if (/tecnomecanica|tecnomecánica|revisión.*vehiculo|rtm|revisión.*técnica/i.test(text)) return 'tecnomecanica';
-  if (/seguro|póliza|poliza|aseguradora|riesgo.*cobertura/i.test(text)) return 'seguros';
-  if (/evento|boda|matrimonio|quinceaño|cumpleaño|catering|banquete/i.test(text)) return 'eventos';
-  if (/transporte|mudanza|flete|carga|domicilio.*empresa|mensajería/i.test(text)) return 'transporte';
-  if (/taller|mecánica|mecanico|reparación.*auto|cambio.*aceite|diagnóstico.*vehiculo/i.test(text)) return 'taller';
   
   return 'general';
 }
@@ -358,27 +334,18 @@ function buildSystemPrompt(format: string, mediaSummary: string, businessName?: 
   const bizType = detectedType || 'general';
   
   // Determine action type based on business
-  // [FIX 4] Acción principal + acciones secundarias según el tipo de negocio
   let actionType = 'crear_pedido';
   let actionLabel = 'pedido';
   let actionFields = 'producto_servicio, cantidad, precio, total, direccion, ciudad, fecha_entrega';
-  let secondaryActions = '';
   
   if (['clinica', 'legal', 'salon', 'educacion', 'saas', 'servicios'].includes(bizType)) {
     actionType = 'crear_cita';
     actionLabel = 'cita';
-    actionFields = 'tipo_cita, fecha_cita, hora_cita, nombre, telefono';
-    secondaryActions = 'También puede usar crear_pedido si vende productos físicos.';
+    actionFields = 'tipo_cita, fecha_cita, hora_cita';
   } else if (['restaurante', 'hotel', 'canchas', 'vehiculos', 'gym'].includes(bizType)) {
     actionType = 'crear_reserva';
     actionLabel = 'reserva';
-    actionFields = 'tipo_reserva, fecha_reserva, hora_reserva, num_personas, nombre, telefono';
-    secondaryActions = bizType === 'restaurante' ? 'También puede usar crear_pedido para domicilios/delivery.' : '';
-  } else if (bizType === 'inmobiliaria') {
-    actionType = 'crear_cita';
-    actionLabel = 'visita';
-    actionFields = 'tipo_cita, fecha_cita, hora_cita, nombre, telefono';
-    secondaryActions = 'tipo_cita = "visita inmueble"';
+    actionFields = 'tipo_reserva, fecha_reserva, hora_reserva, num_personas';
   }
 
   const mediaSection = mediaSummary
@@ -447,346 +414,149 @@ Extrae TODA la info del PDF. Precios EXACTOS. Mínimo 6 etapas, 10 FAQ. JSON VÁ
     legal: 'Nuevo Contacto, Consultando Caso, Asesoría Inicial, Pendiente Documentos, Caso Activo, Resuelto, Perdido',
     servicios: 'Nuevo Contacto, Interesado, Cotización Enviada, Negociación, Contratado, En Ejecución, Completado, Perdido',
     vehiculos: 'Nuevo Contacto, Consultando Vehículos, Eligiendo Vehículo, Pendiente Reserva, Reserva Confirmada, Entregado, Perdido',
-    general: 'Nuevo Contacto, Interesado, En Cotización, Pendiente Datos, Confirmado, En Proceso, Completado, Perdido',
-    veterinaria: 'Nuevo Contacto, Consultando Servicios, Eligiendo Tratamiento, Pendiente Cita, Cita Confirmada, Atendido, Seguimiento, Perdido',
-    tecnomecanica: 'Nuevo Contacto, Consultando Disponibilidad, Pendiente Cita RTM, Cita Confirmada, Vehículo en Revisión, Revisión Completada, Perdido',
-    seguros: 'Nuevo Contacto, Consultando Seguros, Cotización Enviada, Evaluando Propuesta, Póliza Activa, Perdido',
-    eventos: 'Nuevo Contacto, Consultando Disponibilidad, Propuesta Enviada, Negociando, Reserva Confirmada, Evento Realizado, Perdido',
-    transporte: 'Nuevo Contacto, Consultando Ruta, Cotización Enviada, Servicio Confirmado, En Tránsito, Entregado, Perdido',
-    taller: 'Nuevo Contacto, Consultando Servicio, Pendiente Cita, Cita Confirmada, Vehículo en Taller, Listo para Entrega, Entregado, Perdido'
+    general: 'Nuevo Contacto, Interesado, En Cotización, Pendiente Datos, Confirmado, En Proceso, Completado, Perdido'
   };
 
   const suggestedStages = stageExamples[bizType] || stageExamples.general;
 
-  // ════════════════════════════════════════════════════════════
-  // 🧠 MEGA PROMPT v3.0 — El cerebro perfecto de la plataforma
-  // ════════════════════════════════════════════════════════════
-  return `Eres el mejor experto mundial en crear bases de conocimiento para asistentes de ventas por WhatsApp.
-Tu output se convierte DIRECTAMENTE en el cerebro de un bot que vende, agenda y gestiona clientes en BizonneCRM.
-Un MD mal generado = bot que no funciona. Un MD perfecto = bot que vende solo 24/7.
+  return `Eres un experto en crear bases de conocimiento PERFECTAS para asistentes de ventas por WhatsApp en la plataforma BizonneCRM.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 DATOS DEL NEGOCIO A CONFIGURAR
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Nombre: ${businessName || '[extraer del PDF]'}
-Tipo: ${businessType || '[detectar del PDF]'}
+Tu trabajo: leer la info del negocio (PDF o datos) y generar un Markdown COMPLETO que active TODOS los sistemas de la plataforma automáticamente.
+
+Negocio: ${businessName || 'No especificado'} (${businessType || 'general'})
 Tipo detectado: ${bizType}
-Acción principal: ${actionType}
-Etapas sugeridas: ${suggestedStages}
+Acción principal: ${actionType} (${actionLabel})
+Campos para la acción: ${actionFields}
+Etapas sugeridas para este tipo: ${suggestedStages}
 ${mediaSection}
+${platformKnowledge}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏗️ ARQUITECTURA DE LA PLATAFORMA (cómo usa el MD)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-La plataforma tiene 6 sistemas que se activan CON ESTE MD:
+=== GENERA EXACTAMENTE ESTA ESTRUCTURA ===
 
-[SISTEMA 1 — CRM/PIPELINE]
-Lee la sección "## 📋 ETAPAS DEL PIPELINE" buscando líneas "- NombreEtapa".
-Cada "- Etapa" se convierte en una columna Kanban. El bot mueve el lead entre columnas via etapa_actual en el MEMORY_JSON.
-CRÍTICO: Las etapas del flujo y las etapas del pipeline DEBEN SER LAS MISMAS palabras exactas.
-
-[SISTEMA 2 — MEMORY_JSON]
-Al final de CADA respuesta del bot va un bloque oculto:
-<<MEMORY_JSON>>{"nombre":"","telefono":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","fecha_reserva":"","hora_reserva":"","tipo_reserva":"","num_personas":"","duracion_reserva":"","reserva":"","notas":"","nombre_empresa":"","tipo_negocio":"","email":"","etapa_actual":"","accion":""}<<END_MEMORY>>
-Este bloque persiste entre mensajes. El bot lee y actualiza estos campos progresivamente.
-
-[SISTEMA 3 — ACCIONES AUTOMÁTICAS]
-Cuando "accion" tiene valor, el sistema crea un registro REAL en la Agenda:
-- accion:"crear_cita" → Crea cita en Agenda (requiere: fecha_cita, hora_cita, tipo_cita, nombre, telefono)
-- accion:"crear_pedido" → Crea pedido en Agenda (requiere: producto_servicio, cantidad, precio, total, nombre, telefono, ciudad, direccion)
-- accion:"crear_reserva" → Crea reserva en Agenda (requiere: fecha_reserva, hora_reserva, tipo_reserva, num_personas, nombre, telefono)
-- accion:"actualizar_cita/pedido/reserva" → Modifica registro existente
-- accion:"cancelar_cita/pedido/reserva" → Cancela registro existente
-⚠️ El bot SOLO pone acción cuando EL CLIENTE CONFIRMA y TODOS los datos están completos.
-
-[SISTEMA 4 — TRIGGERS MULTIMEDIA]
-El bot incluye palabras clave naturalmente en sus respuestas → el sistema detecta y envía el archivo automáticamente.
-El bot NUNCA escribe URLs, rutas ni [imagen:x]. Solo la palabra trigger sola o dentro de una oración.
-Ejemplo: "Te envío nuestro catálogo completo" → si "catálogo completo" es el trigger, se envía el archivo.
-
-[SISTEMA 5 — LLAMADAS IA]
-Si el negocio tiene Llamadas IA configuradas, la sección "## 🎭 IDENTIDAD" + "## ⚠️ REGLAS" definen la voz del agente.
-Las llamadas también leen la base de conocimiento para responder preguntas.
-
-[SISTEMA 6 — AGENDA/RECURSOS]
-Las citas/pedidos/reservas creados via accion aparecen en la Agenda con todos los datos del MEMORY_JSON.
-Si el negocio tiene "Recursos" configurados (doctores, salas, mesas), el sistema asigna automáticamente.
-
-[SISTEMA 7 — ELEVENLABS VOZ]
-Si el negocio tiene ElevenLabs activado, el bot puede responder con notas de voz reales (no texto).
-El bot decide CUÁNDO usar voz según las instrucciones en la sección "## 🔊 VOZ (ElevenLabs)".
-Tags de control que el bot usa internamente (el cliente NUNCA los ve):
-- <<VOZ>> al inicio de la respuesta → el sistema convierte el texto en audio y lo envía como nota de voz
-- <<TEXTO>> al inicio → fuerza respuesta en texto aunque el modo voz esté activo
-La sección de VOZ en el MD define: qué momentos del flujo usan voz, qué momentos usan texto, y el tono/estilo del audio.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 GENERA EXACTAMENTE ESTA ESTRUCTURA
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-# [NOMBRE NEGOCIO] — Base de Conocimiento IA
+# 🤖 [NOMBRE DEL NEGOCIO] — BASE DE CONOCIMIENTO
 
 ---
 
-## 🎭 IDENTIDAD DEL ASISTENTE
-
-**Nombre:** [Nombre cercano y representativo. Ej: "Sofía de MiTienda", "Carlos de ClinicaSalud"]
-**Personalidad:** [3-5 rasgos: amable, resolutivo, entusiasta, profesional, etc.]
-**Objetivo principal:** [En 1 línea: qué logra el bot. Siempre orientado a ${actionType}]
-**Tono:** [Cercano/Profesional/Juvenil según el negocio] · Idioma: Español Colombia · Emojis: Moderados
-**Presenta el negocio como:** [Frase corta de valor. Ej: "La tienda de ropa con mejor calidad-precio de Bogotá"]
+## 🎭 IDENTIDAD
+[Nombre del asistente, personalidad, objetivo. Usa emojis, tono cercano, orientado a ${actionLabel}s]
 
 ---
 
 ## 📋 ETAPAS DEL PIPELINE
 
-⚠️ FORMATO OBLIGATORIO — una etapa por línea con guión, sin descripción en la misma línea:
+⚠️ FORMATO OBLIGATORIO — lista con guión para auto-extracción:
 
 - [Etapa 1]
 - [Etapa 2]
-- [Etapa 3]
-[... MÍNIMO 6, MÁXIMO 12 etapas. Adaptar de: ${suggestedStages}]
+- [... adaptar las sugeridas: ${suggestedStages}]
 - Perdido
 
-REGLA: Nombres cortos (2-30 caracteres), descriptivos, sin caracteres especiales.
-Estas etapas son las ÚNICAS que el bot puede usar en etapa_actual. Deben reflejar el journey real del cliente.
+Ajusta/agrega etapas según lo que dice el PDF. Mínimo 6, máximo 15.
 
 ---
 
-## 🔄 FLUJO CONVERSACIONAL COMPLETO
+## 🔄 FLUJO CONVERSACIONAL — PASO A PASO
 
-⚠️ GUÍA EXACTA: El bot DEBE seguir estos pasos en orden. Incluye mensaje ejemplo + etapa CRM + trigger multimedia si aplica.
-⚠️ REGLA DE ORO: Datos del cliente SIEMPRE antes del resumen. Resumen SIEMPRE antes de confirmar.
+⚠️ Cada paso DEBE tener: mensaje ejemplo del bot + etapa correspondiente + trigger si aplica.
 
-### PASO 1 — Saludo y Presentación
-**Etapa CRM:** [Primera etapa del pipeline]
-**El bot dice:**
-"[Mensaje de bienvenida con emoji. Presentar asistente y negocio. Preguntar nombre.]"
-**Objetivo:** Capturar nombre → guardarlo en memoria como "nombre"
+### PASO 1: SALUDO (etapa: [primera etapa])
+[Bienvenida + pedir nombre]
 
-### PASO 2 — Identificar Necesidad
-**Etapa CRM:** [Segunda etapa]
-**El bot dice:**
-"[Hola {nombre}! Preguntar qué busca / en qué puede ayudar. Si hay catálogo → activar trigger aquí]"
-**Trigger multimedia:** [trigger si aplica] → Envía [tipo de archivo]
-**Objetivo:** Entender qué quiere el cliente
+### PASO 2: IDENTIFICAR NECESIDAD (etapa: [segunda etapa])
+[Preguntar qué necesita. Si hay catálogo → indicar: "Incluir '[trigger]' en la respuesta"]
 
-### PASO 3 — Presentar Opciones / Cotizar
-**Etapa CRM:** [Tercera etapa]
-**El bot dice:**
-"[Mostrar opciones relevantes con precios. Preguntar cuál le interesa.]"
-**Trigger multimedia:** [trigger si aplica]
-**Objetivo:** Cliente elige producto/servicio específico → guardar en producto_servicio
+### PASO 3-N: [SIGUIENTES PASOS]
+[Uno por cada dato/decisión necesaria. Indicar trigger multimedia si aplica en ese paso]
 
-[CONTINUAR CON TODOS LOS PASOS NECESARIOS SEGÚN EL NEGOCIO]
+### PASO [penúltimo]: DATOS DEL CLIENTE (etapa: [etapa de datos])
+⚠️ SIEMPRE pedir datos ANTES del resumen:
+${actionType === 'crear_pedido' ? '1. Nombre completo\n2. Teléfono\n3. Dirección\n4. Barrio\n5. Ciudad' :
+  actionType === 'crear_cita' ? '1. Nombre completo\n2. Teléfono\n3. Fecha preferida\n4. Hora preferida' :
+  '1. Nombre completo\n2. Teléfono\n3. Fecha\n4. Hora\n5. Número de personas'}
 
-### PASO [N-2] — Recopilar Datos del Cliente
-**Etapa CRM:** [Etapa de datos/pendiente]
-**El bot dice:**
-"[Para procesar tu ${actionType === 'crear_pedido' ? 'pedido' : actionType === 'crear_cita' ? 'cita' : 'reserva'}, necesito:]"
-${actionType === 'crear_pedido' ? `1. ¿Cuál es tu nombre completo?
-2. ¿Número de celular?
-3. ¿Dirección de entrega?
-4. ¿Barrio?
-5. ¿Ciudad?` : actionType === 'crear_cita' ? `1. ¿Cuál es tu nombre completo?
-2. ¿Número de celular?
-3. ¿Qué fecha prefieres?
-4. ¿Qué hora te queda mejor?` : `1. ¿Cuál es tu nombre completo?
-2. ¿Número de celular?
-3. ¿Qué fecha?
-4. ¿A qué hora?
-5. ¿Cuántas personas?`}
-**Objetivo:** Completar TODOS los campos requeridos en memoria antes de mostrar resumen
+### PASO [último-1]: RESUMEN COMPLETO (etapa: [etapa cotizado/resumen])
+[Mostrar resumen CON todos los datos. Preguntar: ¿Confirmamos?]
 
-### PASO [N-1] — Resumen y Confirmación
-**Etapa CRM:** [Etapa de resumen/cotizado]
-**El bot dice:**
-"[Resumen COMPLETO con TODOS los datos: nombre, ${actionType === 'crear_pedido' ? 'producto, cantidad, precio, total, dirección' : actionType === 'crear_cita' ? 'servicio, fecha, hora, nombre, teléfono' : 'servicio, fecha, hora, personas, nombre, teléfono'}]
-¿Todo está correcto? ✅ Confirmar / ❌ Modificar"
-**Objetivo:** Cliente revisa y confirma
-
-### PASO [N] — Confirmación Final
-**Etapa CRM:** [Última etapa positiva del pipeline]
-**El bot dice:**
-"[Confirmar ${actionType === 'crear_pedido' ? 'pedido' : actionType === 'crear_cita' ? 'cita' : 'reserva'} + dar número/código de referencia + próximos pasos + despedida cálida]"
-**Acción MEMORY_JSON:** accion = "${actionType}" (SE ACTIVA AQUÍ con datos completos)
-**Objetivo:** ${actionType} creado en Agenda, cliente satisfecho
+### PASO [último]: CONFIRMACIÓN (etapa: [etapa confirmado])
+[Cliente confirma → activar ${actionType}. Preguntar método de pago si aplica]
 
 ---
 
 ## 📦 PRODUCTOS Y SERVICIOS
-
-[Extraer TODO del PDF. Si hay muchos → usar tabla. Si no hay precios → poner "Consultar al asesor"]
-
-| Producto/Servicio | Descripción | Precio | Disponible |
-|---|---|---|---|
-| [nombre] | [descripción corta] | $[precio] COP | ✅ |
-
-[Si hay variantes (tallas, colores, planes, duraciones) → listarlas explícitamente]
-[Si hay combos o paquetes → describir qué incluye cada uno]
+[Extraer TODO del PDF: nombres, precios, opciones, variantes. Usar tablas si hay múltiples. Si no hay precios → poner "Consultar"]
 
 ---
 
-## 💰 PRECIOS, PAGOS Y ENVÍOS
-
-**Moneda:** COP (Pesos colombianos)
-**Métodos de pago aceptados:** [Extraer del PDF. Si no hay → poner: Transferencia bancaria, Nequi, Daviplata, Efectivo, Tarjeta]
-**Envíos:** [Costo, zonas, tiempo estimado. Si no hay → [Ajustar según negocio]]
-**Descuentos:** [Del PDF o "Sin descuentos activos por el momento"]
-**Facturación:** [Del PDF o "Se envía factura por WhatsApp al confirmar"]
+## 💰 PRECIOS Y PAGOS
+[Precios exactos del PDF, métodos de pago, descuentos, envíos. Si falta info → generar valores razonables para Colombia y marcar [Ajustar]]
 
 ---
 
 ## 🎬 TRIGGERS MULTIMEDIA
 
-⚠️ Cuando el bot escriba estas palabras en su respuesta, el sistema envía el archivo automáticamente.
-⚠️ El bot NUNCA escribe URLs, rutas de archivos ni [imagen:xxx]. Solo la palabra/frase trigger.
+Cuando la IA necesite enviar multimedia, incluir estas palabras naturalmente:
 
-${mediaSummary ? `TRIGGERS CONFIGURADOS (usar EXACTAMENTE como están escritos):
-${mediaSummary}` : `[No hay multimedia configurada aún. Sugerir al menos 3 triggers útiles que el cliente debería subir:]
-- "ver catálogo" → Catálogo de productos (PDF o imágenes)
-- "ver precios" → Lista de precios actualizada
-- "ver menú" / "ver servicios" → Menú o portafolio de servicios`}
+[Listar cada trigger en formato:]
+- "[trigger exacto]" → Envía [TIPO] [nombre] — Se usa en: Paso [N]
+[Sugerir triggers nuevos si hay productos/categorías sin trigger]
 
-INSTRUCCIÓN AL BOT: En el flujo, cuando corresponda enviar multimedia, escribe algo como:
-"Aquí tienes [el trigger]" o "Te comparto [el trigger]" — nunca las rutas ni archivos directos.
+⚠️ NUNCA escribir URLs ni [imagen:xxx]. Solo incluir la palabra trigger naturalmente.
 
 ---
 
-## ❓ PREGUNTAS FRECUENTES (FAQ)
-
-[Mínimo 12 preguntas reales que haría un cliente de este negocio. Basarse en el PDF.]
-
-**P: ¿Cuál es el horario de atención?**
-R: [Del PDF o [Ajustar]]
-
-**P: ¿Cómo hago un ${actionType === 'crear_pedido' ? 'pedido' : actionType === 'crear_cita' ? 'cita' : 'reserva'}?**
-R: [Describir el proceso en 3 pasos simples]
-
-**P: ¿Cuáles son los métodos de pago?**
-R: [Listar métodos]
-
-**P: ¿Hacen envíos a toda Colombia?**
-R: [Del PDF o [Ajustar]]
-
-**P: ¿Cuánto tiempo demora [entrega/cita/reserva]?**
-R: [Del PDF o [Ajustar]]
-
-**P: ¿Tienen garantía?**
-R: [Del PDF o política razonable]
-
-**P: ¿Puedo cancelar o cambiar mi ${actionType === 'crear_pedido' ? 'pedido' : actionType === 'crear_cita' ? 'cita' : 'reserva'}?**
-R: [Ver sección de política]
-
-[Agregar 5+ preguntas específicas del negocio extraídas del PDF]
+## ❓ PREGUNTAS FRECUENTES
+[Mínimo 10 FAQ basadas en el PDF. Formato: **P:** pregunta **R:** respuesta]
 
 ---
 
-## 🔄 POLÍTICA DE CAMBIOS Y CANCELACIONES
-
-[Del PDF. Si no hay → generar política razonable para Colombia:]
-
-**Cambios:** [Condiciones para cambiar pedido/cita/reserva — tiempo límite, cómo solicitarlo]
-**Cancelaciones:** [Condiciones, penalidades si aplica, tiempo límite]
-**Devoluciones:** [Si aplica — condiciones, plazos, proceso]
-**Garantías:** [Si aplica]
+## 🔄 POLÍTICA DE CAMBIOS/CANCELACIONES
+[Del PDF o generar política razonable]
 
 ---
 
-## 🧠 INSTRUCCIONES DE MEMORIA (MEMORY_JSON)
+## 🧠 CAMPOS DE MEMORIA
 
-El bot actualiza estos campos progresivamente en cada mensaje:
-
-**Campos críticos para este negocio:**
-- nombre → Nombre completo del cliente (pedir en paso 1)
-- telefono → Celular del cliente (pedir antes del resumen)
-- nombre_empresa → Nombre del negocio si es cliente empresarial
-- tipo_negocio → Tipo de negocio del cliente (si es B2B)
-- producto_servicio → ${bizType === 'tienda' ? 'Producto(s) seleccionados con talla/color/variante' : bizType === 'clinica' || bizType === 'salon' ? 'Servicio o tratamiento elegido' : bizType === 'restaurante' ? 'Platos o servicios solicitados' : 'Producto o servicio solicitado'}
-- detalles_producto → Especificaciones adicionales (talla, color, modelo, plan, variante)
-- cantidad → Unidades o número de elementos
-- precio → Precio unitario del producto/servicio
-- total → Total a pagar (incluye envío, descuentos)
-- metodo_pago → Método de pago elegido por el cliente
-${actionType === 'crear_pedido' ? `- ciudad → Ciudad de entrega
-- direccion → Dirección completa de entrega
-- barrio → Barrio para la entrega
-- fecha_entrega → Fecha de entrega acordada
-- pedido → NO modificar — el sistema lo actualiza a "creado"` : actionType === 'crear_cita' ? `- fecha_cita → Fecha de la cita (formato: YYYY-MM-DD o texto natural)
-- hora_cita → Hora de la cita (formato: HH:MM o "10am")
-- tipo_cita → Tipo de servicio: ${bizType === 'clinica' ? 'consulta, control, tratamiento' : bizType === 'salon' ? 'corte, tinte, manicure' : 'consulta, asesoría, reunión'}
-- cita → NO modificar — el sistema lo actualiza a "creada"` : `- fecha_reserva → Fecha de la reserva
-- hora_reserva → Hora de inicio de la reserva
-- tipo_reserva → Qué se reserva (${bizType === 'restaurante' ? 'mesa, salón' : bizType === 'hotel' ? 'habitación, suite' : bizType === 'canchas' ? 'cancha, espacio' : 'espacio, servicio'})
-- num_personas → Número de personas
-- duracion_reserva → Duración en minutos si aplica
-- reserva → NO modificar — el sistema lo actualiza a "creada"`}
-- notas → Observaciones especiales del cliente
-- etapa_actual → EXACTA de las etapas del pipeline (mover en cada paso del flujo)
-- accion → Vacío siempre EXCEPTO cuando el cliente confirma con datos completos:
-  - "${actionType}" al confirmar
-  - "actualizar_${actionType.replace('crear_','')}" para cambios
-  - "cancelar_${actionType.replace('crear_','')}" para cancelaciones
+Campos para el MEMORY_JSON de este negocio:
+- nombre → Nombre del cliente
+- telefono → Teléfono
+- producto_servicio → [Qué vende/ofrece]
+- detalles_producto → [Especificaciones]
+- cantidad, precio, total
+- ciudad, direccion, barrio
+- metodo_pago
+- etapa_actual → EXACTA de "ETAPAS DEL PIPELINE"
+- accion → "${actionType}" cuando confirma con datos completos
+${actionType === 'crear_cita' ? '- fecha_cita, hora_cita, tipo_cita' : actionType === 'crear_reserva' ? '- fecha_reserva, hora_reserva, tipo_reserva, num_personas' : '- fecha_entrega'}
 
 ---
 
-## 📞 HORARIOS Y CONTACTO
+## ⚠️ REGLAS IMPORTANTES
 
-[Del PDF]
-**Horario de atención:** [Días y horas]
-**Dirección/Ubicación:** [Si aplica]
-**Teléfono adicional:** [Si aplica]
-**Email:** [Si aplica]
-**Ciudad(es) donde opera:** [Importante para envíos y cobertura]
+### ❌ NUNCA:
+- ${actionType === 'crear_pedido' ? 'Confirmar pedido SIN datos de envío completos' : actionType === 'crear_cita' ? 'Confirmar cita SIN nombre, teléfono, fecha y hora' : 'Confirmar reserva SIN nombre, fecha, hora y personas'}
+- Pedir datos DESPUÉS de confirmar
+- Mostrar resumen SIN datos del cliente
+- Inventar precios
+- Escribir URLs o [imagen:xxx]
+- Saltar pasos del flujo
 
----
-
-## ⚠️ REGLAS CRÍTICAS DEL BOT
-
-### ❌ NUNCA HACER:
-- ${actionType === 'crear_pedido' ? 'Confirmar pedido sin tener: nombre, teléfono, dirección, ciudad y barrio' : actionType === 'crear_cita' ? 'Confirmar cita sin tener: nombre, teléfono, fecha y hora' : 'Confirmar reserva sin tener: nombre, teléfono, fecha, hora y número de personas'}
-- Pedir datos de envío/contacto DESPUÉS de confirmar
-- Mostrar resumen sin tener TODOS los datos del cliente
-- Inventar precios que no están en la base de conocimiento
-- Escribir URLs, rutas de archivos o [imagen:xxx] en los mensajes
-- Saltar etapas del pipeline
-- Usar etapas que no estén exactamente en el pipeline configurado
-- Crear ${actionType.replace('crear_','')} dos veces para el mismo cliente
-- Prometer algo que no está en la base de conocimiento
-
-### ✅ SIEMPRE HACER:
-- Pedir nombre en el primer mensaje
-- Seguir el flujo conversacional en orden
-- Actualizar etapa_actual en CADA respuesta
-- Incluir el bloque MEMORY_JSON al final de CADA respuesta
-- Pedir TODOS los datos necesarios ANTES del resumen
-- Mostrar resumen COMPLETO antes de pedir confirmación
-- Activar triggers multimedia en los pasos indicados
-- Usar emojis con moderación (máximo 2-3 por mensaje)
-- Responder en el tono y personalidad definidos
-- Si no sabe algo → decir "déjame verificar" o "te comunico con un asesor"
-
-### 🔁 MANEJO DE CAMBIOS Y CANCELACIONES:
-- Si pide cambiar antes de confirmar → simplemente actualizar los datos en memoria
-- Si pide cambiar después de confirmar → usar accion = "actualizar_${actionType.replace('crear_','')}"
-- Si pide cancelar → confirmar antes, luego usar accion = "cancelar_${actionType.replace('crear_','')}"
-- Siempre confirmar con el cliente los cambios antes de ejecutarlos
+### ✅ SIEMPRE:
+- Seguir etapas en orden
+- Datos ANTES del resumen
+- Resumen COMPLETO antes de confirmación
+- Emojis y tono cercano
+- Activar triggers cuando corresponda
 
 ---
 
-═══════════════════════════════════════
-📌 INSTRUCCIONES DE GENERACIÓN (NO incluir en el output)
-═══════════════════════════════════════
-1. Extrae TODA la información del PDF — precios EXACTOS, nombres EXACTOS, opciones COMPLETAS
-2. Si falta info esencial → genera valores RAZONABLES para Colombia y marca [Ajustar]
-3. Las etapas en "## 📋 ETAPAS DEL PIPELINE" DEBEN ser "- NombreEtapa" (guión + espacio + nombre)
-4. El flujo debe tener UN PASO por cada decisión importante del cliente
-5. Los triggers multimedia deben aparecer en el flujo EN EL PASO donde se activan
-6. FAQ: mínimo 12, basadas en objeciones reales de clientes colombianos
-7. Todo en español Colombia natural (no castizo)
-8. Responde SOLO con el Markdown completo, sin backticks ni texto antes/después
-9. La sección "## 🔊 VOZ — ElevenLabs" SIEMPRE generarla — aunque no tengan ElevenLabs hoy, cuando lo activen ya estará lista
-10. El MD completo debe tener mínimo 2500 palabras para activar todos los 7 sistemas correctamente`;
+=== REGLAS DE GENERACIÓN ===
+1. Extrae TODA la info del PDF — precios EXACTOS, opciones COMPLETAS
+2. Si falta info (horarios, pagos), genera valores RAZONABLES para Colombia y marca [Ajustar]
+3. Etapas en formato "- Nombre" (lista con guión) — OBLIGATORIO para auto-extracción
+4. Incluye TODOS los triggers multimedia existentes + sugiere nuevos si necesario
+5. Flujo conversacional PASO A PASO con etapa + trigger en cada paso
+6. Español Colombia, formato WhatsApp (emojis, mensajes cortos)
+7. Responde SOLO con el Markdown completo, sin backticks ni explicaciones`;
 }
 
 // ====================================================
@@ -798,13 +568,8 @@ function extractStages(context: string): any[] {
   const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal', 'emerald', 'rose', 'amber', 'violet', 'lime'];
 
   // Find the PIPELINE/ETAPAS section
-  // [FIX 7] Regex mejorado: acepta más variantes del título de sección
-  const sectionMatch = context.match(/##?\s*[^\n]*?(?:ETAPAS|PIPELINE|FASES|ESTADOS|ETAPA)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
-  if (!sectionMatch) {
-    // Fallback: buscar cualquier lista con guión en el contexto (para MDs mal formateados)
-    const fallbackMatch = context.match(/(?:^|\n)(?:-\s+[A-ZÁ-Ú][^\n]{2,30}\n){3,}/m);
-    if (!fallbackMatch) return [];
-  }
+  const sectionMatch = context.match(/##?\s*[^\n]*?(?:ETAPAS|PIPELINE|FASES|ESTADOS)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n\n\n|$)/i);
+  if (!sectionMatch) return [];
 
   const section = sectionMatch[1];
   const foundItems: string[] = [];

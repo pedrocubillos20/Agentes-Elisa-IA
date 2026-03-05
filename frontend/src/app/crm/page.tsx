@@ -15,24 +15,22 @@ interface Conversation { id: string; recipientId: string; recipientName: string;
 
 const DEFAULT_STAGES: Stage[] = [];
 
-// 🔥 LEAD SCORING
-const ADVANCED_STAGES = ['confirmado', 'realizo_pedido', 'despachado', 'cotizado', 'en_cotizacion', 'agendamiento', 'pendiente_pago'];
-const MID_STAGES = ['interesado', 'pendiente_color', 'pendiente_talla', 'pendiente_calidad', 'pendiente_ciudad', 'pendiente_datos'];
-const COLD_STAGES = ['nuevo_contacto', 'saludo', 'new'];
-
+// 🔥 LEAD SCORING — dinámico basado en posición real en el pipeline del usuario
 const calculateLeadScore = (conv: any, stages: Stage[]): { score: number; label: string; color: string; emoji: string; reasons: string[] } => {
   let score = 0;
   const reasons: string[] = [];
 
   const stageIndex = stages.findIndex(s => s.id === conv.stage);
-  const stageTotal = stages.length || 1;
+  const totalStages = stages.length || 1;
   if (stageIndex >= 0) {
-    const stageProgress = ((stageIndex + 1) / stageTotal) * 35;
+    const stageProgress = ((stageIndex + 1) / totalStages) * 35;
     score += stageProgress;
     if (stageProgress > 20) reasons.push('Avanzado en embudo');
   }
-  if (ADVANCED_STAGES.some(s => conv.stage?.toLowerCase().includes(s))) { score += 15; reasons.push('Etapa de cierre'); }
-  else if (MID_STAGES.some(s => conv.stage?.toLowerCase().includes(s))) { score += 8; reasons.push('Etapa intermedia'); }
+  // Score dinámico por posición relativa en el pipeline real del usuario
+  const stagePos = stageIndex >= 0 ? (stageIndex + 1) / totalStages : 0;
+  if (stagePos >= 0.7) { score += 15; reasons.push('Etapa de cierre'); }
+  else if (stagePos >= 0.35) { score += 8; reasons.push('Etapa intermedia'); }
 
   const ctx = conv.contextData || {};
   const ctxKeys = Object.keys(ctx).filter(k => ctx[k] && String(ctx[k]).trim() !== '');
@@ -408,23 +406,46 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
 
   const importClients = async (file: File) => {
     try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) { alert('Archivo vacío o sin datos'); return; }
-      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-      const contacts = lines.slice(1).map(line => {
-        const values = line.match(/(?:\"[^\"]*\"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
-        const obj: any = {};
-        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
-        return obj;
-      }).filter(c => c.telefono || c.phone || c.celular);
-      
-      if (contacts.length === 0) { alert('No se encontraron contactos válidos. Columnas: nombre, telefono'); return; }
-      
+      const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+      let contacts: any[] = [];
+
+      if (isExcel) {
+        const XLSX: any = await new Promise((resolve, reject) => {
+          if ((window as any).XLSX) { resolve((window as any).XLSX); return; }
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+          script.onload = () => resolve((window as any).XLSX);
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+        const buffer = await file.arrayBuffer();
+        const wb = XLSX.read(buffer, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        contacts = rows.map((row: any) => {
+          const normalized: any = {};
+          Object.keys(row).forEach(k => { normalized[k.toLowerCase().trim().replace(/\s+/g, '_')] = row[k]; });
+          return normalized;
+        }).filter((c: any) => c.telefono || c.phone || c.celular);
+      } else {
+        const text = await file.text();
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) { alert('Archivo vacío o sin datos'); return; }
+        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+        contacts = lines.slice(1).map(line => {
+          const values = line.match(/(?:"[^"]*"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
+          const obj: any = {};
+          headers.forEach((h, i) => { obj[h] = values[i] || ''; });
+          return obj;
+        }).filter(c => c.telefono || c.phone || c.celular);
+      }
+
+      if (contacts.length === 0) { alert('No se encontraron contactos válidos.\n\nAsegúrate que el archivo tenga columnas: nombre, telefono'); return; }
+
       const token = localStorage.getItem('token');
       const lineId = getLineId();
-      const res = await fetch(`${API_URL}/api/clients/import`, { 
-        method: 'POST', 
+      const res = await fetch(`${API_URL}/api/clients/import`, {
+        method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ contacts, lineId })
       });
@@ -433,7 +454,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         alert(`✅ Importación completa:\n• ${result.imported} nuevos\n• ${result.skipped} duplicados\n• ${result.errors} errores`);
         fetchAll();
       } else { alert(result.error || 'Error al importar'); }
-    } catch { alert('Error al leer archivo'); }
+    } catch (e: any) { alert('Error al leer archivo: ' + (e?.message || 'Error desconocido')); }
   };
 
   const sendClientMassMessage = async () => {
@@ -805,7 +826,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <Download className="w-3 h-3 md:w-3.5 md:h-3.5" /> Excel
             </button>
             <label className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all cursor-pointer">
-              <Upload className="w-3 h-3 md:w-3.5 md:h-3.5" /> CSV
+              <Upload className="w-3 h-3 md:w-3.5 md:h-3.5" /> Excel
               <input type="file" accept=".csv,.txt,.xls,.xlsx" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importClients(e.target.files[0]); e.target.value = ''; }} />
             </label>
             <button onClick={() => { setShowClientMass(true); setMassMessageText(''); setMassMediaFile(null); setMassMediaPreview(null); }} className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-all" disabled={clients.length === 0}>

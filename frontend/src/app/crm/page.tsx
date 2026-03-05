@@ -105,6 +105,11 @@ export default function CRMPage() {
   const [clientForm, setClientForm] = useState({ name: '', phone: '', email: '', address: '', notes: '', status: 'lead', tags: '' });
   const [productForm, setProductForm] = useState({ name: '', description: '', price: '', stock: '', category: '' });
 
+  // 📊 Progress bar para import/export
+  const [importProgress, setImportProgress] = useState<{ active: boolean; percent: number; label: string }>({ active: false, percent: 0, label: '' });
+  // Filtro para masivo clientes
+  const [clientMassFilter, setClientMassFilter] = useState<'all' | 'importado' | 'lead' | 'active' | 'vip'>('all');
+
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
   useEffect(() => {
@@ -319,11 +324,13 @@ export default function CRMPage() {
 
   const exportClients = async () => {
     try {
+      setImportProgress({ active: true, percent: 10, label: 'Obteniendo clientes...' });
       const token = localStorage.getItem('token');
       const lineId = getLineId();
       const res = await fetch(`${API_URL}/api/clients/export?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const { data } = await res.json();
-      if (!data?.length) { alert('No hay clientes para exportar'); return; }
+      if (!data?.length) { setImportProgress({ active: false, percent: 0, label: '' }); alert('No hay clientes para exportar'); return; }
+      setImportProgress({ active: true, percent: 40, label: `Generando Excel (${data.length} clientes)...` });
 
       const columns = [
         { key: 'nombre', label: 'Nombre' },
@@ -394,6 +401,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
 <td style="background:#0f3460"></td>
 </tr></table></body></html>`;
 
+      setImportProgress({ active: true, percent: 90, label: 'Descargando archivo...' });
       const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -401,11 +409,14 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       a.download = `Clientes_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch { alert('Error al exportar'); }
+      setImportProgress({ active: true, percent: 100, label: '¡Listo!' });
+      setTimeout(() => setImportProgress({ active: false, percent: 0, label: '' }), 1500);
+    } catch { setImportProgress({ active: false, percent: 0, label: '' }); alert('Error al exportar'); }
   };
 
   const importClients = async (file: File) => {
     try {
+      setImportProgress({ active: true, percent: 5, label: 'Leyendo archivo...' });
       const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
       let contacts: any[] = [];
 
@@ -418,6 +429,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
           script.onerror = reject;
           document.head.appendChild(script);
         });
+        setImportProgress({ active: true, percent: 20, label: 'Cargando librería Excel...' });
         const buffer = await file.arrayBuffer();
         const wb = XLSX.read(buffer, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
@@ -440,7 +452,8 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         }).filter(c => c.telefono || c.phone || c.celular);
       }
 
-      if (contacts.length === 0) { alert('No se encontraron contactos válidos.\n\nAsegúrate que el archivo tenga columnas: nombre, telefono'); return; }
+      if (contacts.length === 0) { setImportProgress({ active: false, percent: 0, label: '' }); alert('No se encontraron contactos válidos.\n\nAsegúrate que el archivo tenga columnas: nombre, telefono'); return; }
+      setImportProgress({ active: true, percent: 50, label: `Subiendo ${contacts.length} contactos...` });
 
       const token = localStorage.getItem('token');
       const lineId = getLineId();
@@ -451,15 +464,22 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       });
       const result = await res.json();
       if (res.ok) {
-        alert(`✅ Importación completa:\n• ${result.imported} nuevos\n• ${result.skipped} duplicados\n• ${result.errors} errores`);
+        setImportProgress({ active: true, percent: 100, label: `✅ ${result.imported} nuevos, ${result.skipped} duplicados` });
+        setTimeout(() => setImportProgress({ active: false, percent: 0, label: '' }), 2500);
         fetchAll();
-      } else { alert(result.error || 'Error al importar'); }
-    } catch (e: any) { alert('Error al leer archivo: ' + (e?.message || 'Error desconocido')); }
+      } else { setImportProgress({ active: false, percent: 0, label: '' }); alert(result.error || 'Error al importar'); }
+    } catch (e: any) { setImportProgress({ active: false, percent: 0, label: '' }); alert('Error al leer archivo: ' + (e?.message || 'Error desconocido')); }
   };
 
   const sendClientMassMessage = async () => {
     if (!massMessageText.trim() && !massMediaFile) return;
-    const filteredClients = clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm));
+    const filteredClients = clients.filter(c => {
+      const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm);
+      const matchFilter = clientMassFilter === 'all' ? true
+        : clientMassFilter === 'importado' ? (c.tags?.includes('importado'))
+        : c.status === clientMassFilter;
+      return matchSearch && matchFilter;
+    });
     if (!filteredClients.length) { alert('No hay clientes para enviar'); return; }
     setSendingMass(true);
     const token = localStorage.getItem('token');
@@ -818,6 +838,22 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
         </div>
       )}
 
+      {/* 📊 BARRA DE PROGRESO GLOBAL (import/export) */}
+      {importProgress.active && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[var(--bg-secondary)] border border-[var(--accent-primary)]/40 rounded-xl shadow-2xl p-3 w-80 animate-fade-in">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-white font-medium">{importProgress.label}</span>
+            <span className="text-xs text-[var(--accent-primary)] font-bold">{importProgress.percent}%</span>
+          </div>
+          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${importProgress.percent}%`, background: importProgress.percent === 100 ? '#10b981' : 'var(--accent-primary)' }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* CLIENTES */}
       {activeTab === 'clients' && (
         <div className="flex-1 flex flex-col min-h-0">
@@ -1018,9 +1054,29 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <h3 className="font-bold text-white text-sm md:text-base">📩 Masivo — Clientes</h3>
               <button onClick={() => !sendingMass && setShowClientMass(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
+            {/* Filtros de segmento */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {[
+                { id: 'all', label: 'Todos', count: clients.length },
+                { id: 'importado', label: '📥 Importados', count: clients.filter(c => c.tags?.includes('importado')).length },
+                { id: 'lead', label: '🔵 Leads', count: clients.filter(c => c.status === 'lead').length },
+                { id: 'active', label: '✅ Activos', count: clients.filter(c => c.status === 'active').length },
+                { id: 'vip', label: '⭐ VIP', count: clients.filter(c => c.status === 'vip').length },
+              ].map(f => (
+                <button key={f.id} onClick={() => setClientMassFilter(f.id as any)}
+                  className={`px-2 py-0.5 rounded-lg text-[10px] border transition-all ${clientMassFilter === f.id ? 'bg-violet-500/30 border-violet-500/50 text-violet-300' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
             <p className="text-xs md:text-sm text-[var(--text-muted)] mb-3">
-              Enviar a: <strong className="text-white">{clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length} clientes</strong>
-              {searchTerm && <span className="text-amber-400"> (filtro: &quot;{searchTerm}&quot;)</span>}
+              Enviar a: <strong className="text-white">{clients.filter(c => {
+                const matchSearch = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm);
+                const matchFilter = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter;
+                return matchSearch && matchFilter;
+              }).length} clientes</strong>
+              {clientMassFilter !== 'all' && <span className="text-violet-400"> · filtro activo</span>}
+              {searchTerm && <span className="text-amber-400"> · búsqueda: &quot;{searchTerm}&quot;</span>}
             </p>
             <textarea value={massMessageText} onChange={(e) => setMassMessageText(e.target.value)} placeholder="Escribe tu mensaje..." disabled={sendingMass}
               className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg p-3 text-sm text-white placeholder-[var(--text-muted)] min-h-[80px] md:min-h-[100px] resize-none mb-3 focus:outline-none focus:border-[var(--accent-primary)] disabled:opacity-50" />
@@ -1044,7 +1100,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               <div className="mb-3"><div className="flex justify-between text-xs text-[var(--text-muted)] mb-1"><span>Enviando...</span><span>{massSentCount}/{massTotal}</span></div><div className="w-full bg-[var(--bg-tertiary)] rounded-full h-2"><div className="bg-[var(--accent-primary)] h-2 rounded-full transition-all duration-500" style={{ width: `${(massSentCount / massTotal) * 100}%` }} /></div></div>
             )}
             <button onClick={sendClientMassMessage} disabled={sendingMass || (!massMessageText.trim() && !massMediaFile)} className="btn-primary w-full py-2 text-sm disabled:opacity-50">
-              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length} clientes`}
+              {sendingMass ? `Enviando ${massSentCount}/${massTotal}...` : `Enviar a ${clients.filter(c => { const ms = !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm); const mf = clientMassFilter === 'all' ? true : clientMassFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientMassFilter; return ms && mf; }).length} clientes`}
             </button>
           </div>
         </div>

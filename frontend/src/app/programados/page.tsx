@@ -38,6 +38,7 @@ const TARGET_TYPES = [
   { id: 'contact', label: 'Contacto', icon: User, desc: 'Enviar a un número' },
   { id: 'group', label: 'Grupo', icon: Users, desc: 'Enviar a un grupo de WhatsApp' },
   { id: 'stage', label: 'Etapa del embudo', icon: LayoutGrid, desc: 'Enviar a todos en una etapa' },
+  { id: 'clients', label: 'Clientes CRM', icon: MessageSquare, desc: 'Importados y contactos del CRM' },
 ];
 
 // Helper: Validar si un recipientId es un número real de WhatsApp
@@ -73,6 +74,8 @@ export default function ProgramadosPage() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
   const [stages, setStages] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [clientFilter, setClientFilter] = useState<string>('all');
   const [saving, setSaving] = useState(false);
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
@@ -85,16 +88,18 @@ export default function ProgramadosPage() {
     const token = localStorage.getItem('token');
     const lineId = getLineId();
     try {
-      const [schedRes, convRes, groupRes, stageRes] = await Promise.all([
+      const [schedRes, convRes, groupRes, stageRes, clientsRes] = await Promise.all([
         fetch(`${API_URL}/api/scheduled?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/conversations/groups?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch(`${API_URL}/api/stages?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/clients?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } }),
       ]);
       if (schedRes.ok) setScheduled((await schedRes.json()).scheduled || []);
       if (convRes.ok) setConversations((await convRes.json()).conversations || []);
       if (groupRes.ok) setGroups((await groupRes.json()).groups || []);
       if (stageRes.ok) { const d = await stageRes.json(); if (d.stages?.length) setStages(d.stages); }
+      if (clientsRes.ok) setClients((await clientsRes.json()).clients || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -112,6 +117,7 @@ export default function ProgramadosPage() {
     setMediaFile(null);
     setMediaPreview(null);
     setEditing(null);
+    setClientFilter('all');
   };
 
   const openCreate = () => {
@@ -163,11 +169,22 @@ export default function ProgramadosPage() {
 
     const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString();
 
+    // For 'clients' type: save as multiple contact schedules or as a special bulk type
+    const filteredClients = targetType === 'clients'
+      ? clients.filter(c => {
+          if (clientFilter === 'importado') return c.tags?.includes('importado');
+          if (clientFilter === 'all') return true;
+          return c.status === clientFilter;
+        })
+      : [];
+
     const body = {
       whatsappLineId: getLineId() || undefined,
       targetType,
-      targetId,
-      targetName: targetName || undefined,
+      targetId: targetType === 'clients' ? `clients:${clientFilter}` : targetId,
+      targetName: targetType === 'clients'
+        ? `${filteredClients.length} clientes (${clientFilter === 'importado' ? 'Importados' : clientFilter === 'all' ? 'Todos' : clientFilter})`
+        : (targetName || undefined),
       message: message || undefined,
       ...(mediaUrl && { mediaUrl, mediaType }),
       scheduledAt,
@@ -175,6 +192,8 @@ export default function ProgramadosPage() {
       recurrenceDays: recurrence === 'weekly' ? recurrenceDays : undefined,
       recurrenceTime: scheduledTime,
       recurrenceEnd: recurrenceEnd ? new Date(`${recurrenceEnd}T23:59:59`).toISOString() : undefined,
+      // If clients target, include phone list for backend to iterate
+      ...(targetType === 'clients' && { clientPhones: filteredClients.map(c => ({ phone: c.phone, name: c.name })) }),
     };
 
     try {
@@ -440,7 +459,7 @@ export default function ProgramadosPage() {
               {/* Tipo de destinatario */}
               <div>
                 <label className="text-xs text-[var(--text-muted)] mb-2 block">Enviar a</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {TARGET_TYPES.map(t => {
                     const Icon = t.icon;
                     return (
@@ -568,6 +587,48 @@ export default function ProgramadosPage() {
                     );
                   })()}
                   </>
+                )}
+
+                {targetType === 'clients' && (
+                  <div className="space-y-3">
+                    {/* Filtros de segmento */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        { id: 'all', label: 'Todos', count: clients.length },
+                        { id: 'importado', label: '📥 Importados', count: clients.filter(c => c.tags?.includes('importado')).length },
+                        { id: 'lead', label: '🔵 Leads', count: clients.filter(c => c.status === 'lead').length },
+                        { id: 'active', label: '✅ Activos', count: clients.filter(c => c.status === 'active').length },
+                        { id: 'vip', label: '⭐ VIP', count: clients.filter(c => c.status === 'vip').length },
+                      ].map(f => (
+                        <button key={f.id} onClick={() => { setClientFilter(f.id); setTargetId(`clients:${f.id}`); setTargetName(`${f.count} clientes`); }}
+                          className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${clientFilter === f.id ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/50 text-white' : 'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
+                          {f.label} <span className="opacity-70">({f.count})</span>
+                        </button>
+                      ))}
+                    </div>
+                    {/* Preview list */}
+                    {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length > 0 && (
+                      <div className="p-2.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-primary)] max-h-32 overflow-y-auto">
+                        <p className="text-[10px] text-[var(--text-muted)] mb-1.5">Vista previa de destinatarios:</p>
+                        {clients
+                          .filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter)
+                          .slice(0, 8)
+                          .map((c, i) => (
+                            <div key={i} className="text-[10px] text-white py-0.5 flex items-center gap-1.5">
+                              <span className="text-[var(--accent-primary)]">✓</span>
+                              <span className="truncate">{c.name || 'Sin nombre'}</span>
+                              <span className="text-[var(--text-muted)]">{c.phone}</span>
+                            </div>
+                          ))}
+                        {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length > 8 && (
+                          <p className="text-[10px] text-[var(--text-muted)] mt-1">... y {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length - 8} más</p>
+                        )}
+                      </div>
+                    )}
+                    {clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length === 0 && (
+                      <p className="text-xs text-amber-400 p-2 bg-amber-500/10 rounded-lg">No hay clientes en este segmento.</p>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -702,7 +763,7 @@ export default function ProgramadosPage() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || !targetId || !scheduledDate || !scheduledTime || (!message && !mediaFile)}
+                disabled={saving || !targetId || !scheduledDate || !scheduledTime || (!message && !mediaFile) || (targetType === 'clients' && clients.filter(c => clientFilter === 'all' ? true : clientFilter === 'importado' ? c.tags?.includes('importado') : c.status === clientFilter).length === 0)}
                 className="btn-primary flex-1 py-2 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

@@ -6,7 +6,7 @@
    BIZONNE CRM v7.0 - PREMIUM DESIGN SYSTEM
    ========================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
   --bg-primary: #0a0a0f;
@@ -37,12 +37,29 @@
 * { box-sizing: border-box; }
 
 body {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ══ GLOBAL TYPOGRAPHY SCALE ══
+   Tailwind class → actual rendered size
+   text-[10px]  → 11px  (was 10px)
+   text-xs      → 13px  (was 12px)
+   text-sm      → 14px  (was 13.6px)
+   text-base    → 15px  (was 14px)
+   text-lg      → 17px
+   text-xl      → 20px
+*/
+html { font-size: 15px; }
+
+@media (max-width: 767px) { html { font-size: 14px; } }
+@media (min-width: 1440px) { html { font-size: 16px; } }
 
 /* ========== ANIMATED BACKGROUND ========== */
 .app-background {
@@ -126,7 +143,7 @@ body {
   border-radius: 14px;
   color: var(--text-secondary);
   font-weight: 500;
-  font-size: 14px;
+  font-size: 15px;
   transition: all 0.2s ease;
   position: relative;
 }
@@ -189,7 +206,7 @@ body {
 
 .stat-label {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -205,7 +222,7 @@ body {
   background: var(--accent-gradient);
   color: white;
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
   border-radius: 12px;
   border: none;
   cursor: pointer;
@@ -232,7 +249,7 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
   border-radius: 12px;
   border: 1px solid var(--border-secondary);
   cursor: pointer;
@@ -276,7 +293,7 @@ body {
   border: 1px solid var(--border-primary);
   border-radius: 12px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 15px;
   font-family: inherit;
   transition: all 0.2s ease;
 }
@@ -347,7 +364,7 @@ body {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border-primary);
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .table tr:last-child td { border-bottom: none; }
@@ -363,7 +380,7 @@ body {
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -403,8 +420,8 @@ body {
   max-width: 75%;
   padding: 14px 18px;
   border-radius: 18px;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 .bubble-incoming {
@@ -702,10 +719,12 @@ body:not([data-page="auth"]) {
     padding: 12px !important;
   }
   
-  /* Input fields */
+  /* Input fields — 16px prevents iOS zoom on focus */
   .input, input, select, textarea {
-    font-size: 16px !important; /* Prevents iOS zoom on focus */
+    font-size: 16px !important;
   }
+  /* Labels and text bigger on mobile */
+  label, .input-label { font-size: 14px !important; }
   
   /* Buttons */
   .btn-primary, .btn-secondary {
@@ -840,6 +859,65 @@ body {
 /* Scrollbar hide utility */
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ══════════════════════════════════════════
+   PROGRAMADOS — bigger, more readable layout
+   ══════════════════════════════════════════ */
+
+/* Stat boxes in Programados */
+.programados-stat p.text-2xl {
+  font-size: 2.2rem !important;
+  font-weight: 800 !important;
+}
+.programados-stat p.text-xs {
+  font-size: 0.9rem !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.02em;
+}
+
+/* Scheduled message list items */
+.scheduled-item {
+  font-size: 15px !important;
+}
+.scheduled-item .recipient-name {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+}
+.scheduled-item .message-preview {
+  font-size: 13px !important;
+}
+.scheduled-item .meta {
+  font-size: 12px !important;
+}
+
+/* Modal content larger */
+.modal-label {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+}
+
+/* ══════════════════════════════════════════
+   RESPONSIVE — Large screens (1440px+)
+   ══════════════════════════════════════════ */
+@media (min-width: 1440px) {
+  .card { padding: 28px; }
+  .stat-card { padding: 28px; }
+  .stat-value { font-size: 42px; }
+  .nav-item { font-size: 15px; padding: 11px 16px; }
+}
+
+/* ══════════════════════════════════════════
+   RESPONSIVE — Medium screens (768–1023px)  
+   ══════════════════════════════════════════ */
+@media (min-width: 768px) and (max-width: 1023px) {
+  html { font-size: 14px; }
+  .card { padding: 16px; }
+  .stat-value { font-size: 30px; }
+}
+
+/* ══ END PROGRAMADOS ══ */
 
 /* ===== RESPONSIVE IMPROVEMENTS - AUDIT FIX ===== */
 

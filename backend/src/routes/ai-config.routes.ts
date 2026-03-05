@@ -211,6 +211,7 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
     const hasFlow = /##.*FLUJO/i.test(generated);
     const hasRules = /##.*REGLAS/i.test(generated);
     const hasMemory = /##.*MEMORIA|MEMORY_JSON|etapa_actual/i.test(generated);
+    const hasVoice = /##.*VOZ|ElevenLabs|<<VOZ>>/i.test(generated);
     
     const warnings: string[] = [];
     if (!hasPipeline) warnings.push('⚠️ Falta sección ETAPAS DEL PIPELINE — el CRM no tendrá etapas automáticas');
@@ -233,7 +234,8 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
         hasPipeline: /##.*ETAPAS.*PIPELINE/i.test(generated) || /\n- [A-ZÁ-Ú]/.test(generated),
         hasFlow: /##.*FLUJO/i.test(generated),
         hasRules: /##.*REGLAS/i.test(generated),
-        sectionsFound: (generated.match(/^## /gm) || []).length
+        sectionsFound: (generated.match(/^## /gm) || []).length,
+        hasVoice: /##.*VOZ|ElevenLabs|<<VOZ>>/i.test(generated)
       }
     });
   } catch (e: any) {
@@ -451,8 +453,7 @@ Extrae TODA la info del PDF. Precios EXACTOS. Mínimo 6 etapas, 10 FAQ. JSON VÁ
     seguros: 'Nuevo Contacto, Consultando Seguros, Cotización Enviada, Evaluando Propuesta, Póliza Activa, Perdido',
     eventos: 'Nuevo Contacto, Consultando Disponibilidad, Propuesta Enviada, Negociando, Reserva Confirmada, Evento Realizado, Perdido',
     transporte: 'Nuevo Contacto, Consultando Ruta, Cotización Enviada, Servicio Confirmado, En Tránsito, Entregado, Perdido',
-    taller: 'Nuevo Contacto, Consultando Servicio, Pendiente Cita, Cita Confirmada, Vehículo en Taller, Listo para Entrega, Entregado, Perdido',
-    inmobiliaria: 'Nuevo Contacto, Interesado, Visita Programada, Propuesta Enviada, Negociación, Promesa Firmada, Cierre, Perdido'
+    taller: 'Nuevo Contacto, Consultando Servicio, Pendiente Cita, Cita Confirmada, Vehículo en Taller, Listo para Entrega, Entregado, Perdido'
   };
 
   const suggestedStages = stageExamples[bizType] || stageExamples.general;
@@ -510,6 +511,14 @@ Las llamadas también leen la base de conocimiento para responder preguntas.
 [SISTEMA 6 — AGENDA/RECURSOS]
 Las citas/pedidos/reservas creados via accion aparecen en la Agenda con todos los datos del MEMORY_JSON.
 Si el negocio tiene "Recursos" configurados (doctores, salas, mesas), el sistema asigna automáticamente.
+
+[SISTEMA 7 — ELEVENLABS VOZ]
+Si el negocio tiene ElevenLabs activado, el bot puede responder con notas de voz reales (no texto).
+El bot decide CUÁNDO usar voz según las instrucciones en la sección "## 🔊 VOZ (ElevenLabs)".
+Tags de control que el bot usa internamente (el cliente NUNCA los ve):
+- <<VOZ>> al inicio de la respuesta → el sistema convierte el texto en audio y lo envía como nota de voz
+- <<TEXTO>> al inicio → fuerza respuesta en texto aunque el modo voz esté activo
+La sección de VOZ en el MD define: qué momentos del flujo usan voz, qué momentos usan texto, y el tono/estilo del audio.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📝 GENERA EXACTAMENTE ESTA ESTRUCTURA
@@ -776,7 +785,8 @@ ${actionType === 'crear_pedido' ? `- ciudad → Ciudad de entrega
 6. FAQ: mínimo 12, basadas en objeciones reales de clientes colombianos
 7. Todo en español Colombia natural (no castizo)
 8. Responde SOLO con el Markdown completo, sin backticks ni texto antes/después
-9. El MD completo debe tener mínimo 2000 palabras para ser útil`;
+9. La sección "## 🔊 VOZ — ElevenLabs" SIEMPRE generarla — aunque no tengan ElevenLabs hoy, cuando lo activen ya estará lista
+10. El MD completo debe tener mínimo 2500 palabras para activar todos los 7 sistemas correctamente`;
 }
 
 // ====================================================

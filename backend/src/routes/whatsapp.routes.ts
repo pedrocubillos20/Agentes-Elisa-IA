@@ -5628,6 +5628,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
+    // 🚫 ANTI-SELF: ignorar si el remitente es el dueño o un miembro del equipo
+    // Evita que la IA responda al admin cuando escribe desde su propio WhatsApp
+    const senderPhoneClean = recipientId.replace(/\D/g, '').slice(-10);
+    const ownerAndTeam = await prisma.user.findMany({
+      where: { OR: [{ id: userId }, { parentUserId: userId }], phone: { not: null } },
+      select: { phone: true, name: true, role: true }
+    }).catch(() => []);
+    const isOwnerOrTeam = ownerAndTeam.some(u => u.phone && u.phone.replace(/\D/g, '').slice(-10) === senderPhoneClean);
+    if (isOwnerOrTeam) {
+      log(`🚫 ANTI-SELF: mensaje ignorado — remitente (${senderPhoneClean}) es el dueño o equipo`);
+      res.json({ success: true }); return;
+    }
+
     log(`💬 ${isGroup ? '👥' : '👤'} ${senderName} (${recipientId}) → session: ${sessionName} line: ${whatsappLineId || 'none'} ${savedMediaType ? `[${savedMediaType}]` : ''}`);
 
     // 🔍 Búsqueda de conversación POR LÍNEA
@@ -6354,6 +6367,16 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         const senderPhone = from.replace(/\D/g, '').slice(-10);
         if (linePhone === senderPhone) {
           console.log(`☁️ 🚫 ANTI-LOOP: ignorado auto-mensaje de ${from} (es la línea propia)`);
+          continue;
+        }
+        // 🚫 ANTI-SELF Cloud: ignorar si es el dueño o equipo
+        const cloudOwnerTeam = await prisma.user.findMany({
+          where: { OR: [{ id: userId }, { parentUserId: userId }], phone: { not: null } },
+          select: { phone: true }
+        }).catch(() => []);
+        const senderPhoneCloud = from.replace(/\D/g, '').slice(-10);
+        if (cloudOwnerTeam.some(u => u.phone && u.phone.replace(/\D/g, '').slice(-10) === senderPhoneCloud)) {
+          console.log(`☁️ 🚫 ANTI-SELF: ignorado — ${senderPhoneCloud} es el dueño o equipo`);
           continue;
         }
       }

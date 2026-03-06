@@ -2497,9 +2497,11 @@ CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORI
             }
           }
           
+          log(`🔍 MEMORY_JSON presente: ${!!memoryMatch} | isPersonalAssistant: ${isPersonalAssistant} | reply snippet: ${reply.substring(0,100)}`);
           if (memoryMatch) {
             try {
               const memoryData = JSON.parse(memoryMatch[1].trim());
+              log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')}`);
               // Merge con datos existentes (no borrar datos previos si vienen vacíos)
               const merged = { ...savedContext };
               for (const [key, value] of Object.entries(memoryData)) {

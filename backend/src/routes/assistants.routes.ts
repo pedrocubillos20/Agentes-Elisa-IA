@@ -165,6 +165,10 @@ router.post('/', async (req: Request, res: Response) => {
       elevenLabsKey: body.elevenLabsKey || null,
       selectedVoice: body.selectedVoice || null,
       voiceEnabled: body.voiceEnabled || false,
+      // 📍 Cobertura de domicilio (opcional)
+      coverageLat: body.coverageLat ?? null,
+      coverageLon: body.coverageLon ?? null,
+      coverageRadiusKm: body.coverageRadiusKm ?? null,
       autoLearn: body.autoLearn !== false,
       // ✅ Trim learningHistory to prevent bloat (max 20 entries)
       learningHistory: trimLearningHistory(body.learningHistory || [], 20),
@@ -351,6 +355,9 @@ router.put('/:id', async (req: Request, res: Response) => {
         elevenLabsKey: body.elevenLabsKey,
         selectedVoice: body.selectedVoice,
         voiceEnabled: body.voiceEnabled,
+        coverageLat: body.coverageLat ?? null,
+        coverageLon: body.coverageLon ?? null,
+        coverageRadiusKm: body.coverageRadiusKm ?? null,
         autoLearn: body.autoLearn,
         learningHistory: trimLearningHistory(body.learningHistory || [], 20),
         model: body.model,

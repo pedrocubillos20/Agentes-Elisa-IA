@@ -351,8 +351,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
         <KPI icon={MessageSquare} label="Mensajes" value={d.rangeMessages||0} sub={`${d.todayMessages||0} hoy`} growth={d.msgGrowth} color="text-emerald-400" spark={sparkM}/>
         <KPI icon={Users} label="Nuevos Leads" value={d.rangeNewConvs||0} sub={`${d.totalConversations||0} total`} growth={d.convGrowth} color="text-blue-400" spark={sparkC}/>
-        <KPI icon={Target} label="Convertidos" value={d.rangeConvertedConvs||0} 
-          sub={`${d.conversionRate||0}% conv · ${d.convertedTotal||0} total`} 
+        <KPI icon={Target} label="Convertidos" value={d.totalAppointments||0} 
+          sub={`${d.pendingAppointments||0} pend · ${d.convertedTotal||0} confirm.`} 
           growth={d.convertedGrowth} color="text-emerald-400"/>
         <KPI icon={Timer} label="FRT Prom." value={d.avgFRT?`${d.avgFRT}m`:'—'} sub="1era respuesta" color="text-amber-400"/>
         <KPI icon={UserCheck} label="Contacto" value={`${d.contactRate||0}%`} sub="Contactados" color="text-cyan-400"/>
@@ -448,7 +448,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3 mb-3 px-2 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
             <span className="text-xs">📅</span>
             <span className="text-[10px] text-emerald-300 flex-1">
-              <span className="font-bold text-white">{d.rangeConvertedConvs||0}</span> citas en período · 
+              <span className="font-bold text-white">{d.totalAppointments||0}</span> citas en Agenda · 
               <span className="font-bold text-white"> {d.conversionRate||0}%</span> conversión
             </span>
             <Link href="/agenda" className="text-[9px] text-emerald-400 hover:underline">Agenda →</Link>

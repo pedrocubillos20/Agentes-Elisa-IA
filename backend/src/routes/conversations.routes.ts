@@ -467,7 +467,7 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
     
     const ownerId = await getOwnerId(userId!);
 

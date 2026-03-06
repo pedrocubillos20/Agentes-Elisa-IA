@@ -437,7 +437,7 @@ export default function ConversacionesPage() {
     const token = localStorage.getItem('token');
     try {
       const lineId = getLineId();
-      const res = await fetch(`${API_URL}/api/conversations?lineId=${lineId}`, { 
+      const res = await fetch(`${API_URL}/api/conversations?lineId=${lineId}&limit=200`, { 
         headers: { 'Authorization': `Bearer ${token}` } 
       });
       if (res.ok) {

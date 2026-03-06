@@ -1357,9 +1357,16 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
 
     if (assistant.name) promptParts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
     if (assistant.personality?.trim()) promptParts.push(assistant.personality);
-    if (assistant.context?.trim()) promptParts.push(assistant.context);
     if (assistant.businessInfo?.trim()) promptParts.push(`Info del negocio: ${assistant.businessInfo}`);
-    if (assistant.instructions?.trim()) promptParts.push(`Instrucciones: ${assistant.instructions}`);
+    if (assistant.instructions?.trim()) promptParts.push(`Instrucciones especiales: ${assistant.instructions}`);
+    
+    // 📚 BASE DE CONOCIMIENTO — máxima prioridad, contiene TODO el comportamiento del asistente
+    if (assistant.context?.trim()) {
+      promptParts.push(`=== 📚 BASE DE CONOCIMIENTO Y CONFIGURACIÓN DEL ASISTENTE ===
+${assistant.context}
+=== FIN BASE DE CONOCIMIENTO ===
+IMPORTANTE: Todo lo descrito en la Base de Conocimiento es tu guía principal. Síguela al pie de la letra.`);
+    }
 
     // 🧠 REGLAS DE CONVERSACIÓN NATURAL (anti-repetición)
     promptParts.push(`🚫 ANTI-REPETICIÓN (OBLIGATORIO):
@@ -1476,113 +1483,111 @@ ${triggerList}
       : '';
 
     // 🧠 INSTRUCCIONES DE MEMORIA — Esto le dice a la IA que devuelva un bloque de datos
+    // ════════════════════════════════════════════════════════════════════
+    // 🧠 MEMORY PROMPT — 100% GENÉRICO, funciona para cualquier negocio
+    // La IA aprende el negocio desde la Base de Conocimiento, NO desde aquí
+    // ════════════════════════════════════════════════════════════════════
+    const stagesBlock = pipelineStages.length > 0 ? `
+═══ 📊 ETAPAS DEL PIPELINE ═══
+LISTA EXACTA (copia el nombre tal cual, sin cambiar mayúsculas ni acentos):
+${pipelineStages.map((s: any) => `  • "${s.label || s.id}"`).join('\n')}
+REGLA: "etapa_actual" SOLO puede ser una de las de arriba. NUNCA inventes otras.` : '';
+
     let memoryPrompt = `
-=== REGLAS DE MEMORIA (OBLIGATORIO) ===
+══════════════════════════════════════════════════════════
+🧠 SISTEMA DE MEMORIA — REGLAS OBLIGATORIAS
+══════════════════════════════════════════════════════════
 
-1. NUNCA preguntes algo que el cliente ya dijo en la conversación o que esté en la MEMORIA GUARDADA.
-2. Si ya sabes algún dato del cliente — ÚSALO, no lo vuelvas a preguntar.
-3. Lee TODO el historial antes de responder. Si el cliente mencionó algo antes, recuérdalo.
-4. Si el cliente vuelve después de días, salúdalo por su nombre y retoma donde quedaron.
-5. Responde de forma natural, como un humano por WhatsApp.
-`;
+REGLA 1 — MEMORIA:
+• NUNCA preguntes algo que el cliente ya dijo o que esté en la MEMORIA GUARDADA
+• Lee TODO el historial antes de responder y usa los datos que ya tienes
+• Si el cliente regresa después de días → salúdalo por nombre y retoma donde quedaron
+• Responde natural, como un humano por WhatsApp${stagesBlock}
 
-    // 🎯 SOLO incluir detección de etapas si hay etapas configuradas
-    if (pipelineStages.length > 0) {
-      memoryPrompt += `
-=== ETAPAS DEL PIPELINE (DETECCIÓN AUTOMÁTICA) ===
+══════════════════════════════════════════════════════════
+🎬 ACCIONES DEL SISTEMA — TABLA COMPLETA
+══════════════════════════════════════════════════════════
 
-🚨 LISTA EXACTA DE ETAPAS PERMITIDAS (NO PUEDES INVENTAR OTRAS):
-${pipelineStages.map((s: any) => `- "${s.label || s.id}"`).join('\n')}
+El campo "accion" en MEMORY_JSON ejecuta acciones REALES. Úsalas así:
 
-⚠️ REGLAS ESTRICTAS DE ETAPAS:
-1. El campo "etapa_actual" SOLO puede contener una etapa de la lista de arriba, EXACTAMENTE como está escrita
-2. NUNCA inventes etapas nuevas que no estén en la lista
-3. Si no estás seguro, usa la etapa más cercana de la lista
-4. Copia el nombre EXACTO — respeta mayúsculas, acentos y espacios
-5. Si ninguna etapa aplica, déjalo vacío ""
-`;
-    }
+┌─────────────────────────────────────────────────────────┐
+│  CREAR (solo una vez cuando el cliente confirma)        │
+├──────────────────┬──────────────────────────────────────┤
+│ crear_cita       │ Cliente confirma cita/reunión/demo/   │
+│                  │ consulta con fecha y hora definida.   │
+│                  │ Llena: fecha_cita, hora_cita,         │
+│                  │ tipo_cita, nombre, telefono           │
+├──────────────────┼──────────────────────────────────────┤
+│ crear_pedido     │ Cliente confirma compra/pedido con    │
+│                  │ datos completos.                      │
+│                  │ Llena: producto_servicio, cantidad,   │
+│                  │ total, direccion, fecha_entrega       │
+├──────────────────┼──────────────────────────────────────┤
+│ crear_reserva    │ Cliente confirma reserva de mesa,     │
+│                  │ habitación, cancha, turno, servicio,  │
+│                  │ espacio, vehículo, etc.               │
+│                  │ Llena: fecha_reserva, hora_reserva,   │
+│                  │ tipo_reserva, num_personas,           │
+│                  │ duracion_reserva                      │
+└──────────────────┴──────────────────────────────────────┘
 
-    memoryPrompt += `
-=== 🚨 ACCIONES AUTOMÁTICAS — MUY IMPORTANTE 🚨 ===
+┌─────────────────────────────────────────────────────────┐
+│  MODIFICAR (cuando ya existe y el cliente quiere        │
+│  cambiar algo: fecha, hora, producto, cantidad, etc.)   │
+├──────────────────┬──────────────────────────────────────┤
+│ actualizar_cita  │ Cambia fecha/hora/tipo de cita ya     │
+│                  │ creada. Llena los campos nuevos.      │
+├──────────────────┼──────────────────────────────────────┤
+│ actualizar_pedido│ Cambia producto, cantidad, dirección  │
+│                  │ o fecha de entrega de pedido creado.  │
+├──────────────────┼──────────────────────────────────────┤
+│ actualizar_reserva│ Cambia fecha, hora, personas o tipo  │
+│                  │ de reserva ya creada.                 │
+└──────────────────┴──────────────────────────────────────┘
 
-El campo "accion" dispara acciones REALES en el sistema. DEBES usarlo cuando:
+┌─────────────────────────────────────────────────────────┐
+│  CANCELAR (confirmar con cliente ANTES de ejecutar)     │
+├──────────────────┬──────────────────────────────────────┤
+│ cancelar_cita    │ Cancela y libera el cupo de la cita  │
+├──────────────────┼──────────────────────────────────────┤
+│ cancelar_pedido  │ Cancela el pedido en el sistema      │
+├──────────────────┼──────────────────────────────────────┤
+│ cancelar_reserva │ Cancela y libera el espacio/turno    │
+└──────────────────┴──────────────────────────────────────┘
 
-📅 accion = "crear_cita" — Cuando el cliente CONFIRMA una cita/reunión/demostración:
-   - El cliente dice "sí, mañana a las 8" y tú confirmas → accion = "crear_cita"
-   - Se agenda una reunión, demo, consulta, etc. con fecha y hora definida → accion = "crear_cita"
-   - Llena también: fecha_cita, hora_cita, tipo_cita (qué tipo: demo, reunión, consulta, etc.)
+⚠️ REGLAS CRÍTICAS DE ACCIONES:
+• CREAR solo UNA vez. Si memoria dice cita:"creada"/pedido:"creado"/reserva:"creada" → accion = "" (vacío)
+• MODIFICAR solo si ya está creado. No crear de nuevo.
+• CANCELAR: siempre confirmar antes → "¿Confirmas cancelar?" → esperar SÍ → accion = cancelar_*
+• Si el cliente dice "reagendar" o "cambiar fecha" → actualizar_*, NO cancelar + crear
 
-🛒 accion = "crear_pedido" — Cuando el cliente CONFIRMA un pedido/compra:
-   - El cliente confirma que quiere comprar y tiene datos completos → accion = "crear_pedido"
-   - Llena también: fecha_entrega y todos los datos del pedido
+══════════════════════════════════════════════════════════
+📋 BLOQUE DE MEMORIA — OBLIGATORIO EN CADA RESPUESTA
+══════════════════════════════════════════════════════════
 
-🏨 accion = "crear_reserva" — Cuando el cliente CONFIRMA una reserva:
-   - Reserva de mesa en restaurante, habitación de hotel, cancha deportiva, sala de eventos, turno, espacio, vehículo, servicio, etc.
-   - El cliente confirma fecha, hora y lo que quiere reservar → accion = "crear_reserva"
-   - Llena también: fecha_reserva, hora_reserva, tipo_reserva (qué se reserva: mesa, habitación, cancha, sala, turno, etc.), num_personas (cuántas personas), duracion_reserva (tiempo estimado en minutos si aplica)
+🔴 INCLUYE ESTE BLOQUE AL FINAL DE CADA respuesta, SIEMPRE.
+🔴 Sin él, el sistema NO guarda datos ni mueve etapas.
+🔴 Es INVISIBLE para el cliente (se elimina antes de enviar).
 
-⚠️ IMPORTANTE: Solo usa la accion de CREAR una vez cuando se confirma. Si "pedido" ya dice "creado", "cita" dice "creada", o "reserva" dice "creada" en la memoria guardada, NO vuelvas a poner la accion de crear.
-
-🔄 ACTUALIZAR REGISTROS EXISTENTES:
-Si el cliente ya tiene un pedido/cita/reserva CREADO y pide CAMBIAR algo (fecha, hora, dirección, producto, cantidad, etc.):
-- accion = "actualizar_pedido" → Cuando cambia datos de un pedido ya creado
-- accion = "actualizar_cita" → Cuando cambia fecha/hora de una cita ya creada
-- accion = "actualizar_reserva" → Cuando cambia datos de una reserva ya creada
-Actualiza los campos correspondientes con los nuevos valores y pon la accion de actualizar.
-Ejemplos: "cambié de opinión, quiero el buzo rojo" → actualizar_pedido, "mejor a las 3pm" → actualizar_cita, "seremos 6 personas" → actualizar_reserva
-
-❌ CANCELAR REGISTROS EXISTENTES:
-Si el cliente pide CANCELAR su cita/reserva/pedido:
-- accion = "cancelar_cita" → Cancela la cita en el sistema (marca como cancelada, libera el cupo)
-- accion = "cancelar_reserva" → Cancela la reserva en el sistema
-- accion = "cancelar_pedido" → Cancela el pedido en el sistema
-IMPORTANTE: Confirma con el cliente ANTES de cancelar. Una vez confirme, pon la accion de cancelar.
-Ejemplos: "quiero cancelar mi cita" → confirmar → accion = "cancelar_cita", "ya no voy" → confirmar → accion = "cancelar_reserva"
-
-=== ⚠️⚠️⚠️ BLOQUE DE MEMORIA - SUPER IMPORTANTE ⚠️⚠️⚠️ ===
-
-🔴 OBLIGATORIO: AL FINAL de CADA respuesta, DEBES incluir este bloque de memoria.
-🔴 Sin este bloque, el sistema no funcionará correctamente.
-🔴 Inclúyelo SIEMPRE, incluso si solo tienes el nombre del cliente.
-
-FORMATO EXACTO (copia y pega, luego llena los campos que conoces):
+FORMATO (llena solo lo que sabes, deja "" lo que no):
 
 <<MEMORY_JSON>>{"nombre":"","nombre_empresa":"","tipo_negocio":"","telefono":"","email":"","producto_servicio":"","detalles_producto":"","cantidad":"","precio":"","descuento":"","total":"","ciudad":"","direccion":"","barrio":"","metodo_pago":"","fecha_entrega":"","pedido":"","fecha_cita":"","hora_cita":"","tipo_cita":"","cita":"","fecha_reserva":"","hora_reserva":"","tipo_reserva":"","num_personas":"","duracion_reserva":"","reserva":"","notas":"","etapa_actual":"","accion":""}<<END_MEMORY>>
 
-INSTRUCCIONES:
-- Llena SOLO los campos que ya conoces. Deja "" los que NO sabes.
-- "nombre" = Nombre del cliente
-- "nombre_empresa" = Nombre del negocio o empresa del cliente (ej: "Moda Express", "La Parrilla", "Sonrisa Dental")
-- "tipo_negocio" = A qué se dedica: tipo de negocio y productos/servicios que ofrece (ej: "Tienda de ropa femenina - vende buzos, camisetas, jeans", "Restaurante de comida italiana - pizzas, pastas, lasagna")
-- "telefono" = Teléfono o celular del cliente
-- "email" = Email del cliente (si lo da)
-- "producto_servicio" = Qué producto o servicio quiere (ej: "Buzo Negro XL Premium", "Consulta legal", "Paquete turístico Cancún")
-- "detalles_producto" = Especificaciones adicionales como talla, color, modelo, variante, plan, etc.
-- "cantidad" = Cuántas unidades quiere
-- "precio" = Precio unitario o del servicio
-- "descuento" = Descuento aplicado (si hay)
-- "total" = Total a pagar
-- "ciudad" = Ciudad de envío o del cliente
-- "direccion" = Dirección completa de entrega
-- "barrio" = Barrio del cliente
-- "metodo_pago" = Método de pago elegido
-- "fecha_entrega" = Fecha de entrega acordada
-- "pedido" = NO lo llenes tú, el sistema lo actualiza
-- "notas" = Cualquier dato extra relevante del cliente
-- "etapa_actual" = ${pipelineStages.length > 0 ? `OBLIGATORIO. SOLO puede ser una de estas exactas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(', ')}. NO inventes otras.` : 'Déjalo vacío si no hay etapas configuradas.'}
-- "accion" = "crear_cita" cuando SE CONFIRMA cita. "crear_pedido" cuando SE CONFIRMA pedido. "crear_reserva" cuando SE CONFIRMA reserva. "actualizar_cita"/"actualizar_pedido"/"actualizar_reserva" para cambios. "cancelar_cita"/"cancelar_pedido"/"cancelar_reserva" para cancelaciones. Vacío en otros casos.
-- "fecha_cita" = Fecha de la cita confirmada (YYYY-MM-DD o texto como "mañana").
-- "hora_cita" = Hora de la cita (ej: "8:00", "14:30").
-- "tipo_cita" = Tipo: "demostración", "reunión", "consulta", "asesoría", etc.
-- "fecha_reserva" = Fecha de la reserva confirmada (YYYY-MM-DD o texto como "mañana", "viernes").
-- "hora_reserva" = Hora de la reserva (ej: "19:00", "8:00 pm").
-- "tipo_reserva" = Qué se reserva: "mesa", "habitación", "cancha", "sala", "turno", "vehículo", "espacio", etc.
-- "num_personas" = Número de personas para la reserva (ej: "2", "6", "10").
-- "duracion_reserva" = Duración estimada en minutos si aplica (ej: "60", "120").
-- "cita", "pedido" y "reserva" = NO los llenes tú, el sistema los actualiza automáticamente.
-- El bloque va en la ÚLTIMA LÍNEA de tu respuesta.
-- NO expliques el bloque al cliente, es interno/oculto.
+CAMPOS:
+• nombre/telefono/email → Datos de contacto del cliente
+• producto_servicio → Qué quiere comprar/contratar/reservar
+• detalles_producto → Especificaciones: talla, color, modelo, variante, placa, cédula, etc.
+• cantidad/precio/descuento/total → Datos económicos
+• ciudad/direccion/barrio → Ubicación del cliente o entrega
+• metodo_pago → Cómo va a pagar
+• fecha_entrega → Para pedidos: cuándo se entrega
+• notas → Cualquier dato extra relevante (cédula, placa, observaciones, empresa convenio)
+• etapa_actual → ${pipelineStages.length > 0 ? `OBLIGATORIO. Etapa EXACTA: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(' | ')}` : 'Etapa actual del cliente en el pipeline (si está configurado)'}
+• accion → Ver tabla de acciones arriba. Vacío si no hay acción que ejecutar.
+• fecha_cita/hora_cita/tipo_cita → Para citas (hora en formato 24h: "14:30")
+• fecha_reserva/hora_reserva/tipo_reserva/num_personas/duracion_reserva → Para reservas
+• cita/pedido/reserva → NO los llenes: el sistema los actualiza automáticamente
+
 `;
 
     promptParts.push(memoryPrompt);
@@ -2202,19 +2207,17 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    // Reminder SIEMPRE al final del mensaje del usuario
+    // Reminder compacto — refuerza el bloque de memoria en cada mensaje
+    const stagesHint = pipelineStages.length > 0
+      ? ` Etapas válidas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(' | ')}.`
+      : '';
     const memoryReminder = isPersonalAssistant ? `
 
-[SISTEMA COPILOTO OBLIGATORIO: Incluye <<MEMORY_JSON>>...<<END_MEMORY>> al final de TU RESPUESTA.
-- "escríbele/envíale/manda a X que..." → accion:"enviar_mensaje", destinatario_nombre:"X", mensaje_texto:"[texto exacto]"
-- "crea cita para X..." → accion:"crear_cita", cliente_nombre:"X", fecha_cita, hora_cita, tipo_cita
-- "crea pedido para X..." → accion:"crear_pedido", cliente_nombre:"X", producto_servicio, total, fecha_entrega
-- "crea reserva para X..." → accion:"crear_reserva", cliente_nombre:"X", fecha_reserva, hora_reserva, tipo_reserva, num_personas
-- "reagenda/cambia..." → accion:"actualizar_cita/pedido/reserva", cliente_nombre
-- "cancela/elimina..." → accion:"cancelar_cita/pedido/reserva", cliente_nombre
-CRÍTICO: NUNCA omitas <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORIO.]` : `
+[COPILOTO — OBLIGATORIO: Termina con <<MEMORY_JSON>>...<<END_MEMORY>>.
+ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_cita(cliente_nombre,fecha_cita,hora_cita,tipo_cita) | crear_pedido(cliente_nombre,producto_servicio,total,fecha_entrega) | crear_reserva(cliente_nombre,fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva | mover_etapa(cliente_telefono,nueva_etapa)]` : `
 
-[SISTEMA OBLIGATORIO: Tu respuesta DEBE terminar con el bloque <<MEMORY_JSON>>...<<END_MEMORY>> actualizado con los datos del cliente. Actualiza etapa_actual con la etapa correcta del pipeline. Sin este bloque el sistema falla.]`;
+[SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.${stagesHint}
+ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.]`;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI

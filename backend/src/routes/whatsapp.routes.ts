@@ -2145,13 +2145,23 @@ Tu zona horaria: COLOMBIA (GMT-5). TODAS las fechas/horas en los datos son de es
 - URGENCIAS: Si hay entrega en < 1 hora o cita próxima, menciónalo PRIMERO.
 
 🎬 ACCIONES DISPONIBLES (en MEMORY_JSON):
-- accion: "crear_cita" → crear cita/reunión/consulta
-- accion: "crear_pedido" → crear pedido/venta
-- accion: "crear_reserva" → crear reserva de mesa/espacio
-- accion: "actualizar_cita" / "actualizar_pedido" / "actualizar_reserva" → modificar
-- accion: "cancelar_cita" / "cancelar_pedido" / "cancelar_reserva" → cancelar
-- accion: "enviar_mensaje" → enviar WhatsApp a cliente (requiere: destinatario_telefono, mensaje_texto, linea_id)
-- accion: "mover_etapa" → cambiar etapa de un lead (requiere: conversacion_id, nueva_etapa)
+- accion: "crear_cita" → crear cita (requiere: cliente_nombre, cliente_telefono, fecha_cita, hora_cita, tipo_cita)
+- accion: "crear_pedido" → crear pedido (requiere: cliente_nombre, cliente_telefono, producto_servicio, total, fecha_entrega)
+- accion: "crear_reserva" → crear reserva (requiere: cliente_nombre, cliente_telefono, fecha_reserva, hora_reserva, tipo_reserva, num_personas)
+- accion: "actualizar_cita" → reagendar cita (requiere: cliente_nombre o cliente_telefono, nueva fecha_cita/hora_cita)
+- accion: "actualizar_pedido" → modificar pedido (requiere: cliente_nombre o cliente_telefono)
+- accion: "actualizar_reserva" → modificar reserva (requiere: cliente_nombre o cliente_telefono)
+- accion: "cancelar_cita" → cancelar cita (requiere: cliente_nombre o cliente_telefono o appointment_id)
+- accion: "cancelar_pedido" → cancelar pedido (requiere: cliente_nombre o cliente_telefono o appointment_id)
+- accion: "cancelar_reserva" → cancelar reserva (requiere: cliente_nombre o cliente_telefono o appointment_id)
+- accion: "enviar_mensaje" → enviar WhatsApp a cliente (requiere: destinatario_nombre o destinatario_telefono, mensaje_texto)
+- accion: "mover_etapa" → cambiar etapa de lead (requiere: cliente_telefono o conversacion_id, nueva_etapa)
+
+IMPORTANTE para MEMORY_JSON del Copiloto:
+- Usa "cliente_nombre" y "cliente_telefono" para el cliente objetivo de la acción
+- Usa "destinatario_nombre" y "destinatario_telefono" solo para enviar_mensaje
+- El ID del registro en agenda se llama "appointment_id" (últimos 6 chars del ID mostrado)
+- SIEMPRE incluye <<MEMORY_JSON>>...<<END_MEMORY>> con la accion correspondiente
 
 RECUERDA: Siempre incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final de tu respuesta.` 
 
@@ -2483,6 +2493,221 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
               // 🎯 DETECTAR ETAPA AUTOMÁTICA
               const detectedStage = (memoryData.etapa_actual || memoryData.paso_actual || '').trim();
               const actionToTake = memoryData.accion || '';
+
+              // ════════════════════════════════════════════════════════════════
+              // 🤖 COPILOTO IA — ACCIONES DEL DUEÑO (isPersonalAssistant)
+              // El dueño puede gestionar citas/pedidos/reservas de CUALQUIER cliente
+              // y enviar mensajes a cualquier conversación desde su WhatsApp
+              // ════════════════════════════════════════════════════════════════
+              if (isPersonalAssistant && actionToTake) {
+                try {
+                  // Datos del cliente objetivo (puede ser distinto al dueño)
+                  const targetPhone  = (memoryData.destinatario_telefono || memoryData.cliente_telefono || '').replace(/\D/g, '').slice(-10);
+                  const targetName   = memoryData.destinatario_nombre || memoryData.cliente_nombre || memoryData.nombre || '';
+                  const targetMsg    = memoryData.mensaje_texto || memoryData.mensaje || '';
+                  const apptId       = memoryData.appointment_id || memoryData.cita_id || memoryData.pedido_id || memoryData.reserva_id || '';
+
+                  // ── 📨 ENVIAR MENSAJE A CLIENTE ──────────────────────────────
+                  if (actionToTake === 'enviar_mensaje' && targetMsg) {
+                    try {
+                      // Buscar conversación del cliente objetivo
+                      let targetConv = null;
+                      if (targetPhone) {
+                        targetConv = await prisma.conversation.findFirst({
+                          where: { userId: ownerId, recipientId: { endsWith: targetPhone }, isGroup: false },
+                          select: { id: true, recipientId: true, whatsappLineId: true }
+                        });
+                      } else if (targetName) {
+                        targetConv = await prisma.conversation.findFirst({
+                          where: { userId: ownerId, recipientName: { contains: targetName }, isGroup: false },
+                          select: { id: true, recipientId: true, whatsappLineId: true }
+                        });
+                      }
+
+                      if (targetConv) {
+                        const targetLine = targetConv.whatsappLineId
+                          ? await prisma.whatsappLine.findUnique({ where: { id: targetConv.whatsappLineId } })
+                          : await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected' } });
+
+                        if (targetLine) {
+                          const recipientJid = targetConv.recipientId.includes('@') ? targetConv.recipientId : `${targetConv.recipientId}@c.us`;
+                          let msgSent = false;
+
+                          if (targetLine.type === 'cloud' && targetLine.cloudAccessToken && targetLine.phoneNumberId) {
+                            // Cloud API
+                            const cloudRes = await fetch(`https://graph.facebook.com/v18.0/${targetLine.phoneNumberId}/messages`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${targetLine.cloudAccessToken}` },
+                              body: JSON.stringify({ messaging_product: 'whatsapp', to: targetConv.recipientId.replace(/\D/g,''), type: 'text', text: { body: targetMsg } })
+                            });
+                            msgSent = cloudRes.ok;
+                          } else if (targetLine.wahaApiUrl && targetLine.sessionName) {
+                            // WAHA
+                            const wahaRes = await fetch(`${targetLine.wahaApiUrl}/api/sendText`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', ...(targetLine.wahaApiKey ? { 'X-Api-Key': targetLine.wahaApiKey } : {}) },
+                              body: JSON.stringify({ chatId: recipientJid, text: targetMsg, session: targetLine.sessionName })
+                            });
+                            msgSent = wahaRes.ok;
+                          }
+
+                          if (msgSent) {
+                            // Guardar en DB
+                            await prisma.message.create({ data: { conversationId: targetConv.id, content: targetMsg, fromMe: true, userId: ownerId, role: 'assistant' } });
+                            await prisma.conversation.update({ where: { id: targetConv.id }, data: { lastMessage: targetMsg } });
+                            log(`📨 COPILOTO envió mensaje a ${targetName || targetPhone}: "${targetMsg.substring(0,60)}"`);
+                          } else {
+                            log(`⚠️ COPILOTO: fallo al enviar mensaje a ${targetName || targetPhone}`);
+                          }
+                        }
+                      } else {
+                        log(`⚠️ COPILOTO: no se encontró conversación para ${targetName || targetPhone}`);
+                      }
+                    } catch (sendErr: any) { log(`❌ COPILOTO enviar_mensaje: ${sendErr.message}`); }
+                  }
+
+                  // ── 📅 CREAR CITA PARA CLIENTE ───────────────────────────────
+                  if (actionToTake === 'crear_cita') {
+                    try {
+                      const fecha = memoryData.fecha_cita || memoryData.fecha || '';
+                      const hora  = memoryData.hora_cita  || memoryData.hora  || '10:00';
+                      const tipo  = memoryData.tipo_cita  || 'cita';
+                      const clienteNombre = targetName || 'Cliente';
+                      const citaDate = parseSmartDate(fecha);
+                      const citaTime = parseSmartTime(hora, '10:00');
+                      await prisma.appointment.create({ data: {
+                        userId: ownerId, type: 'appointment',
+                        clientName: clienteNombre, clientPhone: targetPhone || '',
+                        date: citaDate, time: citaTime, status: 'confirmed',
+                        notes: `📅 CITA creada por Copiloto IA\n━━━━━━━━━━━━━━━\n👤 ${clienteNombre}\n📱 ${targetPhone || 'Sin tel'}\n📋 Tipo: ${tipo}\n📝 ${memoryData.notas || ''}\n━━━━━━━━━━━━━━━`,
+                        address: memoryData.direccion || '', whatsappLineId: whatsappLineId || null
+                      }});
+                      sendPushToUser(ownerId, { title: '📅 Cita creada por Copiloto', body: `${clienteNombre} — ${tipo} ${fecha} ${hora}`.substring(0,120), url: '/agenda', tag: `copilot-cita-${Date.now()}` }).catch(()=>{});
+                      log(`📅 COPILOTO: Cita creada para ${clienteNombre} el ${fecha} ${hora}`);
+                    } catch(e:any){ log(`❌ COPILOTO crear_cita: ${e.message}`); }
+                  }
+
+                  // ── 🛒 CREAR PEDIDO PARA CLIENTE ─────────────────────────────
+                  if (actionToTake === 'crear_pedido') {
+                    try {
+                      const clienteNombre = targetName || 'Cliente';
+                      const producto = memoryData.producto_servicio || memoryData.producto || '';
+                      const fecha = memoryData.fecha_entrega || memoryData.fecha || '';
+                      const total = parseFloat((memoryData.total || '0').replace(/[^0-9.]/g,'')) || 0;
+                      await prisma.appointment.create({ data: {
+                        userId: ownerId, type: 'order',
+                        clientName: clienteNombre, clientPhone: targetPhone || '',
+                        date: parseSmartDate(fecha), time: '14:00', status: 'pending',
+                        notes: `🛒 PEDIDO creado por Copiloto IA\n━━━━━━━━━━━━━━━\n👤 ${clienteNombre}\n📱 ${targetPhone || 'Sin tel'}\n🛍️ ${producto}\n📦 Cantidad: ${memoryData.cantidad || '1'}\n💵 Total: $${memoryData.total || '0'}\n💳 Pago: ${memoryData.metodo_pago || 'Por definir'}\n📍 ${memoryData.direccion || ''} ${memoryData.ciudad || ''}\n📝 ${memoryData.notas || ''}\n━━━━━━━━━━━━━━━`,
+                        total, address: memoryData.direccion || '', whatsappLineId: whatsappLineId || null
+                      }});
+                      sendPushToUser(ownerId, { title: '🛒 Pedido creado por Copiloto', body: `${clienteNombre} — ${producto}`.substring(0,120), url: '/agenda', tag: `copilot-pedido-${Date.now()}` }).catch(()=>{});
+                      log(`🛒 COPILOTO: Pedido creado para ${clienteNombre}`);
+                    } catch(e:any){ log(`❌ COPILOTO crear_pedido: ${e.message}`); }
+                  }
+
+                  // ── 🏨 CREAR RESERVA PARA CLIENTE ────────────────────────────
+                  if (actionToTake === 'crear_reserva') {
+                    try {
+                      const clienteNombre = targetName || 'Cliente';
+                      const fecha = memoryData.fecha_reserva || memoryData.fecha || '';
+                      const hora  = memoryData.hora_reserva  || memoryData.hora  || '12:00';
+                      const tipo  = memoryData.tipo_reserva  || 'reserva';
+                      const total = parseFloat((memoryData.total || '0').replace(/[^0-9.]/g,'')) || 0;
+                      await prisma.appointment.create({ data: {
+                        userId: ownerId, type: 'reservation',
+                        clientName: clienteNombre, clientPhone: targetPhone || '',
+                        date: parseSmartDate(fecha), time: parseSmartTime(hora,'12:00'),
+                        duration: parseInt(memoryData.duracion_reserva || '60') || 60,
+                        status: 'pending',
+                        notes: `🏨 RESERVA creada por Copiloto IA\n━━━━━━━━━━━━━━━\n👤 ${clienteNombre}\n📱 ${targetPhone || 'Sin tel'}\n📋 Tipo: ${tipo}\n👥 Personas: ${memoryData.num_personas || '1'}\n🗓️ ${fecha} ${hora}\n💵 $${memoryData.total || '0'}\n📝 ${memoryData.notas || ''}\n━━━━━━━━━━━━━━━`,
+                        total, address: memoryData.direccion || '', whatsappLineId: whatsappLineId || null
+                      }});
+                      sendPushToUser(ownerId, { title: '🏨 Reserva creada por Copiloto', body: `${clienteNombre} — ${tipo} ${fecha}`.substring(0,120), url: '/agenda', tag: `copilot-reserva-${Date.now()}` }).catch(()=>{});
+                      log(`🏨 COPILOTO: Reserva creada para ${clienteNombre}`);
+                    } catch(e:any){ log(`❌ COPILOTO crear_reserva: ${e.message}`); }
+                  }
+
+                  // ── 🔄 REAGENDAR / ACTUALIZAR ────────────────────────────────
+                  if (actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva' || actionToTake === 'actualizar_pedido') {
+                    try {
+                      const tipoQuery = actionToTake === 'actualizar_pedido' ? 'order' : ['appointment','reservation'];
+                      const existing = await prisma.appointment.findFirst({
+                        where: {
+                          userId: ownerId,
+                          ...(apptId ? { id: { endsWith: apptId } } : targetPhone ? { clientPhone: { endsWith: targetPhone } } : { clientName: { contains: targetName } }),
+                          type: Array.isArray(tipoQuery) ? { in: tipoQuery } : tipoQuery,
+                          status: { notIn: ['cancelled'] }
+                        },
+                        orderBy: { date: 'asc' }
+                      });
+                      if (existing) {
+                        const updateFields: any = {};
+                        const newFecha = memoryData.fecha_cita || memoryData.fecha_reserva || memoryData.fecha_entrega || memoryData.fecha;
+                        const newHora  = memoryData.hora_cita  || memoryData.hora_reserva  || memoryData.hora;
+                        if (newFecha) updateFields.date = parseSmartDate(newFecha);
+                        if (newHora)  updateFields.time = parseSmartTime(newHora, existing.time || '10:00');
+                        if (memoryData.nombre || targetName) updateFields.clientName = memoryData.nombre || targetName;
+                        if (targetPhone) updateFields.clientPhone = targetPhone;
+                        if (memoryData.total) updateFields.total = parseFloat(memoryData.total.replace(/[^0-9.]/g,'')) || existing.total;
+                        updateFields.notes = (existing.notes || '') + `\n\n🔄 REAGENDADO por Copiloto IA — ${new Date().toLocaleString('es-CO')}\n📅 Nueva fecha: ${newFecha || 'sin cambio'} ${newHora || ''}`;
+                        await prisma.appointment.update({ where: { id: existing.id }, data: updateFields });
+                        sendPushToUser(ownerId, { title: '🔄 Reagendado por Copiloto', body: `${existing.clientName} — ${newFecha || ''} ${newHora || ''}`.substring(0,120), url: '/agenda', tag: `copilot-update-${Date.now()}` }).catch(()=>{});
+                        log(`🔄 COPILOTO: ${existing.type} ${existing.id} actualizado`);
+                      } else {
+                        log(`⚠️ COPILOTO: no se encontró registro para actualizar (${targetName || targetPhone || apptId})`);
+                      }
+                    } catch(e:any){ log(`❌ COPILOTO actualizar: ${e.message}`); }
+                  }
+
+                  // ── ❌ CANCELAR/ELIMINAR ──────────────────────────────────────
+                  if (actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva' || actionToTake === 'cancelar_pedido' || actionToTake === 'eliminar_cita' || actionToTake === 'eliminar_pedido' || actionToTake === 'eliminar_reserva') {
+                    try {
+                      const tipoQuery = (actionToTake.includes('pedido')) ? 'order' : ['appointment','reservation'];
+                      const existing = await prisma.appointment.findFirst({
+                        where: {
+                          userId: ownerId,
+                          ...(apptId ? { id: { endsWith: apptId } } : targetPhone ? { clientPhone: { endsWith: targetPhone } } : { clientName: { contains: targetName } }),
+                          type: Array.isArray(tipoQuery) ? { in: tipoQuery } : tipoQuery,
+                          status: { notIn: ['cancelled'] }
+                        },
+                        orderBy: { date: 'asc' }
+                      });
+                      if (existing) {
+                        await prisma.appointment.update({
+                          where: { id: existing.id },
+                          data: { status: 'cancelled', notes: (existing.notes || '') + `\n\n❌ CANCELADO por Copiloto IA — ${new Date().toLocaleString('es-CO')}` }
+                        });
+                        sendPushToUser(ownerId, { title: '❌ Cancelado por Copiloto', body: `${existing.clientName || 'Cliente'} — ${existing.type}`.substring(0,120), url: '/agenda', tag: `copilot-cancel-${Date.now()}` }).catch(()=>{});
+                        log(`❌ COPILOTO: ${existing.type} ${existing.id} cancelado (${existing.clientName})`);
+                      } else {
+                        log(`⚠️ COPILOTO: no se encontró registro para cancelar (${targetName || targetPhone || apptId})`);
+                      }
+                    } catch(e:any){ log(`❌ COPILOTO cancelar: ${e.message}`); }
+                  }
+
+                  // ── 🏷️ MOVER ETAPA DE LEAD ──────────────────────────────────
+                  if (actionToTake === 'mover_etapa') {
+                    try {
+                      const convId = memoryData.conversacion_id || '';
+                      const newStage = memoryData.nueva_etapa || memoryData.etapa_actual || '';
+                      if (convId || targetPhone) {
+                        const targetConvEtapa = convId
+                          ? await prisma.conversation.findFirst({ where: { userId: ownerId, id: { endsWith: convId } }, select: { id: true } })
+                          : await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: { endsWith: targetPhone }, isGroup: false }, select: { id: true } });
+                        if (targetConvEtapa && newStage) {
+                          await prisma.conversation.update({ where: { id: targetConvEtapa.id }, data: { stage: newStage } });
+                          log(`🏷️ COPILOTO: Lead movido a etapa "${newStage}" (conv: ${targetConvEtapa.id})`);
+                        }
+                      }
+                    } catch(e:any){ log(`❌ COPILOTO mover_etapa: ${e.message}`); }
+                  }
+
+                } catch (copiloErr: any) {
+                  log(`❌ COPILOTO acciones: ${copiloErr.message}`);
+                }
+              }
+              // ════════ FIN COPILOTO IA ════════════════════════════════════════
               
               // Actualizar conversación con memoria Y etapa
               const updateData: any = { contextData: merged };

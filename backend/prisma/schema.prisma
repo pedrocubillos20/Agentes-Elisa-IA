@@ -150,18 +150,16 @@ model Conversation {
 }
 
 model Message {
-  id                String       @id @default(cuid())
-  conversationId    String
-  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  content           String       @db.Text
-  fromMe            Boolean      @default(false)
-  timestamp         DateTime     @default(now())
-  mediaType         String?
-  mediaUrl          String?      @db.Text
-  userId            String?
-  role              String       @default("user")
-  quotedMsgContent  String?      @db.Text
-  quotedMsgFromMe   Boolean?
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  content        String       @db.Text
+  fromMe         Boolean      @default(false)
+  timestamp      DateTime     @default(now())
+  mediaType      String?
+  mediaUrl       String?      @db.Text
+  userId         String?
+  role           String       @default("user")
 
   @@index([conversationId, timestamp])
   @@index([conversationId])

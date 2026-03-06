@@ -1123,14 +1123,7 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                   <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`${msg.mediaType === 'image' ? 'max-w-[85%]' : 'max-w-[75%]'} px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
                       {/* 💬 QUOTED MESSAGE — muestra el mensaje al que respondió */}
-                      {msg.quotedMsgContent && (
-                        <div className={`mb-1.5 px-2 py-1 rounded-lg text-[10px] border-l-2 ${msg.fromMe ? 'bg-white/15 border-white/50 text-white/80' : 'bg-black/20 border-[var(--accent-primary)] text-[var(--text-muted)]'}`}>
-                          <p className={`font-semibold text-[9px] mb-0.5 ${msg.fromMe ? 'text-white/60' : 'text-[var(--accent-primary)]'}`}>
-                            {msg.quotedMsgFromMe === true ? '✍️ Tú' : msg.quotedMsgFromMe === false ? '👤 Cliente' : '💬 Mensaje'}
-                          </p>
-                          <p className="truncate max-w-[200px]">{msg.quotedMsgContent}</p>
-                        </div>
-                      )}
+                      
                       {msg.mediaType === 'image' && msg.mediaUrl && (() => {
                         const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
                         const imgSrc = msg.mediaUrl.startsWith('data:') ? msg.mediaUrl 

@@ -2525,9 +2525,9 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
                       }
 
                       if (targetConv) {
-                        const targetLine = targetConv.whatsappLineId
+                        const targetLine = (targetConv.whatsappLineId
                           ? await prisma.whatsappLine.findUnique({ where: { id: targetConv.whatsappLineId } })
-                          : await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected' } });
+                          : await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected' } })) as any;
 
                         if (targetLine) {
                           const recipientJid = targetConv.recipientId.includes('@') ? targetConv.recipientId : `${targetConv.recipientId}@c.us`;

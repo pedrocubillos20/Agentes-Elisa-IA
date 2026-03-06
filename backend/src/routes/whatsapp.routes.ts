@@ -1456,6 +1456,17 @@ ${triggerList}
         pipelineStages = line.customStages as any[];
       }
     }
+    // Si no hay etapas por lineId, intentar cargarlas por userId (fallback)
+    if (pipelineStages.length === 0 && ownerId) {
+      const anyLine = await prisma.whatsappLine.findFirst({
+        where: { userId: ownerId, isActive: true },
+        select: { customStages: true }
+      });
+      if (anyLine?.customStages && Array.isArray(anyLine.customStages) && (anyLine.customStages as any[]).length > 0) {
+        pipelineStages = anyLine.customStages as any[];
+      }
+    }
+    console.log(`📊 Pipeline: ${pipelineStages.length} etapas lineId:${whatsappLineId || 'none'}`);
     
     // Si no hay etapas configuradas, la IA no detecta etapas automáticamente
     // El usuario debe configurar su asistente con base de conocimiento para activar etapas
@@ -2191,25 +2202,19 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    // 🤖 Copiloto: reminder específico cuando es asistente personal
-    const copiloReminder = isPersonalAssistant ? `
+    // Reminder SIEMPRE al final del mensaje del usuario
+    const memoryReminder = isPersonalAssistant ? `
 
-[SISTEMA COPILOTO - OBLIGATORIO:
-Debes incluir SIEMPRE <<MEMORY_JSON>>...<<END_MEMORY>> al final de tu respuesta.
+[SISTEMA COPILOTO OBLIGATORIO: Incluye <<MEMORY_JSON>>...<<END_MEMORY>> al final de TU RESPUESTA.
+- "escríbele/envíale/manda a X que..." → accion:"enviar_mensaje", destinatario_nombre:"X", mensaje_texto:"[texto exacto]"
+- "crea cita para X..." → accion:"crear_cita", cliente_nombre:"X", fecha_cita, hora_cita, tipo_cita
+- "crea pedido para X..." → accion:"crear_pedido", cliente_nombre:"X", producto_servicio, total, fecha_entrega
+- "crea reserva para X..." → accion:"crear_reserva", cliente_nombre:"X", fecha_reserva, hora_reserva, tipo_reserva, num_personas
+- "reagenda/cambia..." → accion:"actualizar_cita/pedido/reserva", cliente_nombre
+- "cancela/elimina..." → accion:"cancelar_cita/pedido/reserva", cliente_nombre
+CRÍTICO: NUNCA omitas <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORIO.]` : `
 
-Si te piden ENVIAR mensaje a alguien → accion:"enviar_mensaje", destinatario_nombre:"[nombre]", destinatario_telefono:"[tel si lo tienes]", mensaje_texto:"[texto exacto a enviar]"
-Si te piden CREAR cita → accion:"crear_cita", cliente_nombre:"[nombre]", fecha_cita:"[fecha]", hora_cita:"[hora]", tipo_cita:"[tipo]"
-Si te piden CREAR pedido → accion:"crear_pedido", cliente_nombre:"[nombre]", cliente_telefono:"[tel]", producto_servicio:"[producto]", total:"[total]", fecha_entrega:"[fecha]"
-Si te piden CREAR reserva → accion:"crear_reserva", cliente_nombre:"[nombre]", fecha_reserva:"[fecha]", hora_reserva:"[hora]", tipo_reserva:"[tipo]", num_personas:"[n]"
-Si te piden REAGENDAR → accion:"actualizar_cita" o "actualizar_pedido" o "actualizar_reserva", cliente_nombre:"[nombre]", nueva fecha/hora
-Si te piden CANCELAR → accion:"cancelar_cita" o "cancelar_pedido" o "cancelar_reserva", cliente_nombre:"[nombre]"
-Si te piden MOVER etapa → accion:"mover_etapa", cliente_telefono:"[tel]", nueva_etapa:"[etapa]"
-
-CRÍTICO: Si el usuario dice "escríbele a X que..." o "envíale a X..." o "manda mensaje a X..." → SIEMPRE usa accion:"enviar_mensaje" con el texto exacto solicitado.
-CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORIO en cada respuesta.]` : `
-
-[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva, pon accion:"crear_reserva". Si CANCELA, pon accion:"cancelar_cita"/"cancelar_reserva"/"cancelar_pedido". Si CAMBIA fecha/hora, pon accion:"actualizar_cita"/"actualizar_reserva"/"actualizar_pedido".]`;
-    const memoryReminder = copiloReminder;
+[SISTEMA OBLIGATORIO: Tu respuesta DEBE terminar con el bloque <<MEMORY_JSON>>...<<END_MEMORY>> actualizado con los datos del cliente. Actualiza etapa_actual con la etapa correcta del pipeline. Sin este bloque el sistema falla.]`;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI
@@ -2541,16 +2546,35 @@ CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORI
                     try {
                       // Buscar conversación del cliente objetivo
                       let targetConv = null;
+                      // Buscar por teléfono primero, luego por nombre
                       if (targetPhone) {
                         targetConv = await prisma.conversation.findFirst({
                           where: { userId: ownerId, recipientId: { endsWith: targetPhone }, isGroup: false },
+                          orderBy: { updatedAt: 'desc' },
                           select: { id: true, recipientId: true, whatsappLineId: true }
                         });
-                      } else if (targetName) {
-                        targetConv = await prisma.conversation.findFirst({
-                          where: { userId: ownerId, recipientName: { contains: targetName }, isGroup: false },
-                          select: { id: true, recipientId: true, whatsappLineId: true }
-                        });
+                      }
+                      if (!targetConv && targetName) {
+                        // Buscar por nombre — primero parte más larga del nombre
+                        const nameParts = targetName.trim().split(' ').filter((p: string) => p.length >= 3).sort((a: string, b: string) => b.length - a.length);
+                        for (const part of nameParts) {
+                          // Buscar con y sin tildes — cargar todas las convs recientes y filtrar en memoria
+                          const candidates = await prisma.conversation.findMany({
+                            where: { userId: ownerId, isGroup: false },
+                            orderBy: { updatedAt: 'desc' },
+                            take: 200,
+                            select: { id: true, recipientId: true, recipientName: true, whatsappLineId: true }
+                          });
+                          const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+                          const partNorm = normalize(part);
+                          const found = candidates.find((c: any) => c.recipientName && normalize(c.recipientName).includes(partNorm));
+                          if (found) {
+                            targetConv = found;
+                            console.log(\`🎯 COPILOTO: conv encontrada por nombre "\${part}" → \${found.recipientName} (\${found.id})\`);
+                            break;
+                          }
+                        }
+                        if (!targetConv) console.log(\`⚠️ COPILOTO: no se encontró conversación para "\${targetName}" en \${ownerId}\`);
                       }
 
                       if (targetConv) {

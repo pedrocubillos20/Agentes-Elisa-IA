@@ -160,8 +160,6 @@ model Message {
   mediaUrl          String?      @db.Text
   userId            String?
   role              String       @default("user")
-  quotedMsgContent  String?      @db.Text
-  quotedMsgFromMe   Boolean?
 
   @@index([conversationId, timestamp])
   @@index([conversationId])

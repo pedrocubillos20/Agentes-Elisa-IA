@@ -1811,6 +1811,7 @@ REGLAS DE TRANSFERENCIA:
     // 🤖📊 MODO ASISTENTE INTERNO — Grupos de trabajo + Asistente Personal del admin
     const isPersonalAssistant = savedContext?._isPersonalAssistant === true;
     const isInternalAssistant = conversation?.isGroup || isPersonalAssistant;
+    console.log(`🤖 isPersonalAssistant: ${isPersonalAssistant} | isGroup: ${conversation?.isGroup} | contextKeys: ${Object.keys(savedContext||{}).join(',')}`);
     
     if (isInternalAssistant) {
       try {
@@ -2497,11 +2498,11 @@ CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORI
             }
           }
           
-          log(`🔍 MEMORY_JSON presente: ${!!memoryMatch} | isPersonalAssistant: ${isPersonalAssistant} | reply snippet: ${reply.substring(0,100)}`);
+          console.log(`🔍 MEMORY_JSON presente: ${!!memoryMatch} | isPersonalAssistant: ${isPersonalAssistant}`);
           if (memoryMatch) {
             try {
               const memoryData = JSON.parse(memoryMatch[1].trim());
-              log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')}`);
+              console.log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')}`);
               // Merge con datos existentes (no borrar datos previos si vienen vacíos)
               const merged = { ...savedContext };
               for (const [key, value] of Object.entries(memoryData)) {
@@ -2520,14 +2521,14 @@ CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORI
               // y enviar mensajes a cualquier conversación desde su WhatsApp
               // ════════════════════════════════════════════════════════════════
               if (isPersonalAssistant && actionToTake) {
-                log(`🤖 COPILOTO ACCIÓN: "${actionToTake}" | datos: ${JSON.stringify(memoryData).substring(0,200)}`);
+                console.log(`🤖 COPILOTO ACCIÓN: "${actionToTake}" | isPersonalAssistant: ${isPersonalAssistant}`);
                 try {
                   // Datos del cliente objetivo (puede ser distinto al dueño)
                   const targetPhone  = (memoryData.destinatario_telefono || memoryData.cliente_telefono || '').replace(/\D/g, '').slice(-10);
                   const targetName   = memoryData.destinatario_nombre || memoryData.cliente_nombre || memoryData.nombre || '';
                   const targetMsg    = memoryData.mensaje_texto || memoryData.mensaje || '';
                   const apptId       = memoryData.appointment_id || memoryData.cita_id || memoryData.pedido_id || memoryData.reserva_id || '';
-                  log(`🤖 COPILOTO target → phone:${targetPhone} name:${targetName} msg:${targetMsg.substring(0,50)}`);
+                  console.log(`🤖 COPILOTO target → phone:${targetPhone} name:${targetName} msg:${targetMsg.substring(0,50)}`);
 
                   // ── 📨 ENVIAR MENSAJE A CLIENTE ──────────────────────────────
                   if (actionToTake === 'enviar_mensaje' && targetMsg) {

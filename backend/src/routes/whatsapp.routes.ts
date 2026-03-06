@@ -2190,7 +2190,25 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
     
     // 🔴 RECORDATORIO: Agregar al mensaje del usuario para forzar el bloque de memoria
-    const memoryReminder = `\n\n[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva (mesa, habitación, cancha, sala, turno, etc.), pon accion:"crear_reserva" con fecha_reserva, hora_reserva, tipo_reserva y num_personas. Si el cliente CANCELA, pon accion:"cancelar_cita"/"cancelar_reserva"/"cancelar_pedido" según corresponda. Si CAMBIA fecha/hora, pon accion:"actualizar_cita"/"actualizar_reserva"/"actualizar_pedido". IMPORTANTE: Si un horario específico ya pasó hoy, ofrece el SIGUIENTE horario libre de HOY. Solo agenda para mañana si ya NO quedan horarios disponibles hoy.]`;
+    // 🤖 Copiloto: reminder específico cuando es asistente personal
+    const copiloReminder = isPersonalAssistant ? `
+
+[SISTEMA COPILOTO - OBLIGATORIO:
+Debes incluir SIEMPRE <<MEMORY_JSON>>...<<END_MEMORY>> al final de tu respuesta.
+
+Si te piden ENVIAR mensaje a alguien → accion:"enviar_mensaje", destinatario_nombre:"[nombre]", destinatario_telefono:"[tel si lo tienes]", mensaje_texto:"[texto exacto a enviar]"
+Si te piden CREAR cita → accion:"crear_cita", cliente_nombre:"[nombre]", fecha_cita:"[fecha]", hora_cita:"[hora]", tipo_cita:"[tipo]"
+Si te piden CREAR pedido → accion:"crear_pedido", cliente_nombre:"[nombre]", cliente_telefono:"[tel]", producto_servicio:"[producto]", total:"[total]", fecha_entrega:"[fecha]"
+Si te piden CREAR reserva → accion:"crear_reserva", cliente_nombre:"[nombre]", fecha_reserva:"[fecha]", hora_reserva:"[hora]", tipo_reserva:"[tipo]", num_personas:"[n]"
+Si te piden REAGENDAR → accion:"actualizar_cita" o "actualizar_pedido" o "actualizar_reserva", cliente_nombre:"[nombre]", nueva fecha/hora
+Si te piden CANCELAR → accion:"cancelar_cita" o "cancelar_pedido" o "cancelar_reserva", cliente_nombre:"[nombre]"
+Si te piden MOVER etapa → accion:"mover_etapa", cliente_telefono:"[tel]", nueva_etapa:"[etapa]"
+
+CRÍTICO: Si el usuario dice "escríbele a X que..." o "envíale a X..." o "manda mensaje a X..." → SIEMPRE usa accion:"enviar_mensaje" con el texto exacto solicitado.
+CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORIO en cada respuesta.]` : `
+
+[SISTEMA: Recuerda incluir <<MEMORY_JSON>>...<<END_MEMORY>> al final. Si confirmaste una cita/reunión, pon accion:"crear_cita" con fecha_cita y hora_cita. Si confirmaste un pedido, pon accion:"crear_pedido". Si confirmaste una reserva, pon accion:"crear_reserva". Si CANCELA, pon accion:"cancelar_cita"/"cancelar_reserva"/"cancelar_pedido". Si CAMBIA fecha/hora, pon accion:"actualizar_cita"/"actualizar_reserva"/"actualizar_pedido".]`;
+    const memoryReminder = copiloReminder;
     messages.push({ role: 'user', content: message + memoryReminder });
 
     // Llamar a OpenAI

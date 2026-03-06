@@ -2531,17 +2531,8 @@ CRÍTICO: NUNCA omitas el bloque <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORI
                   // Extraer mensaje: primero del campo, luego del reply de la IA (texto entre comillas)
                   let targetMsg = memoryData.mensaje_texto || memoryData.mensaje || '';
                   if (!targetMsg && actionToTake === 'enviar_mensaje') {
-                    // Intentar extraer del reply: busca texto entre comillas "..."
-                    const msgMatch = reply.match(/["«"]([^"«"]{5,300})["»"]/);
+                    const msgMatch = reply.match(/"([^"]{5,300})"/);
                     if (msgMatch) targetMsg = msgMatch[1].trim();
-                    // Si no hay comillas, buscar después de "le enviaré:" o "enviaré:"
-                    if (!targetMsg) {
-                      const afterColon = reply.match(/(?:enviar[eé]|texto[^:]*:)\s*
-+[-—]*\s*
-*([\s\S]{5,300?})
-/i);
-                      if (afterColon) targetMsg = afterColon[1].trim();
-                    }
                   }
                   console.log(`🤖 COPILOTO target → phone:${targetPhone} name:${targetName} msg:${targetMsg.substring(0,80)}`);
 

@@ -2500,12 +2500,14 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
               // y enviar mensajes a cualquier conversación desde su WhatsApp
               // ════════════════════════════════════════════════════════════════
               if (isPersonalAssistant && actionToTake) {
+                log(`🤖 COPILOTO ACCIÓN: "${actionToTake}" | datos: ${JSON.stringify(memoryData).substring(0,200)}`);
                 try {
                   // Datos del cliente objetivo (puede ser distinto al dueño)
                   const targetPhone  = (memoryData.destinatario_telefono || memoryData.cliente_telefono || '').replace(/\D/g, '').slice(-10);
                   const targetName   = memoryData.destinatario_nombre || memoryData.cliente_nombre || memoryData.nombre || '';
                   const targetMsg    = memoryData.mensaje_texto || memoryData.mensaje || '';
                   const apptId       = memoryData.appointment_id || memoryData.cita_id || memoryData.pedido_id || memoryData.reserva_id || '';
+                  log(`🤖 COPILOTO target → phone:${targetPhone} name:${targetName} msg:${targetMsg.substring(0,50)}`);
 
                   // ── 📨 ENVIAR MENSAJE A CLIENTE ──────────────────────────────
                   if (actionToTake === 'enviar_mensaje' && targetMsg) {
@@ -2533,7 +2535,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
                           const recipientJid = targetConv.recipientId.includes('@') ? targetConv.recipientId : `${targetConv.recipientId}@c.us`;
                           let msgSent = false;
 
-                          if (targetLine.type === 'cloud' && targetLine.cloudAccessToken && targetLine.phoneNumberId) {
+                          if (targetLine.cloudAccessToken && targetLine.phoneNumberId) {
                             // Cloud API
                             const cloudRes = await fetch(`https://graph.facebook.com/v18.0/${targetLine.phoneNumberId}/messages`, {
                               method: 'POST',

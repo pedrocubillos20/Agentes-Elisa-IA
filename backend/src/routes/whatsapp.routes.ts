@@ -6519,7 +6519,10 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         
         // Guardar en DB async (no bloquea el buffer)
         const convId = earlyBuffer.convId;
-        const displayContent = savedMediaType === 'audio' ? `🎤 ${messageBody}` : messageBody;
+        // 💬 QUOTED MESSAGE Cloud
+      const cloudQuotedContent: string | null = msg.context?.id ? '📩 Respondió a un mensaje' : null;
+      const cloudQuotedFromMe: boolean | null = null;
+      const displayContent = savedMediaType === 'audio' ? `🎤 ${messageBody}` : messageBody;
         prisma.message.create({
           data: {
             conversationId: convId, content: displayContent || '[Media]', fromMe: false,
@@ -6567,6 +6570,9 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       }
       
       // Save message
+      // 💬 QUOTED MESSAGE Cloud
+      const cloudQuotedContent: string | null = msg.context?.id ? '📩 Respondió a un mensaje' : null;
+      const cloudQuotedFromMe: boolean | null = null;
       const displayContent = savedMediaType === 'audio' ? `🎤 ${messageBody}` : messageBody;
       await prisma.message.create({
         data: {
@@ -6575,7 +6581,6 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           ...(savedMediaType && { mediaType: savedMediaType }),
           ...(savedMediaUrl && { mediaUrl: savedMediaUrl }),
           ...(cloudQuotedContent !== null && { quotedMsgContent: cloudQuotedContent, quotedMsgFromMe: cloudQuotedFromMe ?? undefined }),
-
         }
       });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: displayContent, recipientName: senderName } });

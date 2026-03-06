@@ -110,6 +110,12 @@ model Assistant {
   
   whatsappLineId  String?
   isActive        Boolean   @default(false)
+  
+  // 📍 COBERTURA DE DOMICILIO (opcional — solo si el negocio tiene servicio a domicilio)
+  coverageLat     Float?    // Latitud del negocio (ej: 4.6189)
+  coverageLon     Float?    // Longitud del negocio (ej: -74.1289)
+  coverageRadiusKm Float?   // Radio de cobertura en km (ej: 3.0)
+  
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 

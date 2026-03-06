@@ -33,6 +33,10 @@ export default function AsistentesPage() {
   const [selectedVoice, setSelectedVoice] = useState('');
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [testingVoice, setTestingVoice] = useState(false);
+  // 📍 Cobertura de domicilio
+  const [coverageLat, setCoverageLat] = useState('');
+  const [coverageLon, setCoverageLon] = useState('');
+  const [coverageRadiusKm, setCoverageRadiusKm] = useState('');
 
   // Learning
   const [learningHistory, setLearningHistory] = useState<any[]>([]);
@@ -100,6 +104,9 @@ export default function AsistentesPage() {
           setElevenLabsKey(active.elevenLabsKey || '');
           setSelectedVoice(active.selectedVoice || '');
           setVoiceEnabled(active.voiceEnabled || false);
+          setCoverageLat(active.coverageLat?.toString() || '');
+          setCoverageLon(active.coverageLon?.toString() || '');
+          setCoverageRadiusKm(active.coverageRadiusKm?.toString() || '');
           setAutoLearn(active.autoLearn !== false);
           setLearningHistory(
             Array.isArray(active.learningHistory) ? active.learningHistory :
@@ -113,6 +120,9 @@ export default function AsistentesPage() {
           setElevenLabsKey('');
           setSelectedVoice('');
           setVoiceEnabled(false);
+          setCoverageLat('');
+          setCoverageLon('');
+          setCoverageRadiusKm('');
           setAutoLearn(true);
           setLearningHistory([]);
         }
@@ -145,6 +155,9 @@ export default function AsistentesPage() {
           elevenLabsKey,
           selectedVoice,
           voiceEnabled,
+          coverageLat: coverageLat ? parseFloat(coverageLat) : null,
+          coverageLon: coverageLon ? parseFloat(coverageLon) : null,
+          coverageRadiusKm: coverageRadiusKm ? parseFloat(coverageRadiusKm) : null,
           autoLearn,
           learningHistory,
           isActive: true,
@@ -632,6 +645,69 @@ export default function AsistentesPage() {
               placeholder={viewMode === 'json' ? '{\n  "negocio": {...}\n}' : '# Tu Negocio\n\nEscribe aquí...'}
               className="w-full min-h-[450px] p-6 bg-[var(--bg-primary)] text-white text-sm resize-none focus:outline-none leading-relaxed"
               style={{ fontFamily: viewMode === 'json' ? 'JetBrains Mono, Consolas, monospace' : 'inherit' }} />
+          </div>
+
+
+          {/* 📍 Cobertura de Domicilio */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-semibold text-white flex items-center gap-2">
+                  📍 Cobertura de Domicilio
+                  <span className="text-xs font-normal text-[var(--text-muted)] bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-full">Opcional</span>
+                </h3>
+                <p className="text-sm text-[var(--text-muted)] mt-0.5">
+                  Si tu negocio tiene servicio a domicilio, configura el radio de cobertura. La IA detectará automáticamente si el cliente está dentro del área cuando comparta su ubicación por WhatsApp.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-[var(--text-muted)] mb-1 block">Latitud del negocio</label>
+                <input
+                  type="number" step="0.0001"
+                  value={coverageLat}
+                  onChange={(e) => setCoverageLat(e.target.value)}
+                  placeholder="ej: 4.6189"
+                  className="input w-full text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-muted)] mb-1 block">Longitud del negocio</label>
+                <input
+                  type="number" step="0.0001"
+                  value={coverageLon}
+                  onChange={(e) => setCoverageLon(e.target.value)}
+                  placeholder="ej: -74.1289"
+                  className="input w-full text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-muted)] mb-1 block">Radio de cobertura (km)</label>
+                <input
+                  type="number" step="0.5" min="0.5" max="50"
+                  value={coverageRadiusKm}
+                  onChange={(e) => setCoverageRadiusKm(e.target.value)}
+                  placeholder="ej: 3"
+                  className="input w-full text-sm"
+                />
+              </div>
+            </div>
+            {(coverageLat || coverageLon || coverageRadiusKm) && (
+              <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs text-emerald-400 flex items-start gap-2">
+                <span>✅</span>
+                <span>
+                  Cobertura activa — Radio de <strong>{coverageRadiusKm || '?'} km</strong> desde ({coverageLat || '?'}, {coverageLon || '?'}).
+                  Cuando un cliente comparta su ubicación por WhatsApp, el sistema calculará automáticamente si está dentro del área.
+                  {' '}<a href={"https://maps.google.com/?q=" + coverageLat + "," + coverageLon} target="_blank" rel="noreferrer" className="underline hover:text-emerald-300">Ver en Google Maps ↗</a>
+                </span>
+              </div>
+            )}
+            {!coverageLat && !coverageLon && (
+              <p className="text-xs text-[var(--text-muted)] mt-3 flex items-center gap-1.5">
+                <span>💡</span> Para obtener las coordenadas: abre Google Maps, haz clic derecho en la ubicación del negocio y copia las coordenadas.
+              </p>
+            )}
           </div>
 
           {/* Knowledge Items */}

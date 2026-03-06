@@ -1234,6 +1234,33 @@ const extractMediaInfo = (payload: any): { hasMedia: boolean; mediaType: string;
 
 // ===== AI RESPONSE (🧠 MEMORIA PERSISTENTE + AUTO-APRENDIZAJE) =====
 // 🔍 Helper: Buscar etapa por keyword parcial en el nombre
+
+// ═══════════════════════════════════════════════════════════════
+// 📍 COBERTURA DE DOMICILIO — Cálculo de distancia (Haversine)
+// ═══════════════════════════════════════════════════════════════
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+// Generic: receives biz coords + radius from assistant DB config
+function checkCoverageRadius(
+  clientLat: number, clientLon: number,
+  bizLat: number, bizLon: number, maxKm: number
+): { dentro: boolean; distanciaKm: number; mensaje: string } {
+  const dist = haversineKm(bizLat, bizLon, clientLat, clientLon);
+  const dentro = dist <= maxKm;
+  const distStr = dist.toFixed(2);
+  const mensaje = dentro
+    ? "✅ DENTRO DEL ÁREA DE COBERTURA (" + distStr + " km del negocio — máx " + maxKm + " km). Puedes confirmar el servicio a domicilio."
+    : "❌ FUERA DEL ÁREA DE COBERTURA (" + distStr + " km del negocio — máx " + maxKm + " km). Informa al cliente amablemente que está fuera del radio y sugiérele venir al negocio.";
+  return { dentro, distanciaKm: parseFloat(distStr), mensaje };
+}
+
+
 function findStageByKeyword(stages: any[], keywords: string[]): string {
   for (const kw of keywords) {
     const found = stages.find((s: any) => {
@@ -5848,6 +5875,34 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
+    // 📍 WAHA: Detectar mensajes de ubicación
+    if (!body && (payload?.type === 'location' || payload?._data?.type === 'location')) {
+      const locLat = payload?.location?.lat || payload?.location?.latitude || payload?._data?.lat;
+      const locLon = payload?.location?.lng || payload?.location?.longitude || payload?._data?.lng;
+      if (locLat && locLon) {
+        const mapsLink = "https://maps.google.com/?q=" + locLat + "," + locLon;
+        // Load coverage config from assistant (generic — only active if configured)
+        let coverageMsg = "";
+        try {
+          const waLine = await prisma.whatsappLine.findFirst({ where: { sessionName }, select: { userId: true, id: true } });
+          if (waLine) {
+            const asst = await prisma.assistant.findFirst({
+              where: { userId: waLine.userId, isActive: true },
+              select: { coverageLat: true, coverageLon: true, coverageRadiusKm: true }
+            });
+            if (asst?.coverageLat && asst?.coverageLon && asst?.coverageRadiusKm) {
+              const cov = checkCoverageRadius(parseFloat(locLat), parseFloat(locLon), asst.coverageLat, asst.coverageLon, asst.coverageRadiusKm);
+              coverageMsg = "\n[SISTEMA COBERTURA]: " + cov.mensaje;
+              console.log("📍 WAHA Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)");
+            }
+          }
+        } catch (covErr) { /* no coverage config, skip */ }
+        body = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
+      } else {
+        body = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
+      }
+    }
+
     // [FIX 4] Si no hay body pero hay media detectada, usar placeholder
     // Esto evita que la conversación no se cree cuando el cliente manda
     // un sticker/audio que falla en descargar
@@ -6739,7 +6794,27 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           } catch (vErr: any) { log(`☁️ ⚠️ Vision error: ${vErr.message}`); }
         }
       } else if (msgType === 'location') {
-        messageBody = `📍 Ubicación: ${msg.location?.latitude}, ${msg.location?.longitude}`;
+        const locLat = msg.location?.latitude;
+        const locLon = msg.location?.longitude;
+        if (locLat && locLon) {
+          const mapsLink = "https://maps.google.com/?q=" + locLat + "," + locLon;
+          // Load coverage config — generic, only if assistant has it configured
+          let coverageMsg = "";
+          try {
+            const asst = await prisma.assistant.findFirst({
+              where: { userId, isActive: true },
+              select: { coverageLat: true, coverageLon: true, coverageRadiusKm: true }
+            });
+            if (asst?.coverageLat && asst?.coverageLon && asst?.coverageRadiusKm) {
+              const cov = checkCoverageRadius(locLat, locLon, asst.coverageLat, asst.coverageLon, asst.coverageRadiusKm);
+              coverageMsg = "\n[SISTEMA COBERTURA]: " + cov.mensaje;
+              console.log("☁️ 📍 Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)");
+            }
+          } catch { /* no coverage config, skip */ }
+          messageBody = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
+        } else {
+          messageBody = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
+        }
       } else if (msgType === 'contacts') {
         const c = msg.contacts?.[0];
         messageBody = `👤 Contacto: ${c?.name?.formatted_name || 'Sin nombre'} - ${c?.phones?.[0]?.phone || ''}`;

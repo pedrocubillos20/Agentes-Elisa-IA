@@ -2565,16 +2565,16 @@ CRÍTICO: NUNCA omitas <<MEMORY_JSON>>...<<END_MEMORY>>. Es OBLIGATORIO.]` : `
                             take: 200,
                             select: { id: true, recipientId: true, recipientName: true, whatsappLineId: true }
                           });
-                          const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+                          const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
                           const partNorm = normalize(part);
                           const found = candidates.find((c: any) => c.recipientName && normalize(c.recipientName).includes(partNorm));
                           if (found) {
                             targetConv = found;
-                            console.log(\`🎯 COPILOTO: conv encontrada por nombre "\${part}" → \${found.recipientName} (\${found.id})\`);
+                            console.log("🎯 COPILOTO: conv encontrada - " + part + " -> " + found.recipientName + " (" + found.id + ")");
                             break;
                           }
                         }
-                        if (!targetConv) console.log(\`⚠️ COPILOTO: no se encontró conversación para "\${targetName}" en \${ownerId}\`);
+                        if (!targetConv) console.log("⚠️ COPILOTO: no se encontró conversación para " + targetName + " en " + ownerId);
                       }
 
                       if (targetConv) {

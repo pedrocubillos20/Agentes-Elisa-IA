@@ -1176,6 +1176,18 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                           </div>
                         </div>
                       )}
+                      {msg.quotedMsgContent && (
+                        <div className={`mb-1.5 px-2 py-1 rounded-lg text-[10px] border-l-2 
+                          ${msg.fromMe ? 'bg-white/15 border-white/50 text-white/80' 
+                                       : 'bg-black/20 border-[var(--accent-primary)] text-[var(--text-muted)]'}`}>
+                          <p className={`font-semibold text-[9px] mb-0.5 
+                            ${msg.fromMe ? 'text-white/60' : 'text-[var(--accent-primary)]'}`}>
+                            {msg.quotedMsgFromMe === true ? '✍️ Tú' : 
+                             msg.quotedMsgFromMe === false ? '👤 Cliente' : '💬 Mensaje'}
+                          </p>
+                          <p className="truncate max-w-[200px]">{msg.quotedMsgContent}</p>
+                        </div>
+                      )}
                       <p className="whitespace-pre-wrap break-words">
                         {msg.mediaType === 'image' && msg.mediaUrl && (msg.content === '📷 [Imagen]' || msg.content === '📷 [Imagen enviada por el cliente]' || msg.content?.startsWith('📷 [Imagen'))
                           ? '' 

@@ -5391,6 +5391,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
+    // 💬 QUOTED MESSAGE: capturar mensaje citado cuando cliente responde a un mensaje
+    const quotedMsg = payload?._data?.quotedMsg || payload?.quotedMsg || null;
+    const quotedMsgContent: string | null = quotedMsg
+      ? (quotedMsg.body || quotedMsg.caption || quotedMsg.text ||
+        (quotedMsg.type === 'image' ? '📷 Imagen' : quotedMsg.type === 'audio' ? '🎤 Audio' :
+         quotedMsg.type === 'video' ? '🎬 Video' : '📎 Archivo') || null)
+      : null;
+    const quotedMsgFromMe: boolean | null = quotedMsg ? (quotedMsg.fromMe === true) : null;
+
 
     // 🔍 DETECT @lid FORMAT (NOWEB engine only — WEBJS uses @c.us with real phone numbers)
     // Keep this for backward compatibility if NOWEB sessions still exist
@@ -5792,7 +5801,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // ⏸️ COMANDO ".." = PAUSAR IA — inmediato
     if (body.trim() === '..') {
       await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: true } });
-      await prisma.message.create({ data: { conversationId: conv.id, content: isGroup ? `[${senderName}]: ${body}` : body, fromMe: false, userId, role: 'user' } });
+      await prisma.message.create({ data: { conversationId: conv.id, content: isGroup ? `[${senderName}]: ${body}` : body, fromMe: false, userId, role: 'user', ...(quotedMsgContent !== null && { quotedMsgContent, quotedMsgFromMe }) } });
       await setPresence(sessionName, from, 'typing');
       await new Promise(r => setTimeout(r, 1000));
       await stopPresence(sessionName, from);
@@ -5808,7 +5817,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (body.trim() === '.') {
       if (conv.aiPaused) {
         await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: false } });
-        await prisma.message.create({ data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user' } });
+        await prisma.message.create({ data: { conversationId: conv.id, content: body, fromMe: false, userId, role: 'user', ...(quotedMsgContent !== null && { quotedMsgContent, quotedMsgFromMe }) } });
         await setPresence(sessionName, from, 'typing');
         await new Promise(r => setTimeout(r, 800));
         await stopPresence(sessionName, from);
@@ -6565,6 +6574,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           userId, role: 'user',
           ...(savedMediaType && { mediaType: savedMediaType }),
           ...(savedMediaUrl && { mediaUrl: savedMediaUrl }),
+          ...(cloudQuotedContent !== null && { quotedMsgContent: cloudQuotedContent, quotedMsgFromMe: cloudQuotedFromMe ?? undefined }),
 
         }
       });

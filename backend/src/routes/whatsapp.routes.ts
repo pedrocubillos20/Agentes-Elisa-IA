@@ -5734,7 +5734,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       from === 'status@broadcast' ||
       from.includes('@newsletter');  // ← newsletters/publicidad de Meta
     if (isSpam) {
-      if (from) log(\`🚫 Ignorado: mensaje no válido (\${from})\`);
+      if (from) log('🚫 Ignorado: mensaje no válido (' + from + ')');
       res.json({ success: true }); return;
     }
 

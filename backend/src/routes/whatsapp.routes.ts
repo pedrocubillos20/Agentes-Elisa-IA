@@ -3026,11 +3026,20 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     }
                   }
 
-                  // 🇨🇴 Check holiday — prevent booking on closed holidays
+                  // 📅 Check if day is OPEN in schedule
                   const citaDateStr = citaDate.toISOString().split('T')[0];
+                  const citaDayOfWeek = citaDate.getDay();
+                  const citaDaySchedule = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: citaDayOfWeek } });
+                  let dayBlocked = false;
+                  if (citaDaySchedule && !citaDaySchedule.isOpen) {
+                    dayBlocked = true;
+                    const dayNames = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+                    log(`🚫 Cita bloqueada: ${dayNames[citaDayOfWeek]} está CERRADO en el horario configurado`);
+                  }
+                  // 🇨🇴 Check holiday — prevent booking on closed holidays
                   const citaHoliday = isColombianHoliday(citaDateStr);
                   let holidayBlocked = false;
-                  if (citaHoliday) {
+                  if (!dayBlocked && citaHoliday) {
                     const holConfig = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: 7 } });
                     const workAll = holConfig?.isOpen || false;
                     let workDts: string[] = [];
@@ -3041,11 +3050,11 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     }
                   }
 
-                  if (holidayBlocked) {
-                    log(`⚠️ Cita NO creada — festivo cerrado`);
+                  if (dayBlocked || holidayBlocked) {
+                    log(`⚠️ Cita NO creada — día cerrado o festivo`);
                   }
 
-                  if (!holidayBlocked) {
+                  if (!dayBlocked && !holidayBlocked) {
 
                   const tipoCita = merged.tipo_cita || 'cita';
                   const nombreCliente = merged.nombre || clientName || 'Cliente WhatsApp';
@@ -3196,11 +3205,20 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     }
                   }
 
-                  // 🇨🇴 Check holiday — prevent booking on closed holidays
+                  // 📅 Check if day is OPEN in schedule
                   const reservaDateStr = reservaDate.toISOString().split('T')[0];
-                  const reservaHoliday = isColombianHoliday(reservaDateStr);
+                  const reservaDayOfWeek = reservaDate.getDay();
+                  const reservaDaySchedule = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: reservaDayOfWeek } });
+                  let reservaDayBlocked = false;
+                  if (reservaDaySchedule && !reservaDaySchedule.isOpen) {
+                    reservaDayBlocked = true;
+                    const dayNamesR = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+                    log('🚫 Reserva bloqueada: ' + dayNamesR[reservaDayOfWeek] + ' está CERRADO en el horario configurado');
+                  }
+                  // 🇨🇴 Check holiday — prevent booking on closed holidays
+                  const reservaHoliday = !reservaDayBlocked ? isColombianHoliday(reservaDateStr) : null;
                   let reservaHolidayBlocked = false;
-                  if (reservaHoliday) {
+                  if (!reservaDayBlocked && reservaHoliday) {
                     const holCfg = await prisma.businessSchedule.findFirst({ where: { userId: ownerId, dayOfWeek: 7 } });
                     const workAllR = holCfg?.isOpen || false;
                     let workDtsR: string[] = [];
@@ -3211,7 +3229,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     }
                   }
 
-                  if (!reservaHolidayBlocked) {
+                  if (!reservaDayBlocked && !reservaHolidayBlocked) {
 
                   const tipoReserva = merged.tipo_reserva || 'reserva';
                   const numPersonas = merged.num_personas || '1';
@@ -3501,6 +3519,20 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
                     log(`❌ ${existingRecord.type.toUpperCase()} CANCELADA: ${existingRecord.id} | ${existingRecord.clientName} | ${existingRecord.date} ${existingRecord.time}`);
                     sendPushToUser(ownerId, { title: '❌ Cita/Reserva Cancelada', body: `${existingRecord.clientName || 'Cliente'} canceló — ${existingRecord.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                    // 🏷️ Agregar etiqueta "cliente-canceló" en CRM
+                    try {
+                      const phoneCleanTag = clientPhone.replace('@c.us','').replace('@s.whatsapp.net','');
+                      const clientForTag = await prisma.client.findFirst({ where: { userId: ownerId, phone: { endsWith: phoneCleanTag.slice(-10) } } });
+                      if (clientForTag) {
+                        const existingTags: string[] = (clientForTag.tags as string[]) || [];
+                        if (!existingTags.includes('cliente-canceló')) {
+                          await prisma.client.update({ where: { id: clientForTag.id }, data: { tags: [...existingTags, 'cliente-canceló'] } });
+                          log('🏷️ Etiqueta "cliente-canceló" agregada a ' + (existingRecord.clientName || phoneCleanTag));
+                        }
+                      }
+                      // Also tag on conversation stage
+                      await prisma.conversation.update({ where: { id: conversationId }, data: { stage: 'cancelado' } }).catch(() => {});
+                    } catch (tagErr: any) { log('⚠️ Error etiqueta cancelación: ' + tagErr.message); }
                   } else {
                     log(`⚠️ No se encontró cita/reserva activa para cancelar de ${phoneCleanC}`);
                   }
@@ -3528,6 +3560,19 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
                     log(`❌🛒 PEDIDO CANCELADO: ${existingOrder.id} | ${existingOrder.clientName}`);
                     sendPushToUser(ownerId, { title: '❌ Pedido Cancelado', body: `${existingOrder.clientName || 'Cliente'} canceló su pedido`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                    // 🏷️ Etiqueta "cliente-canceló" en CRM
+                    try {
+                      const phoneCleanTagP = clientPhone.replace('@c.us','').replace('@s.whatsapp.net','');
+                      const clientForTagP = await prisma.client.findFirst({ where: { userId: ownerId, phone: { endsWith: phoneCleanTagP.slice(-10) } } });
+                      if (clientForTagP) {
+                        const existingTagsP: string[] = (clientForTagP.tags as string[]) || [];
+                        if (!existingTagsP.includes('cliente-canceló')) {
+                          await prisma.client.update({ where: { id: clientForTagP.id }, data: { tags: [...existingTagsP, 'cliente-canceló'] } });
+                          log('🏷️ Etiqueta "cliente-canceló" agregada a ' + (existingOrder.clientName || phoneCleanTagP));
+                        }
+                      }
+                      await prisma.conversation.update({ where: { id: conversationId }, data: { stage: 'cancelado' } }).catch(() => {});
+                    } catch (tagErrP: any) { log('⚠️ Error etiqueta cancelación pedido: ' + tagErrP.message); }
                   }
                 } catch (cancelErr: any) {
                   console.error('❌ Error cancelando pedido:', cancelErr.message);

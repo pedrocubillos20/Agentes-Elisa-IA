@@ -2820,10 +2820,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     updateData.stage = validStage.id || validStage.label;
                     log(`🎯 Etapa automática: ${updateData.stage}`);
                   } else {
-                    // ⚠️ No está en el pipeline configurado — guardar igual (stage libre)
-                    // Así no se bloquea cuando las etapas aún no están sincronizadas
-                    updateData.stage = detectedStage;
-                    log(`⚠️ Etapa no encontrada en pipeline, guardando directo: "${detectedStage}"`);
+                    // ⚠️ Etapa no existe en pipeline configurado — NO guardar para evitar etapas fantasma
+                    log(`⚠️ Etapa "${detectedStage}" no está en pipeline, ignorando (no se guarda)`);
                   }
                 } else {
                   // Sin pipeline configurado → guardar la etapa directamente
@@ -3436,26 +3434,49 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   if (existingRecord) {
                     const updateData: any = { status: 'pending' };
                     
-                    // Get new date/time from ANY field the AI might have used
-                    const newFecha = merged.fecha_cita || merged.fecha_reserva;
-                    if (newFecha) updateData.date = parseSmartDate(newFecha);
+                    // 🏍️ CASO ESPECIAL: Domicilio — solo agrega dirección sin cambiar fecha/hora
+                    const isDomicilio = (merged.tipo_reserva || merged.tipo_cita || '').toLowerCase().includes('domicilio');
                     
-                    const newHora = merged.hora_cita || merged.hora_reserva;
-                    if (newHora) updateData.time = parseSmartTime(newHora, existingRecord.time || '10:00');
+                    // Fecha/hora: solo actualizar si NO es domicilio (domicilio mantiene fecha/hora de la cita)
+                    if (!isDomicilio) {
+                      const newFecha = merged.fecha_cita || merged.fecha_reserva;
+                      if (newFecha) updateData.date = parseSmartDate(newFecha);
+                      const newHora = merged.hora_cita || merged.hora_reserva;
+                      if (newHora) updateData.time = parseSmartTime(newHora, existingRecord.time || '10:00');
+                    }
                     
                     if (merged.nombre) updateData.clientName = merged.nombre;
-                    if (merged.direccion) updateData.address = merged.direccion;
+                    
+                    // Dirección: actualizar si viene en notas (domicilio) o en dirección directa
+                    const domicilioDir = merged.direccion || 
+                      (merged.notas ? merged.notas.match(/[Dd]omicilio:\s*([^|]+)/)?.[1]?.trim() : null);
+                    if (domicilioDir) updateData.address = domicilioDir;
                     
                     const tipo = merged.tipo_cita || merged.tipo_reserva || existingRecord.type;
-                    updateData.notes = `📅 ${tipo.toUpperCase()} — ACTUALIZADA\n` +
-                      `━━━━━━━━━━━━━━━\n` +
-                      `👤 Cliente: ${merged.nombre || existingRecord.clientName}\n` +
-                      `📱 Teléfono: ${phoneCleanU}\n` +
-                      `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
-                      `🕐 Hora: ${updateData.time || existingRecord.time}\n` +
-                      `📋 Tipo: ${tipo}\n` +
-                      `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
-                      `━━━━━━━━━━━━━━━`;
+
+                    if (isDomicilio) {
+                      // Para domicilio: enriquecer notes originales sin sobreescribirlas
+                      const prevNotes = existingRecord.notes || '';
+                      const domilicioInfo = `\n\n🏍️ DOMICILIO CONFIRMADO\n━━━━━━━━━━━━━━━\n` +
+                        `🏠 Dirección: ${domicilioDir || 'Ver notas'}\n` +
+                        `📝 Info adicional: ${merged.notas || ''}\n` +
+                        `⏱️ Registrado: ${new Date().toLocaleString('es-CO')}\n` +
+                        `━━━━━━━━━━━━━━━`;
+                      // Solo agregar si no está ya registrado
+                      updateData.notes = prevNotes.includes('DOMICILIO CONFIRMADO') 
+                        ? prevNotes 
+                        : prevNotes + domilicioInfo;
+                    } else {
+                      updateData.notes = `📅 ${tipo.toUpperCase()} — ACTUALIZADA\n` +
+                        `━━━━━━━━━━━━━━━\n` +
+                        `👤 Cliente: ${merged.nombre || existingRecord.clientName}\n` +
+                        `📱 Teléfono: ${phoneCleanU}\n` +
+                        `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
+                        `🕐 Hora: ${updateData.time || existingRecord.time}\n` +
+                        `📋 Tipo: ${tipo}\n` +
+                        `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
+                        `━━━━━━━━━━━━━━━`;
+                    }
 
                     await prisma.appointment.update({ where: { id: existingRecord.id }, data: updateData });
                     // Keep status as created so future updates work
@@ -3463,8 +3484,13 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     else merged.cita = 'creada';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`🔄 ${existingRecord.type.toUpperCase()} ACTUALIZADA: ${existingRecord.id} | ${merged.nombre || clientName}`);
-                    sendPushToUser(ownerId, { title: '🔄 Cita Actualizada', body: `${merged.nombre || 'Cliente'} actualizó su ${tipo}`, url: '/agenda', tag: `update-${Date.now()}` }).catch(() => {});
+                    if (isDomicilio) {
+                      log(`🏍️ DOMICILIO AGREGADO a ${existingRecord.type} ${existingRecord.id} | ${merged.nombre || clientName} | Dir: ${domicilioDir}`);
+                      sendPushToUser(ownerId, { title: '🏍️ Domicilio Confirmado', body: `${merged.nombre || 'Cliente'} — Recogida en: ${domicilioDir || 'Ver agenda'}`, url: '/agenda', tag: `domicilio-${Date.now()}` }).catch(() => {});
+                    } else {
+                      log(`🔄 ${existingRecord.type.toUpperCase()} ACTUALIZADA: ${existingRecord.id} | ${merged.nombre || clientName}`);
+                      sendPushToUser(ownerId, { title: '🔄 Cita Actualizada', body: `${merged.nombre || 'Cliente'} actualizó su ${tipo}`, url: '/agenda', tag: `update-${Date.now()}` }).catch(() => {});
+                    }
                   } else {
                     log(`⚠️ No se encontró cita/reserva activa para actualizar de ${phoneCleanU}`);
                   }

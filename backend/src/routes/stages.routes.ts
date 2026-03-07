@@ -134,6 +134,7 @@ router.put('/', async (req: Request, res: Response) => {
 });
 
 // POST /api/stages/sync - Sincronizar etapas desde base de conocimiento del asistente
+// ⚡ SIEMPRE re-extrae y sobrescribe — permite actualizar cuando cambia el prompt
 router.post('/sync', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -156,17 +157,32 @@ router.post('/sync', async (req: Request, res: Response) => {
     const stages = extractStagesFromContext(assistant.context);
     
     if (stages.length === 0) {
-      res.status(400).json({ error: 'No se encontraron etapas en la base de conocimiento. Define las etapas de tu negocio en la base de conocimiento del asistente.' });
+      res.status(400).json({ error: 'No se encontraron etapas en la base de conocimiento. Asegúrate de tener una sección "ETAPAS DEL PIPELINE" con una lista numerada en tu base de conocimiento.' });
       return;
     }
 
-    await prisma.whatsappLine.update({
+    // Obtener etapas actuales para preservar colores personalizados si el label coincide
+    const currentLine = await prisma.whatsappLine.findFirst({
       where: { id: lineId },
-      data: { customStages: stages, stagesConfigured: true }
+      select: { customStages: true }
+    });
+    const currentStages: any[] = (currentLine?.customStages as any[]) || [];
+    
+    // Merge: si una etapa ya existía con ese label, conservar su color personalizado
+    const mergedStages = stages.map((newStage: any) => {
+      const existing = currentStages.find((s: any) => 
+        s.label?.toLowerCase().trim() === newStage.label?.toLowerCase().trim()
+      );
+      return existing ? { ...newStage, color: existing.color } : newStage;
     });
 
-    console.log(`🎯 Etapas sincronizadas para línea ${lineId}: ${stages.map((s: any) => s.label).join(', ')}`);
-    res.json({ stages, message: `${stages.length} etapas sincronizadas correctamente` });
+    await prisma.whatsappLine.update({
+      where: { id: lineId },
+      data: { customStages: mergedStages, stagesConfigured: true }
+    });
+
+    console.log(`🎯 Etapas sincronizadas para línea ${lineId}: ${mergedStages.map((s: any) => s.label).join(', ')}`);
+    res.json({ stages: mergedStages, message: `${mergedStages.length} etapas sincronizadas correctamente` });
   } catch (error) {
     console.error('Error syncing stages:', error);
     res.status(500).json({ error: 'Error al sincronizar etapas' });
@@ -179,20 +195,11 @@ function extractStagesFromContext(context: string): any[] {
   if (!context || context.length < 50) return [];
   
   const stages: any[] = [];
-  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
+  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'teal', 'indigo', 'red', 'lime', 'gray'];
   
   let foundItems: string[] = [];
 
-  // PASO 1: Buscar la sección delimitada de etapas/pipeline
-  // Acepta bloques de tipo:
-  //   ## 🗺️ ETAPAS DEL PIPELINE
-  //   1. Nuevo Contacto → ...
-  //   2. Consultando Servicio → ...
-  //   ...
-  // O también:
-  //   Nuevo Contacto → Saludo → Pendiente → Confirmado → ...
-  
-  // Patrón 1: Sección Markdown con título de etapas
+  // PASO 1: Buscar sección delimitada de etapas/pipeline
   const sectionMatch = context.match(
     /##?[^\n]*(?:ETAPAS?|PIPELINE|EMBUDO|FLUJO|FASES?|PASOS?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i
   );
@@ -200,28 +207,18 @@ function extractStagesFromContext(context: string): any[] {
   if (sectionMatch) {
     const section = sectionMatch[1];
 
-    // Extraer líneas numeradas: "1. Nuevo Contacto → descripción"
-    const numbered = [...section.matchAll(/^\s*\d+\.?\s+([^\n→\-:]{2,40}?)(?:\s*[→\-–].*)?$/gm)];
+    // Extraer líneas numeradas simples: "1. Nombre Etapa" (acepta backticks y sin ellos)
+    const numbered = [...section.matchAll(/^\s*\d+\.?\s+([^\n→\-:`]{2,40}?)(?:\s*[→\-–].*)?$/gm)];
     for (const m of numbered) {
-      const label = m[1].replace(/\*\*/g, '').trim();
-      // Filtrar líneas que sean instrucciones, no etapa names
-      if (label.length >= 3 && label.length <= 40 && !/^(REGLA|NUNCA|SIEMPRE|Regla|Nota|Ejemplo)/i.test(label)) {
+      const label = m[1].replace(/\*\*/g, '').replace(/[`]/g, '').trim();
+      // Palabras que indican instrucción, no nombre de etapa
+      const isInstruction = /^(REGLA|NUNCA|SIEMPRE|Regla|Nota|Ejemplo|PASO|Saludo|Pedir|Cliente|Mostrar|Informar|Preguntar|Dar precio|Dar |Verificar|Resumen|Confirmar|Enviar|Orientar|Agendar|Ver |Sin |Si |Si no)/i.test(label);
+      if (!isInstruction && label.length >= 3 && label.length <= 40) {
         foundItems.push(label);
       }
     }
 
-    // Si no hay numeradas, buscar un flujo en línea: "Nuevo Contacto → Saludo → Confirmado"
-    if (foundItems.length === 0) {
-      const inlineFlow = section.match(/([A-ZÁÉÍÓÚ][^→\n]{2,35}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^→\n]{2,35}?))+/g);
-      if (inlineFlow) {
-        inlineFlow[0].split('→').forEach(part => {
-          const label = part.replace(/\*\*/g, '').trim();
-          if (label.length >= 2 && label.length <= 40) foundItems.push(label);
-        });
-      }
-    }
-
-    // Si tampoco, buscar bullet list: "- Nuevo Contacto" o "• Confirmado"
+    // Fallback: bullet list
     if (foundItems.length === 0) {
       const bullets = [...section.matchAll(/^\s*[-•*]\s+([^\n:→]{2,40}?)(?:\s*[→:].*)?$/gm)];
       for (const m of bullets) {
@@ -233,29 +230,27 @@ function extractStagesFromContext(context: string): any[] {
     }
   }
 
-  // PASO 2: Buscar flujo inline si no hubo sección
-  // Ej: "Nuevo Contacto → Saludo → Pendiente Equipo → Confirmado → Perdido"
+  // PASO 2: Flujo inline si no hubo sección
   if (foundItems.length === 0) {
-    const inlinePatterns = context.matchAll(/([A-ZÁÉÍÓÚ][^→\n]{2,35}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^→\n]{2,35}?)){2,}/g);
+    const inlinePatterns = context.matchAll(/([A-ZÁÉÍÓÚ][^\n→]{2,30}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^\n→]{2,30}?)){2,}/g);
     for (const m of inlinePatterns) {
-      const fullMatch = m[0];
-      fullMatch.split('→').forEach(part => {
+      m[0].split('→').forEach(part => {
         const label = part.replace(/\*\*/g, '').trim();
         if (label.length >= 2 && label.length <= 40) foundItems.push(label);
       });
-      if (foundItems.length > 0) break; // Solo el primer flujo encontrado
+      if (foundItems.length > 0) break;
     }
   }
 
   if (foundItems.length < 2) return [];
   
-  // Deduplicar y limpiar
+  // Deduplicar y filtrar ruido
+  const NOISE = /^(REGLA|NUNCA|SIEMPRE|Regla de avance|Nota|Ejemplo|Ver tabla|etapa actual|etapa_actual|MEMORY|accion|Pipeline|Flujo|Embudo|PASO [0-9])/i;
   const unique = Array.from(new Set(foundItems))
     .filter(s => s.length >= 2 && s.length <= 45)
-    .filter(s => !/^(REGLA|NUNCA|SIEMPRE|Regla de avance|Nota|Ejemplo|Ver tabla)/i.test(s));
+    .filter(s => !NOISE.test(s));
 
   unique.slice(0, 15).forEach((label, index) => {
-    // IMPORTANTE: id = label (sin hyphen) para que el match exacto con etapa_actual de la IA funcione
     stages.push({
       id: label,
       label: label,
@@ -266,5 +261,6 @@ function extractStagesFromContext(context: string): any[] {
   
   return stages;
 }
+
 
 export default router;

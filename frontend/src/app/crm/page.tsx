@@ -5,7 +5,7 @@ import {
   Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
   Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText,
   Flame, TrendingUp, Target, Star, ArrowUpRight, Filter, Download, Upload,
-  ChevronDown, ChevronUp, Eye, EyeOff, List
+  ChevronDown, ChevronUp, Eye, EyeOff, List, RefreshCw
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -71,6 +71,10 @@ const STAGE_COLORS: Record<string, string> = {
   green: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   pink: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
   red: 'bg-red-500/20 text-red-400 border-red-500/30',
+  teal: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
+  indigo: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+  gray: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  lime: 'bg-lime-500/20 text-lime-400 border-lime-500/30',
 };
 
 export default function CRMPage() {
@@ -149,6 +153,34 @@ export default function CRMPage() {
         body: JSON.stringify({ lineId: getLineId() })
       });
     } catch (e) { /* silencioso */ }
+  };
+
+  // 🔄 Sincronizar etapas desde base de conocimiento del asistente
+  const [syncingStages, setSyncingStages] = useState(false);
+  const syncStagesFromKnowledge = async () => {
+    const token = localStorage.getItem('token');
+    const lineId = getLineId();
+    if (!token || syncingStages) return;
+    setSyncingStages(true);
+    try {
+      const res = await fetch(`${API_URL}/api/stages/sync`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineId })
+      });
+      const data = await res.json();
+      if (res.ok && data.stages?.length) {
+        setStages(data.stages);
+        try { localStorage.setItem('bizonne_crm_stages', JSON.stringify(data.stages)); } catch {}
+        alert(`✅ ${data.stages.length} etapas sincronizadas correctamente`);
+      } else {
+        alert(`⚠️ ${data.error || 'No se encontraron etapas en la base de conocimiento.\nDefine las etapas en tu asistente IA y vuelve a intentarlo.'}`);
+      }
+    } catch (e: any) {
+      alert(`❌ Error: ${e.message}`);
+    } finally {
+      setSyncingStages(false);
+    }
   };
 
   const [detecting, setDetecting] = useState(false);
@@ -687,6 +719,16 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
               {showStages ? <EyeOff className="w-3.5 h-3.5"/> : <Eye className="w-3.5 h-3.5"/>}
               <span className="hidden md:inline">{showStages ? 'Ocultar' : 'Etapas'}</span>
             </button>
+            {/* 🔄 Sincronizar etapas */}
+            <button
+              onClick={syncStagesFromKnowledge}
+              disabled={syncingStages}
+              className="py-1.5 px-2 rounded-lg border text-xs flex items-center gap-1 transition-all bg-[var(--bg-secondary)] border-[var(--border-primary)] text-[var(--text-muted)] hover:text-white hover:border-[var(--accent-primary)]/50"
+              title="Sincronizar etapas desde Base de Conocimiento del asistente"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncingStages ? 'animate-spin' : ''}`} />
+              <span className="hidden md:inline">Sync</span>
+            </button>
           </div>
 
           {/* 🆕 Collapsible Stage Chips */}
@@ -723,11 +765,18 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
                   Las etapas se generan desde la base de conocimiento de tu asistente IA. 
                   Ve a <strong className="text-white">Asistentes IA</strong> y define las etapas de tu negocio.
                 </p>
-                <button onClick={detectStages} disabled={detecting}
-                  className="px-4 py-2 bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-all text-xs md:text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  {detecting ? 'Detectando...' : 'Detectar etapas ahora'}
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button onClick={syncStagesFromKnowledge} disabled={syncingStages}
+                    className="px-4 py-2 bg-[var(--accent-primary)]/20 border border-[var(--accent-primary)]/40 text-[var(--accent-primary)] rounded-lg hover:bg-[var(--accent-primary)]/30 transition-all text-xs md:text-sm flex items-center gap-2">
+                    <RefreshCw className={`w-4 h-4 ${syncingStages ? 'animate-spin' : ''}`} />
+                    {syncingStages ? 'Sincronizando...' : 'Sincronizar desde Base de Conocimiento'}
+                  </button>
+                  <button onClick={detectStages} disabled={detecting}
+                    className="px-4 py-2 bg-purple-500/20 border border-purple-500/40 text-purple-300 rounded-lg hover:bg-purple-500/30 transition-all text-xs md:text-sm flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    {detecting ? 'Detectando...' : 'Detectar desde conversaciones'}
+                  </button>
+                </div>
               </div>
             ) : (
             <>

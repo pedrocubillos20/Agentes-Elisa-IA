@@ -37,6 +37,8 @@ export default function AsistentesPage() {
   const [coverageLat, setCoverageLat] = useState('');
   const [coverageLon, setCoverageLon] = useState('');
   const [coverageRadiusKm, setCoverageRadiusKm] = useState('');
+  const [coverageSaved, setCoverageSaved] = useState(false);
+  const [savingCoverage, setSavingCoverage] = useState(false);
 
   // Learning
   const [learningHistory, setLearningHistory] = useState<any[]>([]);
@@ -525,6 +527,42 @@ export default function AsistentesPage() {
   };
 
   // ===== KNOWLEDGE =====
+  // 📍 Guardar solo cobertura
+  const handleSaveCoverage = async () => {
+    setSavingCoverage(true);
+    setCoverageSaved(false);
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_URL}/api/assistants`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: assistantName,
+          context,
+          knowledgeItems,
+          mediaItems,
+          elevenLabsKey,
+          selectedVoice,
+          voiceEnabled,
+          coverageLat: coverageLat ? parseFloat(coverageLat) : null,
+          coverageLon: coverageLon ? parseFloat(coverageLon) : null,
+          coverageRadiusKm: coverageRadiusKm ? parseFloat(coverageRadiusKm) : null,
+          autoLearn,
+          learningHistory,
+          isActive: true,
+          lineId: getLineId()
+        })
+      });
+      if (res.ok) {
+        setCoverageSaved(true);
+        setTimeout(() => setCoverageSaved(false), 4000);
+      } else {
+        alert('Error al guardar cobertura. Intenta de nuevo.');
+      }
+    } catch { alert('Error de conexión'); }
+    finally { setSavingCoverage(false); }
+  };
+
   const addKnowledgeItem = () => {
     setKnowledgeItems(prev => [...prev, { id: Date.now().toString(), title: '', content: '', triggers: '' }]);
   };
@@ -651,15 +689,28 @@ export default function AsistentesPage() {
           {/* 📍 Cobertura de Domicilio */}
           <div className="card">
             <div className="flex items-center justify-between mb-4">
-              <div>
+              <div className="flex-1">
                 <h3 className="font-semibold text-white flex items-center gap-2">
                   📍 Cobertura de Domicilio
                   <span className="text-xs font-normal text-[var(--text-muted)] bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-full">Opcional</span>
+                  {coverageSaved && (
+                    <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full animate-pulse">
+                      ✅ Guardado
+                    </span>
+                  )}
                 </h3>
                 <p className="text-sm text-[var(--text-muted)] mt-0.5">
                   Si tu negocio tiene servicio a domicilio, configura el radio de cobertura. La IA detectará automáticamente si el cliente está dentro del área cuando comparta su ubicación por WhatsApp.
                 </p>
               </div>
+              <button
+                onClick={handleSaveCoverage}
+                disabled={savingCoverage || (!coverageLat && !coverageLon && !coverageRadiusKm)}
+                className="ml-4 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: coverageSaved ? 'rgba(16,185,129,0.2)' : 'var(--accent)', color: coverageSaved ? '#10b981' : 'white', border: coverageSaved ? '1px solid rgba(16,185,129,0.4)' : 'none' }}
+              >
+                {savingCoverage ? '⏳ Guardando...' : coverageSaved ? '✅ Guardado' : '💾 Guardar Cobertura'}
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>

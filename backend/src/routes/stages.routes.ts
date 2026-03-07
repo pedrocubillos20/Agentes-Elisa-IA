@@ -174,81 +174,88 @@ router.post('/sync', async (req: Request, res: Response) => {
 });
 
 // 🎯 Extraer etapas automáticamente del contexto/base de conocimiento
+// SOLO extrae de la sección de pipeline/etapas — nunca del resto del prompt
 function extractStagesFromContext(context: string): any[] {
   if (!context || context.length < 50) return [];
   
   const stages: any[] = [];
   const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'red', 'indigo', 'teal'];
   
-  const sectionPatterns = [
-    /##?\s*(?:ETAPAS?|FLUJO|EMBUDO|PIPELINE|FASES?|PROCESO|PASOS?|ESTADOS?)[^\n]*\n([\s\S]*?)(?=\n##|\n\n\n|$)/gi,
-    /(?:etapas?|flujo|embudo|pipeline|fases?|proceso|pasos?|estados?)\s*[:\-]\s*\n?([\s\S]*?)(?=\n##|\n\n\n|$)/gi
-  ];
-  
   let foundItems: string[] = [];
+
+  // PASO 1: Buscar la sección delimitada de etapas/pipeline
+  // Acepta bloques de tipo:
+  //   ## 🗺️ ETAPAS DEL PIPELINE
+  //   1. Nuevo Contacto → ...
+  //   2. Consultando Servicio → ...
+  //   ...
+  // O también:
+  //   Nuevo Contacto → Saludo → Pendiente → Confirmado → ...
   
-  for (const pattern of sectionPatterns) {
-    const matches = context.matchAll(pattern);
-    for (const match of matches) {
-      const section = match[1] || '';
-      const items = section.match(/[-•*\d.]\s*\*?\*?([^*\n\-•]+)/g);
-      if (items) {
-        items.forEach(item => {
-          let clean = item.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
-          if (clean.includes(':')) clean = clean.split(':')[0].trim();
-          if (clean.includes('→')) clean = clean.split('→')[0].trim();
-          if (clean.includes('–')) clean = clean.split('–')[0].trim();
-          if (clean && clean.length > 1 && clean.length < 40) {
-            foundItems.push(clean);
-          }
+  // Patrón 1: Sección Markdown con título de etapas
+  const sectionMatch = context.match(
+    /##?[^\n]*(?:ETAPAS?|PIPELINE|EMBUDO|FLUJO|FASES?|PASOS?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i
+  );
+
+  if (sectionMatch) {
+    const section = sectionMatch[1];
+
+    // Extraer líneas numeradas: "1. Nuevo Contacto → descripción"
+    const numbered = [...section.matchAll(/^\s*\d+\.?\s+([^\n→\-:]{2,40}?)(?:\s*[→\-–].*)?$/gm)];
+    for (const m of numbered) {
+      const label = m[1].replace(/\*\*/g, '').trim();
+      // Filtrar líneas que sean instrucciones, no etapa names
+      if (label.length >= 3 && label.length <= 40 && !/^(REGLA|NUNCA|SIEMPRE|Regla|Nota|Ejemplo)/i.test(label)) {
+        foundItems.push(label);
+      }
+    }
+
+    // Si no hay numeradas, buscar un flujo en línea: "Nuevo Contacto → Saludo → Confirmado"
+    if (foundItems.length === 0) {
+      const inlineFlow = section.match(/([A-ZÁÉÍÓÚ][^→\n]{2,35}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^→\n]{2,35}?))+/g);
+      if (inlineFlow) {
+        inlineFlow[0].split('→').forEach(part => {
+          const label = part.replace(/\*\*/g, '').trim();
+          if (label.length >= 2 && label.length <= 40) foundItems.push(label);
         });
       }
     }
-  }
-  
-  if (foundItems.length < 3) {
-    const keywords = [
-      // Ventas general
-      'saludo', 'interesado', 'cotización', 'cotizacion', 'pendiente', 'pedido', 
-      'confirmado', 'perdido', 'nuevo', 'pago', 'entrega', 'enviado', 'completado', 
-      'cerrado', 'seguimiento', 'contacto', 'negociación', 'negociacion', 'propuesta', 
-      'cierre', 'postventa', 'agendado', 'facturado', 'cobrado',
-      // SaaS / Servicios
-      'demo', 'activación', 'activacion', 'onboarding', 'prueba', 'trial',
-      'suscripción', 'suscripcion', 'renovación', 'renovacion', 'cancelado',
-      // Citas / Agenda
-      'cita', 'reunión', 'reunion', 'consulta', 'asesoría', 'asesoria',
-      // E-commerce / Retail
-      'carrito', 'compra', 'despacho', 'devuelto', 'cambio', 'reembolso',
-      // Inmobiliaria / Servicios pro
-      'visita', 'evaluación', 'evaluacion', 'contrato', 'firma', 'aprobado',
-      // Genéricos por sector
-      'calificado', 'descartado', 'recibido', 'procesando', 'listo', 'finalizado',
-      'en proceso', 'en espera', 'activo', 'inactivo', 'vip', 'premium',
-      // Producto específico (auto-detecta del contexto del usuario)
-      'calidad', 'color', 'talla', 'modelo', 'variante', 'plan', 'paquete',
-      'servicio', 'producto', 'cotizado', 'presupuesto'
-    ];
-    
-    const lines = context.split('\n');
-    for (const line of lines) {
-      const lower = line.toLowerCase();
-      for (const kw of keywords) {
-        if (lower.includes(kw) && line.match(/[-•*\d.]\s/)) {
-          let clean = line.replace(/^[-•*\d.)\s]+/, '').replace(/\*\*/g, '').trim();
-          if (clean.includes(':')) clean = clean.split(':')[0].trim();
-          if (clean && clean.length > 1 && clean.length < 40 && !foundItems.includes(clean)) {
-            foundItems.push(clean);
-          }
+
+    // Si tampoco, buscar bullet list: "- Nuevo Contacto" o "• Confirmado"
+    if (foundItems.length === 0) {
+      const bullets = [...section.matchAll(/^\s*[-•*]\s+([^\n:→]{2,40}?)(?:\s*[→:].*)?$/gm)];
+      for (const m of bullets) {
+        const label = m[1].replace(/\*\*/g, '').trim();
+        if (label.length >= 2 && label.length <= 40 && !/^(REGLA|NUNCA|SIEMPRE|Regla|Nota)/i.test(label)) {
+          foundItems.push(label);
         }
       }
     }
   }
-  
+
+  // PASO 2: Buscar flujo inline si no hubo sección
+  // Ej: "Nuevo Contacto → Saludo → Pendiente Equipo → Confirmado → Perdido"
+  if (foundItems.length === 0) {
+    const inlinePatterns = context.matchAll(/([A-ZÁÉÍÓÚ][^→\n]{2,35}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^→\n]{2,35}?)){2,}/g);
+    for (const m of inlinePatterns) {
+      const fullMatch = m[0];
+      fullMatch.split('→').forEach(part => {
+        const label = part.replace(/\*\*/g, '').trim();
+        if (label.length >= 2 && label.length <= 40) foundItems.push(label);
+      });
+      if (foundItems.length > 0) break; // Solo el primer flujo encontrado
+    }
+  }
+
   if (foundItems.length < 2) return [];
   
-  const unique = Array.from(new Set(foundItems));
-  unique.slice(0, 12).forEach((label, index) => {
+  // Deduplicar y limpiar
+  const unique = Array.from(new Set(foundItems))
+    .filter(s => s.length >= 2 && s.length <= 45)
+    .filter(s => !/^(REGLA|NUNCA|SIEMPRE|Regla de avance|Nota|Ejemplo|Ver tabla)/i.test(s));
+
+  unique.slice(0, 15).forEach((label, index) => {
+    // IMPORTANTE: id = label (sin hyphen) para que el match exacto con etapa_actual de la IA funcione
     stages.push({
       id: label,
       label: label,

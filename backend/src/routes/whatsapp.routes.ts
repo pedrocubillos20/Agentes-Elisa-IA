@@ -2798,29 +2798,37 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               
               // Actualizar conversación con memoria Y etapa
               const updateData: any = { contextData: merged };
-              if (detectedStage && pipelineStages.length > 0) {
-                // Verificar que la etapa existe en el pipeline (match exacto o fuzzy)
-                let validStage = pipelineStages.find((s: any) => 
-                  s.id === detectedStage || s.label === detectedStage ||
-                  s.id?.toLowerCase().trim() === detectedStage.toLowerCase().trim() ||
-                  s.label?.toLowerCase().trim() === detectedStage.toLowerCase().trim()
-                );
-                
-                // Fuzzy match: si no hay exacto, buscar coincidencia parcial
-                if (!validStage) {
-                  const detectedLower = detectedStage.toLowerCase().trim();
-                  validStage = pipelineStages.find((s: any) => {
-                    const label = (s.label || s.id || '').toLowerCase().trim();
-                    return label.includes(detectedLower) || detectedLower.includes(label);
-                  });
-                }
-                
-                if (validStage) {
-                  updateData.stage = validStage.id || validStage.label;
-                  log(`🎯 Etapa automática: ${updateData.stage}`);
+              if (detectedStage) {
+                if (pipelineStages.length > 0) {
+                  // Verificar que la etapa existe en el pipeline (match exacto o fuzzy)
+                  let validStage = pipelineStages.find((s: any) => 
+                    s.id === detectedStage || s.label === detectedStage ||
+                    s.id?.toLowerCase().trim() === detectedStage.toLowerCase().trim() ||
+                    s.label?.toLowerCase().trim() === detectedStage.toLowerCase().trim()
+                  );
+                  
+                  // Fuzzy match: si no hay exacto, buscar coincidencia parcial
+                  if (!validStage) {
+                    const detectedLower = detectedStage.toLowerCase().trim();
+                    validStage = pipelineStages.find((s: any) => {
+                      const label = (s.label || s.id || '').toLowerCase().trim();
+                      return label.includes(detectedLower) || detectedLower.includes(label);
+                    });
+                  }
+                  
+                  if (validStage) {
+                    updateData.stage = validStage.id || validStage.label;
+                    log(`🎯 Etapa automática: ${updateData.stage}`);
+                  } else {
+                    // ⚠️ No está en el pipeline configurado — guardar igual (stage libre)
+                    // Así no se bloquea cuando las etapas aún no están sincronizadas
+                    updateData.stage = detectedStage;
+                    log(`⚠️ Etapa no encontrada en pipeline, guardando directo: "${detectedStage}"`);
+                  }
                 } else {
-                  // ⚠️ La IA sugirió una etapa que NO existe — rechazar
-                  log(`⚠️ Etapa RECHAZADA (no existe en pipeline): "${detectedStage}" | Etapas válidas: [${pipelineStages.map((s: any) => s.label || s.id).join(', ')}]`);
+                  // Sin pipeline configurado → guardar la etapa directamente
+                  updateData.stage = detectedStage;
+                  log(`🎯 Etapa sin pipeline configurado, guardando directo: "${detectedStage}"`);
                 }
               }
               
@@ -6383,9 +6391,9 @@ router.post('/quick-stage-sync', async (req: Request, res: Response) => {
           
           updates.push({ id: conv.id, data: { stage: exactStage } });
         } else if (!isValid) {
-          const cleanCtx = { ...ctx };
-          delete cleanCtx.etapa_actual;
-          updates.push({ id: conv.id, data: { contextData: cleanCtx, stage: conv.stage || configuredStages[0] || 'new' } });
+          // ⚠️ Etapa de la IA no reconocida en pipeline configurado
+          // NUNCA borrar etapa_actual ni resetear a primera etapa — simplemente saltar
+          log(`⚠️ quick-stage-sync: etapa "${iaStage}" no válida en pipeline, ignorando (no resetear)`);
         }
         continue;
       }

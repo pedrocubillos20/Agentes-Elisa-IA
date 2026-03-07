@@ -1854,6 +1854,10 @@ REGLAS DE TRANSFERENCIA:
     // 🤖📊 MODO ASISTENTE INTERNO — Grupos de trabajo + Asistente Personal del admin
     const isPersonalAssistant = savedContext?._isPersonalAssistant === true;
     const isInternalAssistant = conversation?.isGroup || isPersonalAssistant;
+    // 🧹 Fix: limpiar "undefined" string en accion (a veces la IA lo escribe literalmente)
+    if (savedContext?.accion === 'undefined' || savedContext?.accion === 'undefinido') {
+      savedContext.accion = '';
+    }
     console.log(`🤖 isPersonalAssistant: ${isPersonalAssistant} | isGroup: ${conversation?.isGroup} | contextKeys: ${Object.keys(savedContext||{}).join(',')}`);
     
     if (isInternalAssistant) {
@@ -4027,6 +4031,14 @@ const processBufferedMessages = async (bufferKey: string) => {
     if (!assistant) {
       assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
     }
+    if (!assistant) {
+      // ⚠️ Sin asistente configurado → no responder, evita respuestas vacías sin contexto
+      clog(`⚠️ Sin asistente para userId:${userId} lineId:${whatsappLineId} → mensaje ignorado por IA`);
+      return;
+    }
+    if (!assistant.context || assistant.context.trim().length < 10) {
+      clog(`⚠️ Asistente "${assistant.name}" sin base de conocimiento → IA puede responder sin contexto del negocio`);
+    }
     
     const isVoiceMode = !!(assistant?.voiceEnabled && assistant?.elevenLabsKey && assistant?.selectedVoice);
     const mediaItems = (assistant?.mediaItems as any[]) || [];
@@ -5715,11 +5727,14 @@ router.post('/webhook', async (req: Request, res: Response) => {
       log(`🔑 chat: ${JSON.stringify(payload?.chat || {}).substring(0, 200)}`);
     }
 
-    // 🚫 Filtrar: historias/estados de WhatsApp, broadcast (pero NO grupos)
-    if (!from || from.includes('@broadcast') || from.includes('status@') || from === 'status@broadcast') {
-      if (from?.includes('@broadcast') || from?.includes('status@')) {
-        log(`🚫 Ignorado: historia/estado de WhatsApp de ${from}`);
-      }
+    // 🚫 Filtrar: historias/estados, broadcast, newsletters de Meta (publicidad)
+    const isSpam = !from || 
+      from.includes('@broadcast') || 
+      from.includes('status@') || 
+      from === 'status@broadcast' ||
+      from.includes('@newsletter');  // ← newsletters/publicidad de Meta
+    if (isSpam) {
+      if (from) log(\`🚫 Ignorado: mensaje no válido (\${from})\`);
       res.json({ success: true }); return;
     }
 

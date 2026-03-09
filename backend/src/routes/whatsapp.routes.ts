@@ -6913,22 +6913,37 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const cloudQuotedMsgId = msg.context?.id || null;
       const cloudQuotedFrom = msg.context?.from || null;
       let cloudQuotedContext = '';
+      log('💬 quoted check — id: ' + (cloudQuotedMsgId ? cloudQuotedMsgId.substring(0,20) : 'null') + ' | from: ' + (cloudQuotedFrom || 'null'));
 
-      // Resolver texto del quoted ANTES del early buffer (necesitamos convId del buffer o DB)
+      // Resolver texto del quoted usando el earlyBuffer (ya tiene convId si es ráfaga)
+      // o buscando la conv directamente
       if (cloudQuotedMsgId && cloudQuotedFrom) {
         try {
-          // Buscar la conversación para obtener el convId
           const rId = from.replace(/\D/g, '');
-          const qConv = await prisma.conversation.findFirst({
-            where: { userId, recipientId: { endsWith: rId.slice(-10) }, whatsappLineId },
-            select: { id: true }
-          });
-          if (qConv) {
+          // Intentar usar earlyBuffer primero (ya tiene convId)
+          const existingBuf = messageBuffer.get(`${userId}_${rId}`);
+          const resolveConvId = existingBuf?.convId || null;
+
+          // Si no hay buffer, buscar conv en DB
+          let finalConvId = resolveConvId;
+          if (!finalConvId) {
+            const qConv = await prisma.conversation.findFirst({
+              where: { userId, recipientId: { endsWith: rId.slice(-10) } },
+              orderBy: { updatedAt: 'desc' },
+              select: { id: true }
+            });
+            finalConvId = qConv?.id || null;
+          }
+
+          log('💬 quoted convId: ' + (finalConvId || 'null'));
+
+          if (finalConvId) {
             const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
             const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
-            const quotedWasBot = linePhone && quotedFromPhone === linePhone;
+            const quotedWasBot = !!linePhone && quotedFromPhone === linePhone;
+            log('💬 quotedWasBot: ' + quotedWasBot + ' | linePhone: ' + linePhone + ' | quotedFrom: ' + quotedFromPhone);
             const quotedMsgs = await prisma.message.findMany({
-              where: { conversationId: qConv.id, fromMe: quotedWasBot },
+              where: { conversationId: finalConvId, fromMe: quotedWasBot },
               orderBy: { timestamp: 'desc' },
               take: 10,
               select: { content: true }
@@ -6942,6 +6957,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             if (candidate) {
               cloudQuotedContext = candidate.content.substring(0, 120);
               log('💬 Cloud quoted resuelto (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
+            } else {
+              log('💬 No candidate encontrado entre ' + quotedMsgs.length + ' mensajes');
             }
           }
         } catch (qErr: any) {

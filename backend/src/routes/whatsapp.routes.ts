@@ -733,17 +733,22 @@ const sendVoiceNote = async (session: string, chatId: string, audioBuffer: Buffe
 // ====================================================
 const CLOUD_API_URL = 'https://graph.facebook.com/v21.0';
 
-const sendCloudText = async (phoneNumberId: string, accessToken: string, to: string, text: string): Promise<boolean> => {
+const sendCloudText = async (phoneNumberId: string, accessToken: string, to: string, text: string): Promise<{ ok: boolean; wamid?: string }> => {
   try {
     const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ messaging_product: 'whatsapp', to: to.replace(/\D/g, ''), type: 'text', text: { body: text } })
     });
-    if (r.ok) { log(`☁️ Cloud texto → ${to}`); return true; }
+    if (r.ok) {
+      const data = await r.json().catch(() => ({})) as any;
+      const wamid = data?.messages?.[0]?.id || undefined;
+      log(`☁️ Cloud texto → ${to}${wamid ? ' [' + wamid.substring(0,20) + ']' : ''}`);
+      return { ok: true, wamid };
+    }
     console.error(`❌ Cloud sendText (${r.status}): ${(await r.text().catch(() => '')).substring(0, 200)}`);
-    return false;
-  } catch (e: any) { console.error('❌ Cloud sendText:', e.message); return false; }
+    return { ok: false };
+  } catch (e: any) { console.error('❌ Cloud sendText:', e.message); return { ok: false }; }
 };
 
 // ☁️ Enviar respuesta dividida en párrafos (más natural, simula "escribiendo")
@@ -753,7 +758,7 @@ const sendCloudSplitMessages = async (phoneNumberId: string, accessToken: string
   
   // Si es un solo párrafo o muy corto, enviar normal
   if (paragraphs.length <= 1 || fullText.length < 100) {
-    return sendCloudText(phoneNumberId, accessToken, to, fullText);
+    return (await sendCloudText(phoneNumberId, accessToken, to, fullText)).ok;
   }
   
   // Limitar a máximo 4 mensajes para no spamear
@@ -781,7 +786,7 @@ const sendCloudSplitMessages = async (phoneNumberId: string, accessToken: string
   return allSent;
 };
 
-const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: string, media: any, caption?: string): Promise<boolean> => {
+const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: string, media: any, caption?: string): Promise<{ ok: boolean; wamid?: string }> => {
   try {
     const cleanTo = to.replace(/\D/g, '');
     const url = media.url || '';
@@ -791,7 +796,7 @@ const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: st
 
     if (url.startsWith('data:')) {
       const match = url.match(/^data:(.+?);base64,(.+)$/s);
-      if (!match) return false;
+      if (!match) return { ok: false };
       const formData = new FormData();
       const buffer = Buffer.from(match[2], 'base64');
       formData.append('file', new Blob([buffer], { type: match[1] }), media.name || 'file');
@@ -800,7 +805,7 @@ const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: st
       const uploadRes = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/media`, {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: formData
       });
-      if (!uploadRes.ok) { console.error(`❌ Cloud media upload (${uploadRes.status})`); return false; }
+      if (!uploadRes.ok) { console.error(`❌ Cloud media upload (${uploadRes.status})`); return { ok: false }; }
       const uploadData = await uploadRes.json() as any;
       messageBody[cloudType] = { id: uploadData.id };
     } else {
@@ -814,10 +819,15 @@ const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: st
       headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(messageBody)
     });
-    if (r.ok) { log(`☁️ Cloud ${media.type} → ${to}`); return true; }
+    if (r.ok) {
+      const data = await r.json().catch(() => ({})) as any;
+      const wamid = data?.messages?.[0]?.id || undefined;
+      log(`☁️ Cloud ${media.type} → ${to}${wamid ? ' [' + wamid.substring(0,20) + ']' : ''}`);
+      return { ok: true, wamid };
+    }
     console.error(`❌ Cloud sendMedia (${r.status}): ${(await r.text().catch(() => '')).substring(0, 200)}`);
-    return false;
-  } catch (e: any) { console.error('❌ Cloud sendMedia:', e.message); return false; }
+    return { ok: false };
+  } catch (e: any) { console.error('❌ Cloud sendMedia:', e.message); return { ok: false }; }
 };
 
 const sendCloudVoice = async (phoneNumberId: string, accessToken: string, to: string, audioBuffer: Buffer): Promise<boolean> => {
@@ -869,20 +879,25 @@ const getLineInfo = async (lineId: string | null | undefined) => {
 
 const unifiedSendText = async (sessionName: string, chatId: string, text: string, whatsappLineId?: string | null): Promise<boolean> => {
   const li = await getLineInfo(whatsappLineId);
-  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudText(li.pnid, li.token, chatId.replace(/@.*/g, ''), text);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return (await sendCloudText(li.pnid, li.token, chatId.replace(/@.*/g, ''), text)).ok;
   return sendWahaMessage(sessionName, chatId, text);
 };
 
 // 🤖 Para respuestas de IA: divide en párrafos para Cloud API
-const unifiedSendAIResponse = async (sessionName: string, chatId: string, text: string, whatsappLineId?: string | null): Promise<boolean> => {
+const unifiedSendAIResponse = async (sessionName: string, chatId: string, text: string, whatsappLineId?: string | null): Promise<{ ok: boolean; wamid?: string }> => {
   const li = await getLineInfo(whatsappLineId);
-  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudSplitMessages(li.pnid, li.token, chatId.replace(/@.*/g, ''), text);
-  return sendWahaMessage(sessionName, chatId, text);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) {
+    // Para Cloud API usamos split messages — retorna boolean, pero capturamos wamid del primer chunk
+    const r = await sendCloudText(li.pnid, li.token, chatId.replace(/@.*/g, ''), text);
+    return r;
+  }
+  const ok = await sendWahaMessage(sessionName, chatId, text);
+  return { ok };
 };
 
 const unifiedSendMedia = async (sessionName: string, chatId: string, media: any, caption: string | undefined, whatsappLineId?: string | null): Promise<boolean> => {
   const li = await getLineInfo(whatsappLineId);
-  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudMedia(li.pnid, li.token, chatId.replace(/@.*/g, ''), media, caption);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return (await sendCloudMedia(li.pnid, li.token, chatId.replace(/@.*/g, ''), media, caption)).ok;
   return sendWahaMedia(sessionName, chatId, media, caption);
 };
 
@@ -4235,8 +4250,8 @@ const processBufferedMessages = async (bufferKey: string) => {
         
         if (cleanAiResponse) {
           if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
-          await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
-          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
+          const sendResult1 = await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
+          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant', ...(sendResult1.wamid && { wamid: sendResult1.wamid }) } });
           log(`🤖 Respuesta IA (pre-media) → ${senderName}`);
         }
 
@@ -4369,9 +4384,11 @@ const processBufferedMessages = async (bufferKey: string) => {
             await humanDelay(cleanResponse.length);
           }
 
-          const textSent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
+          const textResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
+          const textSent = textResult.ok;
+          const botWamid = textResult.wamid;
           if (textSent) {
-            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant', ...(botWamid && { wamid: botWamid }) } });
             await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
             log(`🤖 Respuesta (pre-media) → ${senderName}`);
           }
@@ -4445,9 +4462,9 @@ const processBufferedMessages = async (bufferKey: string) => {
             }
           } else {
             // 📝 MODO TEXTO: Normal (Cloud API usa mensajes divididos por párrafo)
-            const sent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
-            if (sent) {
-              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+            const sentResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
+            if (sentResult.ok) {
+              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant', ...(sentResult.wamid && { wamid: sentResult.wamid }) } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
               clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
             }
@@ -5185,10 +5202,10 @@ router.post('/send', async (req: Request, res: Response) => {
     const isCloud = lineRecord?.connectionType === 'cloud_api' && lineRecord?.cloudPhoneNumberId && lineRecord?.cloudAccessToken;
     
     if (isCloud) {
-      if (message) sent = await sendCloudText(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, message);
+      if (message) sent = (await sendCloudText(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, message)).ok;
       if (mediaUrl) {
         const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
-        sent = (await sendCloudMedia(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, mediaObj, !message ? '' : undefined)) || sent;
+        sent = (await sendCloudMedia(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, mediaObj, !message ? '' : undefined)).ok || sent;
       }
     } else {
       if (message) sent = await sendWahaMessage(sessionName, chatId, message);
@@ -6889,6 +6906,9 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       if (msgId && recentlyProcessed.has(msgId)) { console.log(`☁️ [CLOUD] ⏭️ Duplicado, ignorando`); continue; }
       if (msgId) { recentlyProcessed.add(msgId); setTimeout(() => recentlyProcessed.delete(msgId), 60000); }
       
+      // Guardar wamid del mensaje entrante para lookup futuro de quoted
+      const incomingWamid = msgId || null;
+      
       // Mark read
       if (line.cloudAccessToken) markCloudRead(phoneNumberId, line.cloudAccessToken, msgId);
       
@@ -6932,27 +6952,18 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
 
 
           if (finalConvId) {
-            const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
-            const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
-            const quotedWasBot = !!linePhone && quotedFromPhone === linePhone;
-
-            const quotedMsgs = await prisma.message.findMany({
-              where: { conversationId: finalConvId, fromMe: quotedWasBot },
-              orderBy: { timestamp: 'desc' },
-              take: 10,
-              select: { content: true }
-            });
-            const candidate = quotedMsgs.find(m =>
-              m.content && m.content.length > 5 &&
-              !m.content.startsWith('[SISTEMA') &&
-              !m.content.startsWith('📎') &&
-              !m.content.startsWith('🎤')
-            );
-            if (candidate) {
-              cloudQuotedContext = candidate.content.substring(0, 120);
-              log('💬 Quoted (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
-            } else {
-
+            // Buscar por wamid EXACTO — único método confiable
+            // Fallback desactivado: inyectar el mensaje equivocado confunde a la IA
+            if (cloudQuotedMsgId) {
+              const exactMsg = await prisma.message.findFirst({
+                where: { conversationId: finalConvId, wamid: cloudQuotedMsgId },
+                select: { content: true }
+              });
+              if (exactMsg?.content) {
+                cloudQuotedContext = exactMsg.content.substring(0, 120);
+                log('💬 Quoted exacto: "' + cloudQuotedContext.substring(0, 60) + '"');
+              }
+              // Sin match exacto → no inyectar nada (mejor sin contexto que con contexto erróneo)
             }
           }
         } catch (qErr: any) {
@@ -7105,7 +7116,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             conversationId: convId, content: displayContent || '[Media]', fromMe: false,
             userId, role: 'user',
             ...(savedMediaType && { mediaType: savedMediaType }),
-            ...(savedMediaUrl && { mediaUrl: savedMediaUrl })
+            ...(savedMediaUrl && { mediaUrl: savedMediaUrl }),
+            ...(incomingWamid && { wamid: incomingWamid })
           }
         }).catch(() => {});
         prisma.conversation.update({ where: { id: convId }, data: { lastMessage: displayContent, recipientName: senderName } }).catch(() => {});

@@ -6913,7 +6913,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const cloudQuotedMsgId = msg.context?.id || null;
       const cloudQuotedFrom = msg.context?.from || null;
       let cloudQuotedContext = '';
-      log('💬 quoted check — id: ' + (cloudQuotedMsgId ? cloudQuotedMsgId.substring(0,20) : 'null') + ' | from: ' + (cloudQuotedFrom || 'null'));
+      console.log('💬 quoted check — id: ' + (cloudQuotedMsgId ? cloudQuotedMsgId.substring(0,20) : 'null') + ' | from: ' + (cloudQuotedFrom || 'null'));
 
       // Resolver texto del quoted usando el earlyBuffer (ya tiene convId si es ráfaga)
       // o buscando la conv directamente
@@ -6935,13 +6935,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             finalConvId = qConv?.id || null;
           }
 
-          log('💬 quoted convId: ' + (finalConvId || 'null'));
+          console.log('💬 quoted convId: ' + (finalConvId || 'null'));
 
           if (finalConvId) {
             const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
             const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
             const quotedWasBot = !!linePhone && quotedFromPhone === linePhone;
-            log('💬 quotedWasBot: ' + quotedWasBot + ' | linePhone: ' + linePhone + ' | quotedFrom: ' + quotedFromPhone);
+            console.log('💬 quotedWasBot: ' + quotedWasBot + ' | linePhone: ' + linePhone + ' | quotedFrom: ' + quotedFromPhone);
             const quotedMsgs = await prisma.message.findMany({
               where: { conversationId: finalConvId, fromMe: quotedWasBot },
               orderBy: { timestamp: 'desc' },
@@ -6956,13 +6956,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             );
             if (candidate) {
               cloudQuotedContext = candidate.content.substring(0, 120);
-              log('💬 Cloud quoted resuelto (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
+              console.log('💬 Cloud quoted resuelto (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
             } else {
-              log('💬 No candidate encontrado entre ' + quotedMsgs.length + ' mensajes');
+              console.log('💬 No candidate entre ' + quotedMsgs.length + ' msgs');
             }
           }
         } catch (qErr: any) {
-          log('⚠️ Error resolviendo quoted: ' + qErr.message);
+          console.log('⚠️ Error quoted: ' + qErr.message);
         }
       }
 

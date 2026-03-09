@@ -6909,13 +6909,44 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
 
-      // 💬 QUOTED MESSAGE — dump completo del msg para debug
-      console.log('💬 MSG_DUMP: ' + JSON.stringify(msg).substring(0, 500));
-      const cloudQuotedMsgId = msg.context?.id || msg?.context?.message_id || null;
+      // 💬 QUOTED MESSAGE — context.from + context.id (Meta no incluye el texto)
+      const cloudQuotedMsgId = msg.context?.id || null;
       const cloudQuotedFrom = msg.context?.from || null;
       let cloudQuotedContext = '';
+
+      // Resolver texto del quoted ANTES del early buffer (necesitamos convId del buffer o DB)
       if (cloudQuotedMsgId && cloudQuotedFrom) {
-        log('💬 Cloud quoted detectado — from: ' + cloudQuotedFrom + ' | id: ' + cloudQuotedMsgId.substring(0, 40));
+        try {
+          // Buscar la conversación para obtener el convId
+          const rId = from.replace(/\D/g, '');
+          const qConv = await prisma.conversation.findFirst({
+            where: { userId, recipientId: { endsWith: rId.slice(-10) }, whatsappLineId },
+            select: { id: true }
+          });
+          if (qConv) {
+            const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
+            const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
+            const quotedWasBot = linePhone && quotedFromPhone === linePhone;
+            const quotedMsgs = await prisma.message.findMany({
+              where: { conversationId: qConv.id, fromMe: quotedWasBot },
+              orderBy: { timestamp: 'desc' },
+              take: 10,
+              select: { content: true }
+            });
+            const candidate = quotedMsgs.find(m =>
+              m.content && m.content.length > 5 &&
+              !m.content.startsWith('[SISTEMA') &&
+              !m.content.startsWith('📎') &&
+              !m.content.startsWith('🎤')
+            );
+            if (candidate) {
+              cloudQuotedContext = candidate.content.substring(0, 120);
+              log('💬 Cloud quoted resuelto (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
+            }
+          }
+        } catch (qErr: any) {
+          log('⚠️ Error resolviendo quoted: ' + qErr.message);
+        }
       }
 
       if (msgType === 'text') {
@@ -7048,6 +7079,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         // Buffer existe → agregar inmediatamente (sync, sin await)
         earlyBuffer.messages.push(messageBody);
         earlyBuffer.lastTimestamp = Date.now();
+        // Si este mensaje tiene quoted context y el buffer no lo tiene aún, agregarlo
+        if (cloudQuotedContext && !earlyBuffer.quotedContext) earlyBuffer.quotedContext = cloudQuotedContext;
         clearTimeout(earlyBuffer.timer);
         const delay = getSmartDelay(messageBody, earlyBuffer.messages.length, earlyBuffer.firstTimestamp, true);
         earlyBuffer.timer = setTimeout(() => processBufferedMessages(bufferKey), delay);
@@ -7143,40 +7176,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const chatIdForSend = `${recipientId}@c.us`;
       const now = Date.now();
 
-      // 💬 QUOTED MESSAGE — buscar el texto del mensaje citado en DB
-      // Meta no incluye el texto, solo el ID y el remitente original
-      if (cloudQuotedMsgId && cloudQuotedFrom) {
-        try {
-          // Determinar si respondió a un mensaje del bot o del propio cliente
-          const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
-          const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
-          const quotedWasBotMsg = linePhone && quotedFromPhone && linePhone === quotedFromPhone;
-
-          const quotedMsgs = await prisma.message.findMany({
-            where: {
-              conversationId: conv.id,
-              fromMe: quotedWasBotMsg ? true : false  // buscar del lado correcto
-            },
-            orderBy: { timestamp: 'desc' },
-            take: 10,
-            select: { content: true, mediaType: true }
-          });
-
-          const candidate = quotedMsgs.find(m =>
-            m.content && m.content.length > 5 &&
-            !m.content.startsWith('[SISTEMA') &&
-            !m.content.startsWith('📎') &&
-            !m.content.startsWith('🎤')
-          );
-
-          if (candidate) {
-            cloudQuotedContext = candidate.content.substring(0, 120);
-            log('💬 Cloud quoted resuelto (' + (quotedWasBotMsg ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
-          }
-        } catch (qErr: any) {
-          log('⚠️ Error resolviendo quoted: ' + qErr.message);
-        }
-      }
+      // quoted context ya fue resuelto antes del early buffer check
 
       if (existingBuffer) {
         existingBuffer.messages.push(messageBody);

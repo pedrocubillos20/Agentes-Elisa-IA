@@ -168,6 +168,8 @@ router.post('/', async (req: Request, res: Response) => {
       ...(body.modFlujo !== undefined && { modFlujo: body.modFlujo || null }),
       ...(body.modAcciones !== undefined && { modAcciones: body.modAcciones || null }),
       ...(body.modAdmin !== undefined && { modAdmin: body.modAdmin || null }),
+      ...(body.agenteCliente !== undefined && { agenteCliente: body.agenteCliente || null }),
+      ...(body.agenteAdmin !== undefined && { agenteAdmin: body.agenteAdmin || null }),
       knowledgeItems: body.knowledgeItems || [],
       mediaItems: newMediaItems,
       elevenLabsKey: body.elevenLabsKey || null,

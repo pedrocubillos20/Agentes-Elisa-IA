@@ -102,6 +102,8 @@ model Assistant {
   modFlujo        String?   @db.Text   // Módulo 5: Flujo de conversación
   modAcciones     String?   @db.Text   // Módulo 6: Acciones y triggers
   modAdmin        String?   @db.Text   // Módulo 7: Config admin/analítica
+  agenteCliente   String?   @db.Text   // Agente: instrucciones para ventas al cliente
+  agenteAdmin     String?   @db.Text   // Agente: instrucciones para análisis del negocio
 
   knowledgeItems  Json      @default("[]")
   mediaItems      Json      @default("[]")

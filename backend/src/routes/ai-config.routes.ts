@@ -244,6 +244,194 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
   }
 });
 
+
+// ====================================================
+// 🧩 GENERATE MODULES — Genera los 7 módulos + 2 agentes desde PDF
+// ====================================================
+router.post('/generate-modules', upload.single('pdf'), async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    const hasPurchased = await prisma.payment.findFirst({
+      where: { userId: ownerId, plan: 'ai_config', status: 'approved' }
+    });
+    const user = await prisma.user.findUnique({
+      where: { id: ownerId },
+      select: { plan: true, apiKey: true, apiKeyConnected: true }
+    });
+    if (!hasPurchased) {
+      res.status(403).json({ error: 'Necesitas comprar el addon "Configuración IA" para usar esta función.' });
+      return;
+    }
+    if (!user?.apiKey || !user.apiKeyConnected) {
+      res.status(400).json({ error: 'Necesitas conectar tu API Key de OpenAI primero.' });
+      return;
+    }
+
+    const { businessName, businessType, lineId } = req.body;
+
+    // Leer PDF
+    let pdfText = '';
+    if (req.file) {
+      if (pdfParseFn && typeof pdfParseFn === 'function') {
+        try { const d = await pdfParseFn(req.file.buffer); pdfText = d.text || ''; } catch {}
+      }
+      if (!pdfText) {
+        try {
+          const tmpPdf = `/tmp/aimod-${Date.now()}.pdf`;
+          const tmpTxt = tmpPdf.replace('.pdf', '.txt');
+          require('fs').writeFileSync(tmpPdf, req.file.buffer);
+          require('child_process').execSync(`pdftotext -layout "${tmpPdf}" "${tmpTxt}"`, { timeout: 15000 });
+          pdfText = require('fs').readFileSync(tmpTxt, 'utf-8');
+          try { require('fs').unlinkSync(tmpPdf); } catch {}
+          try { require('fs').unlinkSync(tmpTxt); } catch {}
+        } catch {}
+      }
+      if (!pdfText) { res.status(400).json({ error: 'No se pudo leer el PDF.' }); return; }
+    }
+
+    if (!pdfText && !businessName) {
+      res.status(400).json({ error: 'Sube un PDF o escribe el nombre del negocio.' });
+      return;
+    }
+
+    // Obtener assistant + media
+    let assistant: any = null;
+    if (lineId) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId } });
+    if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+    const mediaItems = assistant ? ((assistant.mediaItems as any[]) || []) : [];
+    const mediaSummary = mediaItems.filter((m: any) => m.trigger || m.name).map((m: any) => {
+      const t = m.trigger || (Array.isArray(m.triggers) ? m.triggers.join(', ') : '');
+      if (m.type === 'catalog') return `- CATÁLOGO "${m.name}" (${(m.images||[]).length} fotos) trigger: "${t}"`;
+      return `- ${(m.type||'').toUpperCase()} "${m.name}" trigger: "${t}"`;
+    }).join('\n');
+
+    const detectedType = detectBusinessType(pdfText || '', businessType || '');
+    const pdfSnippet = pdfText ? pdfText.slice(0, 28000) : `Negocio: ${businessName}, Tipo: ${businessType || 'general'}`;
+
+    console.log(`🧩 Generate Modules: "${businessName || 'nuevo'}" tipo:${detectedType} pdf:${pdfText.length}chars`);
+
+    // ════════════════════════════════════════════════════════════
+    // MEGA PROMPT — Genera JSON con los 7 módulos + 2 agentes
+    // ════════════════════════════════════════════════════════════
+    const systemPrompt = buildModulesSystemPrompt(detectedType, businessName, businessType, mediaSummary);
+    const userPrompt = pdfText
+      ? `Información del negocio extraída del PDF:\n\n${pdfSnippet}`
+      : `Nombre: ${businessName}\nTipo: ${businessType || 'general'}\nGenera los 7 módulos completos y profesionales.`;
+
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 14000,
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!aiRes.ok) {
+      const err = await aiRes.text();
+      console.error('❌ OpenAI error:', err.substring(0, 200));
+      res.status(500).json({ error: 'Error con OpenAI. Verifica tu API Key.' });
+      return;
+    }
+
+    const aiData: any = await aiRes.json();
+    let rawContent = aiData.choices?.[0]?.message?.content || '';
+    rawContent = rawContent.replace(/^```(?:json)?\n?/gm, '').replace(/\n?```$/gm, '').trim();
+
+    let modules: any;
+    try {
+      modules = JSON.parse(rawContent);
+    } catch {
+      console.error('❌ JSON parse error:', rawContent.substring(0, 300));
+      res.status(500).json({ error: 'La IA no generó el formato correcto. Intenta de nuevo.' });
+      return;
+    }
+
+    console.log(`✅ Módulos generados: ${Object.keys(modules).join(', ')} | tokens: ${aiData.usage?.total_tokens}`);
+
+    res.json({
+      success: true,
+      modules,
+      assistantId: assistant?.id || null,
+      stats: { tokensUsed: aiData.usage?.total_tokens || 0, pdfChars: pdfText.length }
+    });
+
+  } catch (e: any) {
+    console.error('❌ Generate modules error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 💾 APPLY MODULES — Guardar los 7 módulos en el asistente
+router.post('/apply-modules', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    const { assistantId, lineId, modules, businessName } = req.body;
+    if (!modules) { res.status(400).json({ error: 'modules es requerido' }); return; }
+
+    let assistant: any = null;
+    if (assistantId) assistant = await prisma.assistant.findFirst({ where: { id: assistantId, userId: ownerId } });
+    if (!assistant && lineId) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId } });
+    if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+
+    const moduleData = {
+      modIdentidad: modules.modIdentidad || modules.identidad || null,
+      modReglas: modules.modReglas || modules.reglas || null,
+      modProductos: modules.modProductos || modules.productos || null,
+      modAgenda: modules.modAgenda || modules.agenda || null,
+      modFlujo: modules.modFlujo || modules.flujo || null,
+      modAcciones: modules.modAcciones || modules.acciones || null,
+      modAdmin: modules.modAdmin || modules.admin || null,
+    };
+
+    if (assistant) {
+      await prisma.assistant.update({ where: { id: assistant.id }, data: moduleData });
+    } else {
+      assistant = await prisma.assistant.create({
+        data: {
+          userId: ownerId, name: businessName || 'Asistente IA',
+          isActive: true, whatsappLineId: lineId || null,
+          knowledgeItems: [], mediaItems: [], learningHistory: [],
+          model: 'gpt-4o-mini', temperature: 0.7, maxTokens: 500,
+          ...moduleData
+        }
+      });
+      if (lineId) {
+        await prisma.whatsappLine.update({ where: { id: lineId }, data: { assistantId: assistant.id } }).catch(() => {});
+      }
+    }
+
+    // Extraer etapas del módulo de acciones o flujo
+    const stagesSource = moduleData.modAcciones || moduleData.modFlujo || '';
+    const stages = extractStages(stagesSource);
+    if (stages.length > 0 && assistant.whatsappLineId) {
+      await prisma.whatsappLine.update({
+        where: { id: assistant.whatsappLineId },
+        data: { customStages: stages, stagesConfigured: true }
+      }).catch(() => {});
+    }
+
+    console.log(`💾 Módulos aplicados al asistente "${assistant.name}" | etapas: ${stages.length}`);
+    res.json({ success: true, assistantId: assistant.id, stagesExtracted: stages.length });
+
+  } catch (e: any) {
+    console.error('❌ Apply modules error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 💾 APPLY — Guardar en asistente (crea si no existe)
 router.post('/apply', async (req: Request, res: Response) => {
   try {
@@ -787,6 +975,57 @@ ${actionType === 'crear_pedido' ? `- ciudad → Ciudad de entrega
 8. Responde SOLO con el Markdown completo, sin backticks ni texto antes/después
 9. La sección "## 🔊 VOZ — ElevenLabs" SIEMPRE generarla — aunque no tengan ElevenLabs hoy, cuando lo activen ya estará lista
 10. El MD completo debe tener mínimo 2500 palabras para activar todos los 7 sistemas correctamente`;
+}
+
+
+// ====================================================
+// 🧩 MODULE SYSTEM PROMPT — Genera los 7 módulos en JSON
+// ====================================================
+function buildModulesSystemPrompt(detectedType: string, businessName?: string, businessType?: string, mediaSummary?: string): string {
+  const actionType = ['clinica','legal','salon','educacion','saas','servicios'].includes(detectedType) ? 'crear_cita'
+    : ['restaurante','hotel','canchas','vehiculos','gym'].includes(detectedType) ? 'crear_reserva' : 'crear_pedido';
+
+  return \`Eres el mejor experto mundial en configurar asistentes de ventas IA para WhatsApp en BizonneCRM.
+Tu tarea: Analizar la información del negocio y generar los 7 MÓDULOS ESPECIALIZADOS + 2 AGENTES en formato JSON.
+
+NEGOCIO: \${businessName || '[extraer del PDF]'} | Tipo: \${detectedType} | Acción: \${actionType}
+\${mediaSummary ? 'MULTIMEDIA EXISTENTE:\n' + mediaSummary : ''}
+
+ESTRUCTURA DE LA PLATAFORMA BIZONNE:
+- El sistema tiene un ORQUESTADOR central que lee los 7 módulos y construye el prompt final
+- AGENTE_CLIENTE: maneja ventas, preguntas y conversación con el cliente
+- AGENTE_ADMIN: análisis del negocio, métricas, alertas para el dueño
+- Los 2 agentes comparten la misma base de conocimiento pero tienen roles distintos
+
+GENERA un JSON con exactamente esta estructura (sin campos adicionales fuera de este esquema):
+{
+  "modIdentidad": "# 👤 IDENTIDAD DEL AGENTE\n\nNombre: [nombre cercano]\nNegocio: \${businessName || '[nombre]'}\n\n## Personalidad\n- [rasgo 1]\n- [rasgo 2]\n- [rasgo 3]\n\n## Tono\n[descripción del tono]\n\n## Restricciones\n- Nunca confirmar ser IA si preguntan directamente\n- Máximo 4 líneas por mensaje\n- Máximo 2 emojis por mensaje\n- NUNCA inventar precios o disponibilidad",
+
+  "modReglas": "# 📋 REGLAS DE NEGOCIO\n\n## Horarios de atención\n[extraer o [Ajustar]]\n\n## Métodos de pago\n[extraer o Nequi, Bancolombia, Transferencia, Efectivo]\n\n## Políticas\n[extraer política de cambios, devoluciones, garantías]\n\n## Zonas de cobertura\n[extraer o [Ajustar]]\n\n## Datos del negocio\nDirección: [extraer]\nTeléfono: [extraer]\nCiudad: [extraer]",
+
+  "modProductos": "# 🛍️ PRODUCTOS Y SERVICIOS\n\n[Tabla o lista completa extraída del PDF con nombres EXACTOS y precios EXACTOS]\n\n## Variantes disponibles\n[tallas, colores, tamaños, planes según el negocio]\n\n## Combos y paquetes\n[si aplica]",
+
+  "modAgenda": "# 🗓️ AGENDA Y HORARIOS\n\n## Disponibilidad\n[días y horas exactos extraídos del PDF]\n\n## Tipos de servicio/cita\n[lista de servicios que requieren agenda]\n\n## Duración por servicio\n[si aplica]\n\n## Reglas de reserva\n[anticipación mínima, cancelaciones, etc.]",
+
+  "modFlujo": "# 🔄 FLUJO DE CONVERSACIÓN\n\n### PASO 1 — Saludo\n**Etapa:** [primera etapa]\nEl bot: \"[mensaje de bienvenida].\"\nObjetivo: Capturar nombre\n\n### PASO 2 — Identificar necesidad\n**Etapa:** [segunda etapa]\nEl bot: \"[preguntar qué busca]\"\n\n[... TODOS LOS PASOS hasta la confirmación final]\n\n### PASO N — Confirmación\n**Etapa:** [etapa de confirmación]\nEl bot: \"[resumen completo + confirmación]\"\nAcción: \${actionType}",
+
+  "modAcciones": "# ⚡ ACCIONES Y MEMORIA\n\n## Etapas del Pipeline\n- [Etapa 1]\n- [Etapa 2]\n- [Etapa 3]\n- [Etapa 4]\n- [Etapa 5]\n- [Etapa 6]\n- Perdido\n\n## Tabla de Acciones\n| accion | Cuándo | Datos requeridos |\n|--------|--------|-----------------|\n| \${actionType} | Cliente confirma con datos completos | nombre, telefono, ... |\n| actualizar_\${actionType.replace('crear_','')} | Cliente quiere cambiar | id + nuevos datos |\n| cancelar_\${actionType.replace('crear_','')} | Cliente confirma cancelar | id |\n\n## MEMORY_JSON campos clave\nnombre, telefono, producto_servicio, precio, total, metodo_pago, etapa_actual, accion\n\${actionType === 'crear_pedido' ? 'ciudad, direccion, barrio, fecha_entrega' : actionType === 'crear_cita' ? 'fecha_cita, hora_cita, tipo_cita' : 'fecha_reserva, hora_reserva, tipo_reserva, num_personas'}",
+
+  "modAdmin": "# 🔧 AGENTE ADMIN — Análisis de Negocio\n\n## Rol\nAnalizas métricas y conversaciones para dar insights al dueño del negocio.\n\n## Alertas automáticas\n- Avisar si cliente menciona reclamo o devolución\n- Avisar si hay producto sin stock mencionado\n- Avisar si cliente pregunta por algo que no está en la base\n\n## Transferencias\n- Transferir a asesor humano si: cliente insiste en hablar con persona, hay reclamo mayor de $[X], duda técnica compleja\n\n## Análisis semanal\n- Preguntas más frecuentes sin respuesta\n- Productos más consultados\n- Tasa de conversión estimada",
+
+  "agenteCliente": "# 🤖 AGENTE CLIENTE\n\nEres \${businessName ? businessName + ', el asistente' : 'el asistente'} de ventas por WhatsApp. Tu único objetivo es convertir consultas en \${actionType === 'crear_pedido' ? 'pedidos' : actionType === 'crear_cita' ? 'citas' : 'reservas'} confirmados.\n\nSigue SIEMPRE el flujo del Módulo 5 en orden estricto.\nActualiza etapa_actual en CADA mensaje.\nIncluye MEMORY_JSON al final de CADA respuesta.",
+
+  "agenteAdmin": "# 🔐 AGENTE ADMIN\n\nEres el analista de negocio de \${businessName || 'el negocio'}. Solo respondes al dueño/admin.\nAnalizas conversaciones, métricas y das recomendaciones para mejorar las ventas.\nNUNCA compartes información confidencial del negocio con clientes."
+}
+
+REGLAS CRÍTICAS DE GENERACIÓN:
+1. Extrae precios y nombres EXACTOS del PDF — nunca inventes datos concretos
+2. Si falta info → completa con valores razonables para Colombia y marca [Ajustar]
+3. Las etapas en modAcciones DEBEN ser "- NombreEtapa" (guión + espacio + nombre corto)
+4. El modFlujo debe tener un paso por cada decisión del cliente, mínimo 5 pasos
+5. modProductos con tabla completa: cada producto con precio
+6. Responde SOLO con el JSON válido, sin texto fuera del objeto JSON
+7. Todos los valores son strings markdown con saltos de línea como \n\`;
 }
 
 // ====================================================

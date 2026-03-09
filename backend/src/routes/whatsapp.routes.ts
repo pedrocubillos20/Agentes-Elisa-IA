@@ -1410,8 +1410,27 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     if (assistant.businessInfo?.trim()) promptParts.push(`Info del negocio: ${assistant.businessInfo}`);
     if (assistant.instructions?.trim()) promptParts.push(`Instrucciones especiales: ${assistant.instructions}`);
     
-    // 📚 BASE DE CONOCIMIENTO — máxima prioridad, contiene TODO el comportamiento del asistente
-    if (assistant.context?.trim()) {
+    // 📚 SISTEMA MODULAR v2 — 8 módulos especializados
+    const a = assistant as any;
+    const hasModules = a.modIdentidad || a.modReglas || a.modProductos || a.modAgenda || a.modFlujo || a.modAcciones || a.modAdmin;
+
+    if (hasModules) {
+      // ✅ MODO MODULAR v2: construir prompt desde los 7 módulos + 2 agentes
+      const moduleParts: string[] = ['=== 🧩 BASE DE CONOCIMIENTO MODULAR BIZONNE ==='];
+      // Agente cliente — instrucciones de rol (va primero para contexto)
+      if ((a as any).agenteCliente?.trim()) moduleParts.push(`## 🤖 ROL DEL AGENTE (AGENTE_CLIENTE)\n${(a as any).agenteCliente}`);
+      // Los 7 módulos
+      if (a.modIdentidad?.trim()) moduleParts.push(`## 👤 MÓDULO 1 — IDENTIDAD\n${a.modIdentidad}`);
+      if (a.modReglas?.trim())    moduleParts.push(`## 📋 MÓDULO 2 — REGLAS DE NEGOCIO\n${a.modReglas}`);
+      if (a.modProductos?.trim()) moduleParts.push(`## 🛍️ MÓDULO 3 — PRODUCTOS\n${a.modProductos}`);
+      if (a.modAgenda?.trim())    moduleParts.push(`## 🗓️ MÓDULO 4 — AGENDA\n${a.modAgenda}`);
+      if (a.modFlujo?.trim())     moduleParts.push(`## 🔄 MÓDULO 5 — FLUJO\n${a.modFlujo}`);
+      if (a.modAcciones?.trim())  moduleParts.push(`## ⚡ MÓDULO 6 — ACCIONES Y PIPELINE\n${a.modAcciones}`);
+      if (a.modAdmin?.trim())     moduleParts.push(`## 🔧 MÓDULO 7 — CONFIG ADMIN\n${a.modAdmin}`);
+      moduleParts.push('=== FIN BASE DE CONOCIMIENTO ===\nSigue SIEMPRE todos los módulos al pie de la letra.');
+      promptParts.push(moduleParts.join('\n\n'));
+    } else if (assistant.context?.trim()) {
+      // ✅ MODO LEGACY: base de conocimiento en un solo bloque (usuarios existentes)
       promptParts.push(`=== 📚 BASE DE CONOCIMIENTO Y CONFIGURACIÓN DEL ASISTENTE ===
 ${assistant.context}
 === FIN BASE DE CONOCIMIENTO ===

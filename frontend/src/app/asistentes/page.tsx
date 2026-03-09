@@ -32,6 +32,8 @@ export default function AsistentesPage() {
   const [modFlujo, setModFlujo] = useState('');
   const [modAcciones, setModAcciones] = useState('');
   const [modAdmin, setModAdmin] = useState('');
+  const [agenteCliente, setAgenteCliente] = useState('');
+  const [agenteAdmin, setAgenteAdmin] = useState('');
 
   // Media
   const [mediaItems, setMediaItems] = useState<any[]>([]);
@@ -122,6 +124,8 @@ export default function AsistentesPage() {
           setModFlujo(active.modFlujo || '');
           setModAcciones(active.modAcciones || '');
           setModAdmin(active.modAdmin || '');
+          setAgenteCliente((active as any).agenteCliente || '');
+          setAgenteAdmin((active as any).agenteAdmin || '');
           setElevenLabsKey(active.elevenLabsKey || '');
           setSelectedVoice(active.selectedVoice || '');
           setVoiceEnabled(active.voiceEnabled || false);
@@ -138,6 +142,7 @@ export default function AsistentesPage() {
           setContext('');
           setModIdentidad(''); setModReglas(''); setModProductos('');
           setModAgenda(''); setModFlujo(''); setModAcciones(''); setModAdmin('');
+          setAgenteCliente(''); setAgenteAdmin('');
           setKnowledgeItems([]);
           setMediaItems([]);
           setElevenLabsKey('');
@@ -175,6 +180,7 @@ export default function AsistentesPage() {
           context,
           modIdentidad, modReglas, modProductos,
           modAgenda, modFlujo, modAcciones, modAdmin,
+          agenteCliente, agenteAdmin,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -564,6 +570,7 @@ export default function AsistentesPage() {
           context,
           modIdentidad, modReglas, modProductos,
           modAgenda, modFlujo, modAcciones, modAdmin,
+          agenteCliente, agenteAdmin,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -671,180 +678,202 @@ export default function AsistentesPage() {
       {/* ==================== CONTEXT TAB ==================== */}
       {activeTab === 'modules' && (
         <div className="space-y-5">
-          
-          {/* 🧩 Orquestador visual */}
-          <div className="relative overflow-hidden rounded-2xl border border-white/8 bg-gradient-to-br from-[#0f1729] to-[#0a0f1e] p-5">
-            <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle at 20% 50%, #6366f1 0%, transparent 50%), radial-gradient(circle at 80% 20%, #8b5cf6 0%, transparent 40%)'}} />
+
+          {/* ══ ORQUESTADOR — arquitectura de 3 ramas ══ */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/8 bg-[#080d1a] p-5">
+            <div className="absolute inset-0" style={{backgroundImage:'radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.07) 0%, transparent 60%), radial-gradient(ellipse at 80% 50%, rgba(20,184,166,0.07) 0%, transparent 60%)'}} />
             <div className="relative">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
-                  <Brain className="w-5 h-5 text-white" />
+
+              {/* Header */}
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+                    <Brain className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-white">Sistema Modular IA</h2>
+                    <p className="text-[10px] text-white/35">Orquestador · 2 Agentes · 7 Módulos</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-base font-bold text-white tracking-tight">Sistema Modular IA</h2>
-                  <p className="text-xs text-indigo-300/70">Cada módulo tiene un rol específico en la inteligencia del asistente</p>
-                </div>
-                <a href="/ai-config" className="ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-500/15 text-violet-300 border border-violet-500/25 hover:bg-violet-500/25 transition-all flex items-center gap-1.5">
+                <a href="/ai-config" className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-violet-500/12 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-all flex items-center gap-1.5">
                   <Wand2 className="w-3 h-3" />{hasAiConfig ? 'Generar con IA' : '🔒 Config IA'}
                 </a>
               </div>
-              {/* Diagrama orquestador */}
-              <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
-                <div className="flex-shrink-0 flex flex-col items-center justify-center px-4 py-3 rounded-xl bg-violet-500/10 border border-violet-500/25 min-w-[90px]">
-                  <div className="text-lg mb-1">🧠</div>
-                  <div className="text-[10px] font-bold text-violet-300 text-center">ORQUESTADOR</div>
-                  <div className="text-[9px] text-violet-400/60 text-center mt-0.5">Ensambla todo</div>
-                </div>
-                <div className="flex items-center text-white/20 text-xs">→</div>
-                <div className="flex gap-1.5 flex-wrap">
-                  {[
-                    {emoji:'👤', label:'Identidad', color:'blue'},
-                    {emoji:'📋', label:'Reglas', color:'emerald'},
-                    {emoji:'🛍️', label:'Productos', color:'amber'},
-                    {emoji:'🗓️', label:'Agenda', color:'cyan'},
-                    {emoji:'🔄', label:'Flujo', color:'purple'},
-                    {emoji:'⚡', label:'Acciones', color:'orange'},
-                    {emoji:'🔧', label:'Admin', color:'rose'},
-                  ].map(m => (
-                    <div key={m.label} className={`flex items-center gap-1 px-2 py-1.5 rounded-lg bg-${m.color}-500/10 border border-${m.color}-500/20`}>
-                      <span className="text-xs">{m.emoji}</span>
-                      <span className={`text-[10px] font-medium text-${m.color}-300`}>{m.label}</span>
+
+              {/* Árbol de 3 ramas */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+                {/* Rama 1: AGENTE_CLIENTE */}
+                <div className={`relative rounded-xl border p-4 cursor-pointer transition-all ${activeModule === 'agenteCliente' ? 'border-blue-500/40 bg-blue-500/8 shadow-lg shadow-blue-500/10' : 'border-white/8 bg-white/2 hover:border-blue-500/25 hover:bg-white/4'}`}
+                  onClick={() => setActiveModule('agenteCliente')}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-7 h-7 rounded-lg bg-blue-500/15 border border-blue-500/25 flex items-center justify-center text-sm">🤖</div>
+                    <div>
+                      <div className="text-[11px] font-bold text-blue-300">AGENTE_CLIENTE</div>
+                      {agenteCliente && <div className="text-[9px] text-emerald-400">✓ configurado</div>}
                     </div>
-                  ))}
+                  </div>
+                  <div className="space-y-1 pl-1">
+                    {['ventas','reservas','agenda'].map(s => (
+                      <div key={s} className="flex items-center gap-1.5 text-[10px] text-white/40">
+                        <div className="w-1 h-1 rounded-full bg-blue-500/50" />
+                        {s}
+                      </div>
+                    ))}
+                  </div>
+                  {agenteCliente && <div className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                </div>
+
+                {/* Rama 2: AGENTE_ADMIN */}
+                <div className={`relative rounded-xl border p-4 cursor-pointer transition-all ${activeModule === 'agenteAdmin' ? 'border-teal-500/40 bg-teal-500/8 shadow-lg shadow-teal-500/10' : 'border-white/8 bg-white/2 hover:border-teal-500/25 hover:bg-white/4'}`}
+                  onClick={() => setActiveModule('agenteAdmin')}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-7 h-7 rounded-lg bg-teal-500/15 border border-teal-500/25 flex items-center justify-center text-sm">🔐</div>
+                    <div>
+                      <div className="text-[11px] font-bold text-teal-300">AGENTE_ADMIN</div>
+                      {agenteAdmin && <div className="text-[9px] text-emerald-400">✓ configurado</div>}
+                    </div>
+                  </div>
+                  <div className="space-y-1 pl-1">
+                    {['análisis','métricas','campañas'].map(s => (
+                      <div key={s} className="flex items-center gap-1.5 text-[10px] text-white/40">
+                        <div className="w-1 h-1 rounded-full bg-teal-500/50" />
+                        {s}
+                      </div>
+                    ))}
+                  </div>
+                  {agenteAdmin && <div className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                </div>
+
+                {/* Rama 3: CONFIGURACIÓN NEGOCIO */}
+                <div className="rounded-xl border border-white/8 bg-white/2 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-7 h-7 rounded-lg bg-violet-500/15 border border-violet-500/25 flex items-center justify-center text-sm">⚙️</div>
+                    <div className="text-[11px] font-bold text-violet-300">CONFIG NEGOCIO</div>
+                  </div>
+                  <div className="space-y-1 pl-1">
+                    {[
+                      {id:'identidad', emoji:'👤', label:'Identidad', val:modIdentidad},
+                      {id:'reglas',    emoji:'📋', label:'Reglas',    val:modReglas},
+                      {id:'productos', emoji:'🛍️', label:'Productos', val:modProductos},
+                      {id:'agenda',    emoji:'🗓️', label:'Agenda',    val:modAgenda},
+                      {id:'flujo',     emoji:'🔄', label:'Flujo',     val:modFlujo},
+                      {id:'acciones',  emoji:'⚡', label:'Acciones',  val:modAcciones},
+                      {id:'admin',     emoji:'🔧', label:'Admin',     val:modAdmin},
+                    ].map((m, i) => (
+                      <button key={m.id} onClick={() => setActiveModule(m.id)}
+                        className={`w-full flex items-center gap-1.5 text-[10px] py-0.5 rounded transition-colors ${activeModule === m.id ? 'text-violet-300' : 'text-white/40 hover:text-white/65'}`}>
+                        <div className={`w-1 h-1 rounded-full ${m.val ? 'bg-emerald-400' : 'bg-white/20'}`} />
+                        <span className="text-[9px] text-white/20">{i+1}</span>
+                        <span>{m.emoji} {m.label}</span>
+                        {m.val && <span className="ml-auto text-emerald-400 text-[8px]">✓</span>}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-              {/* Legacy banner si tiene context pero no módulos */}
-              {context && !modIdentidad && !modReglas && !modFlujo && (
-                <div className="mt-3 p-3 rounded-lg bg-amber-500/8 border border-amber-500/20 flex items-center gap-2">
+
+              {/* Legacy banner */}
+              {context && !modIdentidad && !modReglas && !modFlujo && !agenteCliente && (
+                <div className="mt-4 p-3 rounded-lg bg-amber-500/8 border border-amber-500/20 flex items-center gap-2">
                   <span className="text-amber-400 text-xs">⚠️</span>
-                  <p className="text-xs text-amber-300/80">Tienes una base de conocimiento antigua (formato único). Los módulos son el nuevo sistema. <strong className="text-amber-300">Puedes migrar</strong> copiando el contenido en los módulos correspondientes.</p>
+                  <p className="text-xs text-amber-300/80">Tienes una base de conocimiento antigua (formato único). <strong className="text-amber-300">Migra</strong> copiando el contenido en los módulos correspondientes o usa <a href="/ai-config" className="underline">Config IA</a> para regenerarla.</p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Selector de módulo */}
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {[
-              {id:'identidad', emoji:'👤', label:'Identidad', desc:'Quién es el agente', color:'blue', val:modIdentidad},
-              {id:'reglas', emoji:'📋', label:'Reglas', desc:'Reglas del negocio', color:'emerald', val:modReglas},
-              {id:'productos', emoji:'🛍️', label:'Productos', desc:'Catálogo y precios', color:'amber', val:modProductos},
-              {id:'agenda', emoji:'🗓️', label:'Agenda', desc:'Horarios y citas', color:'cyan', val:modAgenda},
-              {id:'flujo', emoji:'🔄', label:'Flujo', desc:'Conversación paso a paso', color:'purple', val:modFlujo},
-              {id:'acciones', emoji:'⚡', label:'Acciones', desc:'MEMORY_JSON y triggers', color:'orange', val:modAcciones},
-              {id:'admin', emoji:'🔧', label:'Admin', desc:'Config analítica', color:'rose', val:modAdmin},
-            ].map(mod => (
-              <button key={mod.id} onClick={() => setActiveModule(mod.id)}
-                className={`flex-shrink-0 flex flex-col items-center px-3 py-2 rounded-xl border transition-all min-w-[72px] ${
-                  activeModule === mod.id 
-                    ? `bg-${mod.color}-500/15 border-${mod.color}-500/40 shadow-lg` 
-                    : 'bg-white/3 border-white/8 hover:bg-white/6'
-                }`}>
-                <span className="text-lg mb-0.5">{mod.emoji}</span>
-                <span className={`text-[10px] font-bold ${activeModule === mod.id ? `text-${mod.color}-300` : 'text-white/70'}`}>{mod.label}</span>
-                {mod.val && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1" />}
-              </button>
-            ))}
-          </div>
+          {/* ══ EDITOR — muestra según activeModule ══ */}
+          {/* Agente Cliente */}
+          {activeModule === 'agenteCliente' && (
+            <div className="card p-0 overflow-hidden">
+              <div className="p-4 border-b border-white/5 bg-blue-500/5 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/25 flex items-center justify-center text-lg">🤖</div>
+                  <div>
+                    <h3 className="font-semibold text-blue-200 text-sm">AGENTE_CLIENTE</h3>
+                    <p className="text-xs text-white/40 mt-0.5">Instrucciones de rol: ventas, reservas, agenda con clientes</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-white/30 bg-white/5 px-2 py-1 rounded-full">{agenteCliente.length} chars</span>
+                  <button onClick={() => setAgenteCliente('Eres el agente de ventas de **[NEGOCIO]** por WhatsApp.\n\n## Objetivo\nConvertir cada consulta en una venta o reserva confirmada.\n\n## Comportamiento\n- Sigue el flujo del Módulo 5 en orden estricto\n- Actualiza etapa_actual en CADA mensaje\n- Incluye MEMORY_JSON al final de CADA respuesta\n- Máximo 4 líneas por mensaje\n- Tono cercano, natural, colombiano')} className="px-2 py-1 rounded-lg text-[10px] font-medium bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70 transition-all flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />Plantilla
+                  </button>
+                </div>
+              </div>
+              <textarea value={agenteCliente} onChange={e => setAgenteCliente(e.target.value)}
+                placeholder="Eres el agente de ventas de [NEGOCIO] por WhatsApp. Tu objetivo: convertir consultas en ventas confirmadas. Sigue el flujo del Módulo 5..."
+                className="w-full min-h-[300px] p-5 bg-[var(--bg-primary)] text-white/90 text-sm resize-none focus:outline-none leading-relaxed font-mono" />
+            </div>
+          )}
 
-          {/* Editor del módulo activo */}
+          {/* Agente Admin */}
+          {activeModule === 'agenteAdmin' && (
+            <div className="card p-0 overflow-hidden">
+              <div className="p-4 border-b border-white/5 bg-teal-500/5 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/25 flex items-center justify-center text-lg">🔐</div>
+                  <div>
+                    <h3 className="font-semibold text-teal-200 text-sm">AGENTE_ADMIN</h3>
+                    <p className="text-xs text-white/40 mt-0.5">Análisis del negocio, métricas y campañas para el dueño</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-white/30 bg-white/5 px-2 py-1 rounded-full">{agenteAdmin.length} chars</span>
+                  <button onClick={() => setAgenteAdmin('Eres el analista de negocio de **[NEGOCIO]**. Solo respondes al dueño/admin.\n\n## Funciones\n- Análisis de conversaciones y métricas\n- Identificar patrones de ventas\n- Sugerir campañas y mejoras\n- Alertas cuando hay reclamos o problemas\n\n## Reglas\n- NUNCA compartes información confidencial con clientes\n- Solo el dueño tiene acceso a este agente')} className="px-2 py-1 rounded-lg text-[10px] font-medium bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70 transition-all flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />Plantilla
+                  </button>
+                </div>
+              </div>
+              <textarea value={agenteAdmin} onChange={e => setAgenteAdmin(e.target.value)}
+                placeholder="Eres el analista de negocio de [NEGOCIO]. Solo respondes al dueño. Analizas conversaciones, métricas y das recomendaciones..."
+                className="w-full min-h-[300px] p-5 bg-[var(--bg-primary)] text-white/90 text-sm resize-none focus:outline-none leading-relaxed font-mono" />
+            </div>
+          )}
+
+          {/* Los 7 módulos de configuración */}
           {[
             {
-              id:'identidad', emoji:'👤', label:'Identidad del Agente', color:'blue',
-              desc:'Define QUIÉN ES el asistente: nombre, personalidad, tono, restricciones de comportamiento.',
-              placeholder:'Eres **Elisa**, asesora de ventas de **THE FOUR**...
-
-- Tono: cercano, colombiano, directo
-- Nunca confirmes ser IA
-- Máximo 3-4 líneas por mensaje
-- Usa emojis con moderación',
+              id:'identidad', emoji:'👤', label:'Identidad del Agente', color:'blue', num:1,
+              desc:'Nombre, personalidad, tono, restricciones de comportamiento.',
+              placeholder:'Eres **[Nombre]**, asistente de **[NEGOCIO]**\n\n- Tono: cercano, colombiano, directo\n- Nunca confirmes ser IA\n- Máximo 4 líneas por mensaje\n- Máximo 2 emojis por mensaje',
               val: modIdentidad, set: setModIdentidad
             },
             {
-              id:'reglas', emoji:'📋', label:'Reglas de Negocio', color:'emerald',
-              desc:'Políticas, horarios, zonas de cobertura, métodos de pago, condiciones especiales.',
-              placeholder:'## Horarios
-Lunes-Viernes: 8am - 6pm
-Sábados: 9am - 2pm
-
-## Métodos de pago
-Nequi, Bancolombia, Contra-entrega
-
-## Políticas
-- Envíos gratis desde $150.000
-- Devoluciones en 3 días',
+              id:'reglas', emoji:'📋', label:'Reglas de Negocio', color:'emerald', num:2,
+              desc:'Políticas, horarios, métodos de pago, zonas de cobertura.',
+              placeholder:'## Horarios\nLunes-Viernes: 8am - 6pm\n\n## Métodos de pago\nNequi, Bancolombia, Efectivo\n\n## Políticas\n- Envíos gratis desde $150.000\n- Devoluciones en 3 días',
               val: modReglas, set: setModReglas
             },
             {
-              id:'productos', emoji:'🛍️', label:'Productos y Servicios', color:'amber',
+              id:'productos', emoji:'🛍️', label:'Productos / Servicios', color:'amber', num:3,
               desc:'Catálogo completo con precios, tallas, variantes y disponibilidad.',
-              placeholder:'## Hoodie Clásico
-- Precio: $85.000
-- Tallas: S, M, L, XL, XXL
-- Colores: Negro, Blanco, Gris
-
-## Hoodie Premium
-- Precio: $120.000
-- Personalización DTF incluida',
+              placeholder:'## Hoodie Clásico\n- Precio: $85.000\n- Tallas: S, M, L, XL\n\n## Hoodie Premium\n- Precio: $120.000\n- Personalización DTF incluida',
               val: modProductos, set: setModProductos
             },
             {
-              id:'agenda', emoji:'🗓️', label:'Agenda y Horarios', color:'cyan',
-              desc:'Configuración de disponibilidad, tipos de citas, duración y restricciones.',
-              placeholder:'## Días disponibles
-Lunes a Viernes: 8:00 - 17:00
-
-## Duración de servicios
-- Consulta: 30 min
-- Servicio completo: 1 hora
-
-## Reglas
-- Reservar con mínimo 24h de anticipación',
+              id:'agenda', emoji:'🗓️', label:'Agenda', color:'cyan', num:4,
+              desc:'Disponibilidad, tipos de citas, duración y reglas de reserva.',
+              placeholder:'## Días disponibles\nLunes a Viernes: 8:00 - 17:00\n\n## Servicios\n- Consulta: 30 min\n- Servicio completo: 1h\n\n## Reglas\n- Reservar con 24h de anticipación',
               val: modAgenda, set: setModAgenda
             },
             {
-              id:'flujo', emoji:'🔄', label:'Flujo de Conversación', color:'purple',
-              desc:'El camino paso a paso que debe seguir el agente desde el primer mensaje hasta el cierre.',
-              placeholder:'### PASO 1 → Saludo
-¡Hola! 👋 Soy Elisa de THE FOUR
-¿Cómo te llamas?
-
-### PASO 2 → Identificar necesidad
-Mostrar menú: 1️⃣ Ver catálogo 2️⃣ Hacer pedido
-
-### PASO 3 → Recoger datos
-Nombre, talla, color, dirección, pago
-
-### PASO 4 → Confirmar pedido',
+              id:'flujo', emoji:'🔄', label:'Flujo', color:'purple', num:5,
+              desc:'El camino paso a paso desde el primer mensaje hasta el cierre.',
+              placeholder:'### PASO 1 → Saludo\nEl bot: "¡Hola! 👋 Soy [nombre] de [NEGOCIO]\n¿Cómo te llamas?"\n\n### PASO 2 → Identificar necesidad\n### PASO 3 → Recoger datos\n### PASO 4 → Resumen + confirmar\n### PASO 5 → Confirmar',
               val: modFlujo, set: setModFlujo
             },
             {
-              id:'acciones', emoji:'⚡', label:'Acciones y Memoria', color:'orange',
-              desc:'MEMORY_JSON, tabla de acciones (crear_pedido, crear_cita, etc.) y etapas del pipeline.',
-              placeholder:'## Etapas del pipeline
-1. Nuevo contacto
-2. Consultando producto
-3. Confirmando pedido
-4. Pedido creado
-5. Entregado
-
-## Acciones disponibles
-- crear_pedido: cuando cliente confirma con datos completos
-- cancelar_pedido: cuando cliente quiere cancelar',
+              id:'acciones', emoji:'⚡', label:'Acciones', color:'orange', num:6,
+              desc:'MEMORY_JSON, tabla de acciones y etapas del pipeline CRM.',
+              placeholder:'## Etapas del pipeline\n- Nuevo contacto\n- Consultando\n- Confirmando\n- Pedido creado\n- Entregado\n- Perdido\n\n## Acciones\n- crear_pedido: cuando confirma con datos completos\n- cancelar_pedido: cuando quiere cancelar',
               val: modAcciones, set: setModAcciones
             },
             {
-              id:'admin', emoji:'🔧', label:'Configuración Admin', color:'rose',
-              desc:'Instrucciones para el análisis de negocio, alertas, transferencias y configuración avanzada.',
-              placeholder:'## Transferencias
-- Transferir a asesor cuando el cliente lo pide
-- Transferir si hay reclamo por devolución
-
-## Alertas
-- Avisar si el cliente menciona devolución
-
-## Notas admin
-- Horario especial navideño: dic 24-31',
+              id:'admin', emoji:'🔧', label:'Admin', color:'rose', num:7,
+              desc:'Alertas, transferencias a asesor y notas de configuración avanzada.',
+              placeholder:'## Transferencias\n- Transferir si cliente insiste en hablar con persona\n- Transferir si hay reclamo mayor\n\n## Alertas\n- Avisar si cliente menciona devolución\n\n## Notas\n- Horario especial: dec 24-31',
               val: modAdmin, set: setModAdmin
             },
           ].filter(m => m.id === activeModule).map(mod => (
@@ -853,7 +882,7 @@ Nombre, talla, color, dirección, pago
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl bg-${mod.color}-500/15 border border-${mod.color}-500/25 flex items-center justify-center text-lg flex-shrink-0`}>{mod.emoji}</div>
                   <div>
-                    <h3 className={`font-semibold text-${mod.color}-200 text-sm`}>Módulo {['identidad','reglas','productos','agenda','flujo','acciones','admin'].indexOf(mod.id)+1} — {mod.label}</h3>
+                    <h3 className={`font-semibold text-${mod.color}-200 text-sm`}>Módulo {mod.num} — {mod.label}</h3>
                     <p className="text-xs text-white/40 mt-0.5">{mod.desc}</p>
                   </div>
                 </div>

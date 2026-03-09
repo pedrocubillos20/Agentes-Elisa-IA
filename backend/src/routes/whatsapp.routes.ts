@@ -6909,11 +6909,9 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
 
-      // 💬 QUOTED MESSAGE — Meta Cloud API envía context.from + context.id (sin texto)
-      // context.from = número que envió el mensaje original
-      // Si context.from == número del bot → respondió a un mensaje de Elisa
-      // Si context.from == número del cliente → respondió a su propio mensaje
-      const cloudQuotedMsgId = msg.context?.id || null;
+      // 💬 QUOTED MESSAGE — dump completo del msg para debug
+      console.log('💬 MSG_DUMP: ' + JSON.stringify(msg).substring(0, 500));
+      const cloudQuotedMsgId = msg.context?.id || msg?.context?.message_id || null;
       const cloudQuotedFrom = msg.context?.from || null;
       let cloudQuotedContext = '';
       if (cloudQuotedMsgId && cloudQuotedFrom) {

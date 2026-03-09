@@ -6909,6 +6909,10 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
 
+      // 💬 QUOTED MESSAGE — Cloud API: msg.context.id contiene el ID del mensaje citado
+      // El texto del quoted NO viene en el payload de Meta → se resuelve después de tener la conv
+      const cloudQuotedMsgId = msg.context?.id || null;
+      let cloudQuotedContext = '';
 
       if (msgType === 'text') {
         messageBody = msg.text?.body || '';
@@ -7134,7 +7138,27 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const existingBuffer = messageBuffer.get(bufferKey);
       const chatIdForSend = `${recipientId}@c.us`;
       const now = Date.now();
-      
+
+      // 💬 QUOTED MESSAGE — resolver el texto del mensaje citado desde la DB
+      if (cloudQuotedMsgId && !cloudQuotedContext) {
+        try {
+          // Meta Cloud API no incluye el contenido del mensaje citado — buscamos en DB
+          // por los mensajes más recientes de esta conversación
+          const quotedMsgs = await prisma.message.findMany({
+            where: { conversationId: conv.id },
+            orderBy: { timestamp: 'desc' },
+            take: 15,
+            select: { content: true, fromMe: true, mediaType: true }
+          });
+          // El mensaje citado suele ser el último del bot (fromMe) o una media enviada
+          const candidate = quotedMsgs.find(m => m.content && m.content.length > 5 && !m.content.startsWith('[SISTEMA'));
+          if (candidate) {
+            cloudQuotedContext = candidate.content.substring(0, 100);
+            log('💬 Cloud quoted resuelto: "' + cloudQuotedContext.substring(0, 60) + '"');
+          }
+        } catch {}
+      }
+
       if (existingBuffer) {
         existingBuffer.messages.push(messageBody);
         existingBuffer.lastTimestamp = now;
@@ -7148,7 +7172,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           messages: [messageBody], timer: null as any, sessionName,
           from: chatIdForSend, senderName, userId,
           convId: conv.id, whatsappLineId,
-          firstTimestamp: now, lastTimestamp: now, hasMedia: false, isCloud: true
+          firstTimestamp: now, lastTimestamp: now, hasMedia: false, isCloud: true,
+          quotedContext: cloudQuotedContext || undefined
         });
         clog(`☁️ 🔒 Lock activo → "${messageBody.substring(0, 50)}" de ${senderName} guardado (se procesará al terminar IA)`);
       } else {
@@ -7158,7 +7183,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           messages: [messageBody], timer, sessionName,
           from: chatIdForSend, senderName, userId,
           convId: conv.id, whatsappLineId,
-          firstTimestamp: now, lastTimestamp: now, hasMedia: false, isCloud: true
+          firstTimestamp: now, lastTimestamp: now, hasMedia: false, isCloud: true,
+          quotedContext: cloudQuotedContext || undefined
         });
         clog(`☁️ 📦 Buffer Cloud: nuevo de ${senderName} → espera ${(delay/1000).toFixed(1)}s (bufferKey: ${bufferKey})`);
       }

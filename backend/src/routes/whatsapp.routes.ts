@@ -303,6 +303,7 @@ const messageBuffer: Map<string, {
   hasMedia: boolean;           // Si incluye media (imágenes, audio)
   isCloud: boolean;            // Cloud API = webhooks lentos de Meta
   previousContext?: string;    // Contexto del batch anterior (para continuaciones)
+  quotedContext?: string;      // Mensaje al que el usuario está respondiendo (replied message)
 }> = new Map();
 
 // ===== SESSION MANAGEMENT (multi-tenant) =====
@@ -1278,7 +1279,7 @@ function findStageByKeyword(stages: any[], keywords: string[]): string {
   return '';
 }
 
-const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null): Promise<string | null> => {
+const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null, quotedContext?: string): Promise<string | null> => {
   try {
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
@@ -2256,7 +2257,9 @@ ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_
 
 [SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.${stagesHint}
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.]`;
-    messages.push({ role: 'user', content: message + memoryReminder });
+    // 💬 Si el usuario respondió a un mensaje, inyectar ese contexto antes del mensaje
+    const messageWithQuoted = quotedContext ? `[Respondiendo a: "${quotedContext}"] ${message}` : message;
+    messages.push({ role: 'user', content: messageWithQuoted + memoryReminder });
 
     // Llamar a OpenAI
     // 💰 MODELO FIJO: gpt-4o-mini para todos (económico y potente)
@@ -4149,7 +4152,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     }
   }, 90000);
 
-  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId, firstTimestamp } = buf;
+  const { messages: msgs, sessionName, from, senderName, userId, convId, whatsappLineId, firstTimestamp, quotedContext: bufQuotedContext } = buf;
   const burstDuration = Date.now() - firstTimestamp;
   
   // 🧠 Combinar mensajes de forma inteligente
@@ -4217,7 +4220,7 @@ const processBufferedMessages = async (bufferKey: string) => {
       await stopPresence(sessionName, from);
 
       // ═══ PASO 1: GENERAR Y ENVIAR TEXTO IA PRIMERO ═══
-      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
+      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId, bufQuotedContext);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       let cleanAiResponse = '';
@@ -4290,7 +4293,7 @@ const processBufferedMessages = async (bufferKey: string) => {
 
     } else {
       // 🤖 Respuesta IA con mensaje combinado
-      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId);
+      const aiResponse = await generateAIResponse(userId, aiMessage, convId, whatsappLineId, bufQuotedContext);
       if (!isCloudAPI) await stopPresence(sessionName, from);
 
       if (!aiResponse) {
@@ -5864,6 +5867,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
+    // 💬 QUOTED MESSAGE — cuando el usuario responde a un mensaje específico
+    // WAHA WEBJS: payload._data.quotedMsg | WAHA NOWEB: payload.contextInfo.quotedMessage
+    const quotedMsg = payload?._data?.quotedMsg || payload?.contextInfo?.quotedMessage || payload?.quotedMessage || null;
+    let quotedContext = '';
+    if (quotedMsg) {
+      const quotedBody = quotedMsg?.body || quotedMsg?.conversation || quotedMsg?.extendedTextMessage?.text || '';
+      const quotedType = quotedMsg?.type || quotedMsg?.imageMessage ? 'imagen' : quotedMsg?.documentMessage ? 'documento' : 'texto';
+      const quotedCaption = quotedMsg?.caption || quotedMsg?.imageMessage?.caption || quotedMsg?.documentMessage?.caption || '';
+      // Si es imagen/media, usar filename o caption como referencia
+      const quotedMedia = quotedMsg?.type === 'image' || quotedMsg?.imageMessage
+        ? `[imagen: ${quotedCaption || 'sin caption'}]`
+        : quotedMsg?.type === 'document' || quotedMsg?.documentMessage
+        ? `[documento: ${quotedMsg?.documentMessage?.fileName || quotedCaption || 'sin nombre'}]`
+        : '';
+      const quotedText = quotedBody || quotedMedia;
+      if (quotedText) {
+        quotedContext = `[Respondiendo a: "${quotedText.substring(0, 120)}"] `;
+        log('Quoted: "' + quotedText.substring(0, 80) + '"');
+      }
+    }
+
 
 
     // 🔍 DETECT @lid FORMAT (NOWEB engine only — WEBJS uses @c.us with real phone numbers)
@@ -6376,7 +6400,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       messageBuffer.set(bufferKey, {
         messages: [messageForAI], timer: null as any, sessionName, from, senderName, userId,
         convId: conv.id, whatsappLineId,
-        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg, isCloud: false
+        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg, isCloud: false,
+        quotedContext: quotedContext || undefined
       });
       clog(`🔒 Ráfaga (lock): ${senderName} → guardado, se procesará al terminar IA`);
     } else {
@@ -6404,7 +6429,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
       messageBuffer.set(bufferKey, {
         messages: [messageForAI], timer, sessionName, from, senderName, userId,
         convId: conv.id, whatsappLineId,
-        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg, isCloud: false
+        firstTimestamp: now, lastTimestamp: now, hasMedia: isMediaMsg, isCloud: false,
+        quotedContext: quotedContext || undefined
       });
       log(`📦 Ráfaga: nuevo de ${senderName} → espera inteligente ${(delay/1000).toFixed(1)}s${isFragment(messageForAI) ? ' [fragmento detectado]' : ''}`);
     }

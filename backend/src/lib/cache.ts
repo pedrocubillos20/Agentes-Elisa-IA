@@ -113,6 +113,10 @@ export const numberExistsCache = new LRUCache<boolean>(1000, 300_000);
 // OpenAI API key errors (10 min TTL, max 100)
 export const apiKeyErrorCache = new LRUCache<{ type: string; message: string }>(100, 600_000);
 
+// WhatsApp Message ID → content (24hr TTL, max 1000 mensajes)
+// Permite lookup exacto de quoted messages sin necesitar columna en DB
+export const wamidCache = new LRUCache<string>(1000, 86_400_000);
+
 // ===== DEDUP SETS with auto-cleanup =====
 class TimedSet {
   private set = new Map<string, number>();
@@ -180,6 +184,7 @@ setInterval(() => {
   total += lidPhoneCache.cleanup();
   total += numberExistsCache.cleanup();
   total += apiKeyErrorCache.cleanup();
+  total += wamidCache.cleanup();
   total += recentlyProcessed.cleanup();
   total += recentlySentFromPlatform.cleanup();
   total += processingLock.cleanup();
@@ -196,6 +201,7 @@ export const getCacheStats = () => ({
   lidPhoneCache: lidPhoneCache.stats(),
   numberExistsCache: numberExistsCache.stats(),
   apiKeyErrorCache: apiKeyErrorCache.stats(),
+  wamidCache: wamidCache.stats(),
   recentlyProcessed: recentlyProcessed.size,
   recentlySentFromPlatform: recentlySentFromPlatform.size,
   processingLock: processingLock.size,

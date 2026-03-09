@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
-import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock } from '../lib/cache';
+import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock, wamidCache } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { sendPushToUser } from './push.routes';
 import { isColombianHoliday, getUpcomingHolidays, getHolidaySummaryForAI } from './colombian-holidays';
@@ -895,10 +895,10 @@ const unifiedSendAIResponse = async (sessionName: string, chatId: string, text: 
   return { ok };
 };
 
-const unifiedSendMedia = async (sessionName: string, chatId: string, media: any, caption: string | undefined, whatsappLineId?: string | null): Promise<boolean> => {
+const unifiedSendMedia = async (sessionName: string, chatId: string, media: any, caption: string | undefined, whatsappLineId?: string | null): Promise<{ ok: boolean; wamid?: string }> => {
   const li = await getLineInfo(whatsappLineId);
-  if (li?.type === 'cloud_api' && li.pnid && li.token) return (await sendCloudMedia(li.pnid, li.token, chatId.replace(/@.*/g, ''), media, caption)).ok;
-  return sendWahaMedia(sessionName, chatId, media, caption);
+  if (li?.type === 'cloud_api' && li.pnid && li.token) return sendCloudMedia(li.pnid, li.token, chatId.replace(/@.*/g, ''), media, caption);
+  return { ok: await sendWahaMedia(sessionName, chatId, media, caption) };
 };
 
 const unifiedSendVoice = async (sessionName: string, chatId: string, audioBuffer: Buffer, whatsappLineId?: string | null): Promise<boolean> => {
@@ -4251,6 +4251,7 @@ const processBufferedMessages = async (bufferKey: string) => {
         if (cleanAiResponse) {
           if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
           const sendResult1 = await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
+          if (sendResult1.wamid) wamidCache.set(sendResult1.wamid, cleanAiResponse);
           await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
           log(`🤖 Respuesta IA (pre-media) → ${senderName}`);
         }
@@ -4388,6 +4389,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           const textSent = textResult.ok;
           const botWamid = textResult.wamid;
           if (textSent) {
+            if (botWamid) wamidCache.set(botWamid, cleanResponse);
             await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
             await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
             log(`🤖 Respuesta (pre-media) → ${senderName}`);
@@ -4407,8 +4409,11 @@ const processBufferedMessages = async (bufferKey: string) => {
               const img = responseMedia.images[i];
               const caption = i === 0 ? (responseMedia.caption || responseMedia.name) : '';
               const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-              const imgSent = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
-              if (imgSent) sentCount++;
+              const imgResult = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
+              if (imgResult.ok) {
+                sentCount++;
+                if (imgResult.wamid) wamidCache.set(imgResult.wamid, img.name || `📷 Imagen ${i+1}`);
+              }
               if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
             }
             // Save each catalog image as message so they show in conversation
@@ -4464,6 +4469,7 @@ const processBufferedMessages = async (bufferKey: string) => {
             // 📝 MODO TEXTO: Normal (Cloud API usa mensajes divididos por párrafo)
             const sentResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
             if (sentResult.ok) {
+              if (sentResult.wamid) wamidCache.set(sentResult.wamid, cleanResponse);
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
               clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
@@ -6953,7 +6959,15 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
 
           if (finalConvId) {
             // Buscar por wamid EXACTO
-            // wamid pendiente migración DB — quoted por ahora sin contexto exacto
+            // Buscar en wamidCache (en memoria, sin DB)
+            if (cloudQuotedMsgId) {
+              const cached = wamidCache.get(cloudQuotedMsgId);
+              if (cached) {
+                cloudQuotedContext = cached.substring(0, 120);
+                log('💬 Quoted exacto (cache): "' + cloudQuotedContext.substring(0, 60) + '"');
+              }
+              // Sin match → no inyectar (mejor sin contexto que con contexto erróneo)
+            }
           }
         } catch (qErr: any) {
           log('⚠️ Error quoted: ' + qErr.message);

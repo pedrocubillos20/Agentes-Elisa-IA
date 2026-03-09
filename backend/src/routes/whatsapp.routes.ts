@@ -2881,7 +2881,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
                 if (!dataComplete) {
-                  log(`⏳ Pedido pendiente - Faltan datos: ${!hasName ? 'nombre ' : ''}${!hasAddress ? 'dirección/ciudad ' : ''}${!hasProduct ? 'producto ' : ''}`);
+                  // dataComplete ya tiene el log detallado arriba
                   // No crear el pedido aún, esperar a que el cliente complete datos
                 } else {
                 try {

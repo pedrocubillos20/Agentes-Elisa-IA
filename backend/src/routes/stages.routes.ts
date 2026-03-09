@@ -199,10 +199,22 @@ function extractStagesFromContext(context: string): any[] {
   
   let foundItems: string[] = [];
 
-  // PASO 1: Buscar sección delimitada de etapas/pipeline
-  const sectionMatch = context.match(
-    /##?[^\n]*(?:ETAPAS?|PIPELINE|EMBUDO|FLUJO|FASES?|PASOS?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i
-  );
+  // PASO 1: Buscar sección de etapas/pipeline
+  // Prioridad: ETAPAS > PIPELINE > EMBUDO > FASES > FLUJO (más genérico, al final)
+  // Excluir: FLUJO CORRECTO, FLUJO DE VENTA, FLUJO MULTIMEDIA (no son etapas)
+  const STAGE_SECTION_PATTERNS = [
+    /##?[^\n]*(?:ETAPAS?\s+DEL\s+PIPELINE)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
+    /##?[^\n]*(?:PIPELINE)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
+    /##?[^\n]*(?:EMBUDO)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
+    /##?[^\n]*(?:FASES?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
+    // FLUJO solo si no es "FLUJO CORRECTO", "FLUJO DE VENTA", "FLUJO MULTIMEDIA"
+    /##?[^\n]*(?:FLUJO\s+DEL?\s+(?:NEGOCIO|CLIENTE|PROCESO|PIPELINE))[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
+  ];
+  let sectionMatch: RegExpMatchArray | null = null;
+  for (const pat of STAGE_SECTION_PATTERNS) {
+    sectionMatch = context.match(pat);
+    if (sectionMatch) break;
+  }
 
   if (sectionMatch) {
     const section = sectionMatch[1];
@@ -218,7 +230,7 @@ function extractStagesFromContext(context: string): any[] {
       }
     }
 
-    // Fallback: bullet list
+    // Fallback: bullet list dentro de la sección
     if (foundItems.length === 0) {
       const bullets = [...section.matchAll(/^\s*[-•*]\s+([^\n:→]{2,40}?)(?:\s*[→:].*)?$/gm)];
       for (const m of bullets) {
@@ -228,9 +240,20 @@ function extractStagesFromContext(context: string): any[] {
         }
       }
     }
+
+    // Fallback: flujo inline con → DENTRO de la sección (ej: A → B → C)
+    if (foundItems.length === 0) {
+      const inSection = [...section.matchAll(/([A-ZÁÉÍÓÚÑ][^\n→`*]{1,35}?)(?:\s*→\s*)/g)];
+      for (const m of inSection) {
+        const label = m[1].replace(/\*\*/g, '').replace(/`/g, '').trim();
+        if (label.length >= 2 && label.length <= 40 && !/^(PASO|REGLA|NUNCA|→|\d)/i.test(label)) {
+          foundItems.push(label);
+        }
+      }
+    }
   }
 
-  // PASO 2: Flujo inline si no hubo sección
+  // PASO 2: Flujo inline en contexto completo como último recurso
   if (foundItems.length === 0) {
     const inlinePatterns = context.matchAll(/([A-ZÁÉÍÓÚ][^\n→]{2,30}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^\n→]{2,30}?)){2,}/g);
     for (const m of inlinePatterns) {

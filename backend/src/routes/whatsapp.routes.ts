@@ -6909,9 +6909,12 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
 
-      // 💬 QUOTED MESSAGE — Cloud API: msg.context.id contiene el ID del mensaje citado
-      // El texto del quoted NO viene en el payload de Meta → se resuelve después de tener la conv
-      const cloudQuotedMsgId = msg.context?.id || null;
+      // 💬 QUOTED MESSAGE — debug para ver qué manda Meta
+      console.log('💬 CLOUD MSG KEYS: ' + Object.keys(msg || {}).join(', '));
+      console.log('💬 CLOUD context: ' + JSON.stringify(msg?.context || null));
+      console.log('💬 CLOUD referral: ' + JSON.stringify(msg?.referral || null));
+      console.log('💬 CLOUD text: ' + JSON.stringify(msg?.text || null));
+      const cloudQuotedMsgId = msg.context?.id || msg.context?.message_id || null;
       let cloudQuotedContext = '';
 
       if (msgType === 'text') {

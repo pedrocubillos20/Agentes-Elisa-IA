@@ -2845,16 +2845,39 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
               
               // 🛒 CREAR PEDIDO AUTOMÁTICO CON FECHA DE ENTREGA
-              // ✅ VALIDACIÓN: Solo crear pedido cuando el cliente envió datos COMPLETOS
-              const hasName = !!(merged.nombre);
-              const hasPhone = !!(merged.telefono || merged.celular);
-              const hasAddress = !!(merged.direccion || merged.ciudad || merged.barrio);
-              // ✅ GENÉRICO: hasProduct no depende de campos de ropa específicos
+              // ✅ VALIDACIÓN ESTRICTA: Solo crear pedido cuando el cliente confirmó TODOS los datos
+              const hasName    = !!(merged.nombre);
+              const hasPhone   = !!(merged.telefono || merged.celular);
               const hasProduct = !!(merged.producto_servicio || merged.detalles_producto || merged.notas);
-              // ✅ FIX: dirección es OPCIONAL para negocios presenciales (tiendas, CDAs, restaurantes)
-              // Solo bloquear si la IA explícitamente pide delivery sin dirección
-              const needsAddress = !!(merged.fecha_entrega) && !hasAddress; // Solo si hay fecha_entrega sin dirección
-              const dataComplete = hasName && hasProduct && !needsAddress;
+              // dirección REAL de calle — no basta solo ciudad o barrio
+              const hasRealAddress = !!(merged.direccion);
+              const hasCity    = !!(merged.ciudad);
+              // Pago confirmado — rechazar "Por definir", vacío o pendiente
+              const rawPago = (merged.metodo_pago || '').toLowerCase().trim();
+              const hasPayment = !!(rawPago && !['por definir','pendiente',''].includes(rawPago));
+
+              const isDelivery = !!(merged.fecha_entrega);
+
+              let dataComplete: boolean;
+              if (isDelivery) {
+                // 🚚 DELIVERY: exige nombre + producto + dirección real + ciudad + teléfono + pago confirmado
+                dataComplete = hasName && hasProduct && hasRealAddress && hasCity && hasPhone && hasPayment;
+                if (!dataComplete) {
+                  const missing = [
+                    !hasName        && 'nombre',
+                    !hasProduct     && 'producto',
+                    !hasRealAddress && 'dirección (calle)',
+                    !hasCity        && 'ciudad',
+                    !hasPhone       && 'teléfono',
+                    !hasPayment     && 'método de pago confirmado',
+                  ].filter(Boolean).join(', ');
+                  log(`⏳ Pedido delivery pendiente — faltan: ${missing}`);
+                }
+              } else {
+                // 🏪 PRESENCIAL (tienda, CDA, restaurante): solo nombre + producto
+                dataComplete = hasName && hasProduct;
+                if (!dataComplete) log(`⏳ Pedido presencial pendiente — faltan: ${!hasName ? 'nombre' : 'producto'}`);
+              }
               
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
                 if (!dataComplete) {

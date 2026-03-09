@@ -5868,6 +5868,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
     // 💬 QUOTED MESSAGE — cuando el usuario responde a un mensaje específico
+    // DEBUG TEMPORAL: loguear el payload completo para ver qué llega
+    log('🔍 QUOTED DEBUG keys: ' + Object.keys(payload || {}).join(', '));
+    log('🔍 QUOTED _data keys: ' + Object.keys(payload?._data || {}).join(', '));
+    log('🔍 QUOTED contextInfo: ' + JSON.stringify(payload?.contextInfo || null)?.substring(0, 300));
+    log('🔍 QUOTED _data.quotedMsg: ' + JSON.stringify(payload?._data?.quotedMsg || null)?.substring(0, 300));
+    log('🔍 QUOTED payload.quotedMessage: ' + JSON.stringify(payload?.quotedMessage || null)?.substring(0, 300));
     // WAHA WEBJS: payload._data.quotedMsg | WAHA NOWEB: payload.contextInfo.quotedMessage
     const quotedMsg = payload?._data?.quotedMsg || payload?.contextInfo?.quotedMessage || payload?.quotedMessage || null;
     let quotedContext = '';

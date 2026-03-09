@@ -4251,7 +4251,7 @@ const processBufferedMessages = async (bufferKey: string) => {
         if (cleanAiResponse) {
           if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
           const sendResult1 = await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
-          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant', ...(sendResult1.wamid && { wamid: sendResult1.wamid }) } });
+          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
           log(`🤖 Respuesta IA (pre-media) → ${senderName}`);
         }
 
@@ -4388,7 +4388,7 @@ const processBufferedMessages = async (bufferKey: string) => {
           const textSent = textResult.ok;
           const botWamid = textResult.wamid;
           if (textSent) {
-            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant', ...(botWamid && { wamid: botWamid }) } });
+            await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
             await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
             log(`🤖 Respuesta (pre-media) → ${senderName}`);
           }
@@ -4464,7 +4464,7 @@ const processBufferedMessages = async (bufferKey: string) => {
             // 📝 MODO TEXTO: Normal (Cloud API usa mensajes divididos por párrafo)
             const sentResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
             if (sentResult.ok) {
-              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant', ...(sentResult.wamid && { wamid: sentResult.wamid }) } });
+              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
               clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
             }
@@ -6952,19 +6952,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
 
 
           if (finalConvId) {
-            // Buscar por wamid EXACTO — único método confiable
-            // Fallback desactivado: inyectar el mensaje equivocado confunde a la IA
-            if (cloudQuotedMsgId) {
-              const exactMsg = await prisma.message.findFirst({
-                where: { conversationId: finalConvId, wamid: cloudQuotedMsgId },
-                select: { content: true }
-              });
-              if (exactMsg?.content) {
-                cloudQuotedContext = exactMsg.content.substring(0, 120);
-                log('💬 Quoted exacto: "' + cloudQuotedContext.substring(0, 60) + '"');
-              }
-              // Sin match exacto → no inyectar nada (mejor sin contexto que con contexto erróneo)
-            }
+            // Buscar por wamid EXACTO
+            // wamid pendiente migración DB — quoted por ahora sin contexto exacto
           }
         } catch (qErr: any) {
           log('⚠️ Error quoted: ' + qErr.message);
@@ -7116,8 +7105,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             conversationId: convId, content: displayContent || '[Media]', fromMe: false,
             userId, role: 'user',
             ...(savedMediaType && { mediaType: savedMediaType }),
-            ...(savedMediaUrl && { mediaUrl: savedMediaUrl }),
-            ...(incomingWamid && { wamid: incomingWamid })
+            ...(savedMediaUrl && { mediaUrl: savedMediaUrl })
           }
         }).catch(() => {});
         prisma.conversation.update({ where: { id: convId }, data: { lastMessage: displayContent, recipientName: senderName } }).catch(() => {});

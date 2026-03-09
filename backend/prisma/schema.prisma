@@ -166,10 +166,8 @@ model Message {
   mediaUrl          String?      @db.Text
   userId            String?
   role              String       @default("user")
-  wamid             String?      // WhatsApp Message ID — para lookup de quoted messages
 
   @@index([conversationId, timestamp])
-  @@index([wamid])
   @@index([conversationId])
   @@index([timestamp])
 }

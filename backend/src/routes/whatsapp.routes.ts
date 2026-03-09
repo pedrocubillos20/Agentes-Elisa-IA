@@ -5,6 +5,8 @@ import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPla
 import { AuthRequest } from '../middleware/auth.middleware';
 import { sendPushToUser } from './push.routes';
 import { isColombianHoliday, getUpcomingHolidays, getHolidaySummaryForAI } from './colombian-holidays';
+// 🌍 NOTE: Holiday detection is Colombia-specific by default.
+// For other countries, users can configure holidays in their business schedule (dayOfWeek=7 → holidays).
 
 const router = Router();
 
@@ -119,32 +121,32 @@ const to12h = (time: string): string => {
 };
 
 // ====================================================
-// 🕐 COLOMBIA TIMEZONE HELPER — GMT-5 (America/Bogota)
-// El servidor corre en UTC. SIEMPRE usar esto para lógica de fechas.
+// 🌍 TIMEZONE HELPER — Genérico para cualquier país/zona
+// El servidor corre en UTC. SIEMPRE usar getNowColombia() con TZ del usuario.
 // ====================================================
-const COLOMBIA_TZ = 'America/Bogota';
+const COLOMBIA_TZ = 'America/Bogota'; // Default para usuarios sin TZ configurada
 
-/** Obtiene la fecha/hora actual en Colombia como Date object */
-const getNowColombia = (): Date => {
-  return new Date(new Date().toLocaleString('en-US', { timeZone: COLOMBIA_TZ }));
+/** Obtiene fecha/hora en la zona horaria especificada (o Colombia por defecto) */
+const getNowColombia = (tz?: string): Date => {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: tz || COLOMBIA_TZ }));
 };
 
-/** Obtiene la fecha de Colombia como string YYYY-MM-DD */
-const getTodayStringColombia = (): string => {
-  const col = getNowColombia();
+/** Obtiene la fecha actual como string YYYY-MM-DD en la zona horaria dada */
+const getTodayStringColombia = (tz?: string): string => {
+  const col = getNowColombia(tz);
   return `${col.getFullYear()}-${String(col.getMonth() + 1).padStart(2, '0')}-${String(col.getDate()).padStart(2, '0')}`;
 };
 
-/** Formatea fecha bonita en Colombia */
-const formatDateColombia = (date?: Date): string => {
+/** Formatea fecha bonita en la zona horaria del negocio */
+const formatDateColombia = (date?: Date, tz?: string): string => {
   const d = date || new Date();
-  return d.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: COLOMBIA_TZ });
+  return d.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: tz || COLOMBIA_TZ });
 };
 
-/** Formatea hora bonita en Colombia */
-const formatTimeColombia = (date?: Date): string => {
+/** Formatea hora bonita en la zona horaria del negocio */
+const formatTimeColombia = (date?: Date, tz?: string): string => {
   const d = date || new Date();
-  return d.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: COLOMBIA_TZ });
+  return d.toLocaleTimeString('es', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz || COLOMBIA_TZ });
 };
 
 // 📅 Helper: Parsear fecha inteligente — "viernes", "mañana", "13 de marzo", "2025-03-07"
@@ -162,8 +164,8 @@ const toStorableDate = (colombiaDate: Date): Date => {
   return new Date(Date.UTC(y, m, d, 12, 0, 0));
 };
 
-const parseSmartDate = (fechaStr: string): Date => {
-  const today = getNowColombia();
+const parseSmartDate = (fechaStr: string, tz?: string): Date => {
+  const today = getNowColombia(tz);
   if (!fechaStr) return toStorableDate(today);
   const f = fechaStr.toLowerCase().trim();
 
@@ -236,7 +238,11 @@ const notifyPersonalAssistant = async (ownerId: string, type: 'pedido' | 'cita' 
       return ctx._isPersonalAssistant === true;
     });
 
-    if (paConvs.length === 0) return;
+    if (paConvs.length === 0) {
+      // Sin asistente personal → enviar Push notification igual
+      clog(`ℹ️ Sin asistente personal configurado para ${type}. Push enviado vía sendPushToUser.`);
+      return;
+    }
 
     const emojis: Record<string, string> = { pedido: '🛒', cita: '📅', reserva: '🏨' };
     const labels: Record<string, string> = { pedido: 'NUEVO PEDIDO', cita: 'NUEVA CITA', reserva: 'NUEVA RESERVA' };
@@ -1277,7 +1283,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
       where: { id: ownerId }, 
-      select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true } 
+      select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
     });
     if (!owner?.apiKey || !owner.apiKeyConnected) {
       clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
@@ -1355,7 +1361,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
         if (client.address) parts.push(`Dirección: ${client.address}`);
         if (client.notes) parts.push(`Notas: ${client.notes}`);
         if (client.tags?.length) parts.push(`Etiquetas: ${client.tags.join(', ')}`);
-        if (client.totalPurchases > 0) parts.push(`Compras previas: $${client.totalPurchases}`);
+        if (client.totalPurchases > 0) parts.push(`Compras previas: ${client.totalPurchases}`);
         if (parts.length) crmInfo = parts.join('\n');
       }
     }
@@ -1370,8 +1376,9 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     // ====== CONSTRUIR SYSTEM PROMPT ======
     const promptParts: string[] = [];
 
-    // 🇨🇴 INYECTAR FECHA Y HORA DE COLOMBIA
-    const nowCol = getNowColombia();
+    // 🌍 INYECTAR FECHA Y HORA — usa timezone del usuario (genérico para cualquier país)
+    const userTz = (owner as any)?.timezone || 'America/Bogota';
+    const nowCol = new Date(new Date().toLocaleString('en-US', { timeZone: userTz }));
     const dayNamesCO = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
     const monthNamesCO = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
     const colDateStr = `${dayNamesCO[nowCol.getDay()]} ${nowCol.getDate()} de ${monthNamesCO[nowCol.getMonth()]} de ${nowCol.getFullYear()}`;
@@ -1380,7 +1387,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     const colAmPm = colHour >= 12 ? 'PM' : 'AM';
     const colHour12 = colHour === 0 ? 12 : colHour > 12 ? colHour - 12 : colHour;
     const colTime12 = `${colHour12}:${nowCol.getMinutes().toString().padStart(2, '0')} ${colAmPm}`;
-    promptParts.push(`🇨🇴 FECHA Y HORA ACTUAL (Colombia, UTC-5): ${colDateStr}, ${colTime12} (${colTimeStr}). Hoy es ${dayNamesCO[nowCol.getDay()]}. Usa SIEMPRE esta referencia para calcular qué horarios de HOY aún son válidos. Un horario es válido si es al menos 1 hora después de la hora actual. Si el cliente pide "hoy" y hay horarios futuros disponibles → OFRÉCELOS. Solo sugiere mañana si HOY ya no tiene horarios libres futuros.`);
+    promptParts.push(`📅 FECHA Y HORA ACTUAL (zona: ${userTz}): ${colDateStr}, ${colTime12} (${colTimeStr}). Hoy es ${dayNamesCO[nowCol.getDay()]}. Usa SIEMPRE esta referencia para calcular qué horarios de HOY aún son válidos. Un horario es válido si es al menos 1 hora después de la hora actual. Si el cliente pide "hoy" y hay horarios futuros disponibles → OFRÉCELOS. Solo sugiere mañana si HOY ya no tiene horarios libres futuros.`);
 
     if (assistant.name) promptParts.push(`Eres ${assistant.name}, un asistente virtual por WhatsApp.`);
     if (assistant.personality?.trim()) promptParts.push(assistant.personality);
@@ -1708,7 +1715,7 @@ REGLAS DE TRANSFERENCIA:
       const schedules = await prisma.businessSchedule.findMany({ where: schedWhere, orderBy: { dayOfWeek: 'asc' } });
 
       if (schedules.length > 0 || resources.length > 0) {
-        const today = getNowColombia();
+        const today = getNowColombia(userTz);
         const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
         
         // Generate availability for today and next 3 days
@@ -1893,11 +1900,11 @@ REGLAS DE TRANSFERENCIA:
           const biLines: string[] = [];
           const assistantLabel = isPersonalAssistant ? 'Asistente Personal BIZONNE' : (conversation?.groupName || 'Grupo');
           biLines.push(`\n=== 📊 DATOS DE PLATAFORMA EN TIEMPO REAL (${assistantLabel}) ===`);
-          biLines.push(`Fecha: ${formatDateColombia()} | Hora: ${formatTimeColombia()}`);
+          biLines.push(`Fecha: ${formatDateColombia(undefined, userTz)} | Hora: ${formatTimeColombia(undefined, userTz)}`);
 
           const todayStart  = new Date(getTodayStringColombia() + "T05:00:00.000Z");
-          const weekStart7  = getNowColombia(); weekStart7.setDate(weekStart7.getDate() - 7);
-          const monthStart  = getNowColombia(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+          const weekStart7  = getNowColombia(userTz); weekStart7.setDate(weekStart7.getDate() - 7);
+          const monthStart  = getNowColombia(userTz); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
 
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           // 1️⃣  PIPELINE Y CONVERSACIONES
@@ -1961,7 +1968,7 @@ REGLAS DE TRANSFERENCIA:
           // 2️⃣  AGENDA COMPLETA (Citas + Pedidos + Reservas)
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           const rangeStart = new Date(getTodayStringColombia() + "T05:00:00.000Z");
-          const rangeEnd   = getNowColombia(); rangeEnd.setDate(rangeEnd.getDate() + 7); rangeEnd.setHours(23, 59, 59, 999);
+          const rangeEnd   = getNowColombia(userTz); rangeEnd.setDate(rangeEnd.getDate() + 7); rangeEnd.setHours(23, 59, 59, 999);
           const allAppts   = await prisma.appointment.findMany({
             where: { userId: ownerId, date: { gte: rangeStart, lte: rangeEnd }, status: { notIn: ['cancelled'] } },
             orderBy: [{ date: 'asc' }, { time: 'asc' }],
@@ -1992,13 +1999,13 @@ REGLAS DE TRANSFERENCIA:
           for (const [dateKey, appts] of byDay.entries()) {
             const d = new Date(dateKey + 'T12:00:00');
             const isToday    = dateKey === getTodayStringColombia();
-            const tmrCol     = getNowColombia(); tmrCol.setDate(tmrCol.getDate()+1);
+            const tmrCol     = getNowColombia(userTz); tmrCol.setDate(tmrCol.getDate()+1);
             const tmrStr     = `${tmrCol.getFullYear()}-${String(tmrCol.getMonth()+1).padStart(2,'0')}-${String(tmrCol.getDate()).padStart(2,'0')}`;
             const isTomorrow = dateKey === tmrStr;
             const dayLabel   = isToday ? '📌 HOY' : isTomorrow ? '📌 MAÑANA' : dayNames[d.getDay()];
             const filtered   = appts.filter((a: any) => filterTypes.includes(a.type));
             if (filtered.length === 0) continue;
-            biLines.push(`\n━━━ ${dayLabel} ${d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })} ━━━`);
+            biLines.push(`\n━━━ ${dayLabel} ${d.toLocaleDateString('es', { day: 'numeric', month: 'long' })} ━━━`);
             for (const apt of filtered) {
               totalItems++;
               const typeEmoji  = typeLabels[(apt as any).type] || '📅';
@@ -2029,8 +2036,8 @@ REGLAS DE TRANSFERENCIA:
             const todayRevenue = todayOrders.reduce((sum: number, o: any) => sum + (parseFloat(o.total) || 0), 0);
             const monthRevenue = monthOrders.reduce((sum: number, o: any) => sum + (parseFloat(o.total) || 0), 0);
             biLines.push(`\n━━━ 💰 VENTAS E INGRESOS ━━━`);
-            biLines.push(`Hoy: ${todayOrders.length} pedidos | Ingresos hoy: $${todayRevenue.toLocaleString('es-CO')}`);
-            biLines.push(`Este mes: ${monthOrders.length} pedidos | Ingresos mes: $${monthRevenue.toLocaleString('es-CO')}`);
+            biLines.push(`Hoy: ${todayOrders.length} pedidos | Ingresos hoy: $${todayRevenue.toLocaleString('es')}`);
+            biLines.push(`Este mes: ${monthOrders.length} pedidos | Ingresos mes: $${monthRevenue.toLocaleString('es')}`);
           }
 
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2055,7 +2062,7 @@ REGLAS DE TRANSFERENCIA:
                 biLines.push(`  ${cat}:`);
                 prods.forEach((p: any) => {
                   let line = `    • ${p.name}`;
-                  if (p.price) line += ` | $${parseFloat(p.price).toLocaleString('es-CO')}`;
+                  if (p.price) line += ` | $${parseFloat(p.price).toLocaleString('es')}`;
                   if (p.stock !== null && p.stock !== undefined) line += ` | Stock: ${p.stock}`;
                   biLines.push(line);
                 });
@@ -2166,7 +2173,7 @@ REGLAS DE TRANSFERENCIA:
 === INSTRUCCIONES — ${isPersonalAssistant ? 'ASISTENTE PERSONAL BIZONNE v2.0' : 'MODO GRUPO INTERNO'} ===
 
 ${isPersonalAssistant ? `Eres el CEREBRO DIGITAL del negocio. Tienes acceso total y en tiempo real a todos los sistemas de la plataforma Bizonne.
-Tu zona horaria: COLOMBIA (GMT-5). TODAS las fechas/horas en los datos son de esta zona.
+Tu zona horaria: la configurada por el usuario. Usa SIEMPRE la fecha/hora inyectada en el sistema para calcular fechas relativas.
 
 🧠 LO QUE PUEDES HACER:
 1. AGENDA: Ver, crear, actualizar y cancelar citas/pedidos/reservas usando acciones en MEMORY_JSON
@@ -2469,18 +2476,18 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   }
                   
                   // Extraer fecha
-                  let citaDate = getNowColombia();
+                  let citaDate = getNowColombia(userTz);
                   citaDate.setDate(citaDate.getDate() + 1); // Default: mañana
                   
                   const fullText = (fullConversation + ' ' + reply).toLowerCase();
-                  if (fullText.includes('hoy')) { citaDate = getNowColombia(); }
-                  else if (fullText.includes('mañana') || fullText.includes('manana')) { citaDate = getNowColombia(); citaDate.setDate(citaDate.getDate() + 1); }
-                  else if (fullText.includes('pasado')) { citaDate = getNowColombia(); citaDate.setDate(citaDate.getDate() + 2); }
+                  if (fullText.includes('hoy')) { citaDate = getNowColombia(userTz); }
+                  else if (fullText.includes('mañana') || fullText.includes('manana')) { citaDate = getNowColombia(userTz); citaDate.setDate(citaDate.getDate() + 1); }
+                  else if (fullText.includes('pasado')) { citaDate = getNowColombia(userTz); citaDate.setDate(citaDate.getDate() + 2); }
                   else {
                     const dayNames = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
                     for (let d = 0; d < dayNames.length; d++) {
                       if (fullText.includes(dayNames[d])) {
-                        citaDate = getNowColombia();
+                        citaDate = getNowColombia(userTz);
                         const diff = d - citaDate.getDay();
                         citaDate.setDate(citaDate.getDate() + (diff <= 0 ? diff + 7 : diff));
                         break;
@@ -2508,7 +2515,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                       date: citaDate,
                       time: citaTime,
                       status: 'pending',
-                      notes: `📅 ${tipoCita.toUpperCase()} — Auto-detectada\n━━━━━━━━━━━━━━━\n👤 ${nombre}\n📱 ${phoneClean}\n🗓️ ${citaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}\n🕐 ${citaTime}`,
+                      notes: `📅 ${tipoCita.toUpperCase()} — Auto-detectada\n━━━━━━━━━━━━━━━\n👤 ${nombre}\n📱 ${phoneClean}\n🗓️ ${citaDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}\n🕐 ${citaTime}`,
                       whatsappLineId: whatsappLineId || null
                     }
                   });
@@ -2520,7 +2527,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     data: { contextData: extractedData }
                   });
                   
-                  log(`📅 FALLBACK: Cita auto-detectada: ${tipoCita} | ${nombre} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
+                  log(`📅 FALLBACK: Cita auto-detectada: ${tipoCita} | ${nombre} | ${citaDate.toLocaleDateString('es')} ${citaTime}`);
                   
                   // Auto CRM
                   const existingCrm = await prisma.client.findFirst({ where: { userId: ownerId, phone: { endsWith: phoneClean.slice(-10) } } });
@@ -2684,7 +2691,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                       await prisma.appointment.create({ data: {
                         userId: ownerId, type: 'order',
                         clientName: clienteNombre, clientPhone: targetPhone || '',
-                        date: parseSmartDate(fecha), time: '14:00', status: 'pending',
+                        date: parseSmartDate(fecha), time: memoryData?.hora_entrega || memoryData?.hora_cita || '12:00', status: 'pending',
                         notes: `🛒 PEDIDO creado por Copiloto IA\n━━━━━━━━━━━━━━━\n👤 ${clienteNombre}\n📱 ${targetPhone || 'Sin tel'}\n🛍️ ${producto}\n📦 Cantidad: ${memoryData.cantidad || '1'}\n💵 Total: $${memoryData.total || '0'}\n💳 Pago: ${memoryData.metodo_pago || 'Por definir'}\n📍 ${memoryData.direccion || ''} ${memoryData.ciudad || ''}\n📝 ${memoryData.notas || ''}\n━━━━━━━━━━━━━━━`,
                         total, address: memoryData.direccion || '', whatsappLineId: whatsappLineId || null
                       }});
@@ -2737,7 +2744,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                         if (memoryData.nombre || targetName) updateFields.clientName = memoryData.nombre || targetName;
                         if (targetPhone) updateFields.clientPhone = targetPhone;
                         if (memoryData.total) updateFields.total = parseFloat(memoryData.total.replace(/[^0-9.]/g,'')) || existing.total;
-                        updateFields.notes = (existing.notes || '') + `\n\n🔄 REAGENDADO por Copiloto IA — ${new Date().toLocaleString('es-CO')}\n📅 Nueva fecha: ${newFecha || 'sin cambio'} ${newHora || ''}`;
+                        updateFields.notes = (existing.notes || '') + `\n\n🔄 REAGENDADO por Copiloto IA — ${new Date().toLocaleString()}\n📅 Nueva fecha: ${newFecha || 'sin cambio'} ${newHora || ''}`;
                         await prisma.appointment.update({ where: { id: existing.id }, data: updateFields });
                         sendPushToUser(ownerId, { title: '🔄 Reagendado por Copiloto', body: `${existing.clientName} — ${newFecha || ''} ${newHora || ''}`.substring(0,120), url: '/agenda', tag: `copilot-update-${Date.now()}` }).catch(()=>{});
                         log(`🔄 COPILOTO: ${existing.type} ${existing.id} actualizado`);
@@ -2763,7 +2770,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                       if (existing) {
                         await prisma.appointment.update({
                           where: { id: existing.id },
-                          data: { status: 'cancelled', notes: (existing.notes || '') + `\n\n❌ CANCELADO por Copiloto IA — ${new Date().toLocaleString('es-CO')}` }
+                          data: { status: 'cancelled', notes: (existing.notes || '') + `\n\n❌ CANCELADO por Copiloto IA — ${new Date().toLocaleString()}` }
                         });
                         sendPushToUser(ownerId, { title: '❌ Cancelado por Copiloto', body: `${existing.clientName || 'Cliente'} — ${existing.type}`.substring(0,120), url: '/agenda', tag: `copilot-cancel-${Date.now()}` }).catch(()=>{});
                         log(`❌ COPILOTO: ${existing.type} ${existing.id} cancelado (${existing.clientName})`);
@@ -2842,8 +2849,12 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               const hasName = !!(merged.nombre);
               const hasPhone = !!(merged.telefono || merged.celular);
               const hasAddress = !!(merged.direccion || merged.ciudad || merged.barrio);
-              const hasProduct = !!(merged.producto_servicio || merged.tipo || merged.color || merged.talla);
-              const dataComplete = hasName && hasAddress && hasProduct;
+              // ✅ GENÉRICO: hasProduct no depende de campos de ropa específicos
+              const hasProduct = !!(merged.producto_servicio || merged.detalles_producto || merged.notas);
+              // ✅ FIX: dirección es OPCIONAL para negocios presenciales (tiendas, CDAs, restaurantes)
+              // Solo bloquear si la IA explícitamente pide delivery sin dirección
+              const needsAddress = !!(merged.fecha_entrega) && !hasAddress; // Solo si hay fecha_entrega sin dirección
+              const dataComplete = hasName && hasProduct && !needsAddress;
               
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
                 if (!dataComplete) {
@@ -2855,30 +2866,25 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   const deliveryDate = parseSmartDate(merged.fecha_entrega || '');
                   
                   // 🧩 Construir descripción del producto (compatible con campos nuevos Y viejos)
-                  let productoDesc = merged.producto_servicio || '';
-                  if (!productoDesc) {
-                    // Backward compatibility: construir desde campos legacy si existen
-                    const legacyParts = [merged.tipo, merged.color, merged.talla, merged.calidad].filter(Boolean);
-                    if (legacyParts.length > 0) productoDesc = legacyParts.join(' - ');
-                  }
-                  const detallesDesc = merged.detalles_producto || '';
+                  // ✅ GENÉRICO: producto desde campo universal, detalles desde detalles_producto o notas
+                  let productoDesc = merged.producto_servicio || merged.detalles_producto || '';
+                  const detallesDesc = merged.detalles_producto && merged.producto_servicio ? merged.detalles_producto : '';
 
-                  const orderData = {
+                  const orderData: any = {
                     userId: ownerId,
                     type: 'order',
                     clientName: merged.nombre || clientName || 'Cliente WhatsApp',
-                    clientPhone: clientPhone.replace('@c.us', ''),
+                    clientPhone: clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', ''),
                     date: deliveryDate,
-                    time: '14:00',
+                    time: merged.hora_entrega || merged.hora_cita || '12:00',
                     duration: 300,
                     status: 'pending',
                     notes: `📦 PEDIDO WHATSAPP\n` +
                            `━━━━━━━━━━━━━━━\n` +
-                           `🛍️ Producto/Servicio: ${productoDesc || 'N/A'}\n` +
+                           `🛍️ Producto: ${productoDesc || 'N/A'}\n` +
                            (detallesDesc ? `📋 Detalles: ${detallesDesc}\n` : '') +
                            `📦 Cantidad: ${merged.cantidad || '1'}\n` +
                            (merged.precio ? `💰 Precio: $${merged.precio}\n` : '') +
-                           ((merged.precio_unitario && !merged.precio) ? `💰 Precio: $${merged.precio_unitario}\n` : '') +
                            (merged.descuento ? `🏷️ Descuento: ${merged.descuento}\n` : '') +
                            `💵 Total: $${merged.total || '0'}\n` +
                            `💳 Pago: ${merged.metodo_pago || 'Por definir'}\n` +
@@ -2886,25 +2892,60 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                            (merged.direccion ? `📍 Dirección: ${merged.direccion}\n` : '') +
                            (merged.barrio ? `🏘️ Barrio: ${merged.barrio}\n` : '') +
                            (merged.ciudad ? `🏙️ Ciudad: ${merged.ciudad}\n` : '') +
-                           ((merged.telefono || merged.celular) ? `📞 Teléfono: ${merged.telefono || merged.celular}\n` : '') +
+                           ((merged.telefono || merged.celular) ? `📞 Tel: ${merged.telefono || merged.celular}\n` : '') +
                            (merged.notas ? `📝 Notas: ${merged.notas}\n` : '') +
                            `━━━━━━━━━━━━━━━`,
                     total: parseFloat((merged.total || merged.envio || '0').toString().replace(/[^0-9.]/g, '')) || 0,
                     address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',
                     whatsappLineId: whatsappLineId || null
                   };
+
+                  // 🔗 AUTO-ASIGNAR RECURSO al pedido (igual que citas y reservas)
+                  try {
+                    const activeResources = await prisma.resource.findMany({
+                      where: { userId: ownerId, isActive: true },
+                      orderBy: { order: 'asc' }
+                    });
+                    if (activeResources.length > 0) {
+                      const dateStr = deliveryDate.toISOString().split('T')[0];
+                      const dayStart = new Date(dateStr + 'T00:00:00');
+                      const dayEnd = new Date(dateStr + 'T23:59:59');
+                      const conflicting = await prisma.appointment.findMany({
+                        where: { userId: ownerId, date: { gte: dayStart, lte: dayEnd }, status: { notIn: ['cancelled'] } },
+                        select: { time: true, duration: true, resourceId: true }
+                      });
+                      const occupiedCounts = new Map<string, number>();
+                      for (const a of conflicting) {
+                        if (a.resourceId) occupiedCounts.set(a.resourceId, (occupiedCounts.get(a.resourceId) || 0) + 1);
+                      }
+                      const freeResource = activeResources.find(r => {
+                        const used = occupiedCounts.get(r.id) || 0;
+                        return used < (r.capacity || 1);
+                      });
+                      if (freeResource) {
+                        orderData.resourceId = freeResource.id;
+                        orderData.resourceName = freeResource.name;
+                        log(`🔗 Recurso asignado a pedido: ${freeResource.name}`);
+                      } else {
+                        log(`⚠️ Sin recurso libre para pedido ${deliveryDate.toISOString().split('T')[0]}`);
+                      }
+                    }
+                  } catch (resErr: any) {
+                    log(`⚠️ Error asignando recurso a pedido: ${resErr.message}`);
+                  }
+
                   await prisma.appointment.create({ data: orderData });
                   // Marcar pedido como creado
                   merged.pedido = 'creado';
                   // 🔔 Push — Nuevo pedido
                   sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || clientName || 'Cliente'} — ${merged.producto_servicio || 'Pedido'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
                   // 🤖 Notificar Asistente Personal
-                  notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                  notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h(merged.hora_entrega || merged.hora_cita || '12:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   await prisma.conversation.update({
                     where: { id: conversationId },
                     data: { contextData: merged }
                   });
-                  log(`🛒 Pedido agendado para ${deliveryDate.toLocaleDateString('es-CO')} - ${merged.nombre || clientName}`);
+                  log(`🛒 Pedido agendado para ${deliveryDate.toLocaleDateString('es')} - ${merged.nombre || clientName}`);
                   
                   // 👥 AUTO-CREAR CLIENTE EN CRM (pedido)
                   try {
@@ -2983,27 +3024,37 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     
                     let productoDesc = merged.producto_servicio || '';
                     if (!productoDesc) {
-                      const legacyParts = [merged.tipo, merged.color, merged.talla, merged.calidad].filter(Boolean);
-                      if (legacyParts.length > 0) productoDesc = legacyParts.join(' - ');
+                      const legacyParts = [].filter(Boolean); // legacy compat (ya no se usa para negocios nuevos)
                     }
                     
-                    const orderData = {
-                      userId: ownerId, type: 'order',
-                      clientName: merged.nombre || clientName || 'Cliente WhatsApp',
-                      clientPhone: clientPhone.replace('@c.us', ''),
-                      date: deliveryDate, time: '14:00', duration: 300, status: 'pending',
-                      notes: `📦 PEDIDO WHATSAPP (Auto-detectado)\n━━━━━━━━━━━━━━━\n🛍️ Producto: ${productoDesc || 'N/A'}\n💵 Total: $${merged.total || '0'}\n💳 Pago: ${merged.metodo_pago || 'Por definir'}\n━━━━━━━━━━━━━━━\n📍 ${[merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ')}\n📞 ${merged.telefono || merged.celular || clientPhone.replace('@c.us', '')}\n━━━━━━━━━━━━━━━`,
-                      total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
-                      address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',
-                      whatsappLineId: whatsappLineId || null
-                    };
-                    await prisma.appointment.create({ data: orderData });
+                     const orderData: any = {
+                       userId: ownerId, type: 'order',
+                       clientName: merged.nombre || clientName || 'Cliente WhatsApp',
+                       clientPhone: clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', ''),
+                       date: deliveryDate, time: merged.hora_entrega || merged.hora_cita || '12:00', duration: 300, status: 'pending',
+                       notes: `📦 PEDIDO WHATSAPP\n━━━━━━━━━━━━━━━\n🛍️ Producto: ${productoDesc || 'N/A'}\n💵 Total: $${merged.total || '0'}\n💳 Pago: ${merged.metodo_pago || 'Por definir'}\n━━━━━━━━━━━━━━━\n📍 ${[merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ')}\n📞 ${merged.telefono || merged.celular || clientPhone.replace('@c.us', '')}\n━━━━━━━━━━━━━━━`,
+                       total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+                       address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',
+                       whatsappLineId: whatsappLineId || null
+                     };
+                     // 🔗 AUTO-ASIGNAR RECURSO
+                     try {
+                       const activeRes = await prisma.resource.findMany({ where: { userId: ownerId, isActive: true }, orderBy: { order: 'asc' } });
+                       if (activeRes.length > 0) {
+                         const ds = deliveryDate.toISOString().split('T')[0];
+                         const conflicts = await prisma.appointment.findMany({ where: { userId: ownerId, date: { gte: new Date(ds + 'T00:00:00'), lte: new Date(ds + 'T23:59:59') }, status: { notIn: ['cancelled'] } }, select: { resourceId: true } });
+                         const usedIds = new Set(conflicts.map((a: any) => a.resourceId).filter(Boolean));
+                         const freeRes = activeRes.find((r: any) => !usedIds.has(r.id) || (r.capacity || 1) > (conflicts.filter((a: any) => a.resourceId === r.id).length));
+                         if (freeRes) { orderData.resourceId = freeRes.id; orderData.resourceName = freeRes.name; log(`🔗 Recurso (auto) pedido: ${freeRes.name}`); }
+                       }
+                     } catch (e: any) { log(`⚠️ Recurso auto-pedido: ${e.message}`); }
+                     await prisma.appointment.create({ data: orderData });
                     merged.pedido = 'creado';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
                     log(`🛒🔔 Pedido AUTO-DETECTADO (datos completos + confirmación IA): ${merged.nombre}`);
                     // 🔔 Push — Pedido auto-detectado
                     sendPushToUser(ownerId, { title: '🛒 ¡Nuevo Pedido!', body: `${merged.nombre || 'Cliente'} — ${merged.producto_servicio || 'Pedido auto'}`.substring(0, 120), url: '/agenda', tag: `order-${Date.now()}` }).catch(() => {});
-                    notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h('14:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
+                    notifyPersonalAssistant(ownerId, 'pedido', { name: merged.nombre || clientName || 'Cliente', date: deliveryDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }), time: to12h(merged.hora_entrega || merged.hora_cita || '12:00'), product: merged.producto_servicio || '', total: merged.total || '', phone: clientPhone.replace('@c.us', '') }).catch(() => {});
                   } catch (autoOrderErr: any) {
                     console.error('⚠️ Error auto-pedido:', autoOrderErr.message);
                   }
@@ -3019,7 +3070,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   const citaTime = parseSmartTime(merged.hora_cita || merged.hora_reserva || '', '10:00');
 
                   // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
-                  const nowCol = getNowColombia();
+                  const nowCol = getNowColombia(userTz);
                   const todayStr = getTodayStringColombia();
                   const citaDateCheck = citaDate.toISOString().split('T')[0];
                   if (citaDateCheck === todayStr) {
@@ -3078,7 +3129,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                            `━━━━━━━━━━━━━━━\n` +
                            `👤 Cliente: ${nombreCliente}\n` +
                            `📱 Teléfono: ${phoneClean}\n` +
-                           `🗓️ Fecha: ${citaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}\n` +
+                           `🗓️ Fecha: ${citaDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}\n` +
                            `🕐 Hora: ${citaTime}\n` +
                            `📋 Tipo: ${tipoCita}\n` +
                            `━━━━━━━━━━━━━━━\n` +
@@ -3152,7 +3203,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     data: { contextData: merged }
                   });
                   
-                  log(`📅 CITA CREADA: ${tipoCita} | ${nombreCliente} | ${citaDate.toLocaleDateString('es-CO')} ${citaTime}`);
+                  log(`📅 CITA CREADA: ${tipoCita} | ${nombreCliente} | ${citaDate.toLocaleDateString('es')} ${citaTime}`);
 
                   // 👥 AUTO-CREAR CLIENTE EN CRM
                   try {
@@ -3198,7 +3249,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   const reservaTime = parseSmartTime(merged.hora_reserva || merged.hora_cita || '', '12:00');
 
                   // 🕐 AUTO-AVANCE: Si la fecha es hoy pero la hora ya pasó → mover a mañana
-                  const nowR = getNowColombia();
+                  const nowR = getNowColombia(userTz);
                   const todayStrR = getTodayStringColombia();
                   const reservaDateCheck = reservaDate.toISOString().split('T')[0];
                   if (reservaDateCheck === todayStrR) {
@@ -3258,7 +3309,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                            `📱 Teléfono: ${phoneCleanR}\n` +
                            `📋 Tipo: ${tipoReserva}\n` +
                            `👥 Personas: ${numPersonas}\n` +
-                           `🗓️ Fecha: ${reservaDate.toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' })}\n` +
+                           `🗓️ Fecha: ${reservaDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })}\n` +
                            `🕐 Hora: ${reservaTime}\n` +
                            `⏱️ Duración: ${duracionReserva} min\n` +
                            `━━━━━━━━━━━━━━━\n` +
@@ -3335,7 +3386,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     data: { contextData: merged }
                   });
                   
-                  log(`🏨 RESERVA CREADA: ${tipoReserva} | ${nombreClienR} | ${numPersonas} personas | ${reservaDate.toLocaleDateString('es-CO')} ${reservaTime}`);
+                  log(`🏨 RESERVA CREADA: ${tipoReserva} | ${nombreClienR} | ${numPersonas} personas | ${reservaDate.toLocaleDateString('es')} ${reservaTime}`);
 
                   // 👥 AUTO-CREAR CLIENTE EN CRM
                   try {
@@ -3395,7 +3446,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                              (merged.direccion ? `📍 Dirección: ${merged.direccion}\n` : '') +
                              (merged.barrio ? `🏘️ Barrio: ${merged.barrio}\n` : '') +
                              (merged.ciudad ? `🏙️ Ciudad: ${merged.ciudad}\n` : '') +
-                             `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
+                             `⏱️ Actualizado: ${new Date().toLocaleString()}\n` +
                              `━━━━━━━━━━━━━━━`,
                       total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || existingOrder.total,
                       status: 'pending'
@@ -3460,7 +3511,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                       const domilicioInfo = `\n\n🏍️ DOMICILIO CONFIRMADO\n━━━━━━━━━━━━━━━\n` +
                         `🏠 Dirección: ${domicilioDir || 'Ver notas'}\n` +
                         `📝 Info adicional: ${merged.notas || ''}\n` +
-                        `⏱️ Registrado: ${new Date().toLocaleString('es-CO')}\n` +
+                        `⏱️ Registrado: ${new Date().toLocaleString()}\n` +
                         `━━━━━━━━━━━━━━━`;
                       // Solo agregar si no está ya registrado
                       updateData.notes = prevNotes.includes('DOMICILIO CONFIRMADO') 
@@ -3471,10 +3522,10 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                         `━━━━━━━━━━━━━━━\n` +
                         `👤 Cliente: ${merged.nombre || existingRecord.clientName}\n` +
                         `📱 Teléfono: ${phoneCleanU}\n` +
-                        `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
+                        `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
                         `🕐 Hora: ${updateData.time || existingRecord.time}\n` +
                         `📋 Tipo: ${tipo}\n` +
-                        `⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n` +
+                        `⏱️ Actualizado: ${new Date().toLocaleString()}\n` +
                         `━━━━━━━━━━━━━━━`;
                     }
 
@@ -3512,7 +3563,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     const updateOrderData: any = {
                       clientName: merged.nombre || existingOrder.clientName,
                       address: merged.direccion || merged.ciudad || existingOrder.address,
-                      notes: `🛒 PEDIDO ACTUALIZADO\n━━━━━━━━━━━━━━━\n👤 ${merged.nombre || existingOrder.clientName}\n📱 ${phoneCleanU}\n📦 ${productoDesc}\n📏 Detalles: ${merged.detalles_producto || ''}\n🔢 Cantidad: ${merged.cantidad || ''}\n💰 Total: $${merged.total || ''}\n📍 ${merged.direccion || ''} ${merged.ciudad || ''}\n💳 Pago: ${merged.metodo_pago || ''}\n⏱️ Actualizado: ${new Date().toLocaleString('es-CO')}\n━━━━━━━━━━━━━━━`
+                      notes: `🛒 PEDIDO ACTUALIZADO\n━━━━━━━━━━━━━━━\n👤 ${merged.nombre || existingOrder.clientName}\n📱 ${phoneCleanU}\n📦 ${productoDesc}\n📏 Detalles: ${merged.detalles_producto || ''}\n🔢 Cantidad: ${merged.cantidad || ''}\n💰 Total: $${merged.total || ''}\n📍 ${merged.direccion || ''} ${merged.ciudad || ''}\n💳 Pago: ${merged.metodo_pago || ''}\n⏱️ Actualizado: ${new Date().toLocaleString()}\n━━━━━━━━━━━━━━━`
                     };
                     if (merged.fecha_entrega) updateOrderData.date = parseSmartDate(merged.fecha_entrega);
                     await prisma.appointment.update({ where: { id: existingOrder.id }, data: updateOrderData });
@@ -3540,7 +3591,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   if (existingRecord) {
                     await prisma.appointment.update({
                       where: { id: existingRecord.id },
-                      data: { status: 'cancelled', notes: (existingRecord.notes || '') + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                      data: { status: 'cancelled', notes: (existingRecord.notes || '') + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString() }
                     });
                     // Clear ALL relevant memory fields
                     merged.cita = '';
@@ -3586,7 +3637,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   if (existingOrder) {
                     await prisma.appointment.update({
                       where: { id: existingOrder.id },
-                      data: { status: 'cancelled', notes: (existingOrder.notes || '') + '\n\n❌ CANCELADO por el cliente vía WhatsApp — ' + new Date().toLocaleString('es-CO') }
+                      data: { status: 'cancelled', notes: (existingOrder.notes || '') + '\n\n❌ CANCELADO por el cliente vía WhatsApp — ' + new Date().toLocaleString() }
                     });
                     merged.pedido = '';
                     merged.fecha_entrega = '';

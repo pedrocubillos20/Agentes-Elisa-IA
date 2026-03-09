@@ -5868,12 +5868,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 
     // 💬 QUOTED MESSAGE — cuando el usuario responde a un mensaje específico
-    // DEBUG TEMPORAL: loguear el payload completo para ver qué llega
-    log('🔍 QUOTED DEBUG keys: ' + Object.keys(payload || {}).join(', '));
-    log('🔍 QUOTED _data keys: ' + Object.keys(payload?._data || {}).join(', '));
-    log('🔍 QUOTED contextInfo: ' + JSON.stringify(payload?.contextInfo || null)?.substring(0, 300));
-    log('🔍 QUOTED _data.quotedMsg: ' + JSON.stringify(payload?._data?.quotedMsg || null)?.substring(0, 300));
-    log('🔍 QUOTED payload.quotedMessage: ' + JSON.stringify(payload?.quotedMessage || null)?.substring(0, 300));
     // WAHA WEBJS: payload._data.quotedMsg | WAHA NOWEB: payload.contextInfo.quotedMessage
     const quotedMsg = payload?._data?.quotedMsg || payload?.contextInfo?.quotedMessage || payload?.quotedMessage || null;
     let quotedContext = '';
@@ -6913,7 +6907,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const cloudQuotedMsgId = msg.context?.id || null;
       const cloudQuotedFrom = msg.context?.from || null;
       let cloudQuotedContext = '';
-      console.log('💬 quoted check — id: ' + (cloudQuotedMsgId ? cloudQuotedMsgId.substring(0,20) : 'null') + ' | from: ' + (cloudQuotedFrom || 'null'));
+
 
       // Resolver texto del quoted usando el earlyBuffer (ya tiene convId si es ráfaga)
       // o buscando la conv directamente
@@ -6935,13 +6929,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             finalConvId = qConv?.id || null;
           }
 
-          console.log('💬 quoted convId: ' + (finalConvId || 'null'));
+
 
           if (finalConvId) {
             const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
             const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
             const quotedWasBot = !!linePhone && quotedFromPhone === linePhone;
-            console.log('💬 quotedWasBot: ' + quotedWasBot + ' | linePhone: ' + linePhone + ' | quotedFrom: ' + quotedFromPhone);
+
             const quotedMsgs = await prisma.message.findMany({
               where: { conversationId: finalConvId, fromMe: quotedWasBot },
               orderBy: { timestamp: 'desc' },
@@ -6956,13 +6950,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             );
             if (candidate) {
               cloudQuotedContext = candidate.content.substring(0, 120);
-              console.log('💬 Cloud quoted resuelto (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
+              log('💬 Quoted (' + (quotedWasBot ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
             } else {
-              console.log('💬 No candidate entre ' + quotedMsgs.length + ' msgs');
+
             }
           }
         } catch (qErr: any) {
-          console.log('⚠️ Error quoted: ' + qErr.message);
+          log('⚠️ Error quoted: ' + qErr.message);
         }
       }
 

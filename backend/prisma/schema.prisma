@@ -94,6 +94,15 @@ model Assistant {
   businessInfo    String?   @db.Text
   instructions    String?   @db.Text
   
+  // 🧩 MÓDULOS DE CONFIGURACIÓN — Sistema Modular v2
+  modIdentidad    String?   @db.Text   // Módulo 1: Identidad del agente
+  modReglas       String?   @db.Text   // Módulo 2: Reglas de negocio
+  modProductos    String?   @db.Text   // Módulo 3: Productos/servicios (JSON o MD)
+  modAgenda       String?   @db.Text   // Módulo 4: Horarios y agenda
+  modFlujo        String?   @db.Text   // Módulo 5: Flujo de conversación
+  modAcciones     String?   @db.Text   // Módulo 6: Acciones y triggers
+  modAdmin        String?   @db.Text   // Módulo 7: Config admin/analítica
+
   knowledgeItems  Json      @default("[]")
   mediaItems      Json      @default("[]")
   

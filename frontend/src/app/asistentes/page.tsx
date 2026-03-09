@@ -5,7 +5,8 @@ import {
   Bot, Save, Play, Pause, Upload, Image, Video, Music, FileText, 
   Sparkles, Brain, MessageSquare, Settings, Trash2, Plus, X, 
   ChevronDown, ChevronUp, Volume2, Key, RefreshCw, CheckCircle,
-  AlertCircle, Eye, Code, FileJson, Mic, Zap, TrendingUp, Loader2, Check, XCircle, Wand2
+  AlertCircle, Eye, Code, FileJson, Mic, Zap, TrendingUp, Loader2, Check, XCircle, Wand2,
+  Package, Calendar, GitBranch, Shield, ChevronRight
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -13,14 +14,24 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 export default function AsistentesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'context' | 'media' | 'learning' | 'voice'>('context');
+  const [activeTab, setActiveTab] = useState<'modules' | 'media' | 'learning' | 'voice'>('modules');
+  const [activeModule, setActiveModule] = useState<string>('identidad');
   const [viewMode, setViewMode] = useState<'markdown' | 'json'>('markdown');
   const [message, setMessage] = useState({ type: '', text: '' });
 
-  // Context
+  // Context (legacy)
   const [context, setContext] = useState('');
   const [assistantName, setAssistantName] = useState('Asistente Principal');
   const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
+
+  // 🧩 MÓDULOS v2
+  const [modIdentidad, setModIdentidad] = useState('');
+  const [modReglas, setModReglas] = useState('');
+  const [modProductos, setModProductos] = useState('');
+  const [modAgenda, setModAgenda] = useState('');
+  const [modFlujo, setModFlujo] = useState('');
+  const [modAcciones, setModAcciones] = useState('');
+  const [modAdmin, setModAdmin] = useState('');
 
   // Media
   const [mediaItems, setMediaItems] = useState<any[]>([]);
@@ -103,6 +114,14 @@ export default function AsistentesPage() {
             Array.isArray(active.mediaItems) ? active.mediaItems :
             typeof active.mediaItems === 'string' ? JSON.parse(active.mediaItems || '[]') : []
           );
+          // 🧩 Cargar módulos v2
+          setModIdentidad(active.modIdentidad || '');
+          setModReglas(active.modReglas || '');
+          setModProductos(active.modProductos || '');
+          setModAgenda(active.modAgenda || '');
+          setModFlujo(active.modFlujo || '');
+          setModAcciones(active.modAcciones || '');
+          setModAdmin(active.modAdmin || '');
           setElevenLabsKey(active.elevenLabsKey || '');
           setSelectedVoice(active.selectedVoice || '');
           setVoiceEnabled(active.voiceEnabled || false);
@@ -117,6 +136,8 @@ export default function AsistentesPage() {
         } else {
           // ✅ Línea nueva sin asistente: limpiar TODO
           setContext('');
+          setModIdentidad(''); setModReglas(''); setModProductos('');
+          setModAgenda(''); setModFlujo(''); setModAcciones(''); setModAdmin('');
           setKnowledgeItems([]);
           setMediaItems([]);
           setElevenLabsKey('');
@@ -152,6 +173,8 @@ export default function AsistentesPage() {
         body: JSON.stringify({
           name: assistantName,
           context,
+          modIdentidad, modReglas, modProductos,
+          modAgenda, modFlujo, modAcciones, modAdmin,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -539,6 +562,8 @@ export default function AsistentesPage() {
         body: JSON.stringify({
           name: assistantName,
           context,
+          modIdentidad, modReglas, modProductos,
+          modAgenda, modFlujo, modAcciones, modAdmin,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -625,7 +650,7 @@ export default function AsistentesPage() {
       {/* Tabs */}
       <div className="flex gap-2 p-1.5 bg-[var(--bg-tertiary)] rounded-xl overflow-x-auto">
         {[
-          { id: 'context', label: 'Contexto', icon: Brain },
+          { id: 'modules', label: 'Base IA', icon: Brain },
           { id: 'media', label: 'Multimedia', icon: Image, badge: mediaItems.length || undefined },
           { id: 'learning', label: 'Auto-Aprendizaje', icon: TrendingUp, badge: pendingSuggestions.length || undefined },
           { id: 'voice', label: 'Voz (ElevenLabs)', icon: Volume2 },
@@ -644,48 +669,211 @@ export default function AsistentesPage() {
       </div>
 
       {/* ==================== CONTEXT TAB ==================== */}
-      {activeTab === 'context' && (
-        <div className="space-y-6">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-[var(--text-muted)]">Formato:</span>
-              <div className="flex gap-1 p-1 bg-[var(--bg-tertiary)] rounded-lg">
-                <button onClick={() => setViewMode('markdown')}
-                  className={`px-3 py-1.5 rounded text-sm font-medium transition-all flex items-center gap-1 ${viewMode === 'markdown' ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)]'}`}>
-                  <FileText className="w-3 h-3" />Markdown
-                </button>
-                <button onClick={() => setViewMode('json')}
-                  className={`px-3 py-1.5 rounded text-sm font-medium transition-all flex items-center gap-1 ${viewMode === 'json' ? 'bg-[var(--accent-primary)] text-white' : 'text-[var(--text-muted)]'}`}>
-                  <FileJson className="w-3 h-3" />JSON
-                </button>
-              </div>
-            </div>
-            <button onClick={() => setContext(markdownTemplate)} className="btn-secondary text-sm py-2">
-              <Sparkles className="w-4 h-4" />Usar Plantilla
-            </button>
-            <a href="/ai-config" className="btn-secondary text-sm py-2 flex items-center gap-1.5 bg-violet-500/10 border-violet-500/30 text-violet-400 hover:bg-violet-500/20">
-              <Wand2 className="w-4 h-4" />{hasAiConfig ? 'Configurar con IA' : '🔒 Config IA'}
-            </a>
-          </div>
-
-          <div className="card p-0 overflow-hidden">
-            <div className="p-4 border-b border-[var(--border-primary)] flex items-center justify-between bg-[var(--bg-tertiary)]">
-              <div className="flex items-center gap-3">
-                <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
+      {activeTab === 'modules' && (
+        <div className="space-y-5">
+          
+          {/* 🧩 Orquestador visual */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/8 bg-gradient-to-br from-[#0f1729] to-[#0a0f1e] p-5">
+            <div className="absolute inset-0 opacity-10" style={{backgroundImage:'radial-gradient(circle at 20% 50%, #6366f1 0%, transparent 50%), radial-gradient(circle at 80% 20%, #8b5cf6 0%, transparent 40%)'}} />
+            <div className="relative">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+                  <Brain className="w-5 h-5 text-white" />
+                </div>
                 <div>
-                  <span className="font-medium text-white">Base de Conocimiento</span>
-                  <p className="text-xs text-[var(--text-muted)]">Escribe toda la información de tu negocio aquí</p>
+                  <h2 className="text-base font-bold text-white tracking-tight">Sistema Modular IA</h2>
+                  <p className="text-xs text-indigo-300/70">Cada módulo tiene un rol específico en la inteligencia del asistente</p>
+                </div>
+                <a href="/ai-config" className="ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-500/15 text-violet-300 border border-violet-500/25 hover:bg-violet-500/25 transition-all flex items-center gap-1.5">
+                  <Wand2 className="w-3 h-3" />{hasAiConfig ? 'Generar con IA' : '🔒 Config IA'}
+                </a>
+              </div>
+              {/* Diagrama orquestador */}
+              <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
+                <div className="flex-shrink-0 flex flex-col items-center justify-center px-4 py-3 rounded-xl bg-violet-500/10 border border-violet-500/25 min-w-[90px]">
+                  <div className="text-lg mb-1">🧠</div>
+                  <div className="text-[10px] font-bold text-violet-300 text-center">ORQUESTADOR</div>
+                  <div className="text-[9px] text-violet-400/60 text-center mt-0.5">Ensambla todo</div>
+                </div>
+                <div className="flex items-center text-white/20 text-xs">→</div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    {emoji:'👤', label:'Identidad', color:'blue'},
+                    {emoji:'📋', label:'Reglas', color:'emerald'},
+                    {emoji:'🛍️', label:'Productos', color:'amber'},
+                    {emoji:'🗓️', label:'Agenda', color:'cyan'},
+                    {emoji:'🔄', label:'Flujo', color:'purple'},
+                    {emoji:'⚡', label:'Acciones', color:'orange'},
+                    {emoji:'🔧', label:'Admin', color:'rose'},
+                  ].map(m => (
+                    <div key={m.label} className={`flex items-center gap-1 px-2 py-1.5 rounded-lg bg-${m.color}-500/10 border border-${m.color}-500/20`}>
+                      <span className="text-xs">{m.emoji}</span>
+                      <span className={`text-[10px] font-medium text-${m.color}-300`}>{m.label}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <span className="text-xs text-[var(--text-muted)] bg-[var(--bg-primary)] px-3 py-1 rounded-full">{context.length} caracteres</span>
+              {/* Legacy banner si tiene context pero no módulos */}
+              {context && !modIdentidad && !modReglas && !modFlujo && (
+                <div className="mt-3 p-3 rounded-lg bg-amber-500/8 border border-amber-500/20 flex items-center gap-2">
+                  <span className="text-amber-400 text-xs">⚠️</span>
+                  <p className="text-xs text-amber-300/80">Tienes una base de conocimiento antigua (formato único). Los módulos son el nuevo sistema. <strong className="text-amber-300">Puedes migrar</strong> copiando el contenido en los módulos correspondientes.</p>
+                </div>
+              )}
             </div>
-            <textarea value={context} onChange={(e) => setContext(e.target.value)}
-              placeholder={viewMode === 'json' ? '{\n  "negocio": {...}\n}' : '# Tu Negocio\n\nEscribe aquí...'}
-              className="w-full min-h-[450px] p-6 bg-[var(--bg-primary)] text-white text-sm resize-none focus:outline-none leading-relaxed"
-              style={{ fontFamily: viewMode === 'json' ? 'JetBrains Mono, Consolas, monospace' : 'inherit' }} />
           </div>
 
+          {/* Selector de módulo */}
+          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            {[
+              {id:'identidad', emoji:'👤', label:'Identidad', desc:'Quién es el agente', color:'blue', val:modIdentidad},
+              {id:'reglas', emoji:'📋', label:'Reglas', desc:'Reglas del negocio', color:'emerald', val:modReglas},
+              {id:'productos', emoji:'🛍️', label:'Productos', desc:'Catálogo y precios', color:'amber', val:modProductos},
+              {id:'agenda', emoji:'🗓️', label:'Agenda', desc:'Horarios y citas', color:'cyan', val:modAgenda},
+              {id:'flujo', emoji:'🔄', label:'Flujo', desc:'Conversación paso a paso', color:'purple', val:modFlujo},
+              {id:'acciones', emoji:'⚡', label:'Acciones', desc:'MEMORY_JSON y triggers', color:'orange', val:modAcciones},
+              {id:'admin', emoji:'🔧', label:'Admin', desc:'Config analítica', color:'rose', val:modAdmin},
+            ].map(mod => (
+              <button key={mod.id} onClick={() => setActiveModule(mod.id)}
+                className={`flex-shrink-0 flex flex-col items-center px-3 py-2 rounded-xl border transition-all min-w-[72px] ${
+                  activeModule === mod.id 
+                    ? `bg-${mod.color}-500/15 border-${mod.color}-500/40 shadow-lg` 
+                    : 'bg-white/3 border-white/8 hover:bg-white/6'
+                }`}>
+                <span className="text-lg mb-0.5">{mod.emoji}</span>
+                <span className={`text-[10px] font-bold ${activeModule === mod.id ? `text-${mod.color}-300` : 'text-white/70'}`}>{mod.label}</span>
+                {mod.val && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1" />}
+              </button>
+            ))}
+          </div>
 
+          {/* Editor del módulo activo */}
+          {[
+            {
+              id:'identidad', emoji:'👤', label:'Identidad del Agente', color:'blue',
+              desc:'Define QUIÉN ES el asistente: nombre, personalidad, tono, restricciones de comportamiento.',
+              placeholder:'Eres **Elisa**, asesora de ventas de **THE FOUR**...
+
+- Tono: cercano, colombiano, directo
+- Nunca confirmes ser IA
+- Máximo 3-4 líneas por mensaje
+- Usa emojis con moderación',
+              val: modIdentidad, set: setModIdentidad
+            },
+            {
+              id:'reglas', emoji:'📋', label:'Reglas de Negocio', color:'emerald',
+              desc:'Políticas, horarios, zonas de cobertura, métodos de pago, condiciones especiales.',
+              placeholder:'## Horarios
+Lunes-Viernes: 8am - 6pm
+Sábados: 9am - 2pm
+
+## Métodos de pago
+Nequi, Bancolombia, Contra-entrega
+
+## Políticas
+- Envíos gratis desde $150.000
+- Devoluciones en 3 días',
+              val: modReglas, set: setModReglas
+            },
+            {
+              id:'productos', emoji:'🛍️', label:'Productos y Servicios', color:'amber',
+              desc:'Catálogo completo con precios, tallas, variantes y disponibilidad.',
+              placeholder:'## Hoodie Clásico
+- Precio: $85.000
+- Tallas: S, M, L, XL, XXL
+- Colores: Negro, Blanco, Gris
+
+## Hoodie Premium
+- Precio: $120.000
+- Personalización DTF incluida',
+              val: modProductos, set: setModProductos
+            },
+            {
+              id:'agenda', emoji:'🗓️', label:'Agenda y Horarios', color:'cyan',
+              desc:'Configuración de disponibilidad, tipos de citas, duración y restricciones.',
+              placeholder:'## Días disponibles
+Lunes a Viernes: 8:00 - 17:00
+
+## Duración de servicios
+- Consulta: 30 min
+- Servicio completo: 1 hora
+
+## Reglas
+- Reservar con mínimo 24h de anticipación',
+              val: modAgenda, set: setModAgenda
+            },
+            {
+              id:'flujo', emoji:'🔄', label:'Flujo de Conversación', color:'purple',
+              desc:'El camino paso a paso que debe seguir el agente desde el primer mensaje hasta el cierre.',
+              placeholder:'### PASO 1 → Saludo
+¡Hola! 👋 Soy Elisa de THE FOUR
+¿Cómo te llamas?
+
+### PASO 2 → Identificar necesidad
+Mostrar menú: 1️⃣ Ver catálogo 2️⃣ Hacer pedido
+
+### PASO 3 → Recoger datos
+Nombre, talla, color, dirección, pago
+
+### PASO 4 → Confirmar pedido',
+              val: modFlujo, set: setModFlujo
+            },
+            {
+              id:'acciones', emoji:'⚡', label:'Acciones y Memoria', color:'orange',
+              desc:'MEMORY_JSON, tabla de acciones (crear_pedido, crear_cita, etc.) y etapas del pipeline.',
+              placeholder:'## Etapas del pipeline
+1. Nuevo contacto
+2. Consultando producto
+3. Confirmando pedido
+4. Pedido creado
+5. Entregado
+
+## Acciones disponibles
+- crear_pedido: cuando cliente confirma con datos completos
+- cancelar_pedido: cuando cliente quiere cancelar',
+              val: modAcciones, set: setModAcciones
+            },
+            {
+              id:'admin', emoji:'🔧', label:'Configuración Admin', color:'rose',
+              desc:'Instrucciones para el análisis de negocio, alertas, transferencias y configuración avanzada.',
+              placeholder:'## Transferencias
+- Transferir a asesor cuando el cliente lo pide
+- Transferir si hay reclamo por devolución
+
+## Alertas
+- Avisar si el cliente menciona devolución
+
+## Notas admin
+- Horario especial navideño: dic 24-31',
+              val: modAdmin, set: setModAdmin
+            },
+          ].filter(m => m.id === activeModule).map(mod => (
+            <div key={mod.id} className="card p-0 overflow-hidden">
+              <div className={`p-4 border-b border-white/5 bg-${mod.color}-500/5 flex items-start justify-between gap-3`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl bg-${mod.color}-500/15 border border-${mod.color}-500/25 flex items-center justify-center text-lg flex-shrink-0`}>{mod.emoji}</div>
+                  <div>
+                    <h3 className={`font-semibold text-${mod.color}-200 text-sm`}>Módulo {['identidad','reglas','productos','agenda','flujo','acciones','admin'].indexOf(mod.id)+1} — {mod.label}</h3>
+                    <p className="text-xs text-white/40 mt-0.5">{mod.desc}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-white/30 bg-white/5 px-2 py-1 rounded-full">{mod.val.length} chars</span>
+                  <button onClick={() => mod.set(mod.placeholder)} className="px-2 py-1 rounded-lg text-[10px] font-medium bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70 transition-all flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />Plantilla
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={mod.val}
+                onChange={e => mod.set(e.target.value)}
+                placeholder={mod.placeholder}
+                className="w-full min-h-[380px] p-5 bg-[var(--bg-primary)] text-white/90 text-sm resize-none focus:outline-none leading-relaxed font-mono"
+              />
+            </div>
+          ))}
+
+          {/* 📍 Cobertura de Domicilio */}
           {/* 📍 Cobertura de Domicilio */}
           <div className="card">
             <div className="flex items-center justify-between mb-4">

@@ -6909,13 +6909,16 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       let savedMediaType: string | null = null;
       let savedMediaUrl: string | null = null;
 
-      // 💬 QUOTED MESSAGE — debug para ver qué manda Meta
-      console.log('💬 CLOUD MSG KEYS: ' + Object.keys(msg || {}).join(', '));
-      console.log('💬 CLOUD context: ' + JSON.stringify(msg?.context || null));
-      console.log('💬 CLOUD referral: ' + JSON.stringify(msg?.referral || null));
-      console.log('💬 CLOUD text: ' + JSON.stringify(msg?.text || null));
-      const cloudQuotedMsgId = msg.context?.id || msg.context?.message_id || null;
+      // 💬 QUOTED MESSAGE — Meta Cloud API envía context.from + context.id (sin texto)
+      // context.from = número que envió el mensaje original
+      // Si context.from == número del bot → respondió a un mensaje de Elisa
+      // Si context.from == número del cliente → respondió a su propio mensaje
+      const cloudQuotedMsgId = msg.context?.id || null;
+      const cloudQuotedFrom = msg.context?.from || null;
       let cloudQuotedContext = '';
+      if (cloudQuotedMsgId && cloudQuotedFrom) {
+        log('💬 Cloud quoted detectado — from: ' + cloudQuotedFrom + ' | id: ' + cloudQuotedMsgId.substring(0, 40));
+      }
 
       if (msgType === 'text') {
         messageBody = msg.text?.body || '';
@@ -7142,24 +7145,39 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       const chatIdForSend = `${recipientId}@c.us`;
       const now = Date.now();
 
-      // 💬 QUOTED MESSAGE — resolver el texto del mensaje citado desde la DB
-      if (cloudQuotedMsgId && !cloudQuotedContext) {
+      // 💬 QUOTED MESSAGE — buscar el texto del mensaje citado en DB
+      // Meta no incluye el texto, solo el ID y el remitente original
+      if (cloudQuotedMsgId && cloudQuotedFrom) {
         try {
-          // Meta Cloud API no incluye el contenido del mensaje citado — buscamos en DB
-          // por los mensajes más recientes de esta conversación
+          // Determinar si respondió a un mensaje del bot o del propio cliente
+          const linePhone = (line.phone || '').replace(/\D/g, '').slice(-10);
+          const quotedFromPhone = cloudQuotedFrom.replace(/\D/g, '').slice(-10);
+          const quotedWasBotMsg = linePhone && quotedFromPhone && linePhone === quotedFromPhone;
+
           const quotedMsgs = await prisma.message.findMany({
-            where: { conversationId: conv.id },
+            where: {
+              conversationId: conv.id,
+              fromMe: quotedWasBotMsg ? true : false  // buscar del lado correcto
+            },
             orderBy: { timestamp: 'desc' },
-            take: 15,
-            select: { content: true, fromMe: true, mediaType: true }
+            take: 10,
+            select: { content: true, mediaType: true }
           });
-          // El mensaje citado suele ser el último del bot (fromMe) o una media enviada
-          const candidate = quotedMsgs.find(m => m.content && m.content.length > 5 && !m.content.startsWith('[SISTEMA'));
+
+          const candidate = quotedMsgs.find(m =>
+            m.content && m.content.length > 5 &&
+            !m.content.startsWith('[SISTEMA') &&
+            !m.content.startsWith('📎') &&
+            !m.content.startsWith('🎤')
+          );
+
           if (candidate) {
-            cloudQuotedContext = candidate.content.substring(0, 100);
-            log('💬 Cloud quoted resuelto: "' + cloudQuotedContext.substring(0, 60) + '"');
+            cloudQuotedContext = candidate.content.substring(0, 120);
+            log('💬 Cloud quoted resuelto (' + (quotedWasBotMsg ? 'bot' : 'cliente') + '): "' + cloudQuotedContext.substring(0, 60) + '"');
           }
-        } catch {}
+        } catch (qErr: any) {
+          log('⚠️ Error resolviendo quoted: ' + qErr.message);
+        }
       }
 
       if (existingBuffer) {

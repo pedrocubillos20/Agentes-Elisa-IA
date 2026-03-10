@@ -1777,11 +1777,17 @@ REGLAS DE TRANSFERENCIA:
           availabilityLines.push(`⏱️ Duración por turno: ${openDays[0].slotDuration} min`);
         }
 
-        // Check availability for today + next 3 days
-        for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
+        // Check availability for today + next 7 days (full week)
+        // ⚠️ CRÍTICO: Antes era solo 3 días — si el cliente pedía sábado (día 4+)
+        // Sara no lo veía y confundía con el último día disponible (jueves/viernes)
+        for (let dayOffset = 0; dayOffset <= 6; dayOffset++) {
           const checkDate = new Date(today);
           checkDate.setDate(checkDate.getDate() + dayOffset);
-          const dateStr = checkDate.toISOString().split('T')[0];
+          // Extraer la fecha en Colombia (el Date viene de getNowColombia que ya es Colombia-as-UTC)
+          const y = checkDate.getFullYear();
+          const mo = String(checkDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(checkDate.getDate()).padStart(2, '0');
+          const dateStr = `${y}-${mo}-${dd}`;
           const dayOfWeek = checkDate.getDay();
           const daySchedule = schedules.find(s => s.dayOfWeek === dayOfWeek);
 
@@ -1806,11 +1812,17 @@ REGLAS DE TRANSFERENCIA:
             availabilityLines.push(`⚠️ ${dayNames[dayOfWeek]} ${dateStr} es festivo (${holiday.name}) pero el negocio ABRE:`);
           }
 
-          // Get appointments for this day
-          const dayStart = new Date(dateStr + 'T00:00:00');
-          const dayEnd = new Date(dateStr + 'T23:59:59');
+          // Get appointments for this day — filtrar por línea WA para no mezclar citas de otras líneas
+          // Usar UTC noon para el rango — las citas se guardan a 12:00 UTC con toStorableDate
+          const dayStart = new Date(Date.UTC(parseInt(dateStr.slice(0,4)), parseInt(dateStr.slice(5,7))-1, parseInt(dateStr.slice(8,10)), 0, 0, 0));
+          const dayEnd   = new Date(Date.UTC(parseInt(dateStr.slice(0,4)), parseInt(dateStr.slice(5,7))-1, parseInt(dateStr.slice(8,10)), 23, 59, 59));
           const dayAppts = await prisma.appointment.findMany({
-            where: { userId: ownerId, date: { gte: dayStart, lte: dayEnd }, status: { notIn: ['cancelled'] } },
+            where: {
+              userId: ownerId,
+              date: { gte: dayStart, lte: dayEnd },
+              status: { notIn: ['cancelled'] },
+              ...(whatsappLineId ? { whatsappLineId } : {})
+            },
             select: { time: true, duration: true, resourceId: true }
           });
 
@@ -1877,7 +1889,7 @@ REGLAS DE TRANSFERENCIA:
             }
           }
 
-          const label = dayOffset === 0 ? 'HOY' : dayOffset === 1 ? 'MAÑANA' : dayNames[dayOfWeek];
+          const label = dayOffset === 0 ? `HOY (${dayNames[dayOfWeek]} ${dateStr})` : dayOffset === 1 ? `MAÑANA (${dayNames[dayOfWeek]} ${dateStr})` : `${dayNames[dayOfWeek]} ${dateStr}`;
           availabilityLines.push(`📅 ${label} ${dateStr}: ✅ Libres: ${freeSlots.length > 0 ? freeSlots.join(' | ') : 'NINGUNO'} ${fullSlots.length > 0 ? `| ❌ Llenos: ${fullSlots.join(',')}` : ''}`);
         }
 
@@ -3604,11 +3616,13 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                           orderBy: { order: 'asc' }
                         });
                         if (activeResources.length > 0) {
-                          const newDateStr = updateData.date.toISOString().split('T')[0];
-                          const dayStart2 = new Date(newDateStr + 'T00:00:00');
-                          const dayEnd2   = new Date(newDateStr + 'T23:59:59');
+                          // Extraer fecha del Date guardado (ya es UTC noon)
+                          const _nd = updateData.date;
+                          const newDateStr = `${_nd.getUTCFullYear()}-${String(_nd.getUTCMonth()+1).padStart(2,'0')}-${String(_nd.getUTCDate()).padStart(2,'0')}`;
+                          const dayStart2 = new Date(Date.UTC(_nd.getUTCFullYear(), _nd.getUTCMonth(), _nd.getUTCDate(), 0, 0, 0));
+                          const dayEnd2   = new Date(Date.UTC(_nd.getUTCFullYear(), _nd.getUTCMonth(), _nd.getUTCDate(), 23, 59, 59));
                           const dayScheduleU = await prisma.businessSchedule.findFirst({
-                            where: { userId: ownerId, dayOfWeek: updateData.date.getDay() }
+                            where: { userId: ownerId, dayOfWeek: _nd.getUTCDay() }
                           });
                           const slotDurU = dayScheduleU?.slotDuration || (existingRecord.duration || 60);
                           // Buscar citas del nuevo día — excluir la que estamos actualizando
@@ -3617,7 +3631,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                               userId: ownerId,
                               id: { not: existingRecord.id }, // excluir la cita actual
                               date: { gte: dayStart2, lte: dayEnd2 },
-                              status: { notIn: ['cancelled'] }
+                              status: { notIn: ['cancelled'] },
+                              ...(whatsappLineId ? { whatsappLineId } : {})
                             },
                             select: { time: true, duration: true, resourceId: true }
                           });

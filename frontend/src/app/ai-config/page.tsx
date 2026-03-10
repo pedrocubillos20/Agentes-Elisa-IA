@@ -11,13 +11,17 @@ import Link from 'next/link';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 const MODULES_DEF = [
-  { key: 'modIdentidad',  emoji: '👤', label: 'Identidad',  color: 'blue',    desc: 'Quién es el agente, personalidad y tono' },
-  { key: 'modReglas',     emoji: '📋', label: 'Reglas',     color: 'emerald', desc: 'Horarios, pagos, políticas del negocio' },
-  { key: 'modProductos',  emoji: '🛍️', label: 'Productos',  color: 'amber',   desc: 'Catálogo completo con precios exactos' },
-  { key: 'modAgenda',     emoji: '🗓️', label: 'Agenda',     color: 'cyan',    desc: 'Disponibilidad, duración, tipos de cita' },
-  { key: 'modFlujo',      emoji: '🔄', label: 'Flujo',      color: 'purple',  desc: 'Conversación paso a paso hasta el cierre' },
-  { key: 'modAcciones',   emoji: '⚡', label: 'Acciones',   color: 'orange',  desc: 'MEMORY_JSON, etapas pipeline, acciones' },
-  { key: 'modAdmin',      emoji: '🔧', label: 'Admin',      color: 'rose',    desc: 'Alertas, transferencias, análisis' },
+  { key: 'modIdentidad',       emoji: '👤', label: 'identidad.md',            color: 'blue',    desc: 'Quién es el agente, personalidad y tono' },
+  { key: 'modReglas',          emoji: '📋', label: 'reglas.md',                color: 'emerald', desc: 'Horarios, pagos, políticas del negocio' },
+  { key: 'modProductos',       emoji: '🛍️', label: 'servicios.json',           color: 'amber',   desc: 'Catálogo completo con precios exactos' },
+  { key: 'modAgenda',          emoji: '🗓️', label: 'agenda.json',              color: 'cyan',    desc: 'Disponibilidad, duración, tipos de cita' },
+  { key: 'modFlujo',           emoji: '🔄', label: 'flujos.md',                color: 'purple',  desc: 'Conversación paso a paso hasta el cierre' },
+  { key: 'modAcciones',        emoji: '⚡', label: 'acciones.json',            color: 'orange',  desc: 'MEMORY_JSON, etapas pipeline, acciones' },
+  { key: 'modAdmin',           emoji: '🔧', label: 'admin.md',                 color: 'rose',    desc: 'Alertas, transferencias, análisis' },
+  { key: 'modZonas',           emoji: '📍', label: 'zonas.json',               color: 'indigo',  desc: 'Zonas de cobertura y costos de envío' },
+  { key: 'modMemoriaCliente',  emoji: '🧠', label: 'memoria_cliente.json',     color: 'sky',     desc: 'Estructura del MEMORY_JSON persistente' },
+  { key: 'modMetricas',        emoji: '📊', label: 'metricas.md',              color: 'pink',    desc: 'KPIs, objetivos y alertas del negocio' },
+  { key: 'modDetector',        emoji: '🎯', label: 'detector_intenciones.md',  color: 'fuchsia', desc: 'Intenciones reconocibles y respuestas rápidas' },
 ];
 
 const AGENTS_DEF = [
@@ -170,7 +174,7 @@ export default function AiConfigPage() {
     finally { setApplying(false); }
   };
 
-  const hasModules = Object.keys(modules).length >= 5;
+  const hasModules = Object.keys(modules).length >= 9;
   const formatCOP = (n: number) => n.toLocaleString('es-CO');
 
   if (loading) return (
@@ -197,7 +201,7 @@ export default function AiConfigPage() {
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-2">
-            {['🧠 7 módulos especializados','🤖 2 agentes: Cliente + Admin','📋 Pipeline CRM automático','🎬 Triggers multimedia','⚡ MEMORY_JSON y acciones','🔄 Flujo conversacional completo','💰 Precios y productos exactos','♻️ Regenera ilimitado'].map((f, i) => (
+            {['🧠 11 módulos especializados','🤖 2 agentes: Cliente + Admin','📍 Zonas y cobertura','🎯 Detector de intenciones','🧠 Memoria cliente estructurada','📊 Métricas y KPIs','🔄 Flujo conversacional completo','♻️ Regenera ilimitado'].map((f, i) => (
               <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg bg-white/3 text-xs text-white/70">{f}</div>
             ))}
           </div>
@@ -235,7 +239,7 @@ export default function AiConfigPage() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Wand2 className="w-6 h-6 text-violet-400" /> Configuración IA
           </h1>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">Sube el PDF de tu negocio → 7 módulos + 2 agentes generados automáticamente</p>
+          <p className="text-sm text-[var(--text-muted)] mt-0.5">Sube el PDF de tu negocio → 11 módulos + 2 agentes generados automáticamente</p>
         </div>
         <Link href="/asistentes" className="text-sm text-[var(--text-muted)] hover:text-white flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Ir a Asistentes
@@ -388,7 +392,7 @@ export default function AiConfigPage() {
           className="w-full py-4 rounded-xl bg-gradient-to-r from-violet-600 to-pink-600 hover:from-violet-700 hover:to-pink-700 disabled:opacity-30 text-white font-bold flex items-center justify-center gap-2">
           {generating
             ? <><Loader2 className="w-5 h-5 animate-spin" />{GENERATION_STEPS[stepIdx]}</>
-            : <><Sparkles className="w-5 h-5" /> Generar 7 Módulos con IA</>}
+            : <><Sparkles className="w-5 h-5" /> Generar 11 Módulos con IA</>}
         </button>
 
         {generating && (
@@ -516,7 +520,7 @@ export default function AiConfigPage() {
               </div>
               <div>
                 <p className="text-base font-bold text-emerald-300">✅ Base de conocimiento modular aplicada</p>
-                <p className="text-xs text-[var(--text-muted)] mt-1">7 módulos + 2 agentes guardados — el asistente ya está activo</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">11 módulos + 2 agentes guardados — el asistente ya está activo</p>
               </div>
               <Link href="/asistentes"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">

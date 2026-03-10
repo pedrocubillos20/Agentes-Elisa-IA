@@ -1427,6 +1427,10 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       if (a.modFlujo?.trim())     moduleParts.push(`## 🔄 MÓDULO 5 — FLUJO\n${a.modFlujo}`);
       if (a.modAcciones?.trim())  moduleParts.push(`## ⚡ MÓDULO 6 — ACCIONES Y PIPELINE\n${a.modAcciones}`);
       if (a.modAdmin?.trim())     moduleParts.push(`## 🔧 MÓDULO 7 — CONFIG ADMIN\n${a.modAdmin}`);
+      if ((a as any).modZonas?.trim())          moduleParts.push(`## 📍 MÓDULO 8 — ZONAS Y ENVÍOS\n${(a as any).modZonas}`);
+      if ((a as any).modMemoriaCliente?.trim()) moduleParts.push(`## 🧠 MÓDULO 9 — MEMORIA CLIENTE\n${(a as any).modMemoriaCliente}`);
+      if ((a as any).modMetricas?.trim())       moduleParts.push(`## 📊 MÓDULO 10 — MÉTRICAS\n${(a as any).modMetricas}`);
+      if ((a as any).modDetector?.trim())       moduleParts.push(`## 🎯 MÓDULO 11 — DETECTOR INTENCIONES\n${(a as any).modDetector}`);
       moduleParts.push('=== FIN BASE DE CONOCIMIENTO ===\nSigue SIEMPRE todos los módulos al pie de la letra.');
       promptParts.push(moduleParts.join('\n\n'));
     } else if (assistant.context?.trim()) {

@@ -157,7 +157,6 @@ export default function ProgramadosPage() {
         const ws    = wb.Sheets[wb.SheetNames[0]];
         const rows  = XLSX.utils.sheet_to_json(ws, { defval: '' });
         const parsed = rows.map(parseRow).filter(r => r.phone.length > 0);
-        // Deduplicar por teléfono
         const seen  = new Set<string>();
         const dedup = parsed.filter(r => { if (seen.has(r.phone)) return false; seen.add(r.phone); return true; });
         setExcelContacts(dedup);
@@ -166,7 +165,12 @@ export default function ProgramadosPage() {
       } catch (err) {
         alert('Error leyendo el archivo. Asegúrate de que sea un .xlsx o .csv válido.');
         console.error(err);
+      } finally {
+        setExcelParsing(false);
       }
+    };
+    reader.onerror = () => {
+      alert('Error al leer el archivo.');
       setExcelParsing(false);
     };
     reader.readAsArrayBuffer(file);
@@ -180,10 +184,10 @@ export default function ProgramadosPage() {
     parseExcel(file);
   };
 
-  const handleExcelInput  = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) handleExcelFile(f); };
-  const handleDrop        = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files?.[0]; if (f) handleExcelFile(f); };
-  const handleDragOver    = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
-  const handleDragLeave   = () => setIsDragging(false);
+  const handleExcelInput  = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) handleExcelFile(f); e.target.value = ''; };
+  const handleDrop        = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); const f = e.dataTransfer.files?.[0]; if (f) handleExcelFile(f); };
+  const handleDragOver    = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave   = (e: React.DragEvent) => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
 
   // ── PLANTILLA EXCEL ───────────────────────────────────────────
   const downloadTemplate = () => {
@@ -499,7 +503,7 @@ export default function ProgramadosPage() {
       {showModal && createPortal(
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', backdropFilter:'blur(8px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:'1rem' }}
           onClick={() => !saving && setShowModal(false)}>
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl w-full max-w-lg max-h-[88vh] flex flex-col"
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl w-full max-w-lg max-h-[92vh] sm:max-h-[88vh] flex flex-col"
             onClick={e => e.stopPropagation()}>
 
             {/* Header */}
@@ -518,15 +522,15 @@ export default function ProgramadosPage() {
               {/* ── Tipo de destinatario ── */}
               <div>
                 <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Enviar a</label>
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-3 xs:grid-cols-5 sm:grid-cols-5 gap-1.5">
                   {TARGET_TYPES.map(t => {
                     const Icon = t.icon;
                     const active = targetType === t.id;
                     return (
                       <button key={t.id} onClick={() => { setTargetType(t.id); setTargetId(''); setTargetName(''); setExcelContacts([]); setExcelFileName(''); }}
-                        className={`p-2.5 rounded-xl border text-center transition-all ${active ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
-                        <Icon className={`w-5 h-5 mx-auto mb-1 ${active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
-                        <p className="text-xs font-medium text-white leading-tight">{t.label}</p>
+                        className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all ${active ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
+                        <Icon className={`w-4 h-4 sm:w-5 sm:h-5 mx-auto mb-0.5 sm:mb-1 ${active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                        <p className="text-[10px] sm:text-xs font-medium text-white leading-tight">{t.label}</p>
                       </button>
                     );
                   })}
@@ -609,7 +613,7 @@ export default function ProgramadosPage() {
                     <div
                       onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
                       onClick={() => excelInputRef.current?.click()}
-                      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${isDragging ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/5' : 'border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 hover:bg-white/2'}`}>
+                      className={`border-2 border-dashed rounded-xl p-4 sm:p-6 text-center cursor-pointer transition-all ${isDragging ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/5' : 'border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 hover:bg-white/2'}`}>
                       {excelParsing ? (
                         <div className="flex flex-col items-center gap-2">
                           <Loader className="w-8 h-8 text-[var(--accent-primary)] animate-spin" />

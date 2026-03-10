@@ -1410,36 +1410,8 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     if (assistant.businessInfo?.trim()) promptParts.push(`Info del negocio: ${assistant.businessInfo}`);
     if (assistant.instructions?.trim()) promptParts.push(`Instrucciones especiales: ${assistant.instructions}`);
     
-    // 📚 SISTEMA MODULAR v2 — 8 módulos especializados
-    const a = assistant as any;
-    const hasModules = a.modIdentidad || a.modReglas || a.modProductos || a.modAgenda || a.modFlujo || a.modAcciones || a.modAdmin;
-
-    if (hasModules) {
-      // ✅ MODO MODULAR v2: construir prompt desde los 7 módulos + 2 agentes
-      const moduleParts: string[] = ['=== 🧩 BASE DE CONOCIMIENTO MODULAR BIZONNE ==='];
-      // Agente cliente — instrucciones de rol (va primero para contexto)
-      if ((a as any).modOrquestador?.trim()) moduleParts.push(`## ⚙️ MÓDULO 00 — ORQUESTADOR\n${(a as any).modOrquestador}`);
-      if ((a as any).agenteCliente?.trim()) moduleParts.push(`## 🤖 ROL DEL AGENTE (AGENTE_CLIENTE)\n${(a as any).agenteCliente}`);
-      // Los 7 módulos
-      if (a.modIdentidad?.trim()) moduleParts.push(`## 👤 MÓDULO 1 — IDENTIDAD\n${a.modIdentidad}`);
-      if (a.modReglas?.trim())    moduleParts.push(`## 📋 MÓDULO 2 — REGLAS DE NEGOCIO\n${a.modReglas}`);
-      if (a.modProductos?.trim()) moduleParts.push(`## 🛍️ MÓDULO 3 — PRODUCTOS\n${a.modProductos}`);
-      if (a.modAgenda?.trim())    moduleParts.push(`## 🗓️ MÓDULO 4 — AGENDA\n${a.modAgenda}`);
-      if (a.modFlujo?.trim())     moduleParts.push(`## 🔄 MÓDULO 5 — FLUJO\n${a.modFlujo}`);
-      if (a.modAcciones?.trim())  moduleParts.push(`## ⚡ MÓDULO 6 — ACCIONES Y PIPELINE\n${a.modAcciones}`);
-      if (a.modAdmin?.trim())     moduleParts.push(`## 🔧 MÓDULO 7 — CONFIG ADMIN\n${a.modAdmin}`);
-      if ((a as any).modZonas?.trim())          moduleParts.push(`## 📍 MÓDULO 8 — ZONAS Y ENVÍOS\n${(a as any).modZonas}`);
-      if ((a as any).modMemoriaCliente?.trim()) moduleParts.push(`## 🧠 MÓDULO 9 — MEMORIA CLIENTE\n${(a as any).modMemoriaCliente}`);
-      if ((a as any).modMetricas?.trim())       moduleParts.push(`## 📊 MÓDULO 10 — MÉTRICAS\n${(a as any).modMetricas}`);
-      if ((a as any).modDetector?.trim())       moduleParts.push(`## 🎯 MÓDULO 11 — DETECTOR INTENCIONES\n${(a as any).modDetector}`);
-      if ((a as any).modTriggers?.trim())        moduleParts.push(`## 📲 MÓDULO 12 — TRIGGERS MULTIMEDIA\n${(a as any).modTriggers}`);
-      if ((a as any).modCatalogo?.trim())        moduleParts.push(`## 🗂️ MÓDULO 13 — CONTEXTO CATÁLOGO\n${(a as any).modCatalogo}`);
-      if ((a as any).modNlu?.trim())             moduleParts.push(`## 🔤 MÓDULO 14 — NLU MAP\n${(a as any).modNlu}`);
-      if ((a as any).modOfertas?.trim())         moduleParts.push(`## 💡 MÓDULO 15 — MOTOR OFERTAS\n${(a as any).modOfertas}`);
-      moduleParts.push('=== FIN BASE DE CONOCIMIENTO ===\nSigue SIEMPRE todos los módulos al pie de la letra.');
-      promptParts.push(moduleParts.join('\n\n'));
-    } else if (assistant.context?.trim()) {
-      // ✅ MODO LEGACY: base de conocimiento en un solo bloque (usuarios existentes)
+    // 📚 BASE DE CONOCIMIENTO — máxima prioridad, contiene TODO el comportamiento del asistente
+    if (assistant.context?.trim()) {
       promptParts.push(`=== 📚 BASE DE CONOCIMIENTO Y CONFIGURACIÓN DEL ASISTENTE ===
 ${assistant.context}
 === FIN BASE DE CONOCIMIENTO ===
@@ -1777,17 +1749,11 @@ REGLAS DE TRANSFERENCIA:
           availabilityLines.push(`⏱️ Duración por turno: ${openDays[0].slotDuration} min`);
         }
 
-        // Check availability for today + next 7 days (full week)
-        // ⚠️ CRÍTICO: Antes era solo 3 días — si el cliente pedía sábado (día 4+)
-        // Sara no lo veía y confundía con el último día disponible (jueves/viernes)
-        for (let dayOffset = 0; dayOffset <= 6; dayOffset++) {
+        // Check availability for today + next 3 days
+        for (let dayOffset = 0; dayOffset <= 3; dayOffset++) {
           const checkDate = new Date(today);
           checkDate.setDate(checkDate.getDate() + dayOffset);
-          // Extraer la fecha en Colombia (el Date viene de getNowColombia que ya es Colombia-as-UTC)
-          const y = checkDate.getFullYear();
-          const mo = String(checkDate.getMonth() + 1).padStart(2, '0');
-          const dd = String(checkDate.getDate()).padStart(2, '0');
-          const dateStr = `${y}-${mo}-${dd}`;
+          const dateStr = checkDate.toISOString().split('T')[0];
           const dayOfWeek = checkDate.getDay();
           const daySchedule = schedules.find(s => s.dayOfWeek === dayOfWeek);
 
@@ -1812,17 +1778,11 @@ REGLAS DE TRANSFERENCIA:
             availabilityLines.push(`⚠️ ${dayNames[dayOfWeek]} ${dateStr} es festivo (${holiday.name}) pero el negocio ABRE:`);
           }
 
-          // Get appointments for this day — filtrar por línea WA para no mezclar citas de otras líneas
-          // Usar UTC noon para el rango — las citas se guardan a 12:00 UTC con toStorableDate
-          const dayStart = new Date(Date.UTC(parseInt(dateStr.slice(0,4)), parseInt(dateStr.slice(5,7))-1, parseInt(dateStr.slice(8,10)), 0, 0, 0));
-          const dayEnd   = new Date(Date.UTC(parseInt(dateStr.slice(0,4)), parseInt(dateStr.slice(5,7))-1, parseInt(dateStr.slice(8,10)), 23, 59, 59));
+          // Get appointments for this day
+          const dayStart = new Date(dateStr + 'T00:00:00');
+          const dayEnd = new Date(dateStr + 'T23:59:59');
           const dayAppts = await prisma.appointment.findMany({
-            where: {
-              userId: ownerId,
-              date: { gte: dayStart, lte: dayEnd },
-              status: { notIn: ['cancelled'] },
-              ...(whatsappLineId ? { whatsappLineId } : {})
-            },
+            where: { userId: ownerId, date: { gte: dayStart, lte: dayEnd }, status: { notIn: ['cancelled'] } },
             select: { time: true, duration: true, resourceId: true }
           });
 
@@ -1889,7 +1849,7 @@ REGLAS DE TRANSFERENCIA:
             }
           }
 
-          const label = dayOffset === 0 ? `HOY (${dayNames[dayOfWeek]} ${dateStr})` : dayOffset === 1 ? `MAÑANA (${dayNames[dayOfWeek]} ${dateStr})` : `${dayNames[dayOfWeek]} ${dateStr}`;
+          const label = dayOffset === 0 ? 'HOY' : dayOffset === 1 ? 'MAÑANA' : dayNames[dayOfWeek];
           availabilityLines.push(`📅 ${label} ${dateStr}: ✅ Libres: ${freeSlots.length > 0 ? freeSlots.join(' | ') : 'NINGUNO'} ${fullSlots.length > 0 ? `| ❌ Llenos: ${fullSlots.join(',')}` : ''}`);
         }
 
@@ -2310,7 +2270,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
 [COPILOTO — OBLIGATORIO: Termina con <<MEMORY_JSON>>...<<END_MEMORY>>.
 ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_cita(cliente_nombre,fecha_cita,hora_cita,tipo_cita) | crear_pedido(cliente_nombre,producto_servicio,total,fecha_entrega) | crear_reserva(cliente_nombre,fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva | mover_etapa(cliente_telefono,nueva_etapa)]` : `
 
-[SISTEMA — REGLA ABSOLUTA: Tu respuesta DEBE terminar SIEMPRE con el bloque <<MEMORY_JSON>>...<<END_MEMORY>> sin excepción, aunque sea una respuesta corta, un saludo o un mensaje de confirmación. Si no incluyes este bloque, la respuesta será descartada.${stagesHint}
+[SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.${stagesHint}
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.]`;
     // 💬 Si el usuario respondió a un mensaje, inyectar ese contexto antes del mensaje
     const messageWithQuoted = quotedContext ? `[Respondiendo a: "${quotedContext}"] ${message}` : message;
@@ -2618,11 +2578,6 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               // 🎯 DETECTAR ETAPA AUTOMÁTICA
               const detectedStage = (memoryData.etapa_actual || memoryData.paso_actual || '').trim();
               const actionToTake = memoryData.accion || '';
-
-              // 🔍 LOG ACCIÓN — útil para diagnóstico de cancelaciones/actualizaciones
-              if (actionToTake) {
-                console.log(`🎯 ACCIÓN DETECTADA: "${actionToTake}" | phone: ${clientPhone} | owner: ${ownerId}`);
-              }
 
               // ════════════════════════════════════════════════════════════════
               // 🤖 COPILOTO IA — ACCIONES DEL DUEÑO (isPersonalAssistant)
@@ -3075,17 +3030,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               
               // 🔔 AUTO-DETECTAR: Si no hubo acción crear_pedido pero los datos están completos, crear pedido
-              // ⚠️ SAFETY: Solo para flujos de PEDIDO real — NO disparar en flujos de cita/reserva
-              const isAppointmentFlow = (
-                actionToTake === 'crear_cita' || actionToTake === 'crear_reserva' ||
-                actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva' ||
-                merged.cita === 'creada' || merged.reserva === 'creada' ||
-                merged.fecha_cita || merged.fecha_reserva || merged.hora_cita || merged.hora_reserva ||
-                merged.tipo_cita || merged.tipo_reserva ||
-                (merged.etapa_actual || '').toLowerCase().includes('reserva') ||
-                (merged.etapa_actual || '').toLowerCase().includes('cita')
-              );
-              if (actionToTake !== 'crear_pedido' && merged.pedido !== 'creado' && dataComplete && !isAppointmentFlow) {
+              // ⚠️ SAFETY: Verificar que NO existe un pedido reciente para este cliente
+              if (actionToTake !== 'crear_pedido' && merged.pedido !== 'creado' && dataComplete) {
                 // Verificar si la IA confirmó/resumió el pedido en su respuesta
                 const orderConfirmPatterns = [
                   /(?:he registrado|pedido registrado|confirmar.*pedido|proceder|resumen final|información.*registrada)/i,
@@ -3568,38 +3514,22 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
               // ═══ 🔄 ACTUALIZAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use actualizar_cita OR actualizar_reserva regardless of actual DB type
-              // ✅ FIX: Condición relajada — busca por teléfono aunque la reserva venga de web/admin/sesión anterior
-              const isUpdateAction = actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva' || actionToTake === 'confirmar_reagendar';
-              const isUpdateConfirmText = (reply||'').toLowerCase().match(/reagendad|reprogramad|actuali[zs]ad|nueva.*cita|cita.*cambiada|reserva.*cambiada|nueva.*reserva/);
-              const shouldUpdate = isUpdateAction || (isUpdateConfirmText && (merged.reserva === 'creada' || merged.cita === 'creada') && (memoryData.fecha_reserva || memoryData.hora_reserva || memoryData.fecha_cita || memoryData.hora_cita));
-              if (shouldUpdate) {
+              if ((actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva') && 
+                  (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
-                  // Buscar cita/reserva activa — priorizar misma línea WA, fallback a cualquier línea del owner
-                  let existingRecord = await prisma.appointment.findFirst({
-                    where: {
-                      userId: ownerId,
-                      clientPhone: { endsWith: phoneCleanU.slice(-10) },
-                      type: { in: ['appointment', 'reservation'] },
-                      status: { notIn: ['cancelled'] },
-                      ...(whatsappLineId ? { whatsappLineId } : {}) // 🔒 Aislar por línea si hay varias
-                    },
+                  // Search for ANY active appointment/reservation for this phone
+                  const existingRecord = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, clientPhone: { endsWith: phoneCleanU.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
                     orderBy: { createdAt: 'desc' }
                   });
-                  // Fallback: si no hay en esta línea, buscar en cualquier línea del mismo owner
-                  if (!existingRecord && whatsappLineId) {
-                    existingRecord = await prisma.appointment.findFirst({
-                      where: { userId: ownerId, clientPhone: { endsWith: phoneCleanU.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
-                      orderBy: { createdAt: 'desc' }
-                    });
-                  }
                   if (existingRecord) {
                     const updateData: any = { status: 'pending' };
                     
                     // 🏍️ CASO ESPECIAL: Domicilio — solo agrega dirección sin cambiar fecha/hora
                     const isDomicilio = (merged.tipo_reserva || merged.tipo_cita || '').toLowerCase().includes('domicilio');
                     
-                    // Fecha/hora: solo actualizar si NO es domicilio
+                    // Fecha/hora: solo actualizar si NO es domicilio (domicilio mantiene fecha/hora de la cita)
                     if (!isDomicilio) {
                       const newFecha = merged.fecha_cita || merged.fecha_reserva;
                       if (newFecha) updateData.date = parseSmartDate(newFecha);
@@ -3616,68 +3546,6 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     
                     const tipo = merged.tipo_cita || merged.tipo_reserva || existingRecord.type;
 
-                    // ✅ FIX: Re-asignar recurso para el NUEVO slot de fecha/hora
-                    // Libera el slot antiguo (implícito al cambiar fecha/hora) y busca recurso para el nuevo
-                    if (!isDomicilio && updateData.date && updateData.time) {
-                      try {
-                        const activeResources = await prisma.resource.findMany({
-                          where: { userId: ownerId, isActive: true },
-                          orderBy: { order: 'asc' }
-                        });
-                        if (activeResources.length > 0) {
-                          // Extraer fecha del Date guardado (ya es UTC noon)
-                          const _nd = updateData.date;
-                          const newDateStr = `${_nd.getUTCFullYear()}-${String(_nd.getUTCMonth()+1).padStart(2,'0')}-${String(_nd.getUTCDate()).padStart(2,'0')}`;
-                          const dayStart2 = new Date(Date.UTC(_nd.getUTCFullYear(), _nd.getUTCMonth(), _nd.getUTCDate(), 0, 0, 0));
-                          const dayEnd2   = new Date(Date.UTC(_nd.getUTCFullYear(), _nd.getUTCMonth(), _nd.getUTCDate(), 23, 59, 59));
-                          const dayScheduleU = await prisma.businessSchedule.findFirst({
-                            where: { userId: ownerId, dayOfWeek: _nd.getUTCDay() }
-                          });
-                          const slotDurU = dayScheduleU?.slotDuration || (existingRecord.duration || 60);
-                          // Buscar citas del nuevo día — excluir la que estamos actualizando
-                          const conflictingU = await prisma.appointment.findMany({
-                            where: {
-                              userId: ownerId,
-                              id: { not: existingRecord.id }, // excluir la cita actual
-                              date: { gte: dayStart2, lte: dayEnd2 },
-                              status: { notIn: ['cancelled'] },
-                              ...(whatsappLineId ? { whatsappLineId } : {})
-                            },
-                            select: { time: true, duration: true, resourceId: true }
-                          });
-                          const [tHu, tMu] = updateData.time.split(':').map(Number);
-                          const reqStartU = tHu * 60 + tMu;
-                          const overlappingU = conflictingU.filter((a: any) => {
-                            if (!a.time) return false;
-                            const [aH, aM] = a.time.split(':').map(Number);
-                            const aStart = aH * 60 + aM;
-                            const aEnd = aStart + (a.duration || slotDurU);
-                            return aStart < reqStartU + slotDurU && aEnd > reqStartU;
-                          });
-                          const occupiedCountsU = new Map<string, number>();
-                          for (const a of overlappingU) {
-                            if (a.resourceId) occupiedCountsU.set(a.resourceId, (occupiedCountsU.get(a.resourceId) || 0) + 1);
-                          }
-                          const freeResourceU = activeResources.find((r: any) => {
-                            const used = occupiedCountsU.get(r.id) || 0;
-                            return used < (r.capacity || 1);
-                          });
-                          if (freeResourceU) {
-                            updateData.resourceId   = freeResourceU.id;
-                            updateData.resourceName = freeResourceU.name;
-                            log(`🔗 Recurso re-asignado al actualizar: ${freeResourceU.name} — ${updateData.time} ${newDateStr}`);
-                          } else {
-                            // Limpiar recurso si no hay disponible en nuevo slot
-                            updateData.resourceId   = null;
-                            updateData.resourceName = null;
-                            log(`⚠️ Sin recursos libres para nuevo slot ${updateData.time} ${newDateStr} — actualizada sin recurso`);
-                          }
-                        }
-                      } catch (resErrU: any) {
-                        log(`⚠️ Error re-asignando recurso al actualizar: ${resErrU.message}`);
-                      }
-                    }
-
                     if (isDomicilio) {
                       // Para domicilio: enriquecer notes originales sin sobreescribirlas
                       const prevNotes = existingRecord.notes || '';
@@ -3686,51 +3554,34 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                         `📝 Info adicional: ${merged.notas || ''}\n` +
                         `⏱️ Registrado: ${new Date().toLocaleString()}\n` +
                         `━━━━━━━━━━━━━━━`;
+                      // Solo agregar si no está ya registrado
                       updateData.notes = prevNotes.includes('DOMICILIO CONFIRMADO') 
                         ? prevNotes 
                         : prevNotes + domilicioInfo;
                     } else {
-                      const fechaStr = updateData.date
-                        ? updateData.date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })
-                        : existingRecord.date?.toLocaleDateString?.('es', { weekday: 'long', day: 'numeric', month: 'long' }) || '';
-                      updateData.notes = `📅 ${tipo.toUpperCase()} — REPROGRAMADA\n` +
+                      updateData.notes = `📅 ${tipo.toUpperCase()} — ACTUALIZADA\n` +
                         `━━━━━━━━━━━━━━━\n` +
                         `👤 Cliente: ${merged.nombre || existingRecord.clientName}\n` +
                         `📱 Teléfono: ${phoneCleanU}\n` +
-                        `🗓️ Nueva fecha: ${fechaStr}\n` +
-                        `🕐 Nueva hora: ${updateData.time || existingRecord.time}\n` +
+                        `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
+                        `🕐 Hora: ${updateData.time || existingRecord.time}\n` +
                         `📋 Tipo: ${tipo}\n` +
-                        (updateData.resourceName ? `🔧 Recurso: ${updateData.resourceName}\n` : '') +
                         `⏱️ Actualizado: ${new Date().toLocaleString()}\n` +
                         `━━━━━━━━━━━━━━━`;
                     }
 
                     await prisma.appointment.update({ where: { id: existingRecord.id }, data: updateData });
-                    // Marcar como actualizada en memoria
+                    // Keep status as created so future updates work
                     if (existingRecord.type === 'reservation') merged.reserva = 'creada';
                     else merged.cita = 'creada';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    
                     if (isDomicilio) {
                       log(`🏍️ DOMICILIO AGREGADO a ${existingRecord.type} ${existingRecord.id} | ${merged.nombre || clientName} | Dir: ${domicilioDir}`);
                       sendPushToUser(ownerId, { title: '🏍️ Domicilio Confirmado', body: `${merged.nombre || 'Cliente'} — Recogida en: ${domicilioDir || 'Ver agenda'}`, url: '/agenda', tag: `domicilio-${Date.now()}` }).catch(() => {});
                     } else {
-                      const nuevaFechaLog = updateData.date?.toLocaleDateString('es') || 'sin cambio';
-                      const nuevaHoraLog  = to12h(updateData.time || existingRecord.time || '');
-                      log(`🔄 ${existingRecord.type.toUpperCase()} REPROGRAMADA: ${existingRecord.id} | ${merged.nombre || clientName} → ${nuevaFechaLog} ${nuevaHoraLog}`);
-                      sendPushToUser(ownerId, {
-                        title: '🔄 Cita Reprogramada',
-                        body: `${merged.nombre || 'Cliente'} — ${tipo} → ${nuevaFechaLog} ${nuevaHoraLog}`.substring(0, 120),
-                        url: '/agenda',
-                        tag: `update-${Date.now()}`
-                      }).catch(() => {});
-                      notifyPersonalAssistant(ownerId, 'reserva', {
-                        name: merged.nombre || clientName || 'Cliente',
-                        date: updateData.date?.toLocaleDateString('es') || '',
-                        time: to12h(updateData.time || existingRecord.time || ''),
-                        phone: phoneCleanU
-                      }).catch(() => {});
+                      log(`🔄 ${existingRecord.type.toUpperCase()} ACTUALIZADA: ${existingRecord.id} | ${merged.nombre || clientName}`);
+                      sendPushToUser(ownerId, { title: '🔄 Cita Actualizada', body: `${merged.nombre || 'Cliente'} actualizó su ${tipo}`, url: '/agenda', tag: `update-${Date.now()}` }).catch(() => {});
                     }
                   } else {
                     log(`⚠️ No se encontró cita/reserva activa para actualizar de ${phoneCleanU}`);
@@ -3769,50 +3620,18 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
               // ═══ ❌ CANCELAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use cancelar_cita OR cancelar_reserva regardless of actual DB type
-              // ✅ FIX: Condición relajada — cancela aunque la reserva venga de web/admin/sesión anterior
-              // ✅ FIX 2: Si el reply contiene confirmación de cancelación pero accion viene vacío → ejecutar igual
-              const replyLowerForCancel = (reply || '').toLowerCase();
-              const isCancelConfirmText = (
-                replyLowerForCancel.includes('cancelada exitosamente') ||
-                replyLowerForCancel.includes('reserva cancelada') ||
-                replyLowerForCancel.includes('cita cancelada') ||
-                replyLowerForCancel.includes('ha sido cancelada') ||
-                replyLowerForCancel.includes('fue cancelada') ||
-                replyLowerForCancel.includes('se ha cancelado') ||
-                replyLowerForCancel.includes('procedo a cancelar') ||
-                replyLowerForCancel.includes('procedí a cancelar')
-              );
-              const effectiveCancelAction = actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva' || actionToTake === 'confirmar_cancelar';
-              const shouldCancel = effectiveCancelAction || (isCancelConfirmText && (merged.reserva === 'creada' || merged.cita === 'creada'));
-              if (shouldCancel && isCancelConfirmText) {
-                console.log(`🎯 CANCELAR detectado: accion="${actionToTake}" | texto="${replyLowerForCancel.substring(0,80)}" | fallback=${!effectiveCancelAction}`);
-              }
-              if (shouldCancel) {
+              if ((actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva') &&
+                  (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
                 try {
                   const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   // Search for ANY active appointment/reservation for this phone
-                  // Buscar por línea WA primero — fallback a cualquier línea del owner
-                  let existingRecord = await prisma.appointment.findFirst({
-                    where: {
-                      userId: ownerId,
-                      clientPhone: { endsWith: phoneCleanC.slice(-10) },
-                      type: { in: ['appointment', 'reservation'] },
-                      status: { notIn: ['cancelled'] },
-                      ...(whatsappLineId ? { whatsappLineId } : {})
-                    },
+                  const existingRecord = await prisma.appointment.findFirst({
+                    where: { userId: ownerId, clientPhone: { endsWith: phoneCleanC.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
                     orderBy: { createdAt: 'desc' }
                   });
-                  if (!existingRecord && whatsappLineId) {
-                    existingRecord = await prisma.appointment.findFirst({
-                      where: { userId: ownerId, clientPhone: { endsWith: phoneCleanC.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
-                      orderBy: { createdAt: 'desc' }
-                    });
-                  }
                   if (existingRecord) {
-                    await prisma.appointment.update({
-                      where: { id: existingRecord.id },
-                      data: { status: 'cancelled', notes: (existingRecord.notes || '') + '\n\n❌ CANCELADA por el cliente vía WhatsApp — ' + new Date().toLocaleString() }
-                    });
+                    // 🗑️ ELIMINAR COMPLETAMENTE de Agenda y liberar Recurso
+                    await prisma.appointment.delete({ where: { id: existingRecord.id } });
                     // Clear ALL relevant memory fields
                     merged.cita = '';
                     merged.reserva = '';
@@ -3822,8 +3641,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     merged.hora_reserva = '';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`❌ ${existingRecord.type.toUpperCase()} CANCELADA: ${existingRecord.id} | ${existingRecord.clientName} | ${existingRecord.date} ${existingRecord.time}`);
-                    sendPushToUser(ownerId, { title: '❌ Cita/Reserva Cancelada', body: `${existingRecord.clientName || 'Cliente'} canceló — ${existingRecord.time || ''}`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                    log(`🗑️ ${existingRecord.type.toUpperCase()} ELIMINADA: ${existingRecord.id} | ${existingRecord.clientName} | ${existingRecord.date} ${existingRecord.time} | recurso liberado: ${existingRecord.resourceId || 'ninguno'}`);
+                    sendPushToUser(ownerId, { title: '🗑️ Cita/Reserva Eliminada', body: `${existingRecord.clientName || 'Cliente'} canceló — eliminada de agenda`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
                     // 🏷️ Agregar etiqueta "cliente-canceló" en CRM
                     try {
                       const phoneCleanTag = clientPhone.replace('@c.us','').replace('@s.whatsapp.net','');
@@ -3855,16 +3674,14 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     orderBy: { createdAt: 'desc' }
                   });
                   if (existingOrder) {
-                    await prisma.appointment.update({
-                      where: { id: existingOrder.id },
-                      data: { status: 'cancelled', notes: (existingOrder.notes || '') + '\n\n❌ CANCELADO por el cliente vía WhatsApp — ' + new Date().toLocaleString() }
-                    });
+                    // 🗑️ ELIMINAR COMPLETAMENTE de Agenda y liberar Recurso
+                    await prisma.appointment.delete({ where: { id: existingOrder.id } });
                     merged.pedido = '';
                     merged.fecha_entrega = '';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
-                    log(`❌🛒 PEDIDO CANCELADO: ${existingOrder.id} | ${existingOrder.clientName}`);
-                    sendPushToUser(ownerId, { title: '❌ Pedido Cancelado', body: `${existingOrder.clientName || 'Cliente'} canceló su pedido`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
+                    log(`🗑️ PEDIDO ELIMINADO: ${existingOrder.id} | ${existingOrder.clientName} | recurso liberado: ${existingOrder.resourceId || 'ninguno'}`);
+                    sendPushToUser(ownerId, { title: '🗑️ Pedido Eliminado', body: `${existingOrder.clientName || 'Cliente'} canceló su pedido — eliminado de agenda`, url: '/agenda', tag: `cancel-${Date.now()}` }).catch(() => {});
                     // 🏷️ Etiqueta "cliente-canceló" en CRM
                     try {
                       const phoneCleanTagP = clientPhone.replace('@c.us','').replace('@s.whatsapp.net','');
@@ -5838,8 +5655,7 @@ router.post('/fix-lid-numbers', async (req: Request, res: Response) => {
         if (existing) {
           // Merge: mover mensajes a la conversación existente
           await prisma.message.updateMany({ where: { conversationId: conv.id }, data: { conversationId: existing.id } });
-          // ✅ deleteMany evita crash si ya fue eliminada en proceso paralelo
-          await prisma.conversation.deleteMany({ where: { id: conv.id } });
+          await prisma.conversation.delete({ where: { id: conv.id } });
           results.push({ name: conv.recipientName, old: conv.recipientId, new: realPhone, action: 'merged' });
           log(`🔑 MERGED: ${conv.recipientName} (${conv.recipientId} → ${realPhone}) con conversación existente`);
         } else {
@@ -6270,49 +6086,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // 📍 WAHA: Detectar mensajes de ubicación (estática Y en tiempo real / live)
-    // WAHA webjs: live location llega con hasMedia=true (thumbnail JPEG /9j/...) + _data.lat/_data.lng
-    // WAHA webjs: static location llega con type='location' + location.lat/location.lng
-    // WAHA NOWEB:  llega con type='location' + location.latitude/location.longitude
-    const isLocationMsg = (
-      payload?.type === 'location' ||
-      payload?._data?.type === 'location' ||
-      payload?.messageType === 'locationMessage' ||
-      // live location: thumbnail JPEG + coordenadas en _data
-      (payload?.hasMedia && (payload?._data?.lat != null || payload?._data?.latitude != null))
-    );
-
-    if (isLocationMsg) {
-      // Extraer coordenadas de todos los campos posibles
-      const locLat = (
-        payload?.location?.lat ??
-        payload?.location?.latitude ??
-        payload?._data?.lat ??
-        payload?._data?.latitude ??
-        payload?.lat ??
-        payload?.latitude
-      );
-      const locLon = (
-        payload?.location?.lng ??
-        payload?.location?.longitude ??
-        payload?._data?.lng ??
-        payload?._data?.longitude ??
-        payload?.lng ??
-        payload?.longitude
-      );
-      const isLiveLocation = !!(
-        payload?._data?.isLive ||
-        payload?.location?.live_period ||
-        payload?._data?.live_period ||
-        (payload?.hasMedia && payload?.type === 'location')
-      );
-      const locName = payload?.location?.name || payload?._data?.loc || payload?._data?.name || '';
-
-      log("📍 WAHA location: lat=" + locLat + " lon=" + locLon + " live=" + isLiveLocation + " tipo=" + (payload?.type||"") + " hasMedia=" + (payload?.hasMedia||false));
-
-      if (locLat != null && locLon != null) {
+    // 📍 WAHA: Detectar mensajes de ubicación
+    if (!body && (payload?.type === 'location' || payload?._data?.type === 'location')) {
+      const locLat = payload?.location?.lat || payload?.location?.latitude || payload?._data?.lat;
+      const locLon = payload?.location?.lng || payload?.location?.longitude || payload?._data?.lng;
+      if (locLat && locLon) {
         const mapsLink = "https://maps.google.com/?q=" + locLat + "," + locLon;
-        const tipoUbi = isLiveLocation ? "ubicación en tiempo real" : "ubicación";
+        // Load coverage config from assistant (generic — only active if configured)
         let coverageMsg = "";
         try {
           const waLine = await prisma.whatsappLine.findFirst({ where: { sessionName }, select: { userId: true, id: true } });
@@ -6324,44 +6104,13 @@ router.post('/webhook', async (req: Request, res: Response) => {
             if (asst?.coverageLat && asst?.coverageLon && asst?.coverageRadiusKm) {
               const cov = checkCoverageRadius(parseFloat(locLat), parseFloat(locLon), asst.coverageLat, asst.coverageLon, asst.coverageRadiusKm);
               coverageMsg = "\n[SISTEMA COBERTURA]: " + cov.mensaje;
-              console.log("📍 WAHA Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)" + (isLiveLocation ? " [EN VIVO]" : ""));
+              console.log("📍 WAHA Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)");
             }
           }
         } catch (covErr) { /* no coverage config, skip */ }
-        body = "📍 El cliente compartió su " + tipoUbi + " por WhatsApp." +
-               (locName ? "\nLugar: " + locName : "") +
-               "\nCoordenadas: " + locLat + ", " + locLon +
-               "\nVer en Maps: " + mapsLink + coverageMsg;
+        body = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
       } else {
-        log("📍 WAHA location sin coords. Keys: " + Object.keys(payload||{}).join(",") + " | _data: " + Object.keys(payload?._data||{}).slice(0,10).join(","));
         body = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
-      }
-    } else if (!body && payload?.hasMedia && typeof payload?._data?.body === 'string' && payload._data.body.startsWith('/9j/')) {
-      // Thumbnail JPEG suelto = live location no detectada (engine webjs sin type=location)
-      log("📍 WAHA thumbnail /9j/ sin location detectada. _data keys: " + Object.keys(payload?._data||{}).join(","));
-      log("📍 WAHA _data lat=" + (payload?._data?.lat) + " lng=" + (payload?._data?.lng) + " type=" + (payload?._data?.type));
-      if (payload?._data?.lat != null && payload?._data?.lng != null) {
-        const locLat2 = payload._data.lat;
-        const locLon2 = payload._data.lng;
-        const mapsLink2 = "https://maps.google.com/?q=" + locLat2 + "," + locLon2;
-        let coverageMsg2 = "";
-        try {
-          const waLine2 = await prisma.whatsappLine.findFirst({ where: { sessionName }, select: { userId: true } });
-          if (waLine2) {
-            const asst2 = await prisma.assistant.findFirst({
-              where: { userId: waLine2.userId, isActive: true },
-              select: { coverageLat: true, coverageLon: true, coverageRadiusKm: true }
-            });
-            if (asst2?.coverageLat && asst2?.coverageLon && asst2?.coverageRadiusKm) {
-              const cov2 = checkCoverageRadius(parseFloat(locLat2), parseFloat(locLon2), asst2.coverageLat, asst2.coverageLon, asst2.coverageRadiusKm);
-              coverageMsg2 = "\n[SISTEMA COBERTURA]: " + cov2.mensaje;
-              console.log("📍 WAHA Cobertura (thumbnail): " + locLat2 + ", " + locLon2 + " → " + (cov2.dentro ? "DENTRO" : "FUERA") + " (" + cov2.distanciaKm + "km)");
-            }
-          }
-        } catch { /* skip */ }
-        body = "📍 El cliente compartió su ubicación en tiempo real por WhatsApp.\nCoordenadas: " + locLat2 + ", " + locLon2 + "\nVer en Maps: " + mapsLink2 + coverageMsg2;
-      } else {
-        body = ''; // ignorar silenciosamente — no enviar el base64 al bot
       }
     }
 
@@ -7155,10 +6904,6 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       }
       
       console.log(`☁️ [CLOUD] 📩 Mensaje de ${from} | tipo: ${msgType} | id: ${msgId}`);
-      // 🔍 DEBUG LOCATION: loggear payload completo si es location o tipo desconocido
-      if (msgType === 'location' || (msgType !== 'text' && msgType !== 'image' && msgType !== 'audio' && msgType !== 'video' && msgType !== 'document' && msgType !== 'sticker' && msgType !== 'reaction' && msgType !== 'contacts')) {
-        console.log(`☁️ [CLOUD] 🔍 Payload tipo "${msgType}":`, JSON.stringify(msg).substring(0, 500));
-      }
       
       if (msgId && recentlyProcessed.has(msgId)) { console.log(`☁️ [CLOUD] ⏭️ Duplicado, ignorando`); continue; }
       if (msgId) { recentlyProcessed.add(msgId); setTimeout(() => recentlyProcessed.delete(msgId), 60000); }
@@ -7311,11 +7056,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       } else if (msgType === 'location') {
         const locLat = msg.location?.latitude;
         const locLon = msg.location?.longitude;
-        const isLive = !!(msg.location?.live_period); // ubicación en tiempo real
-        log(`☁️ 📍 Location msg: lat=${locLat} lon=${locLon} live=${isLive} live_period=${msg.location?.live_period || 'n/a'}`);
         if (locLat && locLon) {
           const mapsLink = "https://maps.google.com/?q=" + locLat + "," + locLon;
-          const tipoUbi = isLive ? "ubicación en tiempo real" : "ubicación";
           // Load coverage config — generic, only if assistant has it configured
           let coverageMsg = "";
           try {
@@ -7326,20 +7068,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             if (asst?.coverageLat && asst?.coverageLon && asst?.coverageRadiusKm) {
               const cov = checkCoverageRadius(locLat, locLon, asst.coverageLat, asst.coverageLon, asst.coverageRadiusKm);
               coverageMsg = "\n[SISTEMA COBERTURA]: " + cov.mensaje;
-              console.log("☁️ 📍 Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)" + (isLive ? " [EN VIVO]" : ""));
+              console.log("☁️ 📍 Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)");
             }
           } catch { /* no coverage config, skip */ }
-          messageBody = "📍 El cliente compartió su " + tipoUbi + " por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
+          messageBody = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
         } else {
           messageBody = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
         }
-      } else if (msgType === 'unsupported') {
-        // ☁️ Algunos mensajes especiales (live location updates, stickers nuevos, etc.) llegan como 'unsupported'
-        // Intentar extraer location si viene en el payload
-        const unsupLat = msg.location?.latitude || msg.errors?.[0]?.href;
-        log(`☁️ ⚠️ Tipo 'unsupported' recibido | keys: ${Object.keys(msg).join(',')} | errors: ${JSON.stringify(msg.errors || [])}`);
-        messageBody = ''; // ignorar silenciosamente — no molestar al bot con mensaje vacío
-        continue;
       } else if (msgType === 'contacts') {
         const c = msg.contacts?.[0];
         messageBody = `👤 Contacto: ${c?.name?.formatted_name || 'Sin nombre'} - ${c?.phones?.[0]?.phone || ''}`;

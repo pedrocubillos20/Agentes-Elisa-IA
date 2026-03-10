@@ -863,7 +863,8 @@ export default function CRMPage() {
       {/* CLIENTES */}
       {activeTab === 'clients' && (
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center gap-1.5 md:gap-2 mb-2 md:mb-3 flex-shrink-0 flex-wrap">
+          {/* Barra de acciones */}
+          <div className="flex items-center gap-1.5 md:gap-2 mb-2 flex-shrink-0 flex-wrap">
             <button onClick={exportClients} className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all">
               <Download className="w-3 h-3 md:w-3.5 md:h-3.5" /> Excel
             </button>
@@ -872,14 +873,43 @@ export default function CRMPage() {
               <input type="file" accept=".csv,.txt,.xls,.xlsx" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importClients(e.target.files[0]); e.target.value = ''; }} />
             </label>
             <button onClick={() => { setShowClientMass(true); setMassMessageText(''); setMassMediaFile(null); setMassMediaPreview(null); }} className="flex items-center gap-1 px-2 md:px-3 py-1 md:py-1.5 rounded-lg text-[10px] md:text-xs font-medium bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-all" disabled={clients.length === 0}>
-              <Send className="w-3 h-3 md:w-3.5 md:h-3.5" /> <span className="hidden sm:inline">Masivo</span> ({clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm)).length})
+              <Send className="w-3 h-3 md:w-3.5 md:h-3.5" /> <span className="hidden sm:inline">Masivo</span> ({clients.filter(c => {
+                const q = searchTerm.toLowerCase().trim();
+                return !q || c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.tags?.some((t: string) => t.toLowerCase().includes(q));
+              }).length})
             </button>
-            <span className="text-[9px] md:text-[10px] text-[var(--text-muted)]">{clients.length} clientes</span>
+            <span className="text-[9px] md:text-[10px] text-[var(--text-muted)] ml-auto">{clients.length} clientes</span>
           </div>
+
+          {/* 🔍 Buscador por nombre, número o tag */}
+          <div className="relative mb-2 md:mb-3 flex-shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por nombre, número o tag..."
+              className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl py-2 pl-9 pr-9 text-xs md:text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-white transition-colors">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {searchTerm && (
+            <p className="text-[10px] text-[var(--text-muted)] mb-2 flex-shrink-0">
+              {clients.filter(c => { const q = searchTerm.toLowerCase().trim(); return c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.tags?.some((t: string) => t.toLowerCase().includes(q)); }).length} resultado(s) para <span className="text-[var(--accent-primary)]">"{searchTerm}"</span>
+              <button onClick={() => setSearchTerm('')} className="ml-2 text-red-400 hover:text-red-300 underline">limpiar</button>
+            </p>
+          )}
 
           <div className="flex-1 overflow-y-auto">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
-              {clients.filter(c => !searchTerm || c.name?.toLowerCase().includes(searchTerm.toLowerCase()) || c.phone?.includes(searchTerm))
+              {clients.filter(c => {
+                const q = searchTerm.toLowerCase().trim();
+                return !q || c.name?.toLowerCase().includes(q) || c.phone?.includes(q) || c.tags?.some((t: string) => t.toLowerCase().includes(q));
+              })
                 .map((client) => (
                   <div key={client.id} className="p-3 md:p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-primary)] hover:border-[var(--accent-primary)]/30 transition-all">
                     <div className="flex items-start justify-between">
@@ -926,7 +956,7 @@ export default function CRMPage() {
                         )}
                         {client.totalPurchases > 0 && <span className="text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-medium">💰 ${client.totalPurchases.toLocaleString()}</span>}
                         {client.tags?.length > 0 && client.tags.slice(0,2).map((t: string, i: number) => (
-                          <span key={i} className="text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-400">{t}</span>
+                          <span key={i} className={`text-[9px] md:text-[10px] px-1.5 md:px-2 py-0.5 rounded-full transition-colors ${searchTerm && t.toLowerCase().includes(searchTerm.toLowerCase()) ? 'bg-[var(--accent-primary)]/30 text-[var(--accent-primary)] ring-1 ring-[var(--accent-primary)]/50' : 'bg-violet-500/20 text-violet-400'}`}>{t}</span>
                         ))}
                       </div>
                     </div>

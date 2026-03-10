@@ -542,10 +542,10 @@ export default function ProgramadosPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Contacto</label>
                   <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)} placeholder="Ej: 573001234567"
-                    className="input-field w-full text-base" />
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
                   {conversations.length > 0 && (
                     <select value="" onChange={e => { const c = conversations.find(c=>c.recipientId===e.target.value); if(c){setTargetId(c.recipientId);setTargetName(c.recipientName||c.recipientId);} }}
-                      className="input-field w-full text-base">
+                      className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none">
                       <option value="">O selecciona uno existente...</option>
                       {conversations.filter(c=>!c.isGroup).map(c=>(
                         <option key={c.id} value={c.recipientId}>{c.recipientName||c.recipientId}</option>
@@ -560,7 +560,7 @@ export default function ProgramadosPage() {
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Grupo</label>
                   <select value={targetId} onChange={e=>{const g=groups.find(gr=>gr.recipientId===e.target.value);setTargetId(e.target.value);if(g)setTargetName(g.groupName||g.recipientName||e.target.value);}}
-                    className="input-field w-full text-base">
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none">
                     <option value="">Selecciona un grupo...</option>
                     {groups.map(g=><option key={g.id} value={g.recipientId}>{g.groupName||g.recipientName||g.recipientId}</option>)}
                   </select>
@@ -572,7 +572,7 @@ export default function ProgramadosPage() {
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Etapa del embudo</label>
                   <select value={targetId} onChange={e=>{setTargetId(e.target.value);const s=stages.find(st=>st.id===e.target.value);setTargetName(s?.label||e.target.value);}}
-                    className="input-field w-full text-base">
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none">
                     <option value="">Selecciona una etapa...</option>
                     {stages.map(s=>{
                       const count = conversations.filter(c=>c.stage===s.id).length;
@@ -738,7 +738,7 @@ export default function ProgramadosPage() {
                 <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
                 <textarea value={message} onChange={e => setMessage(e.target.value)}
                   placeholder="Escribe tu mensaje..."
-                  className="input-field w-full text-base min-h-[80px] resize-none p-3" />
+                  className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors min-h-[80px] resize-none" />
                 {targetType === 'bulk_excel' && (
                   <p className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-1">
                     <Info className="w-3 h-3" /> Puedes personalizar con variables si tu lista incluye nombres
@@ -780,11 +780,11 @@ export default function ProgramadosPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Fecha</label>
-                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="input-field w-full text-base" />
+                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Hora</label>
-                  <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="input-field w-full text-base" />
+                  <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
                 </div>
               </div>
 
@@ -832,7 +832,7 @@ export default function ProgramadosPage() {
               {recurrence !== 'once' && (
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Repetir hasta (opcional)</label>
-                  <input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)} className="input-field w-full text-base" />
+                  <input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)} className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
                   {!recurrenceEnd && <p className="text-xs text-amber-400 mt-1">Sin fecha fin = se repite indefinidamente</p>}
                 </div>
               )}

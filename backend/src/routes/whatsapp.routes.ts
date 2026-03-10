@@ -2298,7 +2298,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
 [COPILOTO — OBLIGATORIO: Termina con <<MEMORY_JSON>>...<<END_MEMORY>>.
 ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_cita(cliente_nombre,fecha_cita,hora_cita,tipo_cita) | crear_pedido(cliente_nombre,producto_servicio,total,fecha_entrega) | crear_reserva(cliente_nombre,fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva | mover_etapa(cliente_telefono,nueva_etapa)]` : `
 
-[SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.${stagesHint}
+[SISTEMA — REGLA ABSOLUTA: Tu respuesta DEBE terminar SIEMPRE con el bloque <<MEMORY_JSON>>...<<END_MEMORY>> sin excepción, aunque sea una respuesta corta, un saludo o un mensaje de confirmación. Si no incluyes este bloque, la respuesta será descartada.${stagesHint}
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.]`;
     // 💬 Si el usuario respondió a un mensaje, inyectar ese contexto antes del mensaje
     const messageWithQuoted = quotedContext ? `[Respondiendo a: "${quotedContext}"] ${message}` : message;
@@ -5789,7 +5789,8 @@ router.post('/fix-lid-numbers', async (req: Request, res: Response) => {
         if (existing) {
           // Merge: mover mensajes a la conversación existente
           await prisma.message.updateMany({ where: { conversationId: conv.id }, data: { conversationId: existing.id } });
-          await prisma.conversation.delete({ where: { id: conv.id } });
+          // ✅ deleteMany evita crash si ya fue eliminada en proceso paralelo
+          await prisma.conversation.deleteMany({ where: { id: conv.id } });
           results.push({ name: conv.recipientName, old: conv.recipientId, new: realPhone, action: 'merged' });
           log(`🔑 MERGED: ${conv.recipientName} (${conv.recipientId} → ${realPhone}) con conversación existente`);
         } else {
@@ -6220,13 +6221,49 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // 📍 WAHA: Detectar mensajes de ubicación
-    if (!body && (payload?.type === 'location' || payload?._data?.type === 'location')) {
-      const locLat = payload?.location?.lat || payload?.location?.latitude || payload?._data?.lat;
-      const locLon = payload?.location?.lng || payload?.location?.longitude || payload?._data?.lng;
-      if (locLat && locLon) {
+    // 📍 WAHA: Detectar mensajes de ubicación (estática Y en tiempo real / live)
+    // WAHA webjs: live location llega con hasMedia=true (thumbnail JPEG /9j/...) + _data.lat/_data.lng
+    // WAHA webjs: static location llega con type='location' + location.lat/location.lng
+    // WAHA NOWEB:  llega con type='location' + location.latitude/location.longitude
+    const isLocationMsg = (
+      payload?.type === 'location' ||
+      payload?._data?.type === 'location' ||
+      payload?.messageType === 'locationMessage' ||
+      // live location: thumbnail JPEG + coordenadas en _data
+      (payload?.hasMedia && (payload?._data?.lat != null || payload?._data?.latitude != null))
+    );
+
+    if (isLocationMsg) {
+      // Extraer coordenadas de todos los campos posibles
+      const locLat = (
+        payload?.location?.lat ??
+        payload?.location?.latitude ??
+        payload?._data?.lat ??
+        payload?._data?.latitude ??
+        payload?.lat ??
+        payload?.latitude
+      );
+      const locLon = (
+        payload?.location?.lng ??
+        payload?.location?.longitude ??
+        payload?._data?.lng ??
+        payload?._data?.longitude ??
+        payload?.lng ??
+        payload?.longitude
+      );
+      const isLiveLocation = !!(
+        payload?._data?.isLive ||
+        payload?.location?.live_period ||
+        payload?._data?.live_period ||
+        (payload?.hasMedia && payload?.type === 'location')
+      );
+      const locName = payload?.location?.name || payload?._data?.loc || payload?._data?.name || '';
+
+      log("📍 WAHA location: lat=" + locLat + " lon=" + locLon + " live=" + isLiveLocation + " tipo=" + (payload?.type||"") + " hasMedia=" + (payload?.hasMedia||false));
+
+      if (locLat != null && locLon != null) {
         const mapsLink = "https://maps.google.com/?q=" + locLat + "," + locLon;
-        // Load coverage config from assistant (generic — only active if configured)
+        const tipoUbi = isLiveLocation ? "ubicación en tiempo real" : "ubicación";
         let coverageMsg = "";
         try {
           const waLine = await prisma.whatsappLine.findFirst({ where: { sessionName }, select: { userId: true, id: true } });
@@ -6238,13 +6275,44 @@ router.post('/webhook', async (req: Request, res: Response) => {
             if (asst?.coverageLat && asst?.coverageLon && asst?.coverageRadiusKm) {
               const cov = checkCoverageRadius(parseFloat(locLat), parseFloat(locLon), asst.coverageLat, asst.coverageLon, asst.coverageRadiusKm);
               coverageMsg = "\n[SISTEMA COBERTURA]: " + cov.mensaje;
-              console.log("📍 WAHA Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)");
+              console.log("📍 WAHA Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)" + (isLiveLocation ? " [EN VIVO]" : ""));
             }
           }
         } catch (covErr) { /* no coverage config, skip */ }
-        body = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
+        body = "📍 El cliente compartió su " + tipoUbi + " por WhatsApp." +
+               (locName ? "\nLugar: " + locName : "") +
+               "\nCoordenadas: " + locLat + ", " + locLon +
+               "\nVer en Maps: " + mapsLink + coverageMsg;
       } else {
+        log("📍 WAHA location sin coords. Keys: " + Object.keys(payload||{}).join(",") + " | _data: " + Object.keys(payload?._data||{}).slice(0,10).join(","));
         body = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
+      }
+    } else if (!body && payload?.hasMedia && typeof payload?._data?.body === 'string' && payload._data.body.startsWith('/9j/')) {
+      // Thumbnail JPEG suelto = live location no detectada (engine webjs sin type=location)
+      log("📍 WAHA thumbnail /9j/ sin location detectada. _data keys: " + Object.keys(payload?._data||{}).join(","));
+      log("📍 WAHA _data lat=" + (payload?._data?.lat) + " lng=" + (payload?._data?.lng) + " type=" + (payload?._data?.type));
+      if (payload?._data?.lat != null && payload?._data?.lng != null) {
+        const locLat2 = payload._data.lat;
+        const locLon2 = payload._data.lng;
+        const mapsLink2 = "https://maps.google.com/?q=" + locLat2 + "," + locLon2;
+        let coverageMsg2 = "";
+        try {
+          const waLine2 = await prisma.whatsappLine.findFirst({ where: { sessionName }, select: { userId: true } });
+          if (waLine2) {
+            const asst2 = await prisma.assistant.findFirst({
+              where: { userId: waLine2.userId, isActive: true },
+              select: { coverageLat: true, coverageLon: true, coverageRadiusKm: true }
+            });
+            if (asst2?.coverageLat && asst2?.coverageLon && asst2?.coverageRadiusKm) {
+              const cov2 = checkCoverageRadius(parseFloat(locLat2), parseFloat(locLon2), asst2.coverageLat, asst2.coverageLon, asst2.coverageRadiusKm);
+              coverageMsg2 = "\n[SISTEMA COBERTURA]: " + cov2.mensaje;
+              console.log("📍 WAHA Cobertura (thumbnail): " + locLat2 + ", " + locLon2 + " → " + (cov2.dentro ? "DENTRO" : "FUERA") + " (" + cov2.distanciaKm + "km)");
+            }
+          }
+        } catch { /* skip */ }
+        body = "📍 El cliente compartió su ubicación en tiempo real por WhatsApp.\nCoordenadas: " + locLat2 + ", " + locLon2 + "\nVer en Maps: " + mapsLink2 + coverageMsg2;
+      } else {
+        body = ''; // ignorar silenciosamente — no enviar el base64 al bot
       }
     }
 
@@ -7038,6 +7106,10 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       }
       
       console.log(`☁️ [CLOUD] 📩 Mensaje de ${from} | tipo: ${msgType} | id: ${msgId}`);
+      // 🔍 DEBUG LOCATION: loggear payload completo si es location o tipo desconocido
+      if (msgType === 'location' || (msgType !== 'text' && msgType !== 'image' && msgType !== 'audio' && msgType !== 'video' && msgType !== 'document' && msgType !== 'sticker' && msgType !== 'reaction' && msgType !== 'contacts')) {
+        console.log(`☁️ [CLOUD] 🔍 Payload tipo "${msgType}":`, JSON.stringify(msg).substring(0, 500));
+      }
       
       if (msgId && recentlyProcessed.has(msgId)) { console.log(`☁️ [CLOUD] ⏭️ Duplicado, ignorando`); continue; }
       if (msgId) { recentlyProcessed.add(msgId); setTimeout(() => recentlyProcessed.delete(msgId), 60000); }
@@ -7190,8 +7262,11 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       } else if (msgType === 'location') {
         const locLat = msg.location?.latitude;
         const locLon = msg.location?.longitude;
+        const isLive = !!(msg.location?.live_period); // ubicación en tiempo real
+        log(`☁️ 📍 Location msg: lat=${locLat} lon=${locLon} live=${isLive} live_period=${msg.location?.live_period || 'n/a'}`);
         if (locLat && locLon) {
           const mapsLink = "https://maps.google.com/?q=" + locLat + "," + locLon;
+          const tipoUbi = isLive ? "ubicación en tiempo real" : "ubicación";
           // Load coverage config — generic, only if assistant has it configured
           let coverageMsg = "";
           try {
@@ -7202,13 +7277,20 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             if (asst?.coverageLat && asst?.coverageLon && asst?.coverageRadiusKm) {
               const cov = checkCoverageRadius(locLat, locLon, asst.coverageLat, asst.coverageLon, asst.coverageRadiusKm);
               coverageMsg = "\n[SISTEMA COBERTURA]: " + cov.mensaje;
-              console.log("☁️ 📍 Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)");
+              console.log("☁️ 📍 Cobertura: " + locLat + ", " + locLon + " → " + (cov.dentro ? "DENTRO" : "FUERA") + " (" + cov.distanciaKm + "km)" + (isLive ? " [EN VIVO]" : ""));
             }
           } catch { /* no coverage config, skip */ }
-          messageBody = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
+          messageBody = "📍 El cliente compartió su " + tipoUbi + " por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
         } else {
           messageBody = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
         }
+      } else if (msgType === 'unsupported') {
+        // ☁️ Algunos mensajes especiales (live location updates, stickers nuevos, etc.) llegan como 'unsupported'
+        // Intentar extraer location si viene en el payload
+        const unsupLat = msg.location?.latitude || msg.errors?.[0]?.href;
+        log(`☁️ ⚠️ Tipo 'unsupported' recibido | keys: ${Object.keys(msg).join(',')} | errors: ${JSON.stringify(msg.errors || [])}`);
+        messageBody = ''; // ignorar silenciosamente — no molestar al bot con mensaje vacío
+        continue;
       } else if (msgType === 'contacts') {
         const c = msg.contacts?.[0];
         messageBody = `👤 Contacto: ${c?.name?.formatted_name || 'Sin nombre'} - ${c?.phones?.[0]?.phone || ''}`;

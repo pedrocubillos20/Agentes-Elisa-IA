@@ -2877,8 +2877,25 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               const isDelivery = !!(merged.fecha_entrega);
 
               let dataComplete: boolean;
-              if (isDelivery) {
-                // 🚚 DELIVERY: exige nombre + producto + dirección real + ciudad + teléfono + pago confirmado
+              // ⚠️ FIX: crear_pedido SIEMPRE exige checklist completo (delivery)
+              // No caer a modo presencial aunque falte fecha_entrega — el pedido de tienda
+              // siempre necesita dirección, teléfono y pago confirmado del cliente
+              if (actionToTake === 'crear_pedido') {
+                // 🛒 PEDIDO: checklist completo OBLIGATORIO sin excepción
+                dataComplete = hasName && hasProduct && hasRealAddress && hasCity && hasPhone && hasPayment;
+                if (!dataComplete) {
+                  const missing = [
+                    !hasName        && 'nombre',
+                    !hasProduct     && 'producto',
+                    !hasRealAddress && 'dirección (calle completa)',
+                    !hasCity        && 'ciudad',
+                    !hasPhone       && 'teléfono',
+                    !hasPayment     && 'método de pago confirmado',
+                  ].filter(Boolean).join(', ');
+                  log(`⏳ crear_pedido bloqueado — faltan datos obligatorios: ${missing}`);
+                }
+              } else if (isDelivery) {
+                // 🚚 DELIVERY (cita/reserva con domicilio): exige datos completos
                 dataComplete = hasName && hasProduct && hasRealAddress && hasCity && hasPhone && hasPayment;
                 if (!dataComplete) {
                   const missing = [
@@ -2889,12 +2906,12 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     !hasPhone       && 'teléfono',
                     !hasPayment     && 'método de pago confirmado',
                   ].filter(Boolean).join(', ');
-                  log(`⏳ Pedido delivery pendiente — faltan: ${missing}`);
+                  log(`⏳ Cita/reserva delivery pendiente — faltan: ${missing}`);
                 }
               } else {
                 // 🏪 PRESENCIAL (tienda, CDA, restaurante): solo nombre + producto
                 dataComplete = hasName && hasProduct;
-                if (!dataComplete) log(`⏳ Pedido presencial pendiente — faltan: ${!hasName ? 'nombre' : 'producto'}`);
+                if (!dataComplete) log(`⏳ Cita/reserva presencial pendiente — faltan: ${!hasName ? 'nombre' : 'producto'}`);
               }
               
               if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {

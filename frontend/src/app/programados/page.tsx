@@ -410,20 +410,20 @@ export default function ProgramadosPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-0.5">
                         <span className="text-sm font-semibold text-white truncate max-w-xs">{item.targetName || item.targetId}</span>
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${status.bg} ${status.text}`}>{status.label}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${status.bg} ${status.text}`}>{status.label}</span>
                         {item.recurrence !== 'once' && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-400">
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-blue-500/20 text-blue-400">
                             🔄 {RECURRENCE_OPTIONS.find(r=>r.id===item.recurrence)?.label}
                           </span>
                         )}
                         {isBulk && (
-                          <span className="px-1.5 py-0.5 rounded text-[9px] bg-purple-500/20 text-purple-400">📊 Excel masivo</span>
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-purple-500/20 text-purple-400">📊 Excel masivo</span>
                         )}
                       </div>
                       <p className="text-xs text-[var(--text-muted)] truncate mb-1">
                         {item.mediaUrl && '📎 '}{item.message || '[Solo media]'}
                       </p>
-                      <div className="flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
+                      <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
                         <span>📅 {dt.toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'})} {dt.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
                         {item.sendCount > 0 && <span>· Enviado {item.sendCount}x</span>}
                         {isBulk && item.bulkTotal > 0 && (
@@ -459,15 +459,15 @@ export default function ProgramadosPage() {
                   <div className="grid grid-cols-3 gap-3 mb-3">
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] text-center">
                       <p className="text-lg font-bold text-white">{item.bulkTotal}</p>
-                      <p className="text-[10px] text-[var(--text-muted)]">Total</p>
+                      <p className="text-xs text-[var(--text-muted)]">Total</p>
                     </div>
                     <div className="p-2 rounded-lg bg-emerald-500/10 text-center">
                       <p className="text-lg font-bold text-emerald-400">{item.bulkSent}</p>
-                      <p className="text-[10px] text-[var(--text-muted)]">Enviados</p>
+                      <p className="text-xs text-[var(--text-muted)]">Enviados</p>
                     </div>
                     <div className="p-2 rounded-lg bg-red-500/10 text-center">
                       <p className="text-lg font-bold text-red-400">{item.bulkFailed}</p>
-                      <p className="text-[10px] text-[var(--text-muted)]">Fallidos</p>
+                      <p className="text-xs text-[var(--text-muted)]">Fallidos</p>
                     </div>
                   </div>
                   {item.bulkTotal > 0 && (
@@ -504,7 +504,7 @@ export default function ProgramadosPage() {
 
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
-              <h3 className="font-bold text-white text-base">
+              <h3 className="font-bold text-white text-lg">
                 {editing ? 'Editar Programado' : 'Nuevo Mensaje Programado'}
               </h3>
               <button onClick={() => !saving && setShowModal(false)} className="p-1 hover:bg-white/10 rounded">
@@ -517,7 +517,7 @@ export default function ProgramadosPage() {
 
               {/* ── Tipo de destinatario ── */}
               <div>
-                <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wide">Enviar a</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Enviar a</label>
                 <div className="grid grid-cols-5 gap-1.5">
                   {TARGET_TYPES.map(t => {
                     const Icon = t.icon;
@@ -526,7 +526,7 @@ export default function ProgramadosPage() {
                       <button key={t.id} onClick={() => { setTargetType(t.id); setTargetId(''); setTargetName(''); setExcelContacts([]); setExcelFileName(''); }}
                         className={`p-2.5 rounded-xl border text-center transition-all ${active ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
                         <Icon className={`w-5 h-5 mx-auto mb-1 ${active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
-                        <p className="text-[10px] font-medium text-white leading-tight">{t.label}</p>
+                        <p className="text-xs font-medium text-white leading-tight">{t.label}</p>
                       </button>
                     );
                   })}
@@ -536,12 +536,12 @@ export default function ProgramadosPage() {
               {/* ── Contacto ── */}
               {targetType === 'contact' && (
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1 block uppercase tracking-wide">Contacto</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Contacto</label>
                   <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)} placeholder="Ej: 573001234567"
-                    className="input-field w-full text-sm" />
+                    className="input-field w-full text-base" />
                   {conversations.length > 0 && (
                     <select value="" onChange={e => { const c = conversations.find(c=>c.recipientId===e.target.value); if(c){setTargetId(c.recipientId);setTargetName(c.recipientName||c.recipientId);} }}
-                      className="input-field w-full text-sm">
+                      className="input-field w-full text-base">
                       <option value="">O selecciona uno existente...</option>
                       {conversations.filter(c=>!c.isGroup).map(c=>(
                         <option key={c.id} value={c.recipientId}>{c.recipientName||c.recipientId}</option>
@@ -554,9 +554,9 @@ export default function ProgramadosPage() {
               {/* ── Grupo ── */}
               {targetType === 'group' && (
                 <div>
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1 block uppercase tracking-wide">Grupo</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Grupo</label>
                   <select value={targetId} onChange={e=>{const g=groups.find(gr=>gr.recipientId===e.target.value);setTargetId(e.target.value);if(g)setTargetName(g.groupName||g.recipientName||e.target.value);}}
-                    className="input-field w-full text-sm">
+                    className="input-field w-full text-base">
                     <option value="">Selecciona un grupo...</option>
                     {groups.map(g=><option key={g.id} value={g.recipientId}>{g.groupName||g.recipientName||g.recipientId}</option>)}
                   </select>
@@ -566,9 +566,9 @@ export default function ProgramadosPage() {
               {/* ── Etapa embudo ── */}
               {targetType === 'stage' && (
                 <div>
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1 block uppercase tracking-wide">Etapa del embudo</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Etapa del embudo</label>
                   <select value={targetId} onChange={e=>{setTargetId(e.target.value);const s=stages.find(st=>st.id===e.target.value);setTargetName(s?.label||e.target.value);}}
-                    className="input-field w-full text-sm">
+                    className="input-field w-full text-base">
                     <option value="">Selecciona una etapa...</option>
                     {stages.map(s=>{
                       const count = conversations.filter(c=>c.stage===s.id).length;
@@ -581,11 +581,11 @@ export default function ProgramadosPage() {
               {/* ── Clientes CRM ── */}
               {targetType === 'clients' && (
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1 block uppercase tracking-wide">Clientes CRM</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Clientes CRM</label>
                   <div className="flex flex-wrap gap-1.5">
                     {[{id:'all',label:'Todos'},{id:'active',label:'✅ Activos'},{id:'lead',label:'🔵 Leads'},{id:'vip',label:'⭐ VIP'}].map(f=>(
                       <button key={f.id} onClick={()=>{setClientFilter(f.id);setTargetId(`clients:${f.id}`);setTargetName(`Clientes: ${f.label}`);}}
-                        className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${clientFilter===f.id?'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/50 text-white':'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
+                        className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${clientFilter===f.id?'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/50 text-white':'bg-white/5 border-white/10 text-[var(--text-muted)] hover:text-white'}`}>
                         {f.label} ({clients.filter(c=>f.id==='all'?true:c.status===f.id).length})
                       </button>
                     ))}
@@ -597,9 +597,9 @@ export default function ProgramadosPage() {
               {targetType === 'bulk_excel' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Importar desde Excel</label>
+                    <label className="text-sm font-semibold text-[var(--text-muted)]">Importar desde Excel</label>
                     <button onClick={downloadTemplate}
-                      className="flex items-center gap-1 text-xs text-[var(--accent-primary)] hover:underline">
+                      className="flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline">
                       <Download className="w-3 h-3" /> Descargar plantilla
                     </button>
                   </div>
@@ -621,13 +621,13 @@ export default function ProgramadosPage() {
                             <ArrowUpFromLine className="w-6 h-6 text-green-400" />
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-white">Arrastra tu Excel aquí</p>
-                            <p className="text-xs text-[var(--text-muted)] mt-0.5">o haz clic para seleccionar · .xlsx .xls .csv</p>
+                            <p className="text-base font-semibold text-white">Arrastra tu Excel aquí</p>
+                            <p className="text-sm text-[var(--text-muted)] mt-1">o haz clic para seleccionar · .xlsx .xls .csv</p>
                           </div>
                           <div className="mt-1 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-left">
-                            <p className="text-[10px] text-blue-400 font-medium mb-1">📋 Columnas reconocidas automáticamente:</p>
-                            <p className="text-[10px] text-[var(--text-muted)]"><span className="text-white">Teléfono:</span> telefono, phone, celular, movil, whatsapp, numero...</p>
-                            <p className="text-[10px] text-[var(--text-muted)]"><span className="text-white">Nombre:</span> nombre, name, cliente, contacto...</p>
+                            <p className="text-xs text-blue-400 font-medium mb-1">📋 Columnas reconocidas automáticamente:</p>
+                            <p className="text-xs text-[var(--text-muted)]"><span className="text-white">Teléfono:</span> telefono, phone, celular, movil, whatsapp, numero...</p>
+                            <p className="text-xs text-[var(--text-muted)]"><span className="text-white">Nombre:</span> nombre, name, cliente, contacto...</p>
                           </div>
                         </div>
                       )}
@@ -643,19 +643,19 @@ export default function ProgramadosPage() {
                         <div className="flex items-center gap-3">
                           <div className="text-center">
                             <p className="text-lg font-bold text-white">{excelContacts.length}</p>
-                            <p className="text-[9px] text-[var(--text-muted)]">Total</p>
+                            <p className="text-xs text-[var(--text-muted)]">Total</p>
                           </div>
                           <div className="w-px h-8 bg-[var(--border-primary)]" />
                           <div className="text-center">
                             <p className="text-lg font-bold text-emerald-400">{excelValid}</p>
-                            <p className="text-[9px] text-[var(--text-muted)]">Válidos</p>
+                            <p className="text-xs text-[var(--text-muted)]">Válidos</p>
                           </div>
                           {excelInvalid > 0 && (
                             <>
                               <div className="w-px h-8 bg-[var(--border-primary)]" />
                               <div className="text-center">
                                 <p className="text-lg font-bold text-amber-400">{excelInvalid}</p>
-                                <p className="text-[9px] text-[var(--text-muted)]">Inválidos</p>
+                                <p className="text-xs text-[var(--text-muted)]">Inválidos</p>
                               </div>
                             </>
                           )}
@@ -674,7 +674,7 @@ export default function ProgramadosPage() {
 
                       {/* Nombre del archivo */}
                       {excelFileName && (
-                        <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
+                        <p className="text-xs text-[var(--text-muted)] flex items-center gap-1">
                           <FileText className="w-3 h-3" /> {excelFileName}
                         </p>
                       )}
@@ -687,12 +687,12 @@ export default function ProgramadosPage() {
                       {/* Lista preview */}
                       {showExcelPreview && (
                         <div className="rounded-xl border border-[var(--border-primary)] overflow-hidden">
-                          <div className="grid grid-cols-[auto_1fr_1fr] text-[10px] font-semibold text-[var(--text-muted)] bg-[var(--bg-tertiary)] px-3 py-2 gap-3">
+                          <div className="grid grid-cols-[auto_1fr_1fr] text-xs font-semibold text-[var(--text-muted)] bg-[var(--bg-tertiary)] px-3 py-2 gap-3">
                             <span>#</span><span>Nombre</span><span>Teléfono</span>
                           </div>
                           <div className="max-h-40 overflow-y-auto divide-y divide-[var(--border-primary)]">
                             {excelContacts.slice(0, 50).map((c, i) => (
-                              <div key={i} className={`grid grid-cols-[auto_1fr_1fr] text-[10px] px-3 py-1.5 gap-3 items-center ${c.valid ? '' : 'bg-amber-500/5'}`}>
+                              <div key={i} className={`grid grid-cols-[auto_1fr_1fr] text-xs px-3 py-1.5 gap-3 items-center ${c.valid ? '' : 'bg-amber-500/5'}`}>
                                 <span className="text-[var(--text-muted)]">{i+1}</span>
                                 <span className="text-white truncate">{c.name || <span className="text-[var(--text-muted)] italic">Sin nombre</span>}</span>
                                 <span className={`font-mono ${c.valid ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -701,7 +701,7 @@ export default function ProgramadosPage() {
                               </div>
                             ))}
                             {excelContacts.length > 50 && (
-                              <div className="px-3 py-2 text-[10px] text-[var(--text-muted)] text-center">
+                              <div className="px-3 py-2 text-xs text-[var(--text-muted)] text-center">
                                 ... y {excelContacts.length - 50} contactos más
                               </div>
                             )}
@@ -712,7 +712,7 @@ export default function ProgramadosPage() {
                       {excelInvalid > 0 && (
                         <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                           <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
-                          <p className="text-[10px] text-amber-300">
+                          <p className="text-xs text-amber-300">
                             {excelInvalid} contacto{excelInvalid>1?'s':''} con número inválido serán ignorados al momento del envío.
                             Solo se enviarán los {excelValid} válidos.
                           </p>
@@ -731,12 +731,12 @@ export default function ProgramadosPage() {
 
               {/* ── MENSAJE ── */}
               <div>
-                <label className="text-xs font-semibold text-[var(--text-muted)] mb-1.5 block uppercase tracking-wide">Mensaje</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
                 <textarea value={message} onChange={e => setMessage(e.target.value)}
                   placeholder="Escribe tu mensaje..."
-                  className="input-field w-full text-sm min-h-[80px] resize-none p-3" />
+                  className="input-field w-full text-base min-h-[80px] resize-none p-3" />
                 {targetType === 'bulk_excel' && (
-                  <p className="text-[10px] text-[var(--text-muted)] mt-1 flex items-center gap-1">
+                  <p className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-1">
                     <Info className="w-3 h-3" /> Puedes personalizar con variables si tu lista incluye nombres
                   </p>
                 )}
@@ -744,7 +744,7 @@ export default function ProgramadosPage() {
 
               {/* ── MEDIA ── */}
               <div>
-                <label className="text-xs font-semibold text-[var(--text-muted)] mb-1.5 block uppercase tracking-wide">Adjunto (opcional)</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Adjunto (opcional)</label>
                 <input ref={fileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx" onChange={handleFileSelect} className="hidden" />
                 {mediaFile ? (
                   <div className="flex items-center gap-3 p-2.5 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-primary)]">
@@ -754,7 +754,7 @@ export default function ProgramadosPage() {
                     }
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-white truncate">{mediaFile.name}</p>
-                      <p className="text-[10px] text-[var(--text-muted)]">{(mediaFile.size/1024).toFixed(0)} KB</p>
+                      <p className="text-xs text-[var(--text-muted)]">{(mediaFile.size/1024).toFixed(0)} KB</p>
                     </div>
                     <button onClick={() => { setMediaFile(null); setMediaPreview(null); }} className="p-1 hover:bg-white/10 rounded">
                       <X className="w-4 h-4 text-red-400" />
@@ -764,7 +764,7 @@ export default function ProgramadosPage() {
                   <div className="flex gap-2">
                     {[{label:'Imagen',icon:Image,accept:'image/*'},{label:'Audio',icon:Mic,accept:'audio/*'},{label:'Archivo',icon:Paperclip,accept:'*/*'}].map(({label,icon:Icon,accept}) => (
                       <button key={label} onClick={() => { if(fileInputRef.current){fileInputRef.current.accept=accept;fileInputRef.current.click();} }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--bg-tertiary)] rounded-lg text-xs text-[var(--text-muted)] hover:text-white border border-[var(--border-primary)] transition-all">
+                        className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-tertiary)] rounded-lg text-sm text-[var(--text-muted)] hover:text-white border border-[var(--border-primary)] transition-all">
                         <Icon className="w-3.5 h-3.5" /> {label}
                       </button>
                     ))}
@@ -775,20 +775,20 @@ export default function ProgramadosPage() {
               {/* ── FECHA Y HORA ── */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1.5 block uppercase tracking-wide">Fecha</label>
-                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="input-field w-full text-sm" />
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Fecha</label>
+                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="input-field w-full text-base" />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1.5 block uppercase tracking-wide">Hora</label>
-                  <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="input-field w-full text-sm" />
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Hora</label>
+                  <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="input-field w-full text-base" />
                 </div>
               </div>
 
               {/* Info anti-bloqueo para bulk */}
               {targetType === 'bulk_excel' && excelValid > 0 && (
                 <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
-                  <p className="text-xs font-semibold text-white mb-1.5">⏱️ Estimación de envío</p>
-                  <div className="space-y-1 text-[10px] text-[var(--text-muted)]">
+                  <p className="text-sm font-semibold text-white mb-2">⏱️ Estimación de envío</p>
+                  <div className="space-y-1 text-xs text-[var(--text-muted)]">
                     <p>• Delay entre mensajes: 8–18 segundos (anti-bloqueo)</p>
                     <p>• Pausa cada 10 mensajes: 30–60 segundos</p>
                     <p>• Tiempo estimado total: <span className="text-white font-medium">~{Math.ceil((excelValid * 13 + Math.floor(excelValid/10) * 45) / 60)} minutos</span></p>
@@ -799,13 +799,13 @@ export default function ProgramadosPage() {
 
               {/* ── RECURRENCIA ── */}
               <div>
-                <label className="text-xs font-semibold text-[var(--text-muted)] mb-2 block uppercase tracking-wide">Repetir</label>
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Repetir</label>
                 <div className="grid grid-cols-4 gap-2">
                   {RECURRENCE_OPTIONS.map(r => (
                     <button key={r.id} onClick={() => setRecurrence(r.id)}
                       className={`p-2 rounded-xl border text-center transition-all ${recurrence===r.id?'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10':'border-[var(--border-primary)] hover:border-white/20'}`}>
                       <span className="text-base">{r.icon}</span>
-                      <p className="text-[10px] font-medium text-white mt-0.5">{r.label}</p>
+                      <p className="text-xs font-medium text-white mt-0.5">{r.label}</p>
                     </button>
                   ))}
                 </div>
@@ -817,7 +817,7 @@ export default function ProgramadosPage() {
                   <div className="flex gap-1">
                     {DAYS_OF_WEEK.map(d => (
                       <button key={d.id} onClick={() => toggleDay(d.id)}
-                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-all ${recurrenceDays.includes(d.id)?'bg-[var(--accent-primary)] text-white':'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-primary)]'}`}>
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${recurrenceDays.includes(d.id)?'bg-[var(--accent-primary)] text-white':'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-primary)]'}`}>
                         {d.short}
                       </button>
                     ))}
@@ -827,9 +827,9 @@ export default function ProgramadosPage() {
 
               {recurrence !== 'once' && (
                 <div>
-                  <label className="text-xs font-semibold text-[var(--text-muted)] mb-1.5 block uppercase tracking-wide">Repetir hasta (opcional)</label>
-                  <input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)} className="input-field w-full text-sm" />
-                  {!recurrenceEnd && <p className="text-[10px] text-amber-400 mt-1">Sin fecha fin = se repite indefinidamente</p>}
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Repetir hasta (opcional)</label>
+                  <input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)} className="input-field w-full text-base" />
+                  {!recurrenceEnd && <p className="text-xs text-amber-400 mt-1">Sin fecha fin = se repite indefinidamente</p>}
                 </div>
               )}
 
@@ -837,7 +837,7 @@ export default function ProgramadosPage() {
 
             {/* Footer */}
             <div className="p-4 border-t border-[var(--border-primary)] flex gap-2 flex-shrink-0">
-              <button onClick={() => !saving && setShowModal(false)} className="btn-secondary flex-1 py-2 text-sm" disabled={saving}>
+              <button onClick={() => !saving && setShowModal(false)} className="btn-secondary flex-1 py-2.5 text-base" disabled={saving}>
                 Cancelar
               </button>
               <button onClick={handleSave} disabled={
@@ -847,7 +847,7 @@ export default function ProgramadosPage() {
                 (targetType !== 'bulk_excel' && !targetId) ||
                 (targetType === 'bulk_excel' && excelValid === 0)
               }
-                className="btn-primary flex-1 py-2 text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+                className="btn-primary flex-1 py-2.5 text-base disabled:opacity-50 flex items-center justify-center gap-2">
                 {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                 {saving ? 'Guardando...' : editing ? 'Guardar cambios' : (
                   targetType === 'bulk_excel' && excelValid > 0

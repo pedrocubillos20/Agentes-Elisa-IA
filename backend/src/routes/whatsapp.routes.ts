@@ -3075,8 +3075,17 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               
               // 🔔 AUTO-DETECTAR: Si no hubo acción crear_pedido pero los datos están completos, crear pedido
-              // ⚠️ SAFETY: Verificar que NO existe un pedido reciente para este cliente
-              if (actionToTake !== 'crear_pedido' && merged.pedido !== 'creado' && dataComplete) {
+              // ⚠️ SAFETY: Solo para flujos de PEDIDO real — NO disparar en flujos de cita/reserva
+              const isAppointmentFlow = (
+                actionToTake === 'crear_cita' || actionToTake === 'crear_reserva' ||
+                actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva' ||
+                merged.cita === 'creada' || merged.reserva === 'creada' ||
+                merged.fecha_cita || merged.fecha_reserva || merged.hora_cita || merged.hora_reserva ||
+                merged.tipo_cita || merged.tipo_reserva ||
+                (merged.etapa_actual || '').toLowerCase().includes('reserva') ||
+                (merged.etapa_actual || '').toLowerCase().includes('cita')
+              );
+              if (actionToTake !== 'crear_pedido' && merged.pedido !== 'creado' && dataComplete && !isAppointmentFlow) {
                 // Verificar si la IA confirmó/resumió el pedido en su respuesta
                 const orderConfirmPatterns = [
                   /(?:he registrado|pedido registrado|confirmar.*pedido|proceder|resumen final|información.*registrada)/i,

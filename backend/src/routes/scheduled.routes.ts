@@ -194,7 +194,7 @@ router.post('/', async (req: Request, res: Response) => {
       whatsappLineId, targetType, targetId, targetName,
       message, mediaUrl, mediaType,
       scheduledAt, recurrence, recurrenceDays, recurrenceTime, recurrenceEnd,
-      timezone
+      timezone, bulkRecipients
     } = req.body;
 
     if (!targetId || !scheduledAt) {
@@ -230,7 +230,11 @@ router.post('/', async (req: Request, res: Response) => {
         scheduledAt: new Date(scheduledAt), recurrence: recurrence || 'once',
         recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
-        timezone: timezone || 'America/Bogota', status: 'pending'
+        timezone: timezone || 'America/Bogota', status: 'pending',
+        ...(bulkRecipients && Array.isArray(bulkRecipients) && {
+          bulkRecipients: bulkRecipients,
+          bulkTotal: bulkRecipients.length
+        })
       }
     });
 
@@ -414,6 +418,17 @@ const processScheduledMessage = async (msg: any) => {
         return chatId ? { chatId, name: c.recipientName || undefined } : null;
       })
       .filter(Boolean) as { chatId: string; name?: string }[];
+
+  } else if (targetType === 'bulk_excel') {
+    // 📊 Destinatarios importados desde Excel — almacenados en bulkRecipients
+    const bulkList = (msg.bulkRecipients as any[]) || [];
+    targets = bulkList
+      .map((r: any) => {
+        const phone = String(r.phone || r.telefono || r.number || '').replace(/\D/g, '');
+        const chatId = formatChatId(phone, false);
+        return chatId ? { chatId, name: r.name || r.nombre || undefined } : null;
+      })
+      .filter(Boolean) as { chatId: string; name?: string }[];
   }
 
   if (targets.length === 0) {
@@ -535,7 +550,10 @@ const processScheduledMessage = async (msg: any) => {
   if (msg.recurrence === 'once') {
     await prisma.scheduledMessage.update({
       where: { id: msg.id },
-      data: { status: finalStatus, sentAt: new Date(), lastSentAt: new Date(), sendCount: msg.sendCount + 1, error: errorMsg }
+      data: { 
+        status: finalStatus, sentAt: new Date(), lastSentAt: new Date(), sendCount: msg.sendCount + 1, error: errorMsg,
+        ...(targetType === 'bulk_excel' && { bulkSent: sentCount, bulkFailed: failedCount, bulkTotal: targets.length })
+      }
     });
   } else {
     const nextDate = calculateNextOccurrence(msg);

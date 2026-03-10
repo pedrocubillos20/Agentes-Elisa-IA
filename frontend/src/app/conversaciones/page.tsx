@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   MessageSquare, Search, Send, X, Trash2,
   Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap,
@@ -629,133 +630,72 @@ export default function ConversacionesPage() {
   // ====================================================
   // 📢 ENVÍO MASIVO — Usa /send-bulk con delays en backend + media
   // ====================================================
-  // 📤 Exportar contactos de conversaciones como XLSX profesional
+  // 📤 Exportar contactos de conversaciones como XLSX
   const exportContacts = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
       const lineId = getLineId();
-      const res = await fetch(`${API_URL}/api/conversations/export-contacts?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
-      const { data } = await res.json();
+      const res  = await fetch(`${API_URL}/api/conversations/export-contacts?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
       if (!data?.length) { alert('No hay contactos para exportar'); return; }
 
-      const columns = [
-        { key: 'nombre', label: 'Nombre' },
-        { key: 'telefono', label: 'Teléfono' },
-        { key: 'etapa', label: 'Etapa' },
-        { key: 'ciudad', label: 'Ciudad' },
-        { key: 'barrio', label: 'Barrio' },
-        { key: 'direccion', label: 'Dirección' },
-        { key: 'producto', label: 'Producto' },
-        { key: 'talla', label: 'Talla' },
-        { key: 'color', label: 'Color' },
-        { key: 'calidad', label: 'Calidad' },
-        { key: 'total', label: 'Total $' },
-        { key: 'metodo_pago', label: 'Método Pago' },
-        { key: 'fecha_entrega', label: 'Fecha Entrega' },
-        { key: 'envio', label: 'Envío' },
-        { key: 'fecha', label: 'Última Actividad' }
-      ];
+      const rows = data.map((r: any) => ({
+        'Nombre':         r.nombre   || r.name || '',
+        'Teléfono':       r.telefono || r.phone || '',
+        'Etapa':          r.etapa    || r.stage || '',
+        'Último mensaje': r.ultimoMensaje || r.lastMessage || '',
+        'Fecha':          r.fecha    || r.lastActivity || '',
+      }));
 
-      const stageColors: Record<string, string> = {
-        'Confirmado': '#27ae60', 'Interesado': '#f39c12', 'En Cotización': '#3498db',
-        'Nuevo Contacto': '#9b59b6', 'Pendiente Color': '#e67e22', 'Pendiente Talla': '#e67e22',
-        'Pendiente Ciudad': '#e67e22', 'Pendiente Calidad': '#e67e22', 'No Interesado': '#e74c3c'
-      };
-
-      const esc = (v: string) => v.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const colLen = columns.length;
-      const dateStr = new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-      let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="UTF-8">
-<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
-<x:Name>Contactos</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-<style>
-td,th{padding:6px 10px;font-family:Calibri,Arial;font-size:11pt;border:1px solid #d5d5d5}
-th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:center}
-.re{background:#f8f9fa}.ro{background:#fff}
-.tt td{background:#0f3460;color:#00d4aa;font-size:16pt;font-weight:bold;border:none;padding:12px}
-.st td{background:#0f3460;color:#aaa;font-size:10pt;border:none;padding:4px 12px}
-.sp td{border:none;height:6px}
-</style></head><body><table>
-<tr class="tt"><td colspan="${colLen}">📋 Contactos WhatsApp — BizonneCRM</td></tr>
-<tr class="st"><td colspan="${colLen}">Exportado: ${dateStr} · Total: ${data.length} contactos</td></tr>
-<tr class="sp"><td colspan="${colLen}"></td></tr>
-<tr>${columns.map((c: any) => `<th>${c.label}</th>`).join('')}</tr>`;
-
-      data.forEach((row: any, i: number) => {
-        html += `<tr class="${i % 2 === 0 ? 're' : 'ro'}">`;
-        columns.forEach((col: any) => {
-          let val = esc((row[col.key] || '').toString());
-          let s = '';
-          if (col.key === 'etapa' && val) {
-            const bg = stageColors[val] || '#95a5a6';
-            s = `background:${bg};color:#fff;font-weight:bold;text-align:center`;
-          } else if (col.key === 'total' && val) {
-            const num = val.replace(/[^0-9]/g, '');
-            val = num ? `$${Number(num).toLocaleString('es-CO')}` : val;
-            s = 'font-weight:bold;color:#27ae60;text-align:right';
-          } else if (col.key === 'telefono') { s = 'color:#2980b9;mso-number-format:\@'; }
-          else if (col.key === 'nombre') { s = 'font-weight:bold'; }
-          html += `<td style="${s}">${val}</td>`;
-        });
-        html += '</tr>';
-      });
-
-      const conf = data.filter((r: any) => r.etapa === 'Confirmado').length;
-      const inter = data.filter((r: any) => r.etapa === 'Interesado').length;
-      const totalV = data.reduce((s: number, r: any) => { const n = (r.total||'').toString().replace(/[^0-9]/g,''); return s + (n ? Number(n) : 0); }, 0);
-
-      html += `<tr class="sp"><td colspan="${colLen}"></td></tr>
-<tr><td colspan="2" style="background:#0f3460;color:#00d4aa;font-weight:bold">📊 Resumen</td>
-<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:center">✅ ${conf} confirmados</td>
-<td colspan="2" style="background:#f39c12;color:#fff;font-weight:bold;text-align:center">🟡 ${inter} interesados</td>
-<td colspan="3" style="background:#0f3460;color:#aaa">Total: ${data.length} contactos</td>
-<td colspan="2" style="background:#0f3460;color:#aaa">Pendientes: ${data.length - conf - inter}</td>
-<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:right">$${totalV.toLocaleString('es-CO')}</td>
-<td colspan="${colLen - 11 > 0 ? colLen - 11 : 1}" style="background:#0f3460"></td>
-</tr></table></body></html>`;
-
-      const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Contactos_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [{wch:30},{wch:18},{wch:20},{wch:50},{wch:18}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Contactos');
+      XLSX.writeFile(wb, `Conversaciones_${new Date().toISOString().split('T')[0]}.xlsx`);
     } catch { alert('Error al exportar'); }
   };
 
-
-  // 📥 Importar contactos desde CSV al CRM
+    // 📥 Importar contactos desde Excel/CSV al CRM
   const importContacts = async (file: File) => {
     try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) { alert('Archivo vacío'); return; }
-      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
-      const contacts = lines.slice(1).map(line => {
-        const values = line.match(/(?:\"[^\"]*\"|[^,]*)(?:,|$)/g)?.map(v => v.replace(/^"|"$|,$/g, '').trim()) || line.split(',').map(v => v.trim());
-        const obj: any = {};
-        headers.forEach((h, i) => { obj[h] = values[i] || ''; });
-        return obj;
-      }).filter(c => c.telefono || c.phone || c.celular);
-      if (contacts.length === 0) { alert('No se encontraron contactos. Columnas requeridas: nombre, telefono'); return; }
-      const token = localStorage.getItem('token');
+      let contacts: any[] = [];
+      if (file.name.match(/\.xlsx?$/i)) {
+        const buffer = await file.arrayBuffer();
+        const wb   = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        contacts = rows.map((row: any) => {
+          const n: any = {};
+          Object.keys(row).forEach(k => { n[k.toLowerCase().trim().replace(/\s+/g,'_')] = row[k]; });
+          return n;
+        }).filter((c: any) => c.telefono || c.phone || c.celular || c.movil || c.whatsapp || c.numero);
+      } else {
+        const text = await file.text();
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) { alert('Archivo vacío'); return; }
+        const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase());
+        contacts = lines.slice(1).map(line => {
+          const vals = line.split(',').map(v => v.replace(/^"|"$/g,'').trim());
+          const obj: any = {};
+          headers.forEach((h,i) => { obj[h] = vals[i]||''; });
+          return obj;
+        }).filter(c => c.telefono || c.phone || c.celular);
+      }
+      if (!contacts.length) { alert('No se encontraron contactos.\nAsegúrate de tener columnas: nombre, telefono'); return; }
+      const token  = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
       const lineId = getLineId();
-      const res = await fetch(`${API_URL}/api/clients/import`, {
+      const res    = await fetch(`${API_URL}/api/clients/import`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ contacts, lineId })
       });
       const result = await res.json();
       if (res.ok) alert(`✅ Importados: ${result.imported} nuevos, ${result.skipped} duplicados`);
-      else alert(result.error || 'Error');
-    } catch { alert('Error al leer archivo'); }
+      else        alert(result.error || 'Error al importar');
+    } catch (e: any) { alert('Error: ' + (e?.message || 'desconocido')); }
   };
 
-  // 🛡️ REF-BASED LOCK: Prevents re-sends even if state has race conditions
+    // 🛡️ REF-BASED LOCK: Prevents re-sends even if state has race conditions
   const bulkSendLockRef = useRef(false);
   const bulkJobIdRef = useRef<string | null>(null);
 

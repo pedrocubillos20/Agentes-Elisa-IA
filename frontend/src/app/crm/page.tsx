@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { 
   Users, Package, Plus, Search, Edit2, Trash2, Phone, Mail, X, 
   Send, MessageSquare, LayoutGrid, Sparkles, Image, Mic, Paperclip, FileText,
@@ -375,89 +376,35 @@ export default function CRMPage() {
       const res = await fetch(`${API_URL}/api/clients/export?lineId=${lineId}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const { data } = await res.json();
       if (!data?.length) { setImportProgress({ active: false, percent: 0, label: '' }); alert('No hay clientes para exportar'); return; }
-      setImportProgress({ active: true, percent: 40, label: `Generando Excel (${data.length} clientes)...` });
+      setImportProgress({ active: true, percent: 50, label: `Generando Excel (${data.length} clientes)...` });
 
-      const columns = [
-        { key: 'nombre', label: 'Nombre' },
-        { key: 'telefono', label: 'Teléfono' },
-        { key: 'email', label: 'Email' },
-        { key: 'direccion', label: 'Dirección' },
-        { key: 'estado', label: 'Estado' },
-        { key: 'total_compras', label: 'Total Compras' },
-        { key: 'notas', label: 'Notas' },
-        { key: 'tags', label: 'Tags' },
-        { key: 'fecha', label: 'Fecha' }
+      // ── Usar xlsx nativo ──
+      const rows = data.map((r: any) => ({
+        'Nombre':         r.nombre   || '',
+        'Teléfono':       r.telefono || '',
+        'Email':          r.email    || '',
+        'Dirección':      r.direccion|| '',
+        'Estado':         r.estado   || '',
+        'Total Compras':  Number(r.total_compras) || 0,
+        'Notas':          r.notas    || '',
+        'Tags':           Array.isArray(r.tags) ? r.tags.join(', ') : (r.tags || ''),
+        'Fecha':          r.fecha    || '',
+      }));
+
+      const ws  = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        {wch:30},{wch:18},{wch:28},{wch:35},{wch:12},
+        {wch:16},{wch:40},{wch:25},{wch:14}
       ];
+      const wb  = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Clientes');
+      XLSX.writeFile(wb, `Clientes_BizonneCRM_${new Date().toISOString().split('T')[0]}.xlsx`);
 
-      const statusColors: Record<string, string> = {
-        'active': '#27ae60', 'lead': '#3498db', 'inactive': '#e74c3c', 'vip': '#9b59b6'
-      };
-      const esc = (v: string) => v.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const colLen = columns.length;
-      const dateStr = new Date().toLocaleDateString('es-CO', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-      let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="UTF-8">
-<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
-<x:Name>Clientes</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-<style>
-td,th{padding:6px 10px;font-family:Calibri,Arial;font-size:11pt;border:1px solid #d5d5d5}
-th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:center}
-.re{background:#f8f9fa}.ro{background:#fff}
-.tt td{background:#0f3460;color:#00d4aa;font-size:16pt;font-weight:bold;border:none;padding:12px}
-.st td{background:#0f3460;color:#aaa;font-size:10pt;border:none;padding:4px 12px}
-.sp td{border:none;height:6px}
-</style></head><body><table>
-<tr class="tt"><td colspan="${colLen}">👥 Clientes — BizonneCRM</td></tr>
-<tr class="st"><td colspan="${colLen}">Exportado: ${dateStr} · Total: ${data.length} clientes</td></tr>
-<tr class="sp"><td colspan="${colLen}"></td></tr>
-<tr>${columns.map((c: any) => `<th>${c.label}</th>`).join('')}</tr>`;
-
-      data.forEach((row: any, i: number) => {
-        html += `<tr class="${i % 2 === 0 ? 're' : 'ro'}">`;
-        columns.forEach((col: any) => {
-          let val = esc((row[col.key] ?? '').toString());
-          let s = '';
-          if (col.key === 'estado' && val) {
-            const bg = statusColors[val] || '#95a5a6';
-            s = `background:${bg};color:#fff;font-weight:bold;text-align:center`;
-          } else if (col.key === 'total_compras' && val && val !== '0') {
-            s = 'font-weight:bold;color:#27ae60;text-align:right';
-            val = `$${Number(val).toLocaleString('es-CO')}`;
-          } else if (col.key === 'telefono') { s = 'color:#2980b9;mso-number-format:\@'; }
-          else if (col.key === 'nombre') { s = 'font-weight:bold'; }
-          else if (col.key === 'tags' && val) { s = 'color:#9b59b6;font-style:italic'; }
-          html += `<td style="${s}">${val}</td>`;
-        });
-        html += '</tr>';
-      });
-
-      const totalV = data.reduce((s: number, r: any) => s + (Number(r.total_compras) || 0), 0);
-      const activos = data.filter((r: any) => r.estado === 'active').length;
-      const leadsCount = data.filter((r: any) => r.estado === 'lead').length;
-
-      html += `<tr class="sp"><td colspan="${colLen}"></td></tr>
-<tr><td colspan="2" style="background:#0f3460;color:#00d4aa;font-weight:bold">📊 Resumen</td>
-<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:center">✅ ${activos} activos</td>
-<td colspan="2" style="background:#3498db;color:#fff;font-weight:bold;text-align:center">🔵 ${leadsCount} leads</td>
-<td colspan="2" style="background:#0f3460;color:#aaa">Total: ${data.length} clientes</td>
-<td style="background:#27ae60;color:#fff;font-weight:bold;text-align:right">$${totalV.toLocaleString('es-CO')}</td>
-<td style="background:#0f3460"></td>
-</tr></table></body></html>`;
-
-      setImportProgress({ active: true, percent: 90, label: 'Descargando archivo...' });
-      const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Clientes_BizonneCRM_${new Date().toISOString().split('T')[0]}.xls`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setImportProgress({ active: true, percent: 100, label: '¡Listo!' });
+      setImportProgress({ active: true, percent: 100, label: `✅ ${data.length} clientes exportados` });
       setTimeout(() => setImportProgress({ active: false, percent: 0, label: '' }), 1500);
     } catch { setImportProgress({ active: false, percent: 0, label: '' }); alert('Error al exportar'); }
   };
+
 
   const importClients = async (file: File) => {
     try {
@@ -466,24 +413,16 @@ th{background:#1a1a2e;color:#fff;font-weight:bold;font-size:12pt;text-align:cent
       let contacts: any[] = [];
 
       if (isExcel) {
-        const XLSX: any = await new Promise((resolve, reject) => {
-          if ((window as any).XLSX) { resolve((window as any).XLSX); return; }
-          const script = document.createElement('script');
-          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-          script.onload = () => resolve((window as any).XLSX);
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
-        setImportProgress({ active: true, percent: 20, label: 'Cargando librería Excel...' });
+        setImportProgress({ active: true, percent: 20, label: 'Leyendo Excel...' });
         const buffer = await file.arrayBuffer();
-        const wb = XLSX.read(buffer, { type: 'array' });
+        const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
         contacts = rows.map((row: any) => {
           const normalized: any = {};
           Object.keys(row).forEach(k => { normalized[k.toLowerCase().trim().replace(/\s+/g, '_')] = row[k]; });
           return normalized;
-        }).filter((c: any) => c.telefono || c.phone || c.celular);
+        }).filter((c: any) => c.telefono || c.phone || c.celular || c.movil || c.whatsapp || c.numero);
       } else {
         const text = await file.text();
         const lines = text.split('\n').filter(l => l.trim());

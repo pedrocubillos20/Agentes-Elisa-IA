@@ -25,6 +25,7 @@ export default function AsistentesPage() {
   const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
 
   // 🧩 MÓDULOS v2
+  const [modOrquestador, setModOrquestador] = useState('');
   const [modIdentidad, setModIdentidad] = useState('');
   const [modReglas, setModReglas] = useState('');
   const [modProductos, setModProductos] = useState('');
@@ -158,6 +159,7 @@ export default function AsistentesPage() {
           setContext('');
           setModIdentidad(''); setModReglas(''); setModProductos('');
           setModAgenda(''); setModFlujo(''); setModAcciones(''); setModAdmin('');
+          setModOrquestador('');
           setAgenteCliente(''); setAgenteAdmin('');
           setModZonas(''); setModMemoriaCliente(''); setModMetricas(''); setModDetector('');
           setModTriggers(''); setModCatalogo(''); setModNlu(''); setModOfertas('');
@@ -199,6 +201,7 @@ export default function AsistentesPage() {
           modIdentidad, modReglas, modProductos,
           modAgenda, modFlujo, modAcciones, modAdmin,
           agenteCliente, agenteAdmin,
+          modOrquestador,
           modZonas, modMemoriaCliente, modMetricas, modDetector,
           modTriggers, modCatalogo, modNlu, modOfertas,
           knowledgeItems,
@@ -591,6 +594,7 @@ export default function AsistentesPage() {
           modIdentidad, modReglas, modProductos,
           modAgenda, modFlujo, modAcciones, modAdmin,
           agenteCliente, agenteAdmin,
+          modOrquestador,
           modZonas, modMemoriaCliente, modMetricas, modDetector,
           modTriggers, modCatalogo, modNlu, modOfertas,
           knowledgeItems,
@@ -775,6 +779,7 @@ export default function AsistentesPage() {
                   </div>
                   <div className="space-y-0.5">
                     {[
+                      {id:'orquestador',    emoji:'⚙️', label:'00_orquestador.md',        val:modOrquestador},
                       {id:'identidad',      emoji:'👤', label:'identidad.md',            val:modIdentidad},
                       {id:'reglas',         emoji:'📋', label:'reglas.md',                val:modReglas},
                       {id:'productos',      emoji:'🛍️', label:'productos.json',           val:modProductos},
@@ -814,6 +819,36 @@ export default function AsistentesPage() {
           </div>
 
           {/* ══ EDITORES ══ */}
+
+          {/* Orquestador */}
+          {activeModule === 'orquestador' && (
+            <div className="card p-0 overflow-hidden">
+              <div className="p-4 border-b border-white/5 bg-violet-500/5 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-violet-500/15 border border-violet-500/25 flex items-center justify-center text-lg flex-shrink-0">⚙️</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-violet-200 text-sm">Módulo 00 — Orquestador</h3>
+                      <span className="text-[9px] font-mono text-white/25 bg-white/5 px-1.5 py-0.5 rounded">00_orquestador.md</span>
+                    </div>
+                    <p className="text-xs text-white/40 mt-0.5">Lógica central: qué agente activar, cuándo, con qué módulos y bajo qué condiciones.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px] text-white/30 bg-white/5 px-2 py-1 rounded-full">{modOrquestador.length} chars</span>
+                  <button onClick={() => setModOrquestador('# ORQUESTADOR\n\n## Rol del sistema\nEres el orquestador central. Antes de responder, determina:\n1. ¿Es un cliente o el admin del negocio?\n2. ¿Qué módulo es el más relevante para esta consulta?\n3. ¿Qué agente debe tomar el control?\n\n## Reglas de enrutamiento\n\n### → AGENTE_CLIENTE si:\n- El mensaje viene de un número desconocido\n- El cliente saluda, pregunta por productos, precios o quiere comprar\n- Es una consulta de seguimiento de pedido\n\n### → AGENTE_ADMIN si:\n- El mensaje incluye la palabra clave secreta: [ADMIN_KEY]\n- O el número está marcado como admin en el sistema\n\n## Módulos a consultar según la situación\n\n| Situación | Módulos prioritarios |\n|-----------|---------------------|\n| Cliente nuevo | 01, 11, 05 |\n| Cliente cotizando | 03, 13, 15 |\n| Cliente eligiendo color | 12, 13 |\n| Cliente con datos completos | 06, 09 |\n| Cliente inactivo +3h | 04 (recuperación) |\n| Reclamo o problema | 07 |\n| Admin pidiendo métricas | 10 |\n\n## Prioridad de módulos en el prompt\n```\n00 Orquestador (este archivo)\n→ Agente activo (cliente o admin)\n→ 11 Intenciones (detección)\n→ 14 NLU Map (entender al cliente)\n→ 05 Flujo (conversación)\n→ 03 Productos + 13 Catálogo (precios y stock)\n→ 12 Triggers (multimedia)\n→ 15 Ofertas (descuentos)\n→ 06 Acciones (pipeline + MEMORY_JSON)\n→ 09 Memoria (estructura del JSON)\n```\n\n## Condiciones de escalamiento\n- Si el cliente insiste en hablar con humano → `accion: transferir_agente`\n- Si no reconoces la intención después del Módulo 14 → pedir aclaración, NO inventar\n- Si el Módulo 13 dice que el color está agotado → NO confirmar disponibilidad')} className="px-2 py-1 rounded-lg text-[10px] bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70 transition-all flex items-center gap-1">
+                    <Sparkles className="w-3 h-3"/>Plantilla
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={modOrquestador}
+                onChange={e => setModOrquestador(e.target.value)}
+                placeholder="# ORQUESTADOR&#10;&#10;Define la lógica central: qué agente activar, cuándo, con qué módulos y bajo qué condiciones..."
+                className="w-full min-h-[420px] p-5 bg-[var(--bg-primary)] text-white/90 text-sm resize-none focus:outline-none leading-relaxed font-mono"
+              />
+            </div>
+          )}
 
           {/* Agente Cliente */}
           {activeModule === 'agenteCliente' && (

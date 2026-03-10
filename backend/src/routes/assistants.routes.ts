@@ -161,6 +161,8 @@ router.post('/', async (req: Request, res: Response) => {
       ...(body.businessInfo !== undefined && { businessInfo: body.businessInfo || null }),
       ...(body.instructions !== undefined && { instructions: body.instructions || null }),
       // 🧩 MÓDULOS MODULARES v2
+      ...(body.modOrquestador !== undefined && { modOrquestador: body.modOrquestador || null }),
+      ...(body.modOrquestador !== undefined && { modOrquestador: body.modOrquestador || null }),
       ...(body.modIdentidad !== undefined && { modIdentidad: body.modIdentidad || null }),
       ...(body.modReglas !== undefined && { modReglas: body.modReglas || null }),
       ...(body.modProductos !== undefined && { modProductos: body.modProductos || null }),

@@ -1418,6 +1418,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       // ✅ MODO MODULAR v2: construir prompt desde los 7 módulos + 2 agentes
       const moduleParts: string[] = ['=== 🧩 BASE DE CONOCIMIENTO MODULAR BIZONNE ==='];
       // Agente cliente — instrucciones de rol (va primero para contexto)
+      if ((a as any).modOrquestador?.trim()) moduleParts.push(`## ⚙️ MÓDULO 00 — ORQUESTADOR\n${(a as any).modOrquestador}`);
       if ((a as any).agenteCliente?.trim()) moduleParts.push(`## 🤖 ROL DEL AGENTE (AGENTE_CLIENTE)\n${(a as any).agenteCliente}`);
       // Los 7 módulos
       if (a.modIdentidad?.trim()) moduleParts.push(`## 👤 MÓDULO 1 — IDENTIDAD\n${a.modIdentidad}`);

@@ -95,6 +95,7 @@ model Assistant {
   instructions    String?   @db.Text
   
   // 🧩 MÓDULOS DE CONFIGURACIÓN — Sistema Modular v2
+  modOrquestador  String?   @db.Text   // Módulo 00: orquestador — lógica central del sistema
   modIdentidad    String?   @db.Text   // Módulo 1: Identidad del agente
   modReglas       String?   @db.Text   // Módulo 2: Reglas de negocio
   modProductos    String?   @db.Text   // Módulo 3: Productos/servicios (JSON o MD)

@@ -108,6 +108,10 @@ model Assistant {
   modMemoriaCliente  String?   @db.Text   // Módulo 09: estructura memoria persistente cliente
   modMetricas        String?   @db.Text   // Módulo 10: métricas y KPIs del negocio
   modDetector        String?   @db.Text   // Módulo 11: detector de intenciones y entidades
+  modTriggers        String?   @db.Text   // Módulo 12: triggers multimedia completos
+  modCatalogo        String?   @db.Text   // Módulo 13: contexto catálogo dinámico
+  modNlu             String?   @db.Text   // Módulo 14: mapa NLU entidades y sinónimos
+  modOfertas         String?   @db.Text   // Módulo 15: motor de ofertas y promociones
 
   knowledgeItems  Json      @default("[]")
   mediaItems      Json      @default("[]")

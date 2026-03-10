@@ -1431,6 +1431,10 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       if ((a as any).modMemoriaCliente?.trim()) moduleParts.push(`## 🧠 MÓDULO 9 — MEMORIA CLIENTE\n${(a as any).modMemoriaCliente}`);
       if ((a as any).modMetricas?.trim())       moduleParts.push(`## 📊 MÓDULO 10 — MÉTRICAS\n${(a as any).modMetricas}`);
       if ((a as any).modDetector?.trim())       moduleParts.push(`## 🎯 MÓDULO 11 — DETECTOR INTENCIONES\n${(a as any).modDetector}`);
+      if ((a as any).modTriggers?.trim())        moduleParts.push(`## 📲 MÓDULO 12 — TRIGGERS MULTIMEDIA\n${(a as any).modTriggers}`);
+      if ((a as any).modCatalogo?.trim())        moduleParts.push(`## 🗂️ MÓDULO 13 — CONTEXTO CATÁLOGO\n${(a as any).modCatalogo}`);
+      if ((a as any).modNlu?.trim())             moduleParts.push(`## 🔤 MÓDULO 14 — NLU MAP\n${(a as any).modNlu}`);
+      if ((a as any).modOfertas?.trim())         moduleParts.push(`## 💡 MÓDULO 15 — MOTOR OFERTAS\n${(a as any).modOfertas}`);
       moduleParts.push('=== FIN BASE DE CONOCIMIENTO ===\nSigue SIEMPRE todos los módulos al pie de la letra.');
       promptParts.push(moduleParts.join('\n\n'));
     } else if (assistant.context?.trim()) {

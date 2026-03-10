@@ -38,6 +38,10 @@ export default function AsistentesPage() {
   const [modMemoriaCliente, setModMemoriaCliente] = useState('');
   const [modMetricas, setModMetricas] = useState('');
   const [modDetector, setModDetector] = useState('');
+  const [modTriggers, setModTriggers] = useState('');
+  const [modCatalogo, setModCatalogo] = useState('');
+  const [modNlu, setModNlu] = useState('');
+  const [modOfertas, setModOfertas] = useState('');
 
   // Media
   const [mediaItems, setMediaItems] = useState<any[]>([]);
@@ -134,6 +138,10 @@ export default function AsistentesPage() {
           setModMemoriaCliente((active as any).modMemoriaCliente || '');
           setModMetricas((active as any).modMetricas || '');
           setModDetector((active as any).modDetector || '');
+          setModTriggers((active as any).modTriggers || '');
+          setModCatalogo((active as any).modCatalogo || '');
+          setModNlu((active as any).modNlu || '');
+          setModOfertas((active as any).modOfertas || '');
           setElevenLabsKey(active.elevenLabsKey || '');
           setSelectedVoice(active.selectedVoice || '');
           setVoiceEnabled(active.voiceEnabled || false);
@@ -152,6 +160,7 @@ export default function AsistentesPage() {
           setModAgenda(''); setModFlujo(''); setModAcciones(''); setModAdmin('');
           setAgenteCliente(''); setAgenteAdmin('');
           setModZonas(''); setModMemoriaCliente(''); setModMetricas(''); setModDetector('');
+          setModTriggers(''); setModCatalogo(''); setModNlu(''); setModOfertas('');
           setKnowledgeItems([]);
           setMediaItems([]);
           setElevenLabsKey('');
@@ -191,6 +200,7 @@ export default function AsistentesPage() {
           modAgenda, modFlujo, modAcciones, modAdmin,
           agenteCliente, agenteAdmin,
           modZonas, modMemoriaCliente, modMetricas, modDetector,
+          modTriggers, modCatalogo, modNlu, modOfertas,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -582,6 +592,7 @@ export default function AsistentesPage() {
           modAgenda, modFlujo, modAcciones, modAdmin,
           agenteCliente, agenteAdmin,
           modZonas, modMemoriaCliente, modMetricas, modDetector,
+          modTriggers, modCatalogo, modNlu, modOfertas,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -703,7 +714,7 @@ export default function AsistentesPage() {
                   </div>
                   <div>
                     <h2 className="text-sm font-bold text-white">Sistema Modular IA</h2>
-                    <p className="text-xs text-white/35">Orquestador · 2 Agentes · 11 Módulos</p>
+                    <p className="text-xs text-white/35">Orquestador · 2 Agentes · 15 Módulos</p>
                   </div>
                 </div>
                 <a href="/ai-config" className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-500/12 text-violet-300 border border-violet-500/20 hover:bg-violet-500/20 transition-all flex items-center gap-1.5">
@@ -764,17 +775,21 @@ export default function AsistentesPage() {
                   </div>
                   <div className="space-y-0.5">
                     {[
-                      {id:'identidad',      emoji:'👤', label:'identidad.md',           val:modIdentidad},
-                      {id:'reglas',         emoji:'📋', label:'reglas.md',               val:modReglas},
-                      {id:'productos',      emoji:'🛍️', label:'servicios.json',          val:modProductos},
-                      {id:'agenda',         emoji:'🗓️', label:'agenda.json',             val:modAgenda},
-                      {id:'flujo',          emoji:'🔄', label:'flujos.md',               val:modFlujo},
-                      {id:'acciones',       emoji:'⚡', label:'acciones.json',           val:modAcciones},
-                      {id:'admin',          emoji:'🔧', label:'admin.md',                val:modAdmin},
-                      {id:'zonas',          emoji:'📍', label:'zonas.json',              val:modZonas},
-                      {id:'memoriacliente', emoji:'🧠', label:'memoria_cliente.json',    val:modMemoriaCliente},
-                      {id:'metricas',       emoji:'📊', label:'metricas.md',             val:modMetricas},
-                      {id:'detector',       emoji:'🎯', label:'detector_intenciones.md', val:modDetector},
+                      {id:'identidad',      emoji:'👤', label:'identidad.md',            val:modIdentidad},
+                      {id:'reglas',         emoji:'📋', label:'reglas.md',                val:modReglas},
+                      {id:'productos',      emoji:'🛍️', label:'productos.json',           val:modProductos},
+                      {id:'agenda',         emoji:'🗓️', label:'agenda.json',              val:modAgenda},
+                      {id:'flujo',          emoji:'🔄', label:'flujos.md',                val:modFlujo},
+                      {id:'acciones',       emoji:'⚡', label:'acciones.json',            val:modAcciones},
+                      {id:'admin',          emoji:'🔧', label:'admin.md',                 val:modAdmin},
+                      {id:'zonas',          emoji:'📍', label:'zonas.json',               val:modZonas},
+                      {id:'memoriacliente', emoji:'🧠', label:'memoria.json',             val:modMemoriaCliente},
+                      {id:'metricas',       emoji:'📊', label:'metricas.md',              val:modMetricas},
+                      {id:'detector',       emoji:'🎯', label:'intenciones.md',           val:modDetector},
+                      {id:'triggers',       emoji:'📲', label:'triggers_multimedia.md',   val:modTriggers},
+                      {id:'catalogo',       emoji:'🗂️', label:'contexto_catalogo.json',   val:modCatalogo},
+                      {id:'nlu',            emoji:'🔤', label:'nlu_map.json',             val:modNlu},
+                      {id:'ofertas',        emoji:'💡', label:'motor_ofertas.json',        val:modOfertas},
                     ].map((m, i) => (
                       <button key={m.id} onClick={() => setActiveModule(m.id)}
                         className={`w-full flex items-center gap-1.5 text-xs py-1 rounded transition-colors text-left ${activeModule === m.id ? 'text-violet-200 font-medium' : 'text-white/55 hover:text-white/75'}`}>
@@ -911,10 +926,34 @@ export default function AsistentesPage() {
               val: modMetricas, set: setModMetricas
             },
             {
-              id:'detector', num:'11', emoji:'🎯', label:'Detector de Intenciones', file:'11_detector_intenciones.md', color:'fuchsia',
+              id:'detector', num:'11', emoji:'🎯', label:'Detector de Intenciones', file:'11_intenciones.md', color:'fuchsia',
               desc:'Intenciones reconocibles, entidades y respuestas rápidas.',
               placeholder:'## Intenciones principales\n\n### COMPRAR / PEDIR\nPalabras clave: quiero, cuánto vale, precio, comprar, pedir, encargar\nAcción: iniciar flujo de venta\n\n### CONSULTAR ESTADO\nPalabras clave: mi pedido, llegó, cuando llega, estado\nAcción: consultar pedido por teléfono\n\n### CANCELAR\nPalabras clave: cancelar, no quiero, me arrepentí\nAcción: confirmar cancelación → accion:cancelar_pedido\n\n### HABLAR CON HUMANO\nPalabras clave: asesor, persona, humano, encargado\nAcción: transferir a agente humano',
               val: modDetector, set: setModDetector
+            },
+            {
+              id:'triggers', num:'12', emoji:'📲', label:'Triggers Multimedia', file:'12_triggers_multimedia.md', color:'cyan',
+              desc:'Frases exactas que activan fotos, catálogos, QR y recursos automáticos.',
+              placeholder:'## Triggers de catálogo (nivel 1 — varios recursos)\n\n### Catálogo completo por equipo\n| Equipo | Frase exacta | Qué envía |\n|--------|-------------|-----------|\n| Colombia | colores colombia | Todos los colores Colombia |\n\n## Triggers de color individual (nivel 2)\n\n### Colombia\n- Marfil: colombia marfil\n- Blanco: colombia blanco\n\n## Triggers de recursos\n| Recurso | Frase exacta |\n|---------|-------------|\n| Guía de tallas | guia de tallas |\n| QR Pago | transferencia, qr, bancolombia, nequi |\n\n## Reglas\n- NUNCA escribir el nombre del archivo (.jpg, .png)\n- Escribir la frase INTEGRADA naturalmente en el mensaje\n- Si el trigger tiene coma, escribir AMBAS palabras clave',
+              val: modTriggers, set: setModTriggers
+            },
+            {
+              id:'catalogo', num:'13', emoji:'🗂️', label:'Contexto Catálogo', file:'13_contexto_catalogo.json', color:'amber',
+              desc:'Disponibilidad en tiempo real, stock, novedades y productos destacados.',
+              placeholder:'## Estado del catálogo\n\n### Disponibilidad\n| Equipo | Colores activos | Colores agotados | Nota |\n|--------|----------------|-----------------|------|\n| Colombia | Marfil, Blanco, Negro | — | Marfil es el más pedido |\n| Millonarios | Azul, Gris, Blanco, Negro | — | Azul tiene 2 diseños |\n\n## Novedades y lanzamientos\n[productos nuevos o ediciones limitadas]\n\n## Productos destacados esta semana\n[para mencionar proactivamente]\n\n## Restricciones temporales\n[colores o tallas con stock limitado — actualizar semanalmente]',
+              val: modCatalogo, set: setModCatalogo
+            },
+            {
+              id:'nlu', num:'14', emoji:'🔤', label:'NLU Map', file:'14_nlu_map.json', color:'violet',
+              desc:'Sinónimos, variaciones locales y entidades para entender cualquier forma de escribir.',
+              placeholder:'## Mapa de entidades\n\n### Equipos — sinónimos aceptados\n```json\n{\n  "Millonarios": ["millos", "embajadores", "el azul"],\n  "Nacional": ["verdolaga", "el verde", "atletico"],\n  "Santa Fe": ["cardenales", "el rojo", "santafe"],\n  "Real Madrid": ["madrid", "merengues", "real"],\n  "Colombia": ["tricolor", "cafeteros", "selección"]\n}\n```\n\n### Tallas — sinónimos\n```json\n{\n  "XS": ["extrapequeña", "xs"],\n  "S": ["pequeña", "chica"],\n  "M": ["mediana", "media"],\n  "L": ["grande", "l"],\n  "XL": ["extra grande", "xl"],\n  "2XL": ["xxl", "doble xl", "doble extra"]\n}\n```\n\n### Calidades — sinónimos\n```json\n{\n  "Premium": ["300 gramos", "el grueso", "el bueno", "300g"],\n  "Monaco": ["260 gramos", "el delgado", "el liviano", "260g"]\n}\n```\n\n### Intenciones coloquiales\n```json\n{\n  "comprar": ["le meto", "me lo llevo", "dale", "va", "listo", "sí"],\n  "cancelar": ["no va", "déjelo así", "no gracias"],\n  "pedir_descuento": ["no le puede bajar", "rebájame", "sale en algo menos"]\n}\n```',
+              val: modNlu, set: setModNlu
+            },
+            {
+              id:'ofertas', num:'15', emoji:'💡', label:'Motor de Ofertas', file:'15_motor_ofertas.json', color:'green',
+              desc:'Reglas de descuentos automáticos, promociones activas y lógica de Order Bumps.',
+              placeholder:'## Reglas de descuento\n\n### Order Bump 1 — 2do artículo\n- Descuento: 15% sobre precio base del 2do\n- Cuándo ofrecer: después del resumen del 1er artículo, siempre\n- Cómo ofrecer: [ver plantilla Módulo 05]\n\n### Order Bump 2 — 3er artículo\n- Descuento: 20% sobre precio base del 3er\n- Cuándo ofrecer: después de confirmar el 2do artículo\n\n### Descuento especial — 10%\n- Condición: SOLO si el cliente lo pide explícitamente\n- Aplicar sobre: total final (incluyendo envío)\n- NUNCA ofrecer proactivamente\n\n## Promociones activas\n[actualizar con campañas vigentes]\n\nEjemplo:\n```\nPromoción: 3x2 en Monaco niño\nVigencia: hasta [fecha]\nCondición: comprar 3 buzos Monaco niño → el más barato es gratis\n```\n\n## Temporadas especiales\n[Día del padre, Navidad, rebajas — definir lógica por fecha]\n\n## Reglas anti-descuento\n- El 1er artículo NUNCA tiene descuento automático\n- No acumular Order Bump + 10% sin validar el total\n- Tarjeta de crédito: siempre añadir 5% antes de mostrar total',
+              val: modOfertas, set: setModOfertas
             },
           ].filter(m => m.id === activeModule).map(mod => (
             <div key={mod.id} className="card p-0 overflow-hidden">

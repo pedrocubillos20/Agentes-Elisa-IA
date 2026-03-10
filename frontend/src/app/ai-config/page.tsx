@@ -21,7 +21,11 @@ const MODULES_DEF = [
   { key: 'modZonas',           emoji: '📍', label: 'zonas.json',               color: 'indigo',  desc: 'Zonas de cobertura y costos de envío' },
   { key: 'modMemoriaCliente',  emoji: '🧠', label: 'memoria_cliente.json',     color: 'sky',     desc: 'Estructura del MEMORY_JSON persistente' },
   { key: 'modMetricas',        emoji: '📊', label: 'metricas.md',              color: 'pink',    desc: 'KPIs, objetivos y alertas del negocio' },
-  { key: 'modDetector',        emoji: '🎯', label: 'detector_intenciones.md',  color: 'fuchsia', desc: 'Intenciones reconocibles y respuestas rápidas' },
+  { key: 'modDetector',  emoji: '🎯', label: 'intenciones.md',            color: 'fuchsia', desc: 'Intenciones reconocibles y respuestas rápidas' },
+  { key: 'modTriggers',  emoji: '📲', label: 'triggers_multimedia.md',     color: 'cyan',    desc: 'Frases que activan fotos, catálogos y recursos' },
+  { key: 'modCatalogo',  emoji: '🗂️', label: 'contexto_catalogo.json',     color: 'amber',   desc: 'Disponibilidad en tiempo real y novedades' },
+  { key: 'modNlu',       emoji: '🔤', label: 'nlu_map.json',               color: 'violet',  desc: 'Sinónimos y variaciones para entender al cliente' },
+  { key: 'modOfertas',   emoji: '💡', label: 'motor_ofertas.json',         color: 'green',   desc: 'Reglas de descuentos, Order Bumps y promociones' },
 ];
 
 const AGENTS_DEF = [
@@ -174,7 +178,7 @@ export default function AiConfigPage() {
     finally { setApplying(false); }
   };
 
-  const hasModules = Object.keys(modules).length >= 9;
+  const hasModules = Object.keys(modules).length >= 11;
   const formatCOP = (n: number) => n.toLocaleString('es-CO');
 
   if (loading) return (
@@ -239,7 +243,7 @@ export default function AiConfigPage() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Wand2 className="w-6 h-6 text-violet-400" /> Configuración IA
           </h1>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">Sube el PDF de tu negocio → 11 módulos + 2 agentes generados automáticamente</p>
+          <p className="text-sm text-[var(--text-muted)] mt-0.5">Sube el PDF de tu negocio → 15 módulos + 2 agentes generados automáticamente</p>
         </div>
         <Link href="/asistentes" className="text-sm text-[var(--text-muted)] hover:text-white flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Ir a Asistentes
@@ -392,7 +396,7 @@ export default function AiConfigPage() {
           className="w-full py-4 rounded-xl bg-gradient-to-r from-violet-600 to-pink-600 hover:from-violet-700 hover:to-pink-700 disabled:opacity-30 text-white font-bold flex items-center justify-center gap-2">
           {generating
             ? <><Loader2 className="w-5 h-5 animate-spin" />{GENERATION_STEPS[stepIdx]}</>
-            : <><Sparkles className="w-5 h-5" /> Generar 11 Módulos con IA</>}
+            : <><Sparkles className="w-5 h-5" /> Generar 15 Módulos con IA</>}
         </button>
 
         {generating && (
@@ -520,7 +524,7 @@ export default function AiConfigPage() {
               </div>
               <div>
                 <p className="text-base font-bold text-emerald-300">✅ Base de conocimiento modular aplicada</p>
-                <p className="text-xs text-[var(--text-muted)] mt-1">11 módulos + 2 agentes guardados — el asistente ya está activo</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">15 módulos + 2 agentes guardados — el asistente ya está activo</p>
               </div>
               <Link href="/asistentes"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold">

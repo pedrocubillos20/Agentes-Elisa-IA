@@ -2920,8 +2920,16 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                   // No crear el pedido aún, esperar a que el cliente complete datos
                 } else {
                 try {
-                  // 📅 Parsear fecha de entrega inteligente
-                  const deliveryDate = parseSmartDate(merged.fecha_entrega || '');
+                  // 📅 Fecha de entrega — viene del MEMORY_JSON que maneja el prompt del negocio
+                  // El prompt es responsable de calcular la fecha correcta según sus reglas
+                  // Fallback genérico: mañana (día+1) si el prompt no la incluyó
+                  const deliveryDate = merged.fecha_entrega
+                    ? parseSmartDate(merged.fecha_entrega)
+                    : (() => { const d = getNowColombia(); d.setDate(d.getDate() + 1); return toStorableDate(d); })();
+
+                  // 🕐 Hora — viene del MEMORY_JSON. Fallback genérico: '10:00'
+                  // Cada prompt define su propia hora_entrega según el negocio
+                  const deliveryTime = (merged.hora_entrega || '').trim() || '10:00';
                   
                   // 🧩 Construir descripción del producto (compatible con campos nuevos Y viejos)
                   // ✅ GENÉRICO: producto desde campo universal, detalles desde detalles_producto o notas
@@ -2934,8 +2942,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     clientName: merged.nombre || clientName || 'Cliente WhatsApp',
                     clientPhone: clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', ''),
                     date: deliveryDate,
-                    time: merged.hora_entrega || merged.hora_cita || '12:00',
-                    duration: 300,
+                    time: deliveryTime,
+                    duration: merged.duracion ? parseInt(merged.duracion) : 60,
                     status: 'pending',
                     notes: `📦 PEDIDO WHATSAPP\n` +
                            `━━━━━━━━━━━━━━━\n` +
@@ -3078,18 +3086,20 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     log(`🛡️ Auto-pedido BLOQUEADO: ya existe pedido reciente ${existingRecentOrder.id} para ${phoneCleanCheck}`);
                   } else {
                   try {
-                    const deliveryDate = parseSmartDate(merged.fecha_entrega || '');
-                    
+                    // 📅 Genérico: confiar en fecha_entrega del MEMORY_JSON
+                    // Fallback: mañana
+                    const deliveryDate = merged.fecha_entrega
+                      ? parseSmartDate(merged.fecha_entrega)
+                      : (() => { const d = getNowColombia(); d.setDate(d.getDate() + 1); return toStorableDate(d); })();
+                    const deliveryTime2 = (merged.hora_entrega || '').trim() || '10:00';
+
                     let productoDesc = merged.producto_servicio || '';
-                    if (!productoDesc) {
-                      const legacyParts = [].filter(Boolean); // legacy compat (ya no se usa para negocios nuevos)
-                    }
                     
                      const orderData: any = {
                        userId: ownerId, type: 'order',
                        clientName: merged.nombre || clientName || 'Cliente WhatsApp',
                        clientPhone: clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', ''),
-                       date: deliveryDate, time: merged.hora_entrega || merged.hora_cita || '12:00', duration: 300, status: 'pending',
+                       date: deliveryDate, time: deliveryTime2, duration: merged.duracion ? parseInt(merged.duracion) : 60, status: 'pending',
                        notes: `📦 PEDIDO WHATSAPP\n━━━━━━━━━━━━━━━\n🛍️ Producto: ${productoDesc || 'N/A'}\n💵 Total: $${merged.total || '0'}\n💳 Pago: ${merged.metodo_pago || 'Por definir'}\n━━━━━━━━━━━━━━━\n📍 ${[merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ')}\n📞 ${merged.telefono || merged.celular || clientPhone.replace('@c.us', '')}\n━━━━━━━━━━━━━━━`,
                        total: parseFloat((merged.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
                        address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',

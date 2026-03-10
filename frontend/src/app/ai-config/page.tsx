@@ -200,12 +200,12 @@ export default function AiConfigPage() {
           </div>
           <h1 className="text-2xl font-bold text-white">Configuración IA</h1>
           <p className="text-[var(--text-muted)] mt-2 max-w-md mx-auto">
-            Sube el PDF de tu negocio y la IA genera los <strong className="text-white">7 módulos especializados</strong> + 2 agentes listos para vender
+            Sube el PDF de tu negocio y la IA genera el <strong className="text-white">Módulo 00 Orquestador + 15 módulos</strong> + 2 agentes listos para vender
           </p>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-2">
-            {['🧠 11 módulos especializados','🤖 2 agentes: Cliente + Admin','📍 Zonas y cobertura','🎯 Detector de intenciones','🧠 Memoria cliente estructurada','📊 Métricas y KPIs','🔄 Flujo conversacional completo','♻️ Regenera ilimitado'].map((f, i) => (
+            {['⚙️ Módulo 00 Orquestador','🤖 2 agentes: Cliente + Admin','📍 Zonas y cobertura','🎯 Detector de intenciones','🧠 Memoria cliente estructurada','📊 Métricas y KPIs','🔄 Flujo conversacional completo','♻️ Regenera ilimitado'].map((f, i) => (
               <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg bg-white/3 text-xs text-white/70">{f}</div>
             ))}
           </div>
@@ -243,7 +243,7 @@ export default function AiConfigPage() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Wand2 className="w-6 h-6 text-violet-400" /> Configuración IA
           </h1>
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">Sube el PDF de tu negocio → 15 módulos + 2 agentes generados automáticamente</p>
+          <p className="text-sm text-[var(--text-muted)] mt-0.5">Sube el PDF de tu negocio → Módulo 00 + 15 módulos + 2 agentes generados automáticamente</p>
         </div>
         <Link href="/asistentes" className="text-sm text-[var(--text-muted)] hover:text-white flex items-center gap-1">
           <ArrowLeft className="w-4 h-4" /> Ir a Asistentes

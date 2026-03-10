@@ -246,7 +246,7 @@ router.post('/generate', upload.single('pdf'), async (req: Request, res: Respons
 
 
 // ====================================================
-// 🧩 GENERATE MODULES — Genera los 7 módulos + 2 agentes desde PDF
+// 🧩 GENERATE MODULES — Genera módulo 00 + 15 módulos + 2 agentes desde PDF
 // ====================================================
 router.post('/generate-modules', upload.single('pdf'), async (req: Request, res: Response) => {
   try {
@@ -314,7 +314,7 @@ router.post('/generate-modules', upload.single('pdf'), async (req: Request, res:
     console.log(`🧩 Generate Modules: "${businessName || 'nuevo'}" tipo:${detectedType} pdf:${pdfText.length}chars`);
 
     // ════════════════════════════════════════════════════════════
-    // MEGA PROMPT — Genera JSON con los 7 módulos + 2 agentes
+    // MEGA PROMPT — Genera JSON: módulo 00 + 15 módulos + 2 agentes
     // ════════════════════════════════════════════════════════════
     const systemPrompt = buildModulesSystemPrompt(detectedType, businessName, businessType, mediaSummary);
     const userPrompt = pdfText
@@ -387,17 +387,28 @@ router.post('/apply-modules', async (req: Request, res: Response) => {
     if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
 
     const moduleData = {
-      modIdentidad: modules.modIdentidad || modules.identidad || null,
-      modReglas: modules.modReglas || modules.reglas || null,
-      modProductos: modules.modProductos || modules.productos || null,
-      modAgenda: modules.modAgenda || modules.agenda || null,
-      modFlujo: modules.modFlujo || modules.flujo || null,
-      modAcciones: modules.modAcciones || modules.acciones || null,
-      modAdmin: modules.modAdmin || modules.admin || null,
-      modZonas: modules.modZonas || modules.zonas || null,
+      // Módulo 00
+      modOrquestador:    modules.modOrquestador    || modules.orquestador    || null,
+      // Módulos 01-11
+      modIdentidad:      modules.modIdentidad      || modules.identidad      || null,
+      modReglas:         modules.modReglas         || modules.reglas         || null,
+      modProductos:      modules.modProductos      || modules.productos      || null,
+      modAgenda:         modules.modAgenda         || modules.agenda         || null,
+      modFlujo:          modules.modFlujo          || modules.flujo          || null,
+      modAcciones:       modules.modAcciones       || modules.acciones       || null,
+      modAdmin:          modules.modAdmin          || modules.admin          || null,
+      modZonas:          modules.modZonas          || modules.zonas          || null,
       modMemoriaCliente: modules.modMemoriaCliente || modules.memoriaCliente || null,
-      modMetricas: modules.modMetricas || modules.metricas || null,
-      modDetector: modules.modDetector || modules.detector || null,
+      modMetricas:       modules.modMetricas       || modules.metricas       || null,
+      modDetector:       modules.modDetector       || modules.detector       || null,
+      // Módulos 12-15
+      modTriggers:       modules.modTriggers       || modules.triggers       || null,
+      modCatalogo:       modules.modCatalogo       || modules.catalogo       || null,
+      modNlu:            modules.modNlu            || modules.nlu            || null,
+      modOfertas:        modules.modOfertas        || modules.ofertas        || null,
+      // Agentes
+      agenteCliente:     modules.agenteCliente     || null,
+      agenteAdmin:       modules.agenteAdmin       || null,
     };
 
     if (assistant) {
@@ -999,11 +1010,11 @@ function buildModulesSystemPrompt(detectedType: string, businessName?: string, b
 
   return (
     'Eres el mejor experto mundial en configurar asistentes de ventas IA para WhatsApp en BizonneCRM.\n' +
-    'Genera los 11 MODULOS ESPECIALIZADOS + 2 AGENTES en formato JSON.\n\n' +
+    'Genera el MODULO 00 ORQUESTADOR + 15 MODULOS ESPECIALIZADOS + 2 AGENTES en formato JSON.\n\n' +
     'NEGOCIO: ' + bName + ' | Tipo detectado: ' + detectedType + ' | Accion principal: ' + actionType + mediaBlock + '\n\n' +
     'ARQUITECTURA DEL SISTEMA:\n' +
     'ORQUESTADOR -> AGENTE_CLIENTE (ventas/reservas) + AGENTE_ADMIN (metricas/alertas)\n' +
-    'Ambos agentes leen los 11 modulos de configuracion del negocio.\n\n' +
+    'Ambos agentes leen los 15 modulos de configuracion del negocio.\n\n' +
     'GENERA exactamente este JSON (sin campos adicionales):\n' +
     '{\n' +
     '  "modIdentidad": "# 01 IDENTIDAD DEL AGENTE\\n\\nNombre: [nombre cercano para ' + bName + ']\\nNegocio: ' + bName + '\\n\\n## Personalidad\\n- [3-5 rasgos especificos del negocio]\\n\\n## Tono\\n[descripcion del tono segun el tipo de negocio]\\n\\n## Restricciones\\n- Nunca confirmar ser IA si preguntan directamente\\n- Maximo 4 lineas por mensaje\\n- Maximo 2 emojis por mensaje\\n- NUNCA inventar precios o disponibilidad no documentados",\n\n' +
@@ -1016,7 +1027,12 @@ function buildModulesSystemPrompt(detectedType: string, businessName?: string, b
     '  "modZonas": "# 08 ZONAS Y COBERTURA\\n\\n[Extraer del PDF. Si es tienda online, incluir todas las ciudades con costos y tiempos de envio]\\n\\n## Zona local\\n[ciudad principal — costo — tiempo de entrega]\\n\\n## Ciudades principales\\n[Bogota, Medellin, Cali, etc — costo — tiempo]\\n\\n## Cobertura nacional\\n[si aplica — transportadora — costo — tiempo]\\n\\n## Restricciones\\n[zonas sin cobertura si aplica]",\n\n' +
     '  "modMemoriaCliente": "# 09 MEMORIA CLIENTE\\n\\n## Campos persistentes entre mensajes\\n\\n### Datos de identificacion\\n- nombre: nombre completo del cliente\\n- telefono: numero de WhatsApp\\n- email: correo electronico (si aplica)\\n\\n### Datos del servicio/pedido\\n- producto_servicio: que eligio\\n- detalles_producto: variante, talla, color, plan\\n- cantidad: unidades o personas\\n- precio: precio unitario\\n- total: total a pagar incluyendo envio\\n- metodo_pago: como va a pagar\\n\\n### Datos de entrega/cita\\n' + memExtra + '\\n\\n### Estado\\n- etapa_actual: posicion en el pipeline (debe ser exacta)\\n- accion: vacia siempre excepto cuando confirma\\n- notas: observaciones especiales del cliente\\n- pedidos_anteriores: historial de compras",\n\n' +
     '  "modMetricas": "# 10 METRICAS Y KPIS\\n\\n## Objetivos de conversion\\n- Tasa de conversion esperada: [segun industria, tipico 20-35%]\\n- Tiempo promedio de cierre: [definir segun complejidad]\\n- Ticket promedio objetivo: [extraer del PDF o estimar]\\n\\n## Metricas a rastrear\\n- Leads nuevos por dia/semana\\n- Productos o servicios mas consultados\\n- Preguntas frecuentes sin respuesta documentada\\n- Hora pico de conversaciones\\n- Motivos de perdida mas comunes\\n\\n## Alertas de negocio\\n- Avisar si la tasa de conversion baja del [X%] en la semana\\n- Avisar si hay producto consultado sin precio documentado",\n\n' +
+    '  "modOrquestador": "# 00 ORQUESTADOR\\n\\n## Enrutamiento\\nSi el numero es admin -> AGENTE_ADMIN. Si es cliente -> AGENTE_CLIENTE.\\n\\n## Modulos por situacion\\n- Cliente nuevo: 01, 11, 05\\n- Cliente cotizando: 03, 13, 15\\n- Cliente eligiendo: 12, 13\\n- Datos completos: 06, 09\\n- Reclamo: 07\\n- Admin: 10\\n\\n## Prioridad ante conflicto\\n00 > 13 Catalogo > 15 Ofertas > 03 Productos",\n\n' +
     '  "modDetector": "# 11 DETECTOR DE INTENCIONES\\n\\n## INTENCION: COMPRAR / CONTRATAR\\nPalabras clave: quiero, cuanto vale, precio de, comprar, pedir, encargar, me interesa\\nAccion: iniciar flujo de venta desde PASO 3\\n\\n## INTENCION: VER CATALOGO / SERVICIOS\\nPalabras clave: que tienen, que ofrecen, ver productos, ver servicios, catalogo\\nAccion: enviar trigger multimedia si existe, o listar productos del modulo 03\\n\\n## INTENCION: CONSULTAR ESTADO\\nPalabras clave: mi pedido, mi cita, cuando llega, estado de, donde esta\\nAccion: pedir telefono o numero de referencia, consultar en sistema\\n\\n## INTENCION: CANCELAR O CAMBIAR\\nPalabras clave: cancelar, no quiero, me arrepenti, cambiar, modificar\\nAccion: confirmar intencion, luego accion = cancelar_' + updateAct + ' o actualizar_' + updateAct + '\\n\\n## INTENCION: HABLAR CON HUMANO\\nPalabras clave: asesor, persona, encargado, gerente, dueno, humano\\nAccion: transferir a agente humano educadamente\\n\\n## INTENCION: SALUDO / INICIO\\nPalabras clave: hola, buenas, hey, buen dia\\nAccion: iniciar flujo desde PASO 1",\n\n' +
+    '  "modTriggers": "# 12 TRIGGERS MULTIMEDIA\\n\\n[Por cada foto, video o catalogo en el PDF, crear un trigger.]\\n\\n## TRIGGER: ver productos\\nFrase activadora: \\"catalogo\\", \\"ver productos\\", \\"fotos\\"\\nRecurso: imagen o catalogo del PDF\\n\\n[Agregar un trigger por cada tipo de multimedia relevante detectado en el PDF]",\n\n' +
+    '  "modCatalogo": "# 13 CONTEXTO CATALOGO\\n\\n## Stock actual\\n[Extraer del PDF: productos con colores/tallas/variantes disponibles. Si no hay info de stock, poner Consultar.]\\n\\nActualizar semanalmente con disponibilidad real.",\n\n' +
+    '  "modNlu": "# 14 NLU MAP\\n\\n## Sinonimos de productos\\n[Extraer del PDF nombres alternativos de productos, jerga local, abreviaciones]\\n\\n## Sinonimos de acciones\\ncomprar: pedir, encargar, quiero uno, me llevo\\nprecio: cuanto vale, cuanto cuesta, a como esta\\ncatalogo: que tienen, que venden, fotos, ver\\n\\n## Entidades clave\\n[tallas, colores, categorias, ciudades — extraer del PDF]",\n\n' +
+    '  "modOfertas": "# 15 MOTOR DE OFERTAS\\n\\n## Reglas de descuento\\n[Extraer del PDF si hay promociones, descuentos o combos. Si no hay: dejar vacio o poner Sin promociones activas.]\\n\\n## Order Bumps\\n[Si el negocio vende productos: agregar cross-sell natural. Ej: complementos, accesorios]",\n\n' +
     '  "agenteCliente": "# AGENTE_CLIENTE\\n\\nEres el asistente de ventas de ' + bName + ' por WhatsApp. Tu unico objetivo: convertir consultas en ' + agentGoal + ' confirmados.\\n\\n## Reglas de operacion\\n- Sigue el flujo del Modulo 05 en orden estricto\\n- Usa el Modulo 11 para detectar intenciones rapidamente\\n- Actualiza etapa_actual en CADA mensaje\\n- Incluye MEMORY_JSON completo al final de CADA respuesta\\n- Consulta precios SIEMPRE del Modulo 03, nunca inventes\\n- Consulta zonas y envios del Modulo 08\\n- Si el cliente pregunta algo fuera de la base: di que verificas y avisa al admin",\n\n' +
     '  "agenteAdmin": "# AGENTE_ADMIN\\n\\nEres el analista y administrador de ' + bName + '. Solo respondes al dueno/admin del negocio.\\n\\n## Funciones\\n- Analizar conversaciones y extraer metricas del Modulo 10\\n- Identificar gaps en la base de conocimiento\\n- Sugerir mejoras al flujo de ventas\\n- Generar alertas segun Modulo 07\\n- Proponer campanas segun productos mas consultados\\n\\n## Restricciones\\n- NUNCA compartir informacion confidencial del negocio con clientes\\n- Solo el dueno autenticado tiene acceso a este agente"\n' +
     '}\n\n' +

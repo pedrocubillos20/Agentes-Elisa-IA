@@ -2607,6 +2607,11 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               const detectedStage = (memoryData.etapa_actual || memoryData.paso_actual || '').trim();
               const actionToTake = memoryData.accion || '';
 
+              // 🔍 LOG ACCIÓN — útil para diagnóstico de cancelaciones/actualizaciones
+              if (actionToTake) {
+                console.log(`🎯 ACCIÓN DETECTADA: "${actionToTake}" | phone: ${clientPhone} | owner: ${ownerId}`);
+              }
+
               // ════════════════════════════════════════════════════════════════
               // 🤖 COPILOTO IA — ACCIONES DEL DUEÑO (isPersonalAssistant)
               // El dueño puede gestionar citas/pedidos/reservas de CUALQUIER cliente
@@ -3543,7 +3548,10 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               // ═══ 🔄 ACTUALIZAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use actualizar_cita OR actualizar_reserva regardless of actual DB type
               // ✅ FIX: Condición relajada — busca por teléfono aunque la reserva venga de web/admin/sesión anterior
-              if (actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva') {
+              const isUpdateAction = actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva' || actionToTake === 'confirmar_reagendar';
+              const isUpdateConfirmText = (reply||'').toLowerCase().match(/reagendad|reprogramad|actuali[zs]ad|nueva.*cita|cita.*cambiada|reserva.*cambiada|nueva.*reserva/);
+              const shouldUpdate = isUpdateAction || (isUpdateConfirmText && (merged.reserva === 'creada' || merged.cita === 'creada') && (memoryData.fecha_reserva || memoryData.hora_reserva || memoryData.fecha_cita || memoryData.hora_cita));
+              if (shouldUpdate) {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   // Buscar cita/reserva activa — priorizar misma línea WA, fallback a cualquier línea del owner
@@ -3738,7 +3746,24 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               // ═══ ❌ CANCELAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use cancelar_cita OR cancelar_reserva regardless of actual DB type
               // ✅ FIX: Condición relajada — cancela aunque la reserva venga de web/admin/sesión anterior
-              if (actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva') {
+              // ✅ FIX 2: Si el reply contiene confirmación de cancelación pero accion viene vacío → ejecutar igual
+              const replyLowerForCancel = (reply || '').toLowerCase();
+              const isCancelConfirmText = (
+                replyLowerForCancel.includes('cancelada exitosamente') ||
+                replyLowerForCancel.includes('reserva cancelada') ||
+                replyLowerForCancel.includes('cita cancelada') ||
+                replyLowerForCancel.includes('ha sido cancelada') ||
+                replyLowerForCancel.includes('fue cancelada') ||
+                replyLowerForCancel.includes('se ha cancelado') ||
+                replyLowerForCancel.includes('procedo a cancelar') ||
+                replyLowerForCancel.includes('procedí a cancelar')
+              );
+              const effectiveCancelAction = actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva' || actionToTake === 'confirmar_cancelar';
+              const shouldCancel = effectiveCancelAction || (isCancelConfirmText && (merged.reserva === 'creada' || merged.cita === 'creada'));
+              if (shouldCancel && isCancelConfirmText) {
+                console.log(`🎯 CANCELAR detectado: accion="${actionToTake}" | texto="${replyLowerForCancel.substring(0,80)}" | fallback=${!effectiveCancelAction}`);
+              }
+              if (shouldCancel) {
                 try {
                   const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   // Search for ANY active appointment/reservation for this phone

@@ -3542,22 +3542,35 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
               // ═══ 🔄 ACTUALIZAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use actualizar_cita OR actualizar_reserva regardless of actual DB type
-              if ((actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva') && 
-                  (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
+              // ✅ FIX: Condición relajada — busca por teléfono aunque la reserva venga de web/admin/sesión anterior
+              if (actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva') {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
-                  // Search for ANY active appointment/reservation for this phone
-                  const existingRecord = await prisma.appointment.findFirst({
-                    where: { userId: ownerId, clientPhone: { endsWith: phoneCleanU.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
+                  // Buscar cita/reserva activa — priorizar misma línea WA, fallback a cualquier línea del owner
+                  let existingRecord = await prisma.appointment.findFirst({
+                    where: {
+                      userId: ownerId,
+                      clientPhone: { endsWith: phoneCleanU.slice(-10) },
+                      type: { in: ['appointment', 'reservation'] },
+                      status: { notIn: ['cancelled'] },
+                      ...(whatsappLineId ? { whatsappLineId } : {}) // 🔒 Aislar por línea si hay varias
+                    },
                     orderBy: { createdAt: 'desc' }
                   });
+                  // Fallback: si no hay en esta línea, buscar en cualquier línea del mismo owner
+                  if (!existingRecord && whatsappLineId) {
+                    existingRecord = await prisma.appointment.findFirst({
+                      where: { userId: ownerId, clientPhone: { endsWith: phoneCleanU.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
+                      orderBy: { createdAt: 'desc' }
+                    });
+                  }
                   if (existingRecord) {
                     const updateData: any = { status: 'pending' };
                     
                     // 🏍️ CASO ESPECIAL: Domicilio — solo agrega dirección sin cambiar fecha/hora
                     const isDomicilio = (merged.tipo_reserva || merged.tipo_cita || '').toLowerCase().includes('domicilio');
                     
-                    // Fecha/hora: solo actualizar si NO es domicilio (domicilio mantiene fecha/hora de la cita)
+                    // Fecha/hora: solo actualizar si NO es domicilio
                     if (!isDomicilio) {
                       const newFecha = merged.fecha_cita || merged.fecha_reserva;
                       if (newFecha) updateData.date = parseSmartDate(newFecha);
@@ -3574,6 +3587,65 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     
                     const tipo = merged.tipo_cita || merged.tipo_reserva || existingRecord.type;
 
+                    // ✅ FIX: Re-asignar recurso para el NUEVO slot de fecha/hora
+                    // Libera el slot antiguo (implícito al cambiar fecha/hora) y busca recurso para el nuevo
+                    if (!isDomicilio && updateData.date && updateData.time) {
+                      try {
+                        const activeResources = await prisma.resource.findMany({
+                          where: { userId: ownerId, isActive: true },
+                          orderBy: { order: 'asc' }
+                        });
+                        if (activeResources.length > 0) {
+                          const newDateStr = updateData.date.toISOString().split('T')[0];
+                          const dayStart2 = new Date(newDateStr + 'T00:00:00');
+                          const dayEnd2   = new Date(newDateStr + 'T23:59:59');
+                          const dayScheduleU = await prisma.businessSchedule.findFirst({
+                            where: { userId: ownerId, dayOfWeek: updateData.date.getDay() }
+                          });
+                          const slotDurU = dayScheduleU?.slotDuration || (existingRecord.duration || 60);
+                          // Buscar citas del nuevo día — excluir la que estamos actualizando
+                          const conflictingU = await prisma.appointment.findMany({
+                            where: {
+                              userId: ownerId,
+                              id: { not: existingRecord.id }, // excluir la cita actual
+                              date: { gte: dayStart2, lte: dayEnd2 },
+                              status: { notIn: ['cancelled'] }
+                            },
+                            select: { time: true, duration: true, resourceId: true }
+                          });
+                          const [tHu, tMu] = updateData.time.split(':').map(Number);
+                          const reqStartU = tHu * 60 + tMu;
+                          const overlappingU = conflictingU.filter((a: any) => {
+                            if (!a.time) return false;
+                            const [aH, aM] = a.time.split(':').map(Number);
+                            const aStart = aH * 60 + aM;
+                            const aEnd = aStart + (a.duration || slotDurU);
+                            return aStart < reqStartU + slotDurU && aEnd > reqStartU;
+                          });
+                          const occupiedCountsU = new Map<string, number>();
+                          for (const a of overlappingU) {
+                            if (a.resourceId) occupiedCountsU.set(a.resourceId, (occupiedCountsU.get(a.resourceId) || 0) + 1);
+                          }
+                          const freeResourceU = activeResources.find((r: any) => {
+                            const used = occupiedCountsU.get(r.id) || 0;
+                            return used < (r.capacity || 1);
+                          });
+                          if (freeResourceU) {
+                            updateData.resourceId   = freeResourceU.id;
+                            updateData.resourceName = freeResourceU.name;
+                            log(`🔗 Recurso re-asignado al actualizar: ${freeResourceU.name} — ${updateData.time} ${newDateStr}`);
+                          } else {
+                            // Limpiar recurso si no hay disponible en nuevo slot
+                            updateData.resourceId   = null;
+                            updateData.resourceName = null;
+                            log(`⚠️ Sin recursos libres para nuevo slot ${updateData.time} ${newDateStr} — actualizada sin recurso`);
+                          }
+                        }
+                      } catch (resErrU: any) {
+                        log(`⚠️ Error re-asignando recurso al actualizar: ${resErrU.message}`);
+                      }
+                    }
+
                     if (isDomicilio) {
                       // Para domicilio: enriquecer notes originales sin sobreescribirlas
                       const prevNotes = existingRecord.notes || '';
@@ -3582,34 +3654,51 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                         `📝 Info adicional: ${merged.notas || ''}\n` +
                         `⏱️ Registrado: ${new Date().toLocaleString()}\n` +
                         `━━━━━━━━━━━━━━━`;
-                      // Solo agregar si no está ya registrado
                       updateData.notes = prevNotes.includes('DOMICILIO CONFIRMADO') 
                         ? prevNotes 
                         : prevNotes + domilicioInfo;
                     } else {
-                      updateData.notes = `📅 ${tipo.toUpperCase()} — ACTUALIZADA\n` +
+                      const fechaStr = updateData.date
+                        ? updateData.date.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })
+                        : existingRecord.date?.toLocaleDateString?.('es', { weekday: 'long', day: 'numeric', month: 'long' }) || '';
+                      updateData.notes = `📅 ${tipo.toUpperCase()} — REPROGRAMADA\n` +
                         `━━━━━━━━━━━━━━━\n` +
                         `👤 Cliente: ${merged.nombre || existingRecord.clientName}\n` +
                         `📱 Teléfono: ${phoneCleanU}\n` +
-                        `🗓️ Fecha: ${(updateData.date || existingRecord.date).toLocaleDateString?.('es', { weekday: 'long', day: 'numeric', month: 'long' }) || ''}\n` +
-                        `🕐 Hora: ${updateData.time || existingRecord.time}\n` +
+                        `🗓️ Nueva fecha: ${fechaStr}\n` +
+                        `🕐 Nueva hora: ${updateData.time || existingRecord.time}\n` +
                         `📋 Tipo: ${tipo}\n` +
+                        (updateData.resourceName ? `🔧 Recurso: ${updateData.resourceName}\n` : '') +
                         `⏱️ Actualizado: ${new Date().toLocaleString()}\n` +
                         `━━━━━━━━━━━━━━━`;
                     }
 
                     await prisma.appointment.update({ where: { id: existingRecord.id }, data: updateData });
-                    // Keep status as created so future updates work
+                    // Marcar como actualizada en memoria
                     if (existingRecord.type === 'reservation') merged.reserva = 'creada';
                     else merged.cita = 'creada';
                     merged.accion = '';
                     await prisma.conversation.update({ where: { id: conversationId }, data: { contextData: merged } });
+                    
                     if (isDomicilio) {
                       log(`🏍️ DOMICILIO AGREGADO a ${existingRecord.type} ${existingRecord.id} | ${merged.nombre || clientName} | Dir: ${domicilioDir}`);
                       sendPushToUser(ownerId, { title: '🏍️ Domicilio Confirmado', body: `${merged.nombre || 'Cliente'} — Recogida en: ${domicilioDir || 'Ver agenda'}`, url: '/agenda', tag: `domicilio-${Date.now()}` }).catch(() => {});
                     } else {
-                      log(`🔄 ${existingRecord.type.toUpperCase()} ACTUALIZADA: ${existingRecord.id} | ${merged.nombre || clientName}`);
-                      sendPushToUser(ownerId, { title: '🔄 Cita Actualizada', body: `${merged.nombre || 'Cliente'} actualizó su ${tipo}`, url: '/agenda', tag: `update-${Date.now()}` }).catch(() => {});
+                      const nuevaFechaLog = updateData.date?.toLocaleDateString('es') || 'sin cambio';
+                      const nuevaHoraLog  = to12h(updateData.time || existingRecord.time || '');
+                      log(`🔄 ${existingRecord.type.toUpperCase()} REPROGRAMADA: ${existingRecord.id} | ${merged.nombre || clientName} → ${nuevaFechaLog} ${nuevaHoraLog}`);
+                      sendPushToUser(ownerId, {
+                        title: '🔄 Cita Reprogramada',
+                        body: `${merged.nombre || 'Cliente'} — ${tipo} → ${nuevaFechaLog} ${nuevaHoraLog}`.substring(0, 120),
+                        url: '/agenda',
+                        tag: `update-${Date.now()}`
+                      }).catch(() => {});
+                      notifyPersonalAssistant(ownerId, 'reserva', {
+                        name: merged.nombre || clientName || 'Cliente',
+                        date: updateData.date?.toLocaleDateString('es') || '',
+                        time: to12h(updateData.time || existingRecord.time || ''),
+                        phone: phoneCleanU
+                      }).catch(() => {});
                     }
                   } else {
                     log(`⚠️ No se encontró cita/reserva activa para actualizar de ${phoneCleanU}`);
@@ -3648,15 +3737,28 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
               // ═══ ❌ CANCELAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use cancelar_cita OR cancelar_reserva regardless of actual DB type
-              if ((actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva') &&
-                  (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
+              // ✅ FIX: Condición relajada — cancela aunque la reserva venga de web/admin/sesión anterior
+              if (actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva') {
                 try {
                   const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   // Search for ANY active appointment/reservation for this phone
-                  const existingRecord = await prisma.appointment.findFirst({
-                    where: { userId: ownerId, clientPhone: { endsWith: phoneCleanC.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
+                  // Buscar por línea WA primero — fallback a cualquier línea del owner
+                  let existingRecord = await prisma.appointment.findFirst({
+                    where: {
+                      userId: ownerId,
+                      clientPhone: { endsWith: phoneCleanC.slice(-10) },
+                      type: { in: ['appointment', 'reservation'] },
+                      status: { notIn: ['cancelled'] },
+                      ...(whatsappLineId ? { whatsappLineId } : {})
+                    },
                     orderBy: { createdAt: 'desc' }
                   });
+                  if (!existingRecord && whatsappLineId) {
+                    existingRecord = await prisma.appointment.findFirst({
+                      where: { userId: ownerId, clientPhone: { endsWith: phoneCleanC.slice(-10) }, type: { in: ['appointment', 'reservation'] }, status: { notIn: ['cancelled'] } },
+                      orderBy: { createdAt: 'desc' }
+                    });
+                  }
                   if (existingRecord) {
                     await prisma.appointment.update({
                       where: { id: existingRecord.id },

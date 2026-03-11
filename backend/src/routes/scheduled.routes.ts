@@ -231,9 +231,9 @@ router.post('/', async (req: Request, res: Response) => {
         recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
         timezone: timezone || 'America/Bogota', status: 'pending',
+        // Store bulkRecipients serialized in targetId for bulk_excel type
         ...(bulkRecipients && Array.isArray(bulkRecipients) && {
-          bulkRecipients: bulkRecipients,
-          bulkTotal: bulkRecipients.length
+          targetId: targetType === 'bulk_excel' ? JSON.stringify(bulkRecipients) : targetId
         })
       }
     });
@@ -420,8 +420,9 @@ const processScheduledMessage = async (msg: any) => {
       .filter(Boolean) as { chatId: string; name?: string }[];
 
   } else if (targetType === 'bulk_excel') {
-    // 📊 Destinatarios importados desde Excel — almacenados en bulkRecipients
-    const bulkList = (msg.bulkRecipients as any[]) || [];
+    // 📊 Destinatarios importados desde Excel — almacenados en targetId como JSON
+    let bulkList: any[] = [];
+    try { bulkList = JSON.parse(msg.targetId || '[]'); } catch { bulkList = []; }
     targets = bulkList
       .map((r: any) => {
         const phone = String(r.phone || r.telefono || r.number || '').replace(/\D/g, '');
@@ -552,7 +553,7 @@ const processScheduledMessage = async (msg: any) => {
       where: { id: msg.id },
       data: { 
         status: finalStatus, sentAt: new Date(), lastSentAt: new Date(), sendCount: msg.sendCount + 1, error: errorMsg,
-        ...(targetType === 'bulk_excel' && { bulkSent: sentCount, bulkFailed: failedCount, bulkTotal: targets.length })
+        // (bulkSent/bulkFailed stats not tracked in schema — use error field for summary)
       }
     });
   } else {

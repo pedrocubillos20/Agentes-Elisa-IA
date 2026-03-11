@@ -3616,8 +3616,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
             continue;
           }
         }
-      } // end if(res.ok)
-    } catch (e: any) {
+        } // end else (res.ok false)
+      } catch (e: any) {
         console.error(`❌ ${model}:`, e.message);
       }
     }

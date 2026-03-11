@@ -612,4 +612,187 @@ const calculateNextOccurrence = (msg: any): Date | null => {
   return null;
 };
 
+// ====================================================
+// 🔔 CRON: Recordatorios automáticos de citas/reservas/pedidos
+// Corre cada 15 minutos
+// - Recordatorio 2h antes de la cita
+// - Seguimiento 1 día después del servicio (status: 'completed')
+// ====================================================
+export const startAppointmentReminderCron = () => {
+  log('🔔 Cron de recordatorios de citas INICIADO (cada 15min)');
+
+  const runReminders = async () => {
+    try {
+      const now = new Date();
+      // Colombia UTC-5
+      const nowColombia = new Date(now.getTime() - 5 * 60 * 60 * 1000);
+
+      // ── 1. RECORDATORIO 2H ANTES ──────────────────────────────
+      // Buscar citas/reservas/pedidos con fecha HOY, en las próximas 1h55–2h05
+      const windowStart = new Date(nowColombia.getTime() + (2 * 60 - 5) * 60 * 1000);
+      const windowEnd   = new Date(nowColombia.getTime() + (2 * 60 + 5) * 60 * 1000);
+
+      const upcomingAppts = await prisma.appointment.findMany({
+        where: {
+          status: { in: ['pending', 'confirmed'] },
+          reminderSent: false,
+          date: {
+            gte: new Date(nowColombia.toISOString().split('T')[0] + 'T00:00:00'),
+            lte: new Date(nowColombia.toISOString().split('T')[0] + 'T23:59:59'),
+          }
+        },
+        select: {
+          id: true, userId: true, type: true,
+          clientName: true, clientPhone: true,
+          date: true, time: true,
+          whatsappLineId: true, notes: true
+        }
+      });
+
+      for (const appt of upcomingAppts) {
+        try {
+          // Construir datetime de la cita en Colombia
+          const [h, m] = (appt.time || '00:00').split(':').map(Number);
+          const apptDate = new Date(appt.date);
+          const apptColombia = new Date(apptDate.getTime() - 5 * 60 * 60 * 1000);
+          apptColombia.setHours(h, m, 0, 0);
+
+          // ¿Está dentro del window 2h antes?
+          if (apptColombia < windowStart || apptColombia > windowEnd) continue;
+
+          // Encontrar sesión WhatsApp del usuario
+          const line = await prisma.whatsappLine.findFirst({
+            where: {
+              userId: appt.userId,
+              status: 'connected',
+              ...(appt.whatsappLineId ? { id: appt.whatsappLineId } : {})
+            },
+            orderBy: { isDefault: 'desc' }
+          });
+          if (!line) continue;
+
+          const phoneClean = (appt.clientPhone || '')
+            .replace(/\D/g, '').replace(/^57/, '');
+          if (!phoneClean || phoneClean.length < 7) continue;
+          const chatId = `57${phoneClean}@c.us`;
+
+          // Formato hora 12h
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const h12 = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+          const timeStr = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+
+          // Mensaje según tipo
+          let msg = '';
+          const nombre = (appt.clientName || 'cliente').split(' ')[0];
+          const tipo = appt.type;
+
+          if (tipo === 'order') {
+            msg = `📦 *¡Hola ${nombre}!* Te recordamos que hoy es el día de entrega de tu pedido 🎉\n\n🕐 Hora estimada: ${timeStr}\n\n¿Tienes alguna duda? Con gusto te ayudamos 😊`;
+          } else if (tipo === 'reservation') {
+            msg = `📋 *¡Hola ${nombre}!* Te recordamos tu reserva de hoy 😊\n\n🕐 Hora: ${timeStr}\n\nRecuerda traer tus documentos. ¡Te esperamos! 🙌`;
+          } else {
+            // appointment (cita)
+            msg = `🏍 *¡Hola ${nombre}!* Te recordamos tu cita de hoy en *CDA Ready to Race* 😊\n\n🕐 Hora: ${timeStr}\n\n📌 Recuerda traer:\n- Tarjeta de propiedad\n- SOAT vigente\n- Cédula\n- Moto limpia\n\n¡Te esperamos! 🌟`;
+          }
+
+          // Enviar WhatsApp
+          const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
+            method: 'POST',
+            headers: getWahaHeaders(),
+            body: JSON.stringify({ session: line.sessionName, chatId, text: msg })
+          });
+
+          if (r.ok) {
+            // Marcar como enviado para no repetir
+            await prisma.appointment.update({
+              where: { id: appt.id },
+              data: { reminderSent: true } as any
+            });
+            log(`🔔 Recordatorio 2h enviado → ${nombre} (${chatId}) | ${tipo}`);
+          }
+
+        } catch (e: any) {
+          log(`⚠️ Error recordatorio cita ${appt.id}: ${e.message}`);
+        }
+      }
+
+      // ── 2. SEGUIMIENTO POST-SERVICIO (1 día después) ───────────
+      // Buscar citas completadas ayer
+      const yesterday = new Date(nowColombia);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      const completedYesterday = await prisma.appointment.findMany({
+        where: {
+          status: 'completed',
+          followUpSent: false,
+          date: {
+            gte: new Date(yesterdayStr + 'T00:00:00'),
+            lte: new Date(yesterdayStr + 'T23:59:59'),
+          }
+        },
+        select: {
+          id: true, userId: true, type: true,
+          clientName: true, clientPhone: true,
+          whatsappLineId: true
+        }
+      });
+
+      for (const appt of completedYesterday) {
+        try {
+          const line = await prisma.whatsappLine.findFirst({
+            where: {
+              userId: appt.userId,
+              status: 'connected',
+              ...(appt.whatsappLineId ? { id: appt.whatsappLineId } : {})
+            },
+            orderBy: { isDefault: 'desc' }
+          });
+          if (!line) continue;
+
+          const phoneClean = (appt.clientPhone || '').replace(/\D/g, '').replace(/^57/, '');
+          if (!phoneClean || phoneClean.length < 7) continue;
+          const chatId = `57${phoneClean}@c.us`;
+
+          const nombre = (appt.clientName || 'cliente').split(' ')[0];
+          const tipo = appt.type;
+
+          let msg = '';
+          if (tipo === 'order') {
+            msg = `📦 *¡Hola ${nombre}!* Esperamos que hayas recibido tu pedido sin novedad 😊\n\n¿Todo llegó bien? Tu opinión nos ayuda a mejorar 🙏`;
+          } else if (tipo === 'reservation') {
+            msg = `😊 *¡Hola ${nombre}!* ¿Cómo te fue con tu servicio de ayer?\n\nTu opinión es muy valiosa para nosotros. ¿Quedaste satisfecho/a? 🌟`;
+          } else {
+            msg = `🏍 *¡Hola ${nombre}!* ¿Cómo te fue con tu revisión de ayer en *CDA Ready to Race*?\n\nNos importa tu experiencia. ¿Quedaste satisfecho/a con el servicio? 😊\n\n¡Gracias por confiar en nosotros! 🙌`;
+          }
+
+          const r = await fetch(`${WAHA_API_URL}/api/sendText`, {
+            method: 'POST',
+            headers: getWahaHeaders(),
+            body: JSON.stringify({ session: line.sessionName, chatId, text: msg })
+          });
+
+          if (r.ok) {
+            await prisma.appointment.update({
+              where: { id: appt.id },
+              data: { followUpSent: true } as any
+            });
+            log(`✅ Seguimiento post-servicio enviado → ${nombre} (${chatId})`);
+          }
+
+        } catch (e: any) {
+          log(`⚠️ Error seguimiento post-servicio ${appt.id}: ${e.message}`);
+        }
+      }
+
+    } catch (e: any) {
+      console.error('🔔 Error en cron de recordatorios:', e.message);
+    }
+  };
+
+  // Correr inmediatamente al iniciar, luego cada 15 minutos
+  runReminders();
+  setInterval(runReminders, 15 * 60 * 1000);
+};
+
 export default router;

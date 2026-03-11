@@ -15,7 +15,7 @@ import appointmentsRoutes from './routes/appointments.routes';
 import teamRoutes from './routes/team.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import stagesRoutes from './routes/stages.routes';
-import scheduledRoutes, { startScheduledMessagesCron } from './routes/scheduled.routes';
+import scheduledRoutes, { startScheduledMessagesCron, startAppointmentReminderCron } from './routes/scheduled.routes';
 import apiRoutes, { publicRouter as apiPublicRoutes } from './routes/api.routes';
 import mediaRoutes from './routes/media.routes';
 import ghlRoutes from './routes/ghl.routes';
@@ -536,6 +536,7 @@ app.listen(PORT, () => {
   startWahaSyncCron();
   startAccountCleanupCron();
   startCallReminderCron(); // 📞 RETELL AI - Auto-recordatorios
+  startAppointmentReminderCron(); // 🔔 Recordatorios 2h antes + seguimiento post-servicio
   prisma.$queryRaw`SELECT 1`.catch(() => {});
 
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RENDER_SERVICE_ID || process.env.NODE_ENV === 'production') {

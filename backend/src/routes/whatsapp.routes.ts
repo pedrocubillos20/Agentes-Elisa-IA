@@ -2463,7 +2463,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 data: updateData
               });
             }
-            
+          } // end if(!memoryMatch) — fallback cuando IA no incluyó MEMORY_JSON
+
                     console.log(`🔍 MEMORY_JSON presente: ${!!memoryMatch} | isPersonalAssistant: ${isPersonalAssistant}`);
           if (memoryMatch) {
             try {
@@ -3616,7 +3617,6 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
             continue;
           }
         }
-        } // end else (res.ok false)
       } catch (e: any) {
         console.error(`❌ ${model}:`, e.message);
       }

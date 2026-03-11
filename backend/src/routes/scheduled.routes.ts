@@ -618,6 +618,10 @@ const calculateNextOccurrence = (msg: any): Date | null => {
 // - Recordatorio 2h antes de la cita
 // - Seguimiento 1 día después del servicio (status: 'completed')
 // ====================================================
+// In-memory sets to track sent reminders/followups (avoids schema migration)
+const reminderSentIds = new Set<string>();
+const followUpSentIds = new Set<string>();
+
 export const startAppointmentReminderCron = () => {
   log('🔔 Cron de recordatorios de citas INICIADO (cada 15min)');
 
@@ -635,7 +639,6 @@ export const startAppointmentReminderCron = () => {
       const upcomingAppts = await prisma.appointment.findMany({
         where: {
           status: { in: ['pending', 'confirmed'] },
-          reminderSent: false,
           date: {
             gte: new Date(nowColombia.toISOString().split('T')[0] + 'T00:00:00'),
             lte: new Date(nowColombia.toISOString().split('T')[0] + 'T23:59:59'),
@@ -656,6 +659,9 @@ export const startAppointmentReminderCron = () => {
           const apptDate = new Date(appt.date);
           const apptColombia = new Date(apptDate.getTime() - 5 * 60 * 60 * 1000);
           apptColombia.setHours(h, m, 0, 0);
+
+          // ¿Ya se envió recordatorio? (dedup en memoria)
+          if (reminderSentIds.has(appt.id)) continue;
 
           // ¿Está dentro del window 2h antes?
           if (apptColombia < windowStart || apptColombia > windowEnd) continue;
@@ -703,11 +709,8 @@ export const startAppointmentReminderCron = () => {
           });
 
           if (r.ok) {
-            // Marcar como enviado para no repetir
-            await prisma.appointment.update({
-              where: { id: appt.id },
-              data: { reminderSent: true } as any
-            });
+            // Marcar en memoria para no repetir
+            reminderSentIds.add(appt.id);
             log(`🔔 Recordatorio 2h enviado → ${nombre} (${chatId}) | ${tipo}`);
           }
 
@@ -725,7 +728,6 @@ export const startAppointmentReminderCron = () => {
       const completedYesterday = await prisma.appointment.findMany({
         where: {
           status: 'completed',
-          followUpSent: false,
           date: {
             gte: new Date(yesterdayStr + 'T00:00:00'),
             lte: new Date(yesterdayStr + 'T23:59:59'),
@@ -740,6 +742,9 @@ export const startAppointmentReminderCron = () => {
 
       for (const appt of completedYesterday) {
         try {
+          // ¿Ya se envió seguimiento? (dedup en memoria)
+          if (followUpSentIds.has(appt.id)) continue;
+
           const line = await prisma.whatsappLine.findFirst({
             where: {
               userId: appt.userId,
@@ -773,10 +778,8 @@ export const startAppointmentReminderCron = () => {
           });
 
           if (r.ok) {
-            await prisma.appointment.update({
-              where: { id: appt.id },
-              data: { followUpSent: true } as any
-            });
+            // Marcar en memoria para no repetir
+            followUpSentIds.add(appt.id);
             log(`✅ Seguimiento post-servicio enviado → ${nombre} (${chatId})`);
           }
 

@@ -1410,8 +1410,53 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     if (assistant.businessInfo?.trim()) promptParts.push(`Info del negocio: ${assistant.businessInfo}`);
     if (assistant.instructions?.trim()) promptParts.push(`Instrucciones especiales: ${assistant.instructions}`);
     
-    // 📚 BASE DE CONOCIMIENTO — máxima prioridad, contiene TODO el comportamiento del asistente
-    if (assistant.context?.trim()) {
+    // 📚 ENSAMBLAR MÓDULOS — Sistema Modular v2 (prioridad) + context legacy (fallback)
+    const hasModules = !!(
+      (assistant as any).modOrquestador || (assistant as any).agenteCliente ||
+      (assistant as any).modIdentidad   || (assistant as any).modReglas ||
+      (assistant as any).modProductos   || (assistant as any).modFlujo ||
+      (assistant as any).modAcciones    || (assistant as any).modDetector ||
+      (assistant as any).modTriggers    || (assistant as any).modCatalogo ||
+      (assistant as any).modNlu
+    );
+
+    if (hasModules) {
+      // ✅ Sistema modular — ensamblar en orden correcto
+      const moduleParts: string[] = [];
+
+      const addMod = (label: string, content: string | null | undefined) => {
+        if (content?.trim()) moduleParts.push(`--- ${label} ---
+${content.trim()}`);
+      };
+
+      addMod('ORQUESTADOR (00)',         (assistant as any).modOrquestador);
+      addMod('AGENTE_CLIENTE',           (assistant as any).agenteCliente);
+      addMod('AGENTE_ADMIN',             (assistant as any).agenteAdmin);
+      addMod('IDENTIDAD (01)',           (assistant as any).modIdentidad);
+      addMod('REGLAS (02)',               (assistant as any).modReglas);
+      addMod('PRODUCTOS (03)',           (assistant as any).modProductos);
+      addMod('AGENDA (04)',              (assistant as any).modAgenda);
+      addMod('FLUJOS (05)',              (assistant as any).modFlujo);
+      addMod('ACCIONES + PIPELINE (06)', (assistant as any).modAcciones);
+      addMod('ADMIN (07)',               (assistant as any).modAdmin);
+      addMod('ZONAS (08)',               (assistant as any).modZonas);
+      addMod('MEMORIA (09)',             (assistant as any).modMemoriaCliente);
+      addMod('MÉTRICAS (10)',            (assistant as any).modMetricas);
+      addMod('INTENCIONES (11)',         (assistant as any).modDetector);
+      addMod('TRIGGERS MULTIMEDIA (12)', (assistant as any).modTriggers);
+      addMod('CATÁLOGO (13)',            (assistant as any).modCatalogo);
+      addMod('NLU MAP (14)',             (assistant as any).modNlu);
+      addMod('MOTOR DE OFERTAS (15)',    (assistant as any).modOfertas);
+
+      if (moduleParts.length > 0) {
+        promptParts.push(`=== 📚 BASE DE CONOCIMIENTO Y CONFIGURACIÓN DEL ASISTENTE ===
+${moduleParts.join('\n\n')}
+=== FIN BASE DE CONOCIMIENTO ===
+IMPORTANTE: Todo lo descrito en la Base de Conocimiento es tu guía principal. Síguela al pie de la letra.`);
+        log(`🧩 Módulos ensamblados: ${moduleParts.length} módulos activos`);
+      }
+    } else if (assistant.context?.trim()) {
+      // ⚠️ Fallback legacy — contexto único (formato anterior)
       promptParts.push(`=== 📚 BASE DE CONOCIMIENTO Y CONFIGURACIÓN DEL ASISTENTE ===
 ${assistant.context}
 === FIN BASE DE CONOCIMIENTO ===

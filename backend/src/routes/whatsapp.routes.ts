@@ -1350,7 +1350,8 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       log(`📋 Asistente GLOBAL "${assistant.name}" (sin asistente específico de línea)`);
     }
 
-    log(`📋 Asistente: "${assistant.name}" (contexto: ${assistant.context?.length || 0} chars)`);
+    const hasModulesLoaded = !!(( assistant as any).modIdentidad || (assistant as any).modReglas || (assistant as any).agenteCliente);
+    log(`📋 Asistente: "${assistant.name}" | context: ${assistant.context?.length || 0} chars | módulos: ${hasModulesLoaded ? '✅' : '❌'}`);
 
     // 🧠 CARGAR CONVERSACIÓN + MEMORIA PERSISTENTE
     const conversation = await prisma.conversation.findUnique({
@@ -4102,7 +4103,12 @@ const processBufferedMessages = async (bufferKey: string) => {
       clog(`⚠️ Sin asistente para userId:${userId} lineId:${whatsappLineId} → mensaje ignorado por IA`);
       return;
     }
-    if (!assistant.context || assistant.context.trim().length < 10) {
+    // ✅ Verificar base de conocimiento (context legacy O módulos separados)
+    const hasKnowledge = (assistant.context && assistant.context.trim().length >= 10) ||
+      !!(( assistant as any).modIdentidad || (assistant as any).modReglas || 
+          (assistant as any).modProductos || (assistant as any).modFlujo ||
+          (assistant as any).agenteCliente);
+    if (!hasKnowledge) {
       clog(`⚠️ Asistente "${assistant.name}" sin base de conocimiento → IA puede responder sin contexto del negocio`);
     }
     

@@ -1294,6 +1294,45 @@ function findStageByKeyword(stages: any[], keywords: string[]): string {
   return '';
 }
 
+
+// ====================================================
+// 🖼️ DETECTAR DISEÑO DESDE NOMBRE DE IMAGEN — GENÉRICO
+// Funciona para cualquier negocio en la plataforma SaaS
+// Convierte "nacional_verde2.jpg" → "Nacional Verde - Opción 2"
+// Convierte "masaje_relajante2.jpg" → "Masaje Relajante - Opción 2"
+// Convierte "bandeja_paisa1.jpg" → "Bandeja Paisa - Opción 1"
+// ====================================================
+const parseImageDesign = (imageName: string): string => {
+  if (!imageName) return '';
+
+  // Limpiar extensión
+  const clean = imageName.replace(/\.(jpg|jpeg|png|webp|gif|avif|bmp)$/i, '');
+
+  // Extraer número al final (diseño/variante/opción)
+  const numMatch = clean.match(/(\d+)$/);
+  const numero = numMatch ? numMatch[1] : '';
+
+  // Quitar el número final para obtener el nombre base
+  const sinNumero = clean.replace(/\d+$/, '').replace(/[_-]$/, '');
+
+  // Convertir snake_case / kebab-case a texto legible
+  // "nacional_verde" → "Nacional Verde"
+  // "masaje_relajante" → "Masaje Relajante"
+  const nombreLegible = sinNumero
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, (c: string) => c.toUpperCase())
+    .trim();
+
+  if (!nombreLegible) return imageName;
+
+  // Si tiene número → agregar "Opción N" (genérico para cualquier negocio)
+  if (numero) {
+    return `${nombreLegible} - Opción ${numero}`;
+  }
+
+  return nombreLegible;
+};
+
 const generateAIResponse = async (ownerId: string, message: string, conversationId: string, whatsappLineId?: string | null, quotedContext?: string): Promise<string | null> => {
   try {
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
@@ -1534,18 +1573,36 @@ IMPORTANTE: Todo lo descrito en la Base de Conocimiento es tu guía principal. S
         }
         return `- ${m.type === 'image' ? 'IMAGEN' : m.type === 'video' ? 'VIDEO' : 'AUDIO'} → Se activa si tu respuesta contiene: ${triggers.join(', ')}`;
       }).join('\n');
-      if (triggerList) promptParts.push(`\n📸 SISTEMA DE MULTIMEDIA AUTOMÁTICO:
-El sistema envía archivos automáticamente cuando detecta palabras clave en TU respuesta.
+      // Build concrete examples for each trigger
+      const triggerExamples = mediaItems.filter(m => m.trigger).map(m => {
+        const triggers = m.trigger.split(',').map((t: string) => t.trim()).filter(Boolean);
+        const firstTrigger = triggers[0] || '';
+        return `  • Para enviar "${m.name}" → escribe literalmente: ${firstTrigger}`;
+      }).join('\n');
 
+      if (triggerList) promptParts.push(`\n📸 SISTEMA DE MULTIMEDIA — LEE ESTO CON ATENCIÓN:
+Las imágenes se envían AUTOMÁTICAMENTE cuando escribes el trigger EXACTO en tu respuesta.
+
+ARCHIVOS DISPONIBLES:
 ${triggerList}
 
-⚠️ REGLAS ESTRICTAS:
-- NUNCA escribas nombres de archivo, URLs o referencias como [image:xxx]
-- NUNCA inventes links de imágenes
-- Para activar el envío automático, simplemente INCLUYE la palabra trigger de forma natural en tu respuesta
-- Ejemplo: Si el trigger es "catalogo", escribe algo como "Te muestro nuestro catálogo 👇" y el sistema enviará las fotos
-- Ejemplo: Si el trigger es "colores", escribe "Te muestro los colores disponibles 👇" y las fotos se envían solas
-- Tu respuesta debe ser SOLO TEXTO. Las imágenes las envía el sistema después automáticamente.`);
+CÓMO ACTIVAR UNA IMAGEN (OBLIGATORIO):
+${triggerExamples}
+
+REGLAS CRÍTICAS — SIN EXCEPCIÓN:
+1. ESCRIBE el trigger EXACTAMENTE como aparece arriba (respeta mayúsculas/minúsculas, guiones, números)
+2. El trigger debe aparecer como TEXTO PLANO en tu mensaje — no entre corchetes, no en negritas
+3. NUNCA escribas "Diseño 1", "foto del diseño", ni describas la imagen — escribe el trigger
+4. NUNCA inventes URLs ni links de imágenes
+5. NUNCA uses formato Markdown ![imagen](url)
+
+EJEMPLO CORRECTO para america_negro1:
+"¡Aquí el diseño negro! 🖤
+america_negro1
+¿Te gusta?"
+
+EJEMPLO INCORRECTO (la imagen NO llega):
+"Aquí tienes el Diseño 1 en negro 🖤" ← no escribe el trigger = no llega la imagen`);
     }
 
     // 🎯 CARGAR ETAPAS DEL PIPELINE DE LA LÍNEA
@@ -4313,7 +4370,10 @@ const processBufferedMessages = async (bufferKey: string) => {
               const imgResult = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
               if (imgResult.ok) {
                 sentCount++;
-                if (imgResult.wamid) wamidCache.set(imgResult.wamid, img.name || `📷 Imagen ${i+1}`);
+                if (imgResult.wamid) {
+                const designLabel = parseImageDesign(img.name || '');
+                wamidCache.set(imgResult.wamid, designLabel || img.name || `📷 Imagen ${i+1}`);
+              }
               }
               if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
             }
@@ -5800,10 +5860,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const quotedType = quotedMsg?.type || quotedMsg?.imageMessage ? 'imagen' : quotedMsg?.documentMessage ? 'documento' : 'texto';
       const quotedCaption = quotedMsg?.caption || quotedMsg?.imageMessage?.caption || quotedMsg?.documentMessage?.caption || '';
       // Si es imagen/media, usar filename o caption como referencia
+      const rawImgName = quotedMsg?.documentMessage?.fileName || quotedCaption || '';
+      const parsedDesign = rawImgName ? parseImageDesign(rawImgName) : '';
       const quotedMedia = quotedMsg?.type === 'image' || quotedMsg?.imageMessage
-        ? `[imagen: ${quotedCaption || 'sin caption'}]`
+        ? `[cliente seleccionó imagen: ${parsedDesign || quotedCaption || 'sin caption'}]`
         : quotedMsg?.type === 'document' || quotedMsg?.documentMessage
-        ? `[documento: ${quotedMsg?.documentMessage?.fileName || quotedCaption || 'sin nombre'}]`
+        ? `[documento: ${rawImgName || 'sin nombre'}]`
         : '';
       const quotedText = quotedBody || quotedMedia;
       if (quotedText) {
@@ -6023,6 +6085,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // Esto evita que la conversación no se cree cuando el cliente manda
     // un sticker/audio que falla en descargar
     if (!body) {
+      // Stickers: ignorar completamente — no pasar a IA
+      if (media?.mediaType === 'sticker' || payload?.type === 'sticker') {
+        res.json({ success: true }); return;
+      }
       if (media.hasMedia) {
         body = `📎 [Archivo multimedia - ${media.mediaType || 'desconocido'}]`;
       } else if (payload?.type && payload.type !== 'chat') {
@@ -6787,7 +6853,13 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
     // Process statuses
     for (const status of (value.statuses || [])) {
       if (status.status === 'failed') {
-        console.log(`☁️ [CLOUD] Msg falló → ${status.recipient_id}: ${status.errors?.[0]?.message || 'Unknown'}`);
+        const errCode = status.errors?.[0]?.code || '';
+        const errMsg = status.errors?.[0]?.message || 'Unknown';
+        // Código 131053 = error en carga de medios (imagen muy pesada o formato inválido)
+        // Código 131047 = mensaje re-enviado por el cliente (forward)
+        if (errCode !== 131047) { // No loggear re-envíos normales
+          console.log(`☁️ [CLOUD] ❌ Msg falló → ${status.recipient_id}: [${errCode}] ${errMsg}`);
+        }
       }
     }
     
@@ -6864,7 +6936,10 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             if (cloudQuotedMsgId) {
               const cached = wamidCache.get(cloudQuotedMsgId);
               if (cached) {
-                cloudQuotedContext = cached.substring(0, 120);
+                // Si es nombre de imagen → parsear a diseño legible
+                const parsedCached = parseImageDesign(cached);
+                const finalCached = parsedCached !== cached ? `cliente seleccionó: ${parsedCached}` : cached;
+                cloudQuotedContext = finalCached.substring(0, 120);
                 log('💬 Quoted exacto (cache): "' + cloudQuotedContext.substring(0, 60) + '"');
               }
               // Sin match → no inyectar (mejor sin contexto que con contexto erróneo)
@@ -6984,7 +7059,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
         const c = msg.contacts?.[0];
         messageBody = `👤 Contacto: ${c?.name?.formatted_name || 'Sin nombre'} - ${c?.phones?.[0]?.phone || ''}`;
       } else if (msgType === 'sticker') {
-        messageBody = '🏷️ Sticker';
+        continue; // 🏷️ Stickers: ignorar silenciosamente — no pasar a IA
       } else if (msgType === 'reaction') { continue; }
       else { messageBody = `[${msgType}]`; }
       

@@ -126,6 +126,7 @@ export default function AsistentesPage() {
             typeof active.mediaItems === 'string' ? JSON.parse(active.mediaItems || '[]') : []
           );
           // 🧩 Cargar módulos v2
+          setModOrquestador((active as any).modOrquestador || '');
           setModIdentidad(active.modIdentidad || '');
           setModReglas(active.modReglas || '');
           setModProductos(active.modProductos || '');

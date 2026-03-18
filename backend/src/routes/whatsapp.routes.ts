@@ -306,6 +306,10 @@ const messageBuffer: Map<string, {
   quotedContext?: string;      // Mensaje al que el usuario está respondiendo (replied message)
 }> = new Map();
 
+// 🛡️ Cache de últimas respuestas enviadas — evita duplicados (30s TTL)
+const lastSentResponses = new Map<string, { text: string; ts: number }>();
+const LAST_SENT_TTL = 30000;
+
 // ===== SESSION MANAGEMENT (multi-tenant) =====
 const getUserSessionName = (userId: string): string => `user_${userId}`;
 
@@ -3969,6 +3973,9 @@ const executeLineTransfer = async (
     }
 
     log(`🔄 Transferencia: ${customerName} → línea "${targetLine.label}" (${targetLine.phone})${resetSource ? ' [+RESET SOURCE]' : ''}`);
+    // Limpiar cache de duplicados al transferir (nueva conversación)
+    const transferKey = `${userId}_${customerChatId.replace(/@.*/,'')}`;
+    lastSentResponses.delete(transferKey);
 
     // 2. Find or create conversation on target line
     const cleanCustomer = customerChatId.replace('@c.us', '').replace('@s.whatsapp.net', '');
@@ -4208,10 +4215,18 @@ const processBufferedMessages = async (bufferKey: string) => {
         
         if (cleanAiResponse) {
           if (!isCloudAPI) await humanDelay(cleanAiResponse.length);
-          const sendResult1 = await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
-          if (sendResult1.wamid) wamidCache.set(sendResult1.wamid, cleanAiResponse);
-          await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
-          log(`🤖 Respuesta IA (pre-media) → ${senderName}`);
+          const lastSentPre = lastSentResponses.get(bufferKey);
+          const nowPre = Date.now();
+          const isDupPre = lastSentPre && lastSentPre.text === cleanAiResponse && (nowPre - lastSentPre.ts) < LAST_SENT_TTL;
+          if (!isDupPre) {
+            const sendResult1 = await unifiedSendAIResponse(sessionName, from, cleanAiResponse, whatsappLineId);
+            if (sendResult1.wamid) wamidCache.set(sendResult1.wamid, cleanAiResponse);
+            await prisma.message.create({ data: { conversationId: convId, content: cleanAiResponse, fromMe: true, userId, role: 'assistant' } });
+            lastSentResponses.set(bufferKey, { text: cleanAiResponse, ts: nowPre });
+            log(`🤖 Respuesta IA (pre-media) → ${senderName}`);
+          } else {
+            log(`🚫 Pre-media duplicada bloqueada para ${senderName}`);
+          }
         }
 
         if (mediaTransferMatch && whatsappLineId) {
@@ -4409,11 +4424,16 @@ const processBufferedMessages = async (bufferKey: string) => {
         
           if (shouldVoice && assistant?.elevenLabsKey && assistant?.selectedVoice) {
             // 🔊 MODO VOZ: Enviar texto + audio
+            const lastSentVoice = lastSentResponses.get(bufferKey);
+            const nowVoice = Date.now();
+            const isDuplicateVoice = lastSentVoice && lastSentVoice.text === cleanResponse && (nowVoice - lastSentVoice.ts) < LAST_SENT_TTL;
+            if (isDuplicateVoice) { clog(`🚫 Voz duplicada bloqueada para ${senderName}`); } else {
             const sent = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
             if (sent) {
               await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
               await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
-            }
+              lastSentResponses.set(bufferKey, { text: cleanResponse, ts: nowVoice });
+            }}
             
             // Generar y enviar audio
             try {
@@ -4428,12 +4448,28 @@ const processBufferedMessages = async (bufferKey: string) => {
             }
           } else {
             // 📝 MODO TEXTO: Normal (Cloud API usa mensajes divididos por párrafo)
-            const sentResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
-            if (sentResult.ok) {
-              if (sentResult.wamid) wamidCache.set(sentResult.wamid, cleanResponse);
-              await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
-              await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
-              clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
+            // 🛡️ ANTI-DUPLICADO: Verificar que no sea la misma respuesta que la anterior
+            const lastSent = lastSentResponses.get(bufferKey);
+            const now = Date.now();
+            const isDuplicate = lastSent && 
+              lastSent.text === cleanResponse && 
+              (now - lastSent.ts) < LAST_SENT_TTL;
+            
+            if (isDuplicate) {
+              clog(`🚫 Respuesta duplicada bloqueada para ${senderName}`);
+            } else {
+              const sentResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
+              if (sentResult.ok) {
+                if (sentResult.wamid) wamidCache.set(sentResult.wamid, cleanResponse);
+                await prisma.message.create({ data: { conversationId: convId, content: cleanResponse, fromMe: true, userId, role: 'assistant' } });
+                await prisma.conversation.update({ where: { id: convId }, data: { lastMessage: cleanResponse } });
+                lastSentResponses.set(bufferKey, { text: cleanResponse, ts: now });
+                // Limpiar entradas viejas del cache
+                for (const [k, v] of lastSentResponses) {
+                  if (now - v.ts > LAST_SENT_TTL * 2) lastSentResponses.delete(k);
+                }
+                clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
+              }
             }
           }
         }

@@ -4414,7 +4414,8 @@ const processBufferedMessages = async (bufferKey: string) => {
               }
               if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
             }
-            // ✅ Guardar cada imagen en DB con su wamid — persiste entre reinicios
+            // ✅ Guardar cada imagen en DB — wamid embebido en mediaUrl con prefijo "wamid::"
+            // Esto evita necesitar nueva columna en DB
             for (let j = 0; j < responseMedia.images.length; j++) {
               const img = responseMedia.images[j];
               if (img.url) {
@@ -4423,12 +4424,16 @@ const processBufferedMessages = async (bufferKey: string) => {
                 const savedContent = totalImgsDb > 1
                   ? `${designLabelDb || img.name} — Opción ${j + 1} de ${totalImgsDb}`
                   : (designLabelDb || img.name || `📷 ${responseMedia.name}`);
+                // Formato mediaUrl: "wamid::wamid.HBgM...||contenido" — lookup sin nueva columna
+                const wamidForUrl = sentWamids[j]
+                  ? `wamid::${sentWamids[j]}||${savedContent}`
+                  : img.url;
                 await prisma.message.create({ data: { 
                   conversationId: convId, 
                   content: savedContent,
                   fromMe: true, userId, role: 'assistant', 
-                  mediaType: 'image', mediaUrl: img.url,
-                  wamid: sentWamids[j] || null  // ✅ wamid guardado → lookup desde DB como fallback
+                  mediaType: 'image',
+                  mediaUrl: wamidForUrl
                 } });
               }
             }
@@ -7006,19 +7011,27 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
                 cloudQuotedContext = finalCached.substring(0, 120);
                 log('💬 Quoted (cache): "' + cloudQuotedContext.substring(0, 60) + '"');
               } else {
-                // ✅ LOOKUP 2: DB fallback (persiste entre reinicios — genérico para cualquier negocio)
+                // ✅ LOOKUP 2: DB fallback — buscar en mediaUrl el prefijo "wamid::{id}"
+                // No requiere nueva columna — usa mediaUrl existente
                 try {
+                  const wamidPrefix = `wamid::${cloudQuotedMsgId}||`;
                   const dbMsg = await prisma.message.findFirst({
-                    where: { wamid: cloudQuotedMsgId, fromMe: true },
-                    select: { content: true, mediaType: true },
+                    where: { 
+                      fromMe: true,
+                      mediaType: 'image',
+                      mediaUrl: { startsWith: wamidPrefix }
+                    },
+                    select: { content: true, mediaUrl: true },
                     orderBy: { timestamp: 'desc' }
                   });
-                  if (dbMsg?.content && dbMsg.mediaType === 'image') {
-                    const parsedDb = parseImageDesign(dbMsg.content);
-                    const finalDb = parsedDb !== dbMsg.content ? `cliente seleccionó: ${parsedDb}` : `cliente seleccionó: ${dbMsg.content}`;
+                  if (dbMsg?.mediaUrl?.startsWith(wamidPrefix)) {
+                    // Extraer contenido después del "||"
+                    const dbContent = dbMsg.mediaUrl.split('||')[1] || dbMsg.content;
+                    const parsedDb = parseImageDesign(dbContent);
+                    const finalDb = `cliente seleccionó: ${parsedDb || dbContent}`;
                     cloudQuotedContext = finalDb.substring(0, 120);
                     // Repoblar cache para próximas veces
-                    wamidCache.set(cloudQuotedMsgId, dbMsg.content);
+                    wamidCache.set(cloudQuotedMsgId, dbContent);
                     log('💬 Quoted (DB fallback): "' + cloudQuotedContext.substring(0, 60) + '"');
                   }
                 } catch (dbLookupErr: any) {

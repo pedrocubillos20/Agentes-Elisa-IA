@@ -4246,12 +4246,12 @@ const processBufferedMessages = async (bufferKey: string) => {
       if (matchedMedia.type === 'catalog' && Array.isArray(matchedMedia.images) && matchedMedia.images.length > 0) {
         log(`📂 Enviando catálogo "${matchedMedia.name}" con ${matchedMedia.images.length} imágenes`);
         let sentCount = 0;
+        const matchedWamids: (string | null)[] = [];
         for (let i = 0; i < matchedMedia.images.length; i++) {
           const img = matchedMedia.images[i];
           const designLabel = parseImageDesign(img.name || '');
           const totalImgs = matchedMedia.images.length;
           const baseCaption = matchedMedia.caption || matchedMedia.name;
-          // ✅ Caption numerado en cada imagen — cliente sabe cuál es cuál y puede responder a ella
           const numberedCaption = totalImgs > 1
             ? `${designLabel || baseCaption} — Opción ${i + 1} de ${totalImgs}`
             : (designLabel || baseCaption);
@@ -4259,12 +4259,24 @@ const processBufferedMessages = async (bufferKey: string) => {
           const sent = await unifiedSendMedia(sessionName, from, imgMedia, numberedCaption, whatsappLineId);
           if (sent.ok) {
             sentCount++;
-            if (sent.wamid) wamidCache.set(sent.wamid, designLabel || img.name || `Opción ${i+1}`);
+            if (sent.wamid) {
+              wamidCache.set(sent.wamid, designLabel || img.name || `Opción ${i+1}`);
+              matchedWamids.push(sent.wamid);
+            } else { matchedWamids.push(null); }
+            // ✅ Guardar cada imagen individualmente con wamid en mediaUrl
+            const wamidForUrl = sent.wamid ? `wamid::${sent.wamid}||${numberedCaption}` : (img.url || '');
+            await prisma.message.create({ data: {
+              conversationId: convId,
+              content: numberedCaption,
+              fromMe: true, userId, role: 'assistant',
+              mediaType: 'image', mediaUrl: wamidForUrl
+            }});
             log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`);
-          }
+          } else { matchedWamids.push(null); }
           if (i < matchedMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
         }
-        await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
+        // Resumen del catálogo (sin duplicar mensajes de imagen)
+        if (sentCount > 0) await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
         mediaSent = sentCount > 0;
         if (mediaSent) markMediaSent(convId, matchedMedia.name);
         log(`📂 Catálogo "${matchedMedia.name}" completado: ${sentCount}/${matchedMedia.images.length} imágenes enviadas`);

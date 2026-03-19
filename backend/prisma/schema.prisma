@@ -186,9 +186,11 @@ model Message {
   mediaUrl          String?      @db.Text
   userId            String?
   role              String       @default("user")
+  wamid             String?      // WhatsApp message ID — para detectar a qué imagen respondió el cliente
 
   @@index([conversationId, timestamp])
   @@index([conversationId])
+  @@index([conversationId, wamid])
   @@index([timestamp])
 }
 

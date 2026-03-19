@@ -4248,10 +4248,20 @@ const processBufferedMessages = async (bufferKey: string) => {
         let sentCount = 0;
         for (let i = 0; i < matchedMedia.images.length; i++) {
           const img = matchedMedia.images[i];
-          const caption = i === 0 ? (matchedMedia.caption || matchedMedia.name) : (img.name || '');
+          const designLabel = parseImageDesign(img.name || '');
+          const totalImgs = matchedMedia.images.length;
+          const baseCaption = matchedMedia.caption || matchedMedia.name;
+          // ✅ Caption numerado en cada imagen — cliente sabe cuál es cuál y puede responder a ella
+          const numberedCaption = totalImgs > 1
+            ? `${designLabel || baseCaption} — Opción ${i + 1} de ${totalImgs}`
+            : (designLabel || baseCaption);
           const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-          const sent = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
-          if (sent) { sentCount++; log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`); }
+          const sent = await unifiedSendMedia(sessionName, from, imgMedia, numberedCaption, whatsappLineId);
+          if (sent.ok) {
+            sentCount++;
+            if (sent.wamid) wamidCache.set(sent.wamid, designLabel || img.name || `Opción ${i+1}`);
+            log(`📂 Imagen ${i + 1}/${matchedMedia.images.length} enviada ✅`);
+          }
           if (i < matchedMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
         }
         await prisma.message.create({ data: { conversationId: convId, content: `📂 [Catálogo: ${matchedMedia.name} - ${sentCount} imágenes]`, fromMe: true, userId, role: 'assistant', mediaType: 'image' } });
@@ -4378,29 +4388,47 @@ const processBufferedMessages = async (bufferKey: string) => {
           if (responseMedia.type === 'catalog' && Array.isArray(responseMedia.images) && responseMedia.images.length > 0) {
             log(`📂 Enviando catálogo "${responseMedia.name}" con ${responseMedia.images.length} imágenes`);
             let sentCount = 0;
+            const sentWamids: (string | null)[] = []; // ✅ Colectar wamids para guardar en DB
             for (let i = 0; i < responseMedia.images.length; i++) {
               const img = responseMedia.images[i];
-              const caption = i === 0 ? (responseMedia.caption || responseMedia.name) : '';
+              const designLabel = parseImageDesign(img.name || '');
+              const totalImgs = responseMedia.images.length;
+              const baseCaption = i === 0 ? (responseMedia.caption || responseMedia.name) : responseMedia.name;
+              // ✅ Caption numerado: "América Negro — Opción 1 de 2"
+              const numberedCaption = totalImgs > 1
+                ? `${designLabel || baseCaption} — Opción ${i + 1} de ${totalImgs}`
+                : (designLabel || baseCaption);
               const imgMedia = { type: 'image', url: img.url, name: img.name || `imagen-${i + 1}` };
-              const imgResult = await unifiedSendMedia(sessionName, from, imgMedia, caption, whatsappLineId);
+              const imgResult = await unifiedSendMedia(sessionName, from, imgMedia, numberedCaption, whatsappLineId);
               if (imgResult.ok) {
                 sentCount++;
                 if (imgResult.wamid) {
-                const designLabel = parseImageDesign(img.name || '');
-                wamidCache.set(imgResult.wamid, designLabel || img.name || `📷 Imagen ${i+1}`);
-              }
+                  // ✅ Cache en memoria (rápido) + guardado en DB abajo (persistente entre reinicios)
+                  wamidCache.set(imgResult.wamid, designLabel || img.name || `Opción ${i+1}`);
+                  sentWamids.push(imgResult.wamid);
+                } else {
+                  sentWamids.push(null);
+                }
+              } else {
+                sentWamids.push(null);
               }
               if (i < responseMedia.images.length - 1) await new Promise(r => setTimeout(r, 1500));
             }
-            // Save each catalog image as message so they show in conversation
+            // ✅ Guardar cada imagen en DB con su wamid — persiste entre reinicios
             for (let j = 0; j < responseMedia.images.length; j++) {
               const img = responseMedia.images[j];
               if (img.url) {
+                const designLabelDb = parseImageDesign(img.name || '');
+                const totalImgsDb = responseMedia.images.length;
+                const savedContent = totalImgsDb > 1
+                  ? `${designLabelDb || img.name} — Opción ${j + 1} de ${totalImgsDb}`
+                  : (designLabelDb || img.name || `📷 ${responseMedia.name}`);
                 await prisma.message.create({ data: { 
                   conversationId: convId, 
-                  content: j === 0 ? `📂 ${responseMedia.name} (${sentCount} fotos)` : `📷 ${img.name || `Foto ${j+1}`}`, 
+                  content: savedContent,
                   fromMe: true, userId, role: 'assistant', 
-                  mediaType: 'image', mediaUrl: img.url 
+                  mediaType: 'image', mediaUrl: img.url,
+                  wamid: sentWamids[j] || null  // ✅ wamid guardado → lookup desde DB como fallback
                 } });
               }
             }
@@ -6970,15 +6998,33 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             // Buscar por wamid EXACTO
             // Buscar en wamidCache (en memoria, sin DB)
             if (cloudQuotedMsgId) {
+              // ✅ LOOKUP 1: wamidCache en memoria (rápido, disponible si no hubo restart)
               const cached = wamidCache.get(cloudQuotedMsgId);
               if (cached) {
-                // Si es nombre de imagen → parsear a diseño legible
                 const parsedCached = parseImageDesign(cached);
                 const finalCached = parsedCached !== cached ? `cliente seleccionó: ${parsedCached}` : cached;
                 cloudQuotedContext = finalCached.substring(0, 120);
-                log('💬 Quoted exacto (cache): "' + cloudQuotedContext.substring(0, 60) + '"');
+                log('💬 Quoted (cache): "' + cloudQuotedContext.substring(0, 60) + '"');
+              } else {
+                // ✅ LOOKUP 2: DB fallback (persiste entre reinicios — genérico para cualquier negocio)
+                try {
+                  const dbMsg = await prisma.message.findFirst({
+                    where: { wamid: cloudQuotedMsgId, fromMe: true },
+                    select: { content: true, mediaType: true },
+                    orderBy: { timestamp: 'desc' }
+                  });
+                  if (dbMsg?.content && dbMsg.mediaType === 'image') {
+                    const parsedDb = parseImageDesign(dbMsg.content);
+                    const finalDb = parsedDb !== dbMsg.content ? `cliente seleccionó: ${parsedDb}` : `cliente seleccionó: ${dbMsg.content}`;
+                    cloudQuotedContext = finalDb.substring(0, 120);
+                    // Repoblar cache para próximas veces
+                    wamidCache.set(cloudQuotedMsgId, dbMsg.content);
+                    log('💬 Quoted (DB fallback): "' + cloudQuotedContext.substring(0, 60) + '"');
+                  }
+                } catch (dbLookupErr: any) {
+                  log('⚠️ DB wamid lookup error: ' + dbLookupErr.message);
+                }
               }
-              // Sin match → no inyectar (mejor sin contexto que con contexto erróneo)
             }
           }
         } catch (qErr: any) {

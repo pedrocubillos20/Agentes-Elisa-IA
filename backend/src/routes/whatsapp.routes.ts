@@ -2390,14 +2390,14 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
       try {
         log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
         const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 20000);
+        const to = setTimeout(() => ctrl.abort(), 35000);
         const res = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 500)
+            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1000)
           }),
           signal: ctrl.signal
         });

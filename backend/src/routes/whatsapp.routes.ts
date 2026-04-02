@@ -1426,11 +1426,12 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       }
     }
 
-    // 🧠 CARGAR HISTORIAL COMPLETO (hasta 30 mensajes para cubrir flujo de venta completo)
+    // 🧠 CARGAR HISTORIAL — 12 mensajes recientes (balance: contexto suficiente sin sobrecargar el prompt)
+    // Con módulos de ~17k tokens, limitar historial evita que el modelo "olvide" instrucciones
     const history = await prisma.message.findMany({
       where: { conversationId },
       orderBy: { timestamp: 'desc' },
-      take: 30
+      take: 12
     });
 
     // ====== CONSTRUIR SYSTEM PROMPT ======
@@ -2362,7 +2363,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
 
     // Construir mensajes para OpenAI: 50 para asistente personal, 30 para clientes
-    const historyLimit = (conversation?.isGroup || isPersonalAssistant) ? 50 : 30;
+    const historyLimit = (conversation?.isGroup || isPersonalAssistant) ? 30 : 12;
     const recent = [...history].reverse().slice(-historyLimit);
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
@@ -2372,6 +2373,16 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     const stagesHint = pipelineStages.length > 0
       ? ` Etapas válidas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(' | ')}.`
       : '';
+    // 🔴 Reglas críticas inyectadas al final del prompt para máxima atención del modelo
+    const criticalRulesReminder = !isPersonalAssistant ? [
+      '\n⚡ REGLAS CRÍTICAS (revisar antes de responder):',
+      '• Pregunta TALLA primero. XS/S/M/L/XL/2XL/3XL/4XL=adulto · 2-4/6-8/10-12/14-16=niño',
+      '• NUNCA asumir niño por "hijo/hija/sobrino" — esperar talla',
+      '• NUNCA ofrecer personalización — solo si cliente pregunta',
+      '• Si ciudad ≠ Bogotá/Soacha → envio≠0 en MEMORY_JSON',
+      '• Total = subtotal + envio. Termina con <<MEMORY_JSON>>...<<END_MEMORY>>'
+    ].join('\n') : '';
+
     const memoryReminder = isPersonalAssistant ? `
 
 [COPILOTO — OBLIGATORIO: Termina con <<MEMORY_JSON>>...<<END_MEMORY>>.
@@ -2381,7 +2392,7 @@ ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.]`;
     // 💬 Si el usuario respondió a un mensaje, inyectar ese contexto antes del mensaje
     const messageWithQuoted = quotedContext ? `[Respondiendo a: "${quotedContext}"] ${message}` : message;
-    messages.push({ role: 'user', content: messageWithQuoted + memoryReminder });
+    messages.push({ role: 'user', content: messageWithQuoted + criticalRulesReminder + memoryReminder });
 
     // Llamar a OpenAI
     // 💰 MODELO FIJO: gpt-4o-mini para todos (económico y potente)
@@ -2397,7 +2408,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1000)
+            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1500)
           }),
           signal: ctrl.signal
         });

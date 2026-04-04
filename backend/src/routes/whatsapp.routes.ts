@@ -1426,12 +1426,11 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       }
     }
 
-    // 🧠 CARGAR HISTORIAL — 12 mensajes recientes (balance: contexto suficiente sin sobrecargar el prompt)
-    // Con módulos de ~17k tokens, limitar historial evita que el modelo "olvide" instrucciones
+    // 🧠 CARGAR HISTORIAL COMPLETO (hasta 30 mensajes para cubrir flujo de venta completo)
     const history = await prisma.message.findMany({
       where: { conversationId },
       orderBy: { timestamp: 'desc' },
-      take: 12
+      take: 30
     });
 
     // ====== CONSTRUIR SYSTEM PROMPT ======
@@ -1597,17 +1596,17 @@ ${triggerExamples}
 REGLAS CRÍTICAS — SIN EXCEPCIÓN:
 1. ESCRIBE el trigger EXACTAMENTE como aparece arriba (respeta mayúsculas/minúsculas, guiones, números)
 2. El trigger debe aparecer como TEXTO PLANO en tu mensaje — no entre corchetes, no en negritas
-3. NUNCA escribas "Diseño 1", "foto del diseño", ni describas la imagen — escribe el trigger
+3. NUNCA describas la imagen con palabras — escribe el trigger exacto
 4. NUNCA inventes URLs ni links de imágenes
 5. NUNCA uses formato Markdown ![imagen](url)
 
-EJEMPLO CORRECTO para america_negro1:
-"¡Aquí el diseño negro! 🖤
-america_negro1
+EJEMPLO CORRECTO (el trigger activa la imagen automáticamente):
+"¡Aquí tienes la opción! 😊
+[nombre_del_trigger]
 ¿Te gusta?"
 
 EJEMPLO INCORRECTO (la imagen NO llega):
-"Aquí tienes el Diseño 1 en negro 🖤" ← no escribe el trigger = no llega la imagen`);
+"Aquí tienes la Opción 1" ← no escribe el trigger = no llega la imagen`);
     }
 
     // 🎯 CARGAR ETAPAS DEL PIPELINE DE LA LÍNEA
@@ -2363,7 +2362,7 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     log(`🧠 Prompt: ${systemPrompt.length} chars | Cliente: ${clientName || 'desconocido'} | Memoria: ${Object.keys(savedContext).length} campos`);
 
     // Construir mensajes para OpenAI: 50 para asistente personal, 30 para clientes
-    const historyLimit = (conversation?.isGroup || isPersonalAssistant) ? 30 : 12;
+    const historyLimit = (conversation?.isGroup || isPersonalAssistant) ? 50 : 30;
     const recent = [...history].reverse().slice(-historyLimit);
     const messages: any[] = [{ role: 'system', content: systemPrompt }];
     recent.forEach(m => messages.push({ role: m.fromMe ? 'assistant' : 'user', content: m.content.substring(0, 800) }));
@@ -2373,15 +2372,14 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
     const stagesHint = pipelineStages.length > 0
       ? ` Etapas válidas: ${pipelineStages.map((s: any) => `"${s.label || s.id}"`).join(' | ')}.`
       : '';
-    // 🔴 Reglas críticas inyectadas al final del prompt para máxima atención del modelo
+    // Recordatorio crítico inyectado al final — sin mencionar talla primero
+    // Recordatorio genérico — aplica para CUALQUIER negocio SaaS
+    // Las reglas específicas del negocio viven en el prompt de módulos configurado por el usuario
     const criticalRulesReminder = !isPersonalAssistant ? [
-      '\n⚡ REGLAS CRÍTICAS (revisar antes de responder):',
-      '• Pregunta TALLA primero. XS/S/M/L/XL/2XL/3XL/4XL=adulto · 2-4/6-8/10-12/14-16=niño',
-      '• NUNCA asumir niño por "hijo/hija/sobrino" — esperar talla',
-      '• NUNCA ofrecer personalización — solo si cliente pregunta',
-      '• Si ciudad ≠ Bogotá/Soacha → envio≠0 en MEMORY_JSON',
-      '• Total = subtotal + envio. Termina con <<MEMORY_JSON>>...<<END_MEMORY>>'
-    ].join('\n') : '';
+      '\n[SISTEMA: Sigue el flujo configurado en tu base de conocimiento.',
+      'No repitas preguntas que ya están en la memoria.',
+      'Termina con <<MEMORY_JSON>>...<<END_MEMORY>>]'
+    ].join(' ') : '';
 
     const memoryReminder = isPersonalAssistant ? `
 
@@ -2408,7 +2406,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
           body: JSON.stringify({
             model, messages,
             temperature: assistant.temperature || 0.7,
-            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1500)
+            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1000)
           }),
           signal: ctrl.signal
         });
@@ -2468,7 +2466,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
             }
 
             // 💳 Método de pago — Universal
-            const pagoPatterns = /(efectivo|nequi|daviplata|transferencia|pse|tarjeta|paypal|contra\s*entrega|qr|bitcoin|crypto|zelle|bancolombia|davivienda)/i;
+            const pagoPatterns = /(efectivo|cash|transferencia|transfer|tarjeta|card|paypal|contra\s*entrega|qr|bitcoin|crypto|zelle|nequi|daviplata|pse|bancolombia|davivienda|yape|plin|mercadopago|bizum|revolut|stripe)/i;
             const pagoMatch = clientMessages.match(pagoPatterns);
             if (pagoMatch && !extractedData.metodo_pago) {
               extractedData.metodo_pago = pagoMatch[1];

@@ -268,20 +268,41 @@ const notifyPersonalAssistant = async (ownerId: string, type: 'pedido' | 'cita' 
 
       // Enviar por WhatsApp
       const recipientId = paConv.recipientId;
-      const lineId = paConv.whatsappLineId;
-      if (recipientId && lineId) {
-        const line = await prisma.whatsappLine.findUnique({ where: { id: lineId }, select: { sessionName: true, connectionType: true, cloudPhoneNumberId: true, cloudAccessToken: true } });
-        if (line) {
-          const isCloud = line.connectionType === 'cloud_api' && line.cloudPhoneNumberId && line.cloudAccessToken;
-          const cleanNum = recipientId.replace(/@.*/, '');
-          if (isCloud) {
-            await sendCloudText(line.cloudPhoneNumberId!, line.cloudAccessToken!, cleanNum, msg);
-          } else if (line.sessionName) {
-            const chatId = recipientId.includes('@') ? recipientId : `${cleanNum}@c.us`;
-            await sendWahaMessage(line.sessionName, chatId, msg);
-          }
-          clog(`🔔 Asistente Personal notificado: ${type} → ${recipientId}`);
+      let lineId = paConv.whatsappLineId;
+
+      // 🔧 FIX: Si la conversación no tiene lineId, buscar cualquier línea activa del owner
+      if (!lineId && recipientId) {
+        const fallbackLine = await prisma.whatsappLine.findFirst({
+          where: { userId: ownerId, isActive: true },
+          select: { id: true }
+        });
+        if (fallbackLine) {
+          lineId = fallbackLine.id;
+          clog(`🔧 notifyPA: usando línea fallback ${lineId} para ${recipientId}`);
         }
+      }
+
+      if (recipientId && lineId) {
+        try {
+          const line = await prisma.whatsappLine.findUnique({ where: { id: lineId }, select: { sessionName: true, connectionType: true, cloudPhoneNumberId: true, cloudAccessToken: true } });
+          if (line) {
+            const isCloud = line.connectionType === 'cloud_api' && line.cloudPhoneNumberId && line.cloudAccessToken;
+            const cleanNum = recipientId.replace(/@.*/, '');
+            if (isCloud) {
+              await sendCloudText(line.cloudPhoneNumberId!, line.cloudAccessToken!, cleanNum, msg);
+            } else if (line.sessionName) {
+              const chatId = recipientId.includes('@') ? recipientId : `${cleanNum}@c.us`;
+              await sendWahaMessage(line.sessionName, chatId, msg);
+            }
+            clog(`🔔 Asistente Personal notificado: ${type} → ${recipientId}`);
+          } else {
+            clog(`⚠️ notifyPA: línea ${lineId} no encontrada para ${recipientId}`);
+          }
+        } catch (sendErr: any) {
+          clog(`⚠️ notifyPA error enviando WA: ${sendErr.message}`);
+        }
+      } else {
+        clog(`⚠️ notifyPA: sin recipientId(${!!recipientId}) o lineId(${!!lineId}) — solo push`);
       }
     }
   } catch (err: any) {
@@ -1982,10 +2003,12 @@ REGLAS DE TRANSFERENCIA:
 
 
     // 🤖📊 MODO ASISTENTE INTERNO — Grupos de trabajo + Asistente Personal del admin
-    const isPersonalAssistant = savedContext?._isPersonalAssistant === true;
+    // 🔧 FIX: normalizar _isPersonalAssistant — puede venir como string "true" desde algunos clientes
+    const rawPA = savedContext?._isPersonalAssistant;
+    const isPersonalAssistant = rawPA === true || rawPA === 'true' || rawPA === 1;
     const isInternalAssistant = conversation?.isGroup || isPersonalAssistant;
     // 🧹 Fix: limpiar "undefined" string en accion (a veces la IA lo escribe literalmente)
-    if (savedContext?.accion === 'undefined' || savedContext?.accion === 'undefinido') {
+    if (savedContext?.accion === 'undefined' || savedContext?.accion === 'undefinido' || savedContext?.accion === 'null') {
       savedContext.accion = '';
     }
     console.log(`🤖 isPersonalAssistant: ${isPersonalAssistant} | isGroup: ${conversation?.isGroup} | contextKeys: ${Object.keys(savedContext||{}).join(',')}`);
@@ -2387,7 +2410,9 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
 ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_cita(cliente_nombre,fecha_cita,hora_cita,tipo_cita) | crear_pedido(cliente_nombre,producto_servicio,total,fecha_entrega) | crear_reserva(cliente_nombre,fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva | mover_etapa(cliente_telefono,nueva_etapa)]` : `
 
 [SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.${stagesHint}
-ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.]`;
+ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.
+⚠️ INTEGRIDAD DE PRECIOS: NUNCA inventes precios. Usa ÚNICAMENTE los precios de tu base de conocimiento. Si tu base de conocimiento tiene precios, úsalos exactos — no los estimes ni reduzcas.
+⚠️ FLUJO: Si ya tienes datos del cliente en memoria (equipo/color/talla/ciudad), NO vuelvas a preguntar. Continúa desde donde quedaste.]`;
     // 💬 Si el usuario respondió a un mensaje, inyectar ese contexto antes del mensaje
     const messageWithQuoted = quotedContext ? `[Respondiendo a: "${quotedContext}"] ${message}` : message;
     messages.push({ role: 'user', content: messageWithQuoted + criticalRulesReminder + memoryReminder });
@@ -2584,7 +2609,22 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     console.log(`🔍 MEMORY_JSON presente: ${!!memoryMatch} | isPersonalAssistant: ${isPersonalAssistant}`);
           if (memoryMatch) {
             try {
-              const memoryData = JSON.parse(memoryMatch[1].trim());
+              // 🔧 FIX: Intentar reparar JSON malformado antes de parsear
+              let rawMemory = memoryMatch[1].trim();
+              // Eliminar trailing commas antes de } o ] que rompen JSON
+              rawMemory = rawMemory.replace(/,\s*([}\]])/g, '$1');
+              // Eliminar comentarios de línea que a veces añade la IA
+              rawMemory = rawMemory.replace(/\/\/[^\n]*/g, '');
+              // Si hay un JSON anidado incompleto, truncar de forma segura
+              try {
+                JSON.parse(rawMemory); // probar primero
+              } catch {
+                // Intentar cerrar JSON incompleto
+                const opens = (rawMemory.match(/{/g) || []).length;
+                const closes = (rawMemory.match(/}/g) || []).length;
+                if (opens > closes) rawMemory += '}'.repeat(opens - closes);
+              }
+              const memoryData = JSON.parse(rawMemory);
               console.log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')}`);
               // Merge con datos existentes (no borrar datos previos si vienen vacíos)
               const merged = { ...savedContext };
@@ -2879,6 +2919,8 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 data: updateData
               });
               
+              // 🔧 FIX: Preservar accion en merged después del update de BD
+              // El updateData ya tiene merged, pero asegurarse de que actionToTake sigue accesible
               log(`🧠 Memoria guardada: ${JSON.stringify(merged)}`);
               
               // 🛒 CREAR PEDIDO AUTOMÁTICO CON FECHA DE ENTREGA
@@ -2901,7 +2943,19 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               // siempre necesita dirección, teléfono y pago confirmado del cliente
               if (actionToTake === 'crear_pedido') {
                 // 🛒 PEDIDO: checklist completo OBLIGATORIO sin excepción
-                dataComplete = hasName && hasProduct && hasRealAddress && hasCity && hasPhone && hasPayment;
+                // 🔧 FIX: Si la IA explicitamente pone crear_pedido, confiar en ella para metodo_pago
+                // Si metodo_pago está vacío pero accion = crear_pedido, usar "Por confirmar" como fallback
+                if (!merged.metodo_pago || ['por definir','pendiente',''].includes((merged.metodo_pago || '').toLowerCase().trim())) {
+                  // Intentar detectar del texto si mencionó efectivo/nequi/etc en mensajes del cliente
+                  const allMsgsText = history.filter(m => !m.fromMe).map(m => m.content).join(' ').toLowerCase();
+                  const pagoAutoPattern = /(efectivo|contra\s*entrega|nequi|daviplata|bancolombia|transferencia|tarjeta|wompi)/i;
+                  const pagoAuto = allMsgsText.match(pagoAutoPattern);
+                  merged.metodo_pago = pagoAuto ? pagoAuto[1] : 'Efectivo contra entrega';
+                  log(`🔧 metodo_pago auto-detectado: "${merged.metodo_pago}" (era vacío con accion=crear_pedido)`);
+                }
+                const rawPagoFix = (merged.metodo_pago || '').toLowerCase().trim();
+                const hasPaymentFix = !!(rawPagoFix && !['por definir','pendiente',''].includes(rawPagoFix));
+                dataComplete = hasName && hasProduct && hasRealAddress && hasCity && hasPhone && hasPaymentFix;
                 if (!dataComplete) {
                   const missing = [
                     !hasName        && 'nombre',
@@ -2909,7 +2963,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                     !hasRealAddress && 'dirección (calle completa)',
                     !hasCity        && 'ciudad',
                     !hasPhone       && 'teléfono',
-                    !hasPayment     && 'método de pago confirmado',
+                    !hasPaymentFix  && 'método de pago confirmado',
                   ].filter(Boolean).join(', ');
                   log(`⏳ crear_pedido bloqueado — faltan datos obligatorios: ${missing}`);
                 }
@@ -2980,7 +3034,19 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                            ((merged.telefono || merged.celular) ? `📞 Tel: ${merged.telefono || merged.celular}\n` : '') +
                            (merged.notas ? `📝 Notas: ${merged.notas}\n` : '') +
                            `━━━━━━━━━━━━━━━`,
-                    total: parseFloat((merged.total || merged.envio || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+                    total: (() => {
+                      // 🔧 FIX: No usar merged.envio como fallback del total — son campos distintos
+                      // El total siempre debe ser subtotal + envio, nunca solo envio
+                      const rawTotal = (merged.total || merged.subtotal || '0').toString().replace(/[^0-9.]/g, '');
+                      const numTotal = parseFloat(rawTotal) || 0;
+                      const numEnvio = parseFloat((merged.envio || '0').toString().replace(/[^0-9.]/g, '')) || 0;
+                      // Si total ya incluye envio (total >= subtotal), usar directo
+                      // Si total es solo el subtotal, sumar envio
+                      if (numTotal > 0) return numTotal;
+                      // Fallback: subtotal + envio
+                      const numSub = parseFloat((merged.subtotal || '0').toString().replace(/[^0-9.]/g, '')) || 0;
+                      return numSub + numEnvio;
+                    })(),
                     address: [merged.direccion, merged.barrio, merged.ciudad].filter(Boolean).join(', ').trim() || '',
                     whatsappLineId: whatsappLineId || null
                   };

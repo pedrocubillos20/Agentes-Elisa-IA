@@ -538,7 +538,6 @@ const markMediaSent = (convId: string, mediaName: string) => {
 const findMediaTrigger = (message: string, mediaItems: any[]): any | null => {
   if (!mediaItems?.length) return null;
   const norm = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  // Build all matches with word count for priority (more words = more specific = higher priority)
   let bestMatch: any = null;
   let bestWordCount = 0;
   for (const item of mediaItems) {
@@ -546,11 +545,77 @@ const findMediaTrigger = (message: string, mediaItems: any[]): any | null => {
     const triggers = item.trigger.split(',').map((t: string) => t.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')).filter(Boolean);
     for (const t of triggers) {
       if (!t) continue;
-      const words = t.split(/\s+/).filter(Boolean);
-      const allMatch = words.every((w: string) => norm.includes(w));
-      if (allMatch && words.length > bestWordCount) {
-        bestMatch = item;
-        bestWordCount = words.length;
+      // 🔧 FIX: usar coincidencia de FRASE COMPLETA (no palabras individuales)
+      // Antes: words.every(w => norm.includes(w)) → falsos positivos con palabras sueltas
+      // Ahora: norm.includes(t) → requiere la frase completa y contigua
+      const allMatch = norm.includes(t);
+      if (allMatch) {
+        const wordCount = t.split(/\s+/).filter(Boolean).length;
+        if (wordCount > bestWordCount) {
+          bestMatch = item;
+          bestWordCount = wordCount;
+        }
+      }
+    }
+  }
+  return bestMatch;
+};
+
+// 🔧 FIX BUG TRIGGER FALSO: versión estricta para respuestas de la IA
+// Problema: cuando la IA lista equipos ("🔴 Santa Fe"), el trigger "santa fe" se activaba
+// porque la función anterior buscaba palabras sueltas en TODO el texto.
+// Solución: en respuestas de IA, el trigger solo dispara si aparece como LÍNEA PROPIA,
+// sin estar precedido por emojis de lista (🔴 🔵 🟢 etc.)
+const findMediaTriggerInAIResponse = (response: string, mediaItems: any[]): any | null => {
+  if (!mediaItems?.length) return null;
+
+  const lines = response.split('\n');
+  const normLines = lines.map(l =>
+    l.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  );
+
+  // Detectar si una línea original empieza con emoji (indica ítem de lista, no trigger)
+  const startsWithEmoji = (s: string): boolean => {
+    const trimmed = s.trim();
+    if (!trimmed) return false;
+    // Rango Unicode de emojis más comunes (flags, symbols, misc)
+    const firstChar = trimmed.codePointAt(0) || 0;
+    return (
+      (firstChar >= 0x1F300 && firstChar <= 0x1FAFF) || // Misc symbols, emojis
+      (firstChar >= 0x2600 && firstChar <= 0x27BF) ||   // Misc symbols
+      (firstChar >= 0x1F1E0 && firstChar <= 0x1F1FF)    // Flag emojis
+    );
+  };
+
+  let bestMatch: any = null;
+  let bestWordCount = 0;
+
+  for (const item of mediaItems) {
+    if (!item.trigger) continue;
+    const triggers = item.trigger
+      .split(',')
+      .map((t: string) => t.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+      .filter(Boolean);
+
+    for (const t of triggers) {
+      if (!t) continue;
+      // Buscar en cada línea: la línea normalizada debe IGUALAR el trigger
+      // o COMENZAR con el trigger (ej: "colores santa fe 🔥" → trimmed to "colores santa fe")
+      const matched = normLines.some((normLine, idx) => {
+        const origLine = lines[idx] || '';
+        // 🚫 Saltar líneas que empiezan con emoji → son ítems de lista, no triggers intencionales
+        if (startsWithEmoji(origLine)) return false;
+        // La línea normalizada debe ser IGUAL al trigger o empezar con él
+        const lineClean = normLine.replace(/[!?.,:;]+$/, '').trim();
+        return lineClean === t || lineClean.startsWith(t + ' ');
+      });
+
+      if (matched) {
+        const wordCount = t.split(/\s+/).filter(Boolean).length;
+        if (wordCount > bestWordCount) {
+          bestMatch = item;
+          bestWordCount = wordCount;
+        }
       }
     }
   }
@@ -4438,7 +4503,8 @@ const processBufferedMessages = async (bufferKey: string) => {
 
         // ═══ DETECTAR TRIGGER EN RESPUESTA ANTES DE ENVIAR TEXTO ═══
         const triggerableItems = mediaItems.filter((m: any) => m.trigger);
-        let responseMedia = triggerableItems.length > 0 ? findMediaTrigger(cleanResponse, triggerableItems) : null;
+        // 🔧 FIX: usar versión ESTRICTA para respuestas de IA (evita falsos positivos por listas de equipos)
+        let responseMedia = triggerableItems.length > 0 ? findMediaTriggerInAIResponse(cleanResponse, triggerableItems) : null;
 
         // 🛡️ DEDUP: No reenviar media que ya se mandó recientemente
         if (responseMedia && wasMediaRecentlySent(convId, responseMedia.name)) {

@@ -118,6 +118,14 @@ export default function ConversacionesPage() {
   // 📝 NOTAS + 👤 ASIGNACIÓN + 📅 CITA RÁPIDA
   const [convNotes, setConvNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
+  const notesDebounceRef = useRef<NodeJS.Timeout | null>(null); // auto-save debounce
+
+  // 🎙️ GRABACIÓN DE AUDIO EN TIEMPO REAL
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // ✏️ EDICIÓN DE NOMBRE Y DATOS
   const [editingName, setEditingName] = useState(false);
@@ -364,34 +372,177 @@ export default function ConversacionesPage() {
   }, [messages]);
 
   // ====================================================
-  // 📝 GUARDAR NOTAS
+  // 📝 GUARDAR NOTAS (manual + auto-save con debounce)
   // ====================================================
-  const saveNotes = async () => {
+  const saveNotes = async (notesText?: string) => {
     if (!selectedConv) return;
+    const textToSave = notesText !== undefined ? notesText : convNotes;
     setSavingNotes(true);
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`${API_URL}/api/conversations/${selectedConv.id}/notes`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: convNotes })
+        body: JSON.stringify({ notes: textToSave })
       });
       if (res.ok) {
         setNotesSaved(true);
         setTimeout(() => setNotesSaved(false), 2000);
-        // Actualizar contextData local
         setSelectedConv((prev: any) => prev ? { 
           ...prev, 
-          contextData: { ...(prev.contextData || {}), _userNotes: convNotes } 
+          contextData: { ...(prev.contextData || {}), _userNotes: textToSave } 
         } : prev);
       }
     } catch (e) { console.error('Error guardando notas:', e); }
     finally { setSavingNotes(false); }
   };
 
+  // Auto-save notas: dispara 1.5s después de que el usuario deja de escribir
+  const handleNotesChange = (text: string) => {
+    setConvNotes(text);
+    if (notesDebounceRef.current) clearTimeout(notesDebounceRef.current);
+    notesDebounceRef.current = setTimeout(() => {
+      if (selectedConv) saveNotes(text);
+    }, 1500);
+  };
+
   // ====================================================
-  // 👤 ASIGNAR CHAT A MIEMBRO
+  // 🌡️ AUTO-DETECCIÓN TEMPERATURA DEL LEAD
   // ====================================================
+  const detectLeadTemp = (msgs: any[]) => {
+    if (!msgs || msgs.length === 0) return null;
+    
+    const clientMsgs = msgs.filter(m => !m.fromMe).slice(-10); // últimos 10 mensajes del cliente
+    const text = clientMsgs.map(m => (m.content || '').toLowerCase()).join(' ');
+    
+    const hotWords = ['quiero','quiero comprar','cuando','precio','cuánto cuesta','cuanto cuesta',
+      'cuanto vale','cuánto vale','disponible','lo quiero','me lo llevo','pagar','pedido',
+      'comprar','urgente','hoy','ahorita','ahora','ya','confirmar','separar','apartar'];
+    const warmWords = ['info','información','informacion','interesa','interesado','detalles',
+      'más info','catalogo','catálogo','pregunta','cómo','como funciona','opciones'];
+    const coldWords = ['solo mirando','no gracias','después','despues','luego','quizás',
+      'quizas','tal vez','pensarlo','no por ahora','no me interesa'];
+    
+    const hotScore = hotWords.filter(w => text.includes(w)).length;
+    const warmScore = warmWords.filter(w => text.includes(w)).length;
+    const coldScore = coldWords.filter(w => text.includes(w)).length;
+    
+    // Si el cliente no ha respondido (solo mensajes del agente), no cambiar
+    if (clientMsgs.length === 0) return null;
+    
+    if (hotScore >= 2 || (hotScore >= 1 && coldScore === 0)) return 'caliente';
+    if (coldScore >= 1) return 'frio';
+    if (warmScore >= 1) return 'tibio';
+    return null; // no hay señal clara
+  };
+
+  // ====================================================
+  // 🎙️ GRABACIÓN DE AUDIO EN TIEMPO REAL (como WhatsApp)
+  // ====================================================
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Usar opus/webm o mp4 según soporte del browser
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : 'audio/mp4';
+      
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        // Convertir a base64 y enviar
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const base64 = reader.result as string;
+          const token = localStorage.getItem('token');
+          
+          // Optimistic: mostrar mensaje de audio inmediatamente
+          const optimisticMsg = {
+            id: `temp-audio-${Date.now()}`,
+            content: '🎤 [Audio]',
+            fromMe: true,
+            timestamp: new Date().toISOString(),
+            role: 'assistant',
+            mediaType: 'audio',
+          };
+          setMessages(prev => [...prev, optimisticMsg]);
+          
+          try {
+            const res = await fetch(`${API_URL}/api/whatsapp/send`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                to: selectedConv?.recipientId,
+                message: null,
+                whatsappLineId: getLineId(),
+                mediaUrl: base64,
+                mediaType: 'audio',
+              })
+            });
+            if (res.ok) {
+              setTimeout(() => selectedConv && fetchMessages(selectedConv.id), 1500);
+            } else {
+              setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+            }
+          } catch {
+            setMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+      
+      recorder.start(200); // chunks cada 200ms
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(s => s + 1);
+      }, 1000);
+      
+    } catch (err) {
+      console.error('Error accediendo al micrófono:', err);
+      alert('No se pudo acceder al micrófono. Verifica los permisos del navegador.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current = null;
+    }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      // Limpiar chunks antes de detener para no enviar nada
+      audioChunksRef.current = [];
+      mediaRecorderRef.current.onstop = () => {};
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream?.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      mediaRecorderRef.current = null;
+    }
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const formatRecordTime = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const assignChat = async (memberId: string | null) => {
     if (!selectedConv) return;
     setAssigningChat(true);
@@ -494,9 +645,22 @@ export default function ConversacionesPage() {
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_URL}/api/conversations/${convId}/messages?limit=100`, { headers: { 'Authorization': `Bearer ${token}` } });
-      // ✅ Verificar que seguimos en la misma conversación
       if (selectedConvRef.current?.id !== convId) return;
-      if (res.ok) setMessages((await res.json()).messages || []);
+      if (res.ok) {
+        const msgs = (await res.json()).messages || [];
+        setMessages(msgs);
+        
+        // 🌡️ Auto-detectar temperatura del lead según mensajes
+        const conv = selectedConvRef.current;
+        if (conv && !conv.isGroup) {
+          const currentTemp = (conv.contextData as any)?._leadTemp;
+          const detectedTemp = detectLeadTemp(msgs);
+          // Solo actualizar si detectamos algo Y es diferente al actual
+          if (detectedTemp && detectedTemp !== currentTemp) {
+            saveLeadTemp(detectedTemp);
+          }
+        }
+      }
     } catch {}
     finally { setLoadingMessages(false); }
   };
@@ -1321,31 +1485,63 @@ export default function ConversacionesPage() {
 
                 {/* Input row: media buttons + quick replies + text + send */}
                 <div className="flex items-center gap-1.5">
-                  {/* Media buttons */}
-                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'image/*'; chatFileInputRef.current.click(); } }}
-                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Imagen">
-                    <Image className="w-4 h-4 text-[var(--text-muted)]" />
-                  </button>
-                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'audio/*'; chatFileInputRef.current.click(); } }}
-                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Audio">
-                    <Mic className="w-4 h-4 text-[var(--text-muted)]" />
-                  </button>
-                  <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = '*/*'; chatFileInputRef.current.click(); } }}
-                    className="p-2 hover:bg-white/10 rounded-lg transition" title="Archivo">
-                    <Paperclip className="w-4 h-4 text-[var(--text-muted)]" />
-                  </button>
-                  <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                    className={`p-2 hover:bg-white/10 rounded-lg transition ${showQuickReplies ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : ''}`} title="Respuestas rápidas">
-                    <Zap className="w-4 h-4 text-[var(--text-muted)]" />
-                  </button>
+                  {/* Si está grabando: mostrar UI de grabación */}
+                  {isRecording ? (
+                    <>
+                      {/* Cancelar */}
+                      <button onClick={cancelRecording} className="p-2 hover:bg-red-500/20 rounded-lg transition text-red-400" title="Cancelar">
+                        <X className="w-4 h-4" />
+                      </button>
+                      {/* Indicador de grabación */}
+                      <div className="flex-1 flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+                        <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse flex-shrink-0" />
+                        <span className="text-xs text-red-400 font-mono font-semibold">{formatRecordTime(recordingSeconds)}</span>
+                        <div className="flex gap-[2px] items-end h-4 flex-1">
+                          {Array.from({length: 20}).map((_, i) => (
+                            <div key={i} className="w-[2px] rounded-full bg-red-400/60 animate-pulse" style={{height: `${4 + Math.random() * 12}px`, animationDelay: `${i * 50}ms`}} />
+                          ))}
+                        </div>
+                        <span className="text-[10px] text-red-300">Grabando...</span>
+                      </div>
+                      {/* Enviar audio */}
+                      <button onClick={stopRecording} className="p-2.5 bg-red-500 hover:bg-red-400 rounded-lg transition" title="Enviar audio">
+                        <Send className="w-4 h-4 text-white" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* Media buttons normales */}
+                      <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = 'image/*'; chatFileInputRef.current.click(); } }}
+                        className="p-2 hover:bg-white/10 rounded-lg transition" title="Imagen">
+                        <Image className="w-4 h-4 text-[var(--text-muted)]" />
+                      </button>
+                      {/* 🎙️ Mantener presionado para grabar (o click para toggle) */}
+                      <button
+                        onMouseDown={startRecording}
+                        onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
+                        className="p-2 hover:bg-emerald-500/20 hover:text-emerald-400 rounded-lg transition text-[var(--text-muted)]"
+                        title="Mantén presionado para grabar audio"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => { if (chatFileInputRef.current) { chatFileInputRef.current.accept = '*/*'; chatFileInputRef.current.click(); } }}
+                        className="p-2 hover:bg-white/10 rounded-lg transition" title="Archivo">
+                        <Paperclip className="w-4 h-4 text-[var(--text-muted)]" />
+                      </button>
+                      <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                        className={`p-2 hover:bg-white/10 rounded-lg transition ${showQuickReplies ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)]' : ''}`} title="Respuestas rápidas">
+                        <Zap className="w-4 h-4 text-[var(--text-muted)]" />
+                      </button>
 
-                  <div className="h-5 w-px bg-[var(--border-primary)]" />
+                      <div className="h-5 w-px bg-[var(--border-primary)]" />
 
-                  {/* Text input */}
-                  <input type="text" placeholder="Escribe un mensaje..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} className="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
-                  <button onClick={sendMessage} disabled={sending || (!newMessage.trim() && !chatMediaFile)} className="btn-primary px-4 py-2 disabled:opacity-50">
-                    {sending ? <div className="loading-spinner w-4 h-4" /> : <Send className="w-4 h-4" />}
-                  </button>
+                      {/* Text input */}
+                      <input type="text" placeholder="Escribe un mensaje..." value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && sendMessage()} className="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-2 px-3 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]" />
+                      <button onClick={sendMessage} disabled={sending || (!newMessage.trim() && !chatMediaFile)} className="btn-primary px-4 py-2 disabled:opacity-50">
+                        {sending ? <div className="loading-spinner w-4 h-4" /> : <Send className="w-4 h-4" />}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -1599,33 +1795,29 @@ export default function ConversacionesPage() {
               </div>
             )}
 
-            {/* 📝 NOTAS MANUALES */}
+            {/* 📝 NOTAS — Auto-guardado */}
             {!selectedConv.isGroup && (
               <div className="p-2 rounded-lg bg-[var(--bg-tertiary)]">
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1">
                     <StickyNote className="w-3 h-3" /> Notas
                   </p>
-                  {convNotes !== ((selectedConv.contextData as any)?._userNotes || '') && (
-                    <button
-                      onClick={saveNotes}
-                      disabled={savingNotes}
-                      className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30 transition-all disabled:opacity-50 flex items-center gap-0.5"
-                    >
-                      {savingNotes ? <Clock className="w-2.5 h-2.5 animate-spin" /> : <Save className="w-2.5 h-2.5" />}
-                      Guardar
-                    </button>
+                  {savingNotes && (
+                    <span className="text-[9px] text-[var(--text-muted)] flex items-center gap-0.5">
+                      <Clock className="w-2.5 h-2.5 animate-spin" /> Guardando...
+                    </span>
                   )}
-                  {notesSaved && (
+                  {notesSaved && !savingNotes && (
                     <span className="text-[9px] text-emerald-400 flex items-center gap-0.5">
-                      <Check className="w-2.5 h-2.5" /> Guardado
+                      <Check className="w-2.5 h-2.5" /> Auto-guardado ✓
                     </span>
                   )}
                 </div>
                 <textarea
                   value={convNotes}
-                  onChange={(e) => setConvNotes(e.target.value)}
-                  placeholder="Escribir notas sobre este cliente..."
+                  onChange={(e) => handleNotesChange(e.target.value)}
+                  onBlur={() => { if (notesDebounceRef.current) clearTimeout(notesDebounceRef.current); saveNotes(); }}
+                  placeholder="Escribir notas... (se guardan automáticamente)"
                   rows={3}
                   className="w-full bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded py-1.5 px-2 text-[10px] text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)] resize-none leading-relaxed"
                 />

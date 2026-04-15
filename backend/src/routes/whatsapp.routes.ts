@@ -34,30 +34,34 @@ const getWahaHeaders = () => {
 // ⏱️ TIMING ADAPTATIVO
 const BURST_CONFIG = {
   // WAHA (webhooks rápidos, conexión directa)
-  INITIAL_WAIT_MS: 3000,      // Primera espera: 3s
-  CONTINUE_WAIT_MS: 2000,     // Mensajes adicionales: 2s
-  FRAGMENT_WAIT_MS: 4000,     // Fragmentos: 4s
+  INITIAL_WAIT_MS: 4000,      // Primera espera: 4s (era 3s)
+  CONTINUE_WAIT_MS: 3000,     // Mensajes adicionales: 3s (era 2s)
+  FRAGMENT_WAIT_MS: 5000,     // Fragmentos: 5s (era 4s)
   // CLOUD API (Meta webhooks con delay 2-6s entre entregas del mismo segundo)
-  CLOUD_INITIAL_WAIT_MS: 7000,  // Primera espera Cloud: 7s (Meta tarda hasta 6s)
-  CLOUD_CONTINUE_WAIT_MS: 4000, // Adicionales Cloud: 4s
-  CLOUD_FRAGMENT_WAIT_MS: 6000, // Fragmentos Cloud: 6s
+  CLOUD_INITIAL_WAIT_MS: 10000,  // Primera espera Cloud: 10s (era 7s) — más tiempo para acumular mensajes
+  CLOUD_CONTINUE_WAIT_MS: 7000,  // Adicionales Cloud: 7s (era 4s) — si el cliente sigue escribiendo, esperar más
+  CLOUD_FRAGMENT_WAIT_MS: 8000,  // Fragmentos Cloud: 8s (era 6s)
   // Límites globales
-  MAX_WAIT_MS: 25000,         // Máximo absoluto: 25s
+  MAX_WAIT_MS: 30000,         // Máximo absoluto: 30s (era 25s)
   MAX_MESSAGES: 10,           // Máximo mensajes en ráfaga
+  // Delay para mensajes pendientes (llegaron mientras la IA procesaba)
+  PENDING_DELAY_CLOUD: 12000, // 12s para Cloud (era 5s) — CRÍTICO: evita respuestas encadenadas
+  PENDING_DELAY_WAHA: 3000,   // 3s para WAHA (era 1.5s)
 };
 
 // 🧠 Patrones que indican "sigo escribiendo"
-const FRAGMENT_PATTERNS = /^\.{2,}$|^\?{1,3}$|^!{1,3}$|^(y|o|pero|que|porque|es|si|no|ok|ya|ah|mm|hm|je|ja|jaja|xd|eee|osea|ósea|pues|mira|oye|bueno|dale|va|aver|haber|espera|wait|un momento)$/i;
+const FRAGMENT_PATTERNS = /^\.{2,}$|^\?{1,3}$|^!{1,3}$|^(y|o|pero|que|porque|es|si|no|ok|ya|ah|mm|hm|je|ja|jaja|xd|eee|osea|ósea|pues|mira|oye|bueno|dale|va|aver|haber|espera|wait|un momento|cuánto|cuanto|como|cómo|cuando|cuándo|dónde|donde|quien|quién|qué|que tal|hola|hey|buenas|buenos|buen día|buenas tardes|buenas noches)$/i;
 const CONTINUATION_ENDINGS = /[,;:\-–—…]$|\.{2,}$/;
 const COMPLETE_PATTERNS = /[.!?]$/;
 
 // Detecta si un mensaje parece un fragmento (el usuario sigue escribiendo)
 const isFragment = (msg: string): boolean => {
   const trimmed = msg.trim();
-  if (trimmed.length <= 4) return true;                    // Muy corto → fragmento
+  if (trimmed.length <= 5) return true;                    // Muy corto (≤5 chars) → fragmento (cubre "M", "XL", "S", etc.)
   if (FRAGMENT_PATTERNS.test(trimmed)) return true;        // Palabra suelta conocida
   if (CONTINUATION_ENDINGS.test(trimmed)) return true;     // Termina en coma, puntos suspensivos
-  if (trimmed.split(/\s+/).length <= 2 && !COMPLETE_PATTERNS.test(trimmed)) return true; // 1-2 palabras sin punto
+  // 1-2 palabras sin puntuación final → probable fragmento (ej: "Talla M", "Millos", "Que vale")
+  if (trimmed.split(/\s+/).length <= 3 && !COMPLETE_PATTERNS.test(trimmed)) return true;
   return false;
 };
 
@@ -4675,16 +4679,23 @@ const processBufferedMessages = async (bufferKey: string) => {
       clearTimeout(pending.timer);
       
       // 🧠 Agregar contexto para que la IA sepa que es continuación
-      // Esto evita que repita información de la respuesta anterior
       const realPendingCount = pending.messages.length;
       if (combinedMessage) {
         pending.previousContext = combinedMessage.substring(0, 120);
       }
       
-      // Cloud API: esperar 5s más (webhooks de Meta llegan con delay impredecible)
-      // WAHA: esperar 1.5s
-      const pendingDelay = pending.isCloud ? 5000 : 1500;
-      clog(`🔄 ${realPendingCount} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''}...`);
+      // 🔧 FIX: Resetear firstTimestamp para que MAX_WAIT se calcule desde ahora
+      // Esto permite que el buffer acumule más mensajes sin expirar prematuramente
+      pending.firstTimestamp = Date.now();
+      
+      // 🔧 FIX: Aumentar delay de pendientes para acumular mensajes que aún puede enviar el cliente
+      // Cloud 12s (era 5s): el cliente puede estar escribiendo "Talla M" justo en este momento
+      // WAHA 3s (era 1.5s): suficiente para webhooks directos
+      const pendingDelay = pending.isCloud
+        ? BURST_CONFIG.PENDING_DELAY_CLOUD
+        : BURST_CONFIG.PENDING_DELAY_WAHA;
+      
+      clog(`🔄 ${realPendingCount} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''} (esperando si el cliente sigue escribiendo)...`);
       pending.timer = setTimeout(() => processBufferedMessages(bufferKey), pendingDelay);
     }
   }

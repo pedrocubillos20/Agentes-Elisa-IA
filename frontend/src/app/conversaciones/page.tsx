@@ -5,8 +5,12 @@ import * as XLSX from 'xlsx';
 import { 
   MessageSquare, Search, Send, X, Trash2,
   Megaphone, PauseCircle, PlayCircle, Paperclip, Image, Mic, FileText, Zap,
-  Download, Upload, ChevronLeft, StickyNote, Calendar, UserPlus, Check, Clock, Save, User
+  Download, Upload, ChevronLeft, StickyNote, Calendar, UserPlus, Check, Clock, Save, User,
+  RefreshCw, Filter
 } from 'lucide-react';
+
+const MONTHS_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const MONTHS_FULL = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
@@ -200,6 +204,14 @@ export default function ConversacionesPage() {
   const [appointmentData, setAppointmentData] = useState({ date: '', time: '', type: 'appointment', notes: '' });
   const [savingAppointment, setSavingAppointment] = useState(false);
   const [userRole, setUserRole] = useState('admin'); // rol del usuario actual
+
+  // ── FILTRO MES + REFRESH ─────────────────────────────────────────────────
+  const currentYear = new Date().getFullYear();
+  const [filterMonth, setFilterMonth] = useState<{ month: number; year: number } | null>(null);
+  const [filterYear, setFilterYear] = useState(currentYear);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+  // ─────────────────────────────────────────────────────────────────────────
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const massFileInputRef = useRef<HTMLInputElement>(null);
@@ -466,7 +478,16 @@ export default function ConversacionesPage() {
     finally { 
       setLoading(false); 
       isFetchingRef.current = false;
+      setLastRefreshTime(new Date());
     }
+  };
+
+  // 🔄 Refresh manual con animación
+  const handleManualRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    await fetchConversations();
+    setTimeout(() => setIsRefreshing(false), 600);
   };
 
   const fetchMessages = async (convId: string) => {
@@ -900,8 +921,28 @@ export default function ConversacionesPage() {
     const matchSearch = !searchTerm || c.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) || c.recipientId?.includes(searchTerm);
     const matchStage = filterStage === 'all' || c.stage === filterStage;
     const matchType = filterType === 'all' || (filterType === 'groups' ? c.isGroup : !c.isGroup);
-    return matchSearch && matchStage && matchType;
+    
+    // Filtro por mes — usa updatedAt, lastActivity o createdAt
+    let matchMonth = true;
+    if (filterMonth) {
+      const dateStr = c.updatedAt || c.lastActivity || c.createdAt;
+      if (dateStr) {
+        const d = new Date(dateStr);
+        matchMonth = d.getMonth() === filterMonth.month && d.getFullYear() === filterMonth.year;
+      }
+    }
+    
+    return matchSearch && matchStage && matchType && matchMonth;
   });
+
+  // Estadísticas por mes (para mostrar cuáles tienen actividad)
+  const monthsWithData = new Set(
+    conversations.map(c => {
+      const d = new Date(c.updatedAt || c.lastActivity || c.createdAt || '');
+      if (isNaN(d.getTime())) return null;
+      return `${d.getMonth()}-${d.getFullYear()}`;
+    }).filter(Boolean)
+  );
 
   const groupCount = conversations.filter(c => c.isGroup).length;
   const chatCount = conversations.filter(c => !c.isGroup).length;
@@ -922,32 +963,127 @@ export default function ConversacionesPage() {
   return (
     <div className="h-[calc(100vh-120px)] md:h-[calc(100vh-120px)] flex flex-col gap-2 md:gap-3 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between flex-shrink-0 flex-wrap gap-2">
-        <div className="flex items-center gap-2 md:gap-3">
-          <MessageSquare className="w-5 h-5 md:w-6 md:h-6 text-[var(--accent-primary)]" />
-          <div>
-            <h1 className="text-base md:text-xl font-bold text-white">Conversaciones</h1>
-            <p className="text-[10px] md:text-xs text-[var(--text-muted)]">{conversations.length} chats</p>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 md:gap-3">
+            <MessageSquare className="w-5 h-5 md:w-6 md:h-6 text-[var(--accent-primary)]" />
+            <div>
+              <h1 className="text-base md:text-xl font-bold text-white">Conversaciones</h1>
+              <p className="text-[10px] md:text-xs text-[var(--text-muted)]">
+                {filterMonth
+                  ? `${filteredConversations.length} en ${MONTHS_FULL[filterMonth.month]} ${filterMonth.year} · ${conversations.length} total`
+                  : `${conversations.length} chats`}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 md:gap-2">
+            {/* 🔄 Refresh button */}
+            <button
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              title={`Actualizado: ${lastRefreshTime.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-[var(--border-primary)] text-[var(--text-muted)] hover:text-emerald-400 hover:border-emerald-500/40 hover:bg-emerald-500/10 transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-400' : ''}`} />
+              <span className="hidden md:inline">
+                {isRefreshing ? 'Sync...' : lastRefreshTime.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </button>
+
+            <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="input py-1.5 px-2 md:px-3 text-xs md:text-sm bg-[var(--bg-secondary)] max-w-[140px] md:max-w-none">
+              <option value="all">Todas ({conversations.length})</option>
+              {stageStats.map(stage => (
+                <option key={stage.id} value={stage.id}>{stage.label} ({stage.count})</option>
+              ))}
+            </select>
+            <button onClick={() => setShowMassMessage(true)} disabled={filterStage === 'all'} className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50" title={filterStage === 'all' ? 'Selecciona una etapa primero' : 'Mensaje masivo'}>
+              <Megaphone className="w-4 h-4" />
+            </button>
+            <button onClick={exportContacts} className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos Excel">
+              <Download className="w-4 h-4" />
+            </button>
+            <label className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">
+              <Upload className="w-4 h-4" />
+              <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importContacts(e.target.files[0]); e.target.value = ''; }} />
+            </label>
           </div>
         </div>
-        <div className="flex items-center gap-1 md:gap-2">
-          <select value={filterStage} onChange={(e) => setFilterStage(e.target.value)} className="input py-1.5 px-2 md:px-3 text-xs md:text-sm bg-[var(--bg-secondary)] max-w-[140px] md:max-w-none">
-            <option value="all">Todas ({conversations.length})</option>
-            {stageStats.map(stage => (
-              <option key={stage.id} value={stage.id}>{stage.label} ({stage.count})</option>
+
+        {/* ── FILTRO POR MES ─────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-2 p-2.5 bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)]">
+          <div className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs font-semibold flex-shrink-0">
+            <Filter className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+            Mes:
+          </div>
+
+          {/* Año */}
+          <select
+            value={filterYear}
+            onChange={(e) => {
+              const y = Number(e.target.value);
+              setFilterYear(y);
+              if (filterMonth) setFilterMonth({ ...filterMonth, year: y });
+            }}
+            className="bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg py-1 px-2 text-xs text-white focus:outline-none focus:border-[var(--accent-primary)]"
+          >
+            {[currentYear - 1, currentYear, currentYear + 1].map(y => (
+              <option key={y} value={y}>{y}</option>
             ))}
           </select>
-          <button onClick={() => setShowMassMessage(true)} disabled={filterStage === 'all'} className="btn-secondary py-1.5 px-3 text-sm disabled:opacity-50" title={filterStage === 'all' ? 'Selecciona una etapa primero' : 'Mensaje masivo'}>
-            <Megaphone className="w-4 h-4" />
-          </button>
-          <button onClick={exportContacts} className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-emerald-400 transition-all" title="Exportar contactos Excel">
-            <Download className="w-4 h-4" />
-          </button>
-          <label className="hidden md:block p-2 rounded-lg hover:bg-white/10 text-[var(--text-muted)] hover:text-cyan-400 transition-all cursor-pointer" title="Importar contactos CSV">
-            <Upload className="w-4 h-4" />
-            <input type="file" accept=".csv,.txt" className="hidden" onChange={(e) => { if (e.target.files?.[0]) importContacts(e.target.files[0]); e.target.value = ''; }} />
-          </label>
+
+          {/* Botones de mes */}
+          <div className="flex flex-wrap gap-1">
+            {MONTHS_ES.map((name, idx) => {
+              const isActive = filterMonth?.month === idx && filterMonth?.year === filterYear;
+              const hasData = monthsWithData.has(`${idx}-${filterYear}`);
+              const count = hasData
+                ? conversations.filter(c => {
+                    const d = new Date(c.updatedAt || c.lastActivity || c.createdAt || '');
+                    return d.getMonth() === idx && d.getFullYear() === filterYear;
+                  }).length
+                : 0;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => isActive ? setFilterMonth(null) : setFilterMonth({ month: idx, year: filterYear })}
+                  title={count > 0 ? `${MONTHS_FULL[idx]}: ${count} chats` : MONTHS_FULL[idx]}
+                  className={`relative px-2.5 py-1 rounded-lg text-xs font-medium transition-all border ${
+                    isActive
+                      ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)] shadow-sm'
+                      : hasData
+                        ? 'border-[var(--accent-primary)]/30 text-white hover:border-[var(--accent-primary)] bg-[var(--accent-primary)]/10'
+                        : 'border-[var(--border-primary)] text-[var(--text-muted)] hover:text-white hover:border-[var(--accent-primary)]/50'
+                  }`}
+                >
+                  {name}
+                  {count > 0 && !isActive && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-[var(--accent-primary)] text-white text-[9px] flex items-center justify-center font-bold">
+                      {count > 99 ? '99+' : count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Limpiar filtro */}
+          {filterMonth && (
+            <button
+              onClick={() => setFilterMonth(null)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-red-400 border border-red-400/30 hover:bg-red-400/10 transition-all ml-auto flex-shrink-0"
+            >
+              <X className="w-3 h-3" /> Todos
+            </button>
+          )}
+
+          {/* Label activo */}
+          {filterMonth && (
+            <span className="text-[11px] text-[var(--accent-primary)] font-semibold bg-[var(--accent-primary)]/10 px-2.5 py-1 rounded-lg flex-shrink-0">
+              📅 {MONTHS_FULL[filterMonth.month]} {filterMonth.year} — {filteredConversations.length} chats
+            </span>
+          )}
         </div>
+        {/* ──────────────────────────────────────────────────────────────── */}
       </div>
 
       {/* Main */}

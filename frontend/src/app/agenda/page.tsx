@@ -1,10 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Calendar as CalendarIcon, Clock, Plus, ChevronLeft, ChevronRight, User, Phone, MapPin, Package, Check, X, Edit2, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Clock, Plus, ChevronLeft, ChevronRight, User, Phone, MapPin, Package, Check, X, Edit2, Trash2, Filter } from 'lucide-react';
 import { SoundPicker, useNotifications, formatTime12h } from '../../components/NotificationSounds';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+const MONTHS_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
 
 export default function AgendaPage() {
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
@@ -16,16 +21,21 @@ export default function AgendaPage() {
   const [editingItem, setEditingItem] = useState<any>(null);
   const [user, setUser] = useState<any>(null);
 
+  // ── FILTRO MES ──────────────────────────────────────────────────────────────
+  // null = todos los meses | { month: 0-11, year: YYYY }
+  const [filterMonth, setFilterMonth] = useState<{ month: number; year: number } | null>(null);
+  const currentYear = new Date().getFullYear();
+  const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
+  // ───────────────────────────────────────────────────────────────────────────
+
   const [form, setForm] = useState({
     type: 'appointment', clientName: '', clientPhone: '', date: '', time: '', duration: '30',
     notes: '', address: '', products: '', total: '', personas: '2', tipoReserva: ''
   });
 
-  // === WORKSPACE: leer línea seleccionada ===
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
   useEffect(() => {
-    // ⚡ INSTANT LOAD
     try {
       const cu = localStorage.getItem('bizonne_user_cache');
       if (cu) setUser(JSON.parse(cu));
@@ -36,10 +46,7 @@ export default function AgendaPage() {
     fetchAll();
     const onLineChanged = () => { setLoading(true); fetchAll(); };
     window.addEventListener('lineChanged', onLineChanged);
-
-    // 🔄 Auto-refresh cada 10s para detectar nuevas citas/pedidos
     const pollInterval = setInterval(() => fetchAll(), 10000);
-
     return () => {
       window.removeEventListener('lineChanged', onLineChanged);
       clearInterval(pollInterval);
@@ -65,11 +72,19 @@ export default function AgendaPage() {
     }
   };
 
+  // ── Appointments filtrados por mes seleccionado ──────────────────────────
+  const filteredAppointments = filterMonth
+    ? appointments.filter(a => {
+        const d = new Date(a.date);
+        return d.getMonth() === filterMonth.month && d.getFullYear() === filterMonth.year;
+      })
+    : appointments;
+  // ────────────────────────────────────────────────────────────────────────
+
   const handleSave = async () => {
     const token = localStorage.getItem('token');
     const method = editingItem ? 'PUT' : 'POST';
     const url = editingItem ? `${API_URL}/api/appointments/${editingItem.id}` : `${API_URL}/api/appointments`;
-
     try {
       const body: any = {
         ...form,
@@ -78,7 +93,6 @@ export default function AgendaPage() {
         products: form.products ? JSON.parse(`[${form.products}]`) : null,
         lineId: getLineId()
       };
-      // Build reservation notes if type is reservation and no custom notes
       if (form.type === 'reservation' && !form.notes) {
         body.notes = `🏨 RESERVA\n━━━━━━━━━━━━━━━\n📋 Tipo: ${form.tipoReserva || 'Reserva'}\n👥 Personas: ${form.personas || '2'}\n${form.address ? `📍 Dirección: ${form.address}\n` : ''}━━━━━━━━━━━━━━━`;
       }
@@ -87,15 +101,8 @@ export default function AgendaPage() {
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-
-      if (res.ok) {
-        fetchAll();
-        setShowModal(false);
-        resetForm();
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    }
+      if (res.ok) { fetchAll(); setShowModal(false); resetForm(); }
+    } catch (error) { console.error('Error:', error); }
   };
 
   const handleStatusChange = async (id: string, status: string) => {
@@ -107,9 +114,7 @@ export default function AgendaPage() {
         body: JSON.stringify({ status })
       });
       fetchAll();
-    } catch (error) {
-      console.error('Error:', error);
-    }
+    } catch (error) { console.error('Error:', error); }
   };
 
   const handleDelete = async (id: string) => {
@@ -121,9 +126,7 @@ export default function AgendaPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       fetchAll();
-    } catch (error) {
-      console.error('Error:', error);
-    }
+    } catch (error) { console.error('Error:', error); }
   };
 
   const resetForm = () => {
@@ -152,20 +155,40 @@ export default function AgendaPage() {
     return appointments.filter(apt => apt.date?.split('T')[0] === dateStr);
   };
 
-  const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1));
-  const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1));
-
-  const isToday = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
+  const prevMonth = () => {
+    const d = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1);
+    setCurrentDate(d);
+    setFilterMonth({ month: d.getMonth(), year: d.getFullYear() });
+  };
+  const nextMonth = () => {
+    const d = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1);
+    setCurrentDate(d);
+    setFilterMonth({ month: d.getMonth(), year: d.getFullYear() });
   };
 
+  const isToday = (date: Date) => date.toDateString() === new Date().toDateString();
+
+  // ── Stats calculados sobre filteredAppointments ───────────────────────────
   const stats = {
-    today: appointments.filter(a => a.date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
-    pending: appointments.filter(a => a.status === 'pending').length,
-    confirmed: appointments.filter(a => a.status === 'confirmed').length,
-    totalOrders: appointments.filter(a => a.type === 'order').reduce((sum, a) => sum + (a.total || 0), 0),
-    reservations: appointments.filter(a => a.type === 'reservation').length
+    today: filteredAppointments.filter(a => a.date?.split('T')[0] === new Date().toISOString().split('T')[0]).length,
+    pending: filteredAppointments.filter(a => a.status === 'pending').length,
+    confirmed: filteredAppointments.filter(a => a.status === 'confirmed').length,
+    completed: filteredAppointments.filter(a => a.status === 'completed').length,
+    totalOrders: filteredAppointments.filter(a => a.type === 'order').reduce((sum, a) => sum + (a.total || 0), 0),
+    reservations: filteredAppointments.filter(a => a.type === 'reservation').length,
+    allTotal: filteredAppointments.reduce((sum, a) => sum + (a.total || 0), 0),
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Selección rápida de mes
+  const handleMonthSelect = (month: number, year: number) => {
+    setFilterMonth({ month, year });
+    const d = new Date(year, month);
+    setCurrentDate(d);
+  };
+
+  const clearFilter = () => {
+    setFilterMonth(null);
   };
 
   if (loading) {
@@ -177,7 +200,6 @@ export default function AgendaPage() {
     );
   }
 
-  // 🔒 BLOQUEO PLAN STARTER - Agenda solo disponible en Business
   if (user?.plan === 'starter') {
     return (
       <div className="max-w-2xl mx-auto py-16 text-center">
@@ -205,18 +227,13 @@ export default function AgendaPage() {
     const daysInMonth = getDaysInMonth(currentDate);
     const firstDay = getFirstDayOfMonth(currentDate);
     const days = [];
-
-    // Empty cells
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="calendar-day other-month" />);
     }
-
-    // Days
     for (let day = 1; day <= daysInMonth; day++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
       const dayAppointments = getAppointmentsForDate(date);
       const isSelected = selectedDate?.toDateString() === date.toDateString();
-
       days.push(
         <div
           key={day}
@@ -227,11 +244,14 @@ export default function AgendaPage() {
         </div>
       );
     }
-
     return days;
   };
 
   const selectedDateAppointments = selectedDate ? getAppointmentsForDate(selectedDate) : [];
+
+  const filterLabel = filterMonth
+    ? `${MONTHS_ES[filterMonth.month]} ${filterMonth.year}`
+    : 'Todos los meses';
 
   return (
     <div className="max-w-7xl mx-auto space-y-8">
@@ -252,11 +272,71 @@ export default function AgendaPage() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* ── FILTRO POR MES ─────────────────────────────────────────────────── */}
+      <div className="card p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm font-semibold">
+            <Filter className="w-4 h-4 text-[var(--accent-primary)]" />
+            Filtrar por mes:
+          </div>
+
+          {/* Selector de año */}
+          <select
+            value={filterMonth?.year ?? currentYear}
+            onChange={(e) => {
+              const y = Number(e.target.value);
+              const m = filterMonth?.month ?? new Date().getMonth();
+              handleMonthSelect(m, y);
+            }}
+            className="input !py-1.5 !px-3 w-28 text-sm"
+          >
+            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+
+          {/* Botones de meses */}
+          <div className="flex flex-wrap gap-2">
+            {MONTHS_ES.map((name, idx) => {
+              const year = filterMonth?.year ?? currentYear;
+              const isActive = filterMonth?.month === idx && filterMonth?.year === year;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => isActive ? clearFilter() : handleMonthSelect(idx, year)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
+                    isActive
+                      ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)]'
+                      : 'border-[var(--border-primary)] text-[var(--text-muted)] hover:text-white hover:border-[var(--accent-primary)]'
+                  }`}
+                >
+                  {name.slice(0, 3)}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Botón limpiar */}
+          {filterMonth && (
+            <button
+              onClick={clearFilter}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm text-red-400 border border-red-400/30 hover:bg-red-400/10 transition-all"
+            >
+              <X className="w-3 h-3" /> Todos
+            </button>
+          )}
+
+          {/* Label activo */}
+          <span className="ml-auto text-xs text-[var(--accent-primary)] font-semibold bg-[var(--accent-primary)]/10 px-3 py-1.5 rounded-lg">
+            📅 {filterLabel}
+          </span>
+        </div>
+      </div>
+      {/* ──────────────────────────────────────────────────────────────────── */}
+
+      {/* Stats — basados en filteredAppointments */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="stat-card">
-          <div className="stat-value">{stats.today}</div>
-          <div className="stat-label">Hoy</div>
+          <div className="stat-value">{filterMonth ? filteredAppointments.length : stats.today}</div>
+          <div className="stat-label">{filterMonth ? 'Total mes' : 'Hoy'}</div>
         </div>
         <div className="stat-card">
           <div className="stat-value">{stats.pending}</div>
@@ -271,10 +351,28 @@ export default function AgendaPage() {
           <div className="stat-label">Reservas</div>
         </div>
         <div className="stat-card">
-          <div className="stat-value">${stats.totalOrders.toLocaleString()}</div>
+          <div className="stat-value text-[var(--accent-primary)]">${stats.allTotal.toLocaleString()}</div>
           <div className="stat-label">Total Pedidos</div>
         </div>
       </div>
+
+      {/* Fila extra de stats cuando hay filtro */}
+      {filterMonth && (
+        <div className="grid grid-cols-3 gap-4">
+          <div className="card p-4 flex flex-col items-center border border-emerald-500/20">
+            <span className="text-2xl font-bold text-emerald-400">{stats.completed}</span>
+            <span className="text-xs text-[var(--text-muted)] mt-1">Completadas</span>
+          </div>
+          <div className="card p-4 flex flex-col items-center border border-blue-500/20">
+            <span className="text-2xl font-bold text-blue-400">{filteredAppointments.filter(a => a.type === 'order').length}</span>
+            <span className="text-xs text-[var(--text-muted)] mt-1">Pedidos</span>
+          </div>
+          <div className="card p-4 flex flex-col items-center border border-[var(--accent-primary)]/20">
+            <span className="text-2xl font-bold text-[var(--accent-primary)]">{filteredAppointments.filter(a => a.type === 'appointment').length}</span>
+            <span className="text-xs text-[var(--text-muted)] mt-1">Citas</span>
+          </div>
+        </div>
+      )}
 
       {/* View Toggle */}
       <div className="flex gap-2 p-1 bg-[var(--bg-tertiary)] rounded-xl w-fit">
@@ -290,7 +388,6 @@ export default function AgendaPage() {
 
       {view === 'calendar' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Calendar */}
           <div className="lg:col-span-2 card">
             <div className="flex items-center justify-between mb-6">
               <button onClick={prevMonth} className="btn-icon"><ChevronLeft className="w-5 h-5" /></button>
@@ -299,24 +396,18 @@ export default function AgendaPage() {
               </h3>
               <button onClick={nextMonth} className="btn-icon"><ChevronRight className="w-5 h-5" /></button>
             </div>
-
             <div className="grid grid-cols-7 gap-2 mb-2">
               {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(d => (
                 <div key={d} className="text-center text-xs font-semibold text-[var(--text-muted)] py-2">{d}</div>
               ))}
             </div>
-
-            <div className="grid grid-cols-7 gap-2">
-              {renderCalendar()}
-            </div>
+            <div className="grid grid-cols-7 gap-2">{renderCalendar()}</div>
           </div>
 
-          {/* Selected Day Details */}
           <div className="card">
             <h3 className="text-lg font-semibold text-white mb-4">
               {selectedDate ? selectedDate.toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Selecciona un día'}
             </h3>
-
             {selectedDate && selectedDateAppointments.length > 0 ? (
               <div className="space-y-3">
                 {selectedDateAppointments.map((apt) => (
@@ -329,16 +420,11 @@ export default function AgendaPage() {
                     </div>
                     <h4 className="font-semibold text-white">{apt.clientName}</h4>
                     <p className="text-sm text-[var(--text-muted)]">{apt.clientPhone}</p>
+                    {apt.total && <p className="text-sm font-semibold text-[var(--accent-primary)] mt-1">${apt.total.toLocaleString()}</p>}
                     <div className="flex gap-2 mt-3">
-                      <button onClick={() => handleStatusChange(apt.id, 'confirmed')} className="btn-icon text-emerald-400">
-                        <Check className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => openEdit(apt)} className="btn-icon">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleDelete(apt.id)} className="btn-icon text-red-400">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <button onClick={() => handleStatusChange(apt.id, 'confirmed')} className="btn-icon text-emerald-400"><Check className="w-4 h-4" /></button>
+                      <button onClick={() => openEdit(apt)} className="btn-icon"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => handleDelete(apt.id)} className="btn-icon text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
                 ))}
@@ -352,9 +438,10 @@ export default function AgendaPage() {
           </div>
         </div>
       ) : (
+        /* Lista — usa filteredAppointments */
         <div className="space-y-4">
-          {appointments.length > 0 ? (
-            appointments.map((apt) => (
+          {filteredAppointments.length > 0 ? (
+            filteredAppointments.map((apt) => (
               <div key={apt.id} className="card flex flex-col md:flex-row md:items-center gap-4">
                 <div className="flex items-center gap-4 flex-1">
                   <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${apt.type === 'order' ? 'bg-blue-500/20' : apt.type === 'reservation' ? 'bg-amber-500/20' : 'bg-purple-500/20'}`}>
@@ -400,7 +487,7 @@ export default function AgendaPage() {
           ) : (
             <div className="card text-center py-12 text-[var(--text-muted)]">
               <CalendarIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>No hay eventos programados</p>
+              <p>{filterMonth ? `No hay eventos en ${filterLabel}` : 'No hay eventos programados'}</p>
             </div>
           )}
         </div>
@@ -414,7 +501,6 @@ export default function AgendaPage() {
               <h3 className="text-xl font-bold text-white">{editingItem ? 'Editar' : 'Nueva'} Cita/Pedido/Reserva</h3>
               <button onClick={() => setShowModal(false)} className="btn-icon"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="space-y-4">
               <div className="flex gap-2 p-1 bg-[var(--bg-tertiary)] rounded-xl">
                 <button onClick={() => setForm({...form, type: 'appointment'})}
@@ -430,32 +516,24 @@ export default function AgendaPage() {
                   Reserva
                 </button>
               </div>
-
               <div>
                 <label className="input-label">Nombre del Cliente *</label>
-                <input type="text" value={form.clientName} onChange={(e) => setForm({...form, clientName: e.target.value})}
-                  className="input" placeholder="Nombre completo" />
+                <input type="text" value={form.clientName} onChange={(e) => setForm({...form, clientName: e.target.value})} className="input" placeholder="Nombre completo" />
               </div>
-
               <div>
                 <label className="input-label">Teléfono *</label>
-                <input type="text" value={form.clientPhone} onChange={(e) => setForm({...form, clientPhone: e.target.value})}
-                  className="input" placeholder="+57 300 123 4567" />
+                <input type="text" value={form.clientPhone} onChange={(e) => setForm({...form, clientPhone: e.target.value})} className="input" placeholder="+57 300 123 4567" />
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="input-label">Fecha *</label>
-                  <input type="date" value={form.date} onChange={(e) => setForm({...form, date: e.target.value})}
-                    className="input" />
+                  <input type="date" value={form.date} onChange={(e) => setForm({...form, date: e.target.value})} className="input" />
                 </div>
                 <div>
                   <label className="input-label">Hora *</label>
-                  <input type="time" value={form.time} onChange={(e) => setForm({...form, time: e.target.value})}
-                    className="input" />
+                  <input type="time" value={form.time} onChange={(e) => setForm({...form, time: e.target.value})} className="input" />
                 </div>
               </div>
-
               {form.type === 'appointment' ? (
                 <div>
                   <label className="input-label">Duración (minutos)</label>
@@ -472,14 +550,12 @@ export default function AgendaPage() {
                 <>
                   <div>
                     <label className="input-label">Tipo de Reserva *</label>
-                    <input type="text" value={form.tipoReserva} onChange={(e) => setForm({...form, tipoReserva: e.target.value})}
-                      className="input" placeholder="Mesa, habitación, cancha, sala, turno..." />
+                    <input type="text" value={form.tipoReserva} onChange={(e) => setForm({...form, tipoReserva: e.target.value})} className="input" placeholder="Mesa, habitación, cancha, sala, turno..." />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="input-label">Personas</label>
-                      <input type="number" value={form.personas} onChange={(e) => setForm({...form, personas: e.target.value})}
-                        className="input" min="1" placeholder="2" />
+                      <input type="number" value={form.personas} onChange={(e) => setForm({...form, personas: e.target.value})} className="input" min="1" placeholder="2" />
                     </div>
                     <div>
                       <label className="input-label">Duración (min)</label>
@@ -496,36 +572,29 @@ export default function AgendaPage() {
                   </div>
                   <div>
                     <label className="input-label">Dirección / Ubicación</label>
-                    <input type="text" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})}
-                      className="input" placeholder="Dirección o nombre del lugar" />
+                    <input type="text" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})} className="input" placeholder="Dirección o nombre del lugar" />
                   </div>
                   <div>
                     <label className="input-label">Total (opcional)</label>
-                    <input type="number" value={form.total} onChange={(e) => setForm({...form, total: e.target.value})}
-                      className="input" placeholder="0" />
+                    <input type="number" value={form.total} onChange={(e) => setForm({...form, total: e.target.value})} className="input" placeholder="0" />
                   </div>
                 </>
               ) : (
                 <>
                   <div>
                     <label className="input-label">Dirección de entrega</label>
-                    <input type="text" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})}
-                      className="input" placeholder="Dirección completa" />
+                    <input type="text" value={form.address} onChange={(e) => setForm({...form, address: e.target.value})} className="input" placeholder="Dirección completa" />
                   </div>
                   <div>
                     <label className="input-label">Total del Pedido</label>
-                    <input type="number" value={form.total} onChange={(e) => setForm({...form, total: e.target.value})}
-                      className="input" placeholder="0" />
+                    <input type="number" value={form.total} onChange={(e) => setForm({...form, total: e.target.value})} className="input" placeholder="0" />
                   </div>
                 </>
               )}
-
               <div>
                 <label className="input-label">Notas</label>
-                <textarea value={form.notes} onChange={(e) => setForm({...form, notes: e.target.value})}
-                  className="input min-h-[80px]" placeholder="Notas adicionales..." />
+                <textarea value={form.notes} onChange={(e) => setForm({...form, notes: e.target.value})} className="input min-h-[80px]" placeholder="Notas adicionales..." />
               </div>
-
               <button onClick={handleSave} className="btn-primary w-full">{editingItem ? 'Actualizar' : 'Guardar'}</button>
             </div>
           </div>

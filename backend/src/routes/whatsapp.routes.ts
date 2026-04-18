@@ -5052,7 +5052,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           name: line.sessionName,
           start: true,
           engine: 'WEBJS',
-          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] }
+          config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] }
         })
       });
       const createBody = await createRes.text().catch(() => '');
@@ -5081,7 +5081,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
       
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
-        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] } })
+        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] } })
       }).catch(() => {});
     }
     
@@ -5352,7 +5352,7 @@ router.post('/connect', async (req: Request, res: Response) => {
           start: true,
           engine: 'WEBJS',
           config: {
-            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }]
+            webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }]
           }
         })
       });
@@ -5401,7 +5401,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
         config: {
           webhooks: [{ 
             url: webhookUrl, 
-            events: ['message', 'message.any', 'message.new', 'session.status']
+            events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change']
           }]
         }
       })
@@ -5415,7 +5415,7 @@ router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
       message: updateRes.ok ? 'Webhooks reconfigurados' : 'Error al reconfigurar',
       session: sessionName,
       webhookUrl,
-      events: ['message', 'message.any', 'message.new', 'session.status']
+      events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change']
     });
   } catch (e: any) {
     console.error('❌ Error reconfigurando:', e.message);
@@ -6107,10 +6107,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
-    // [FIX 1] Aceptar TODOS los eventos de mensaje de WAHA Plus:
-    // WEBJS engine: 'message' | NOWEB engine: 'message.any' | ambos posibles
-    // También ignorar session.status y otros eventos no relevantes
-    const isMessageEvent = event === 'message' || event === 'message.any' || event === 'message.new';
+    // [FIX 1] Aceptar TODOS los eventos de mensaje de WAHA Plus 2026:
+    // Eventos válidos: 'message', 'message.any', 'message.reaction', 'state.change', 'session.status'
+    // message.new fue eliminado en WAHA Plus 2026
+    const isMessageEvent = event === 'message' || event === 'message.any' || event === 'message.new' || event === 'message.reaction';
     if (!event || !isMessageEvent) { res.json({ success: true }); return; }
     
     // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):

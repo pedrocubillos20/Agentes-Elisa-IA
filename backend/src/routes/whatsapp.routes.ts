@@ -5019,7 +5019,7 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
     
     if (check.status === 404) {
       // Crear sesión nueva
-      await fetch(`${WAHA_API_URL}/api/sessions`, {
+      const createRes = await fetch(`${WAHA_API_URL}/api/sessions`, {
         method: 'POST', headers: getWahaHeaders(),
         body: JSON.stringify({
           name: line.sessionName,
@@ -5028,20 +5028,34 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] }
         })
       });
-      log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName}`);
+      log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName} → ${createRes.status}`);
     } else {
       const data = await check.json() as any;
-      if (['STOPPED', 'FAILED'].includes(data.status)) {
+      log(`📱 Sesión WAHA existe con estado: ${data.status}`);
+      
+      // 🔧 FIX: Si está WORKING/CONNECTED ya vinculada a otro número → detener y reiniciar
+      // Antes solo reiniciaba si era STOPPED/FAILED — perdía el caso de sesión ya autenticada
+      if (['WORKING', 'CONNECTED'].includes(data.status)) {
+        // Detener la sesión actual primero
+        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/stop`, { method: 'POST', headers: getWahaHeaders() }).catch(() => {});
+        // Esperar 2s para que se detenga
+        await new Promise(r => setTimeout(r, 2000));
+        // Reiniciar para obtener nuevo QR
+        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
+        log(`📱 Sesión reiniciada para nuevo QR: ${line.sessionName}`);
+      } else if (['STOPPED', 'FAILED', 'STARTING'].includes(data.status)) {
         await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
       }
-      // Actualizar webhooks
+      // Si está en SCAN_QR_CODE → ya tiene QR, no hacer nada (el frontend lo pedirá)
+      
+      // Actualizar webhooks siempre
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
         body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] } })
-      });
+      }).catch(() => {});
     }
     
-    await prisma.whatsappLine.update({ where: { id }, data: { status: 'connecting' } });
+    await prisma.whatsappLine.update({ where: { id }, data: { status: 'connecting', phone: null } });
     res.json({ success: true, session: line.sessionName });
   } catch (e: any) {
     console.error('Error conectando línea:', e.message);
@@ -5084,65 +5098,102 @@ router.get('/lines/:id/qr', async (req: Request, res: Response) => {
     if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
     
     let qrData: string | null = null;
-    
-    // Intentar obtener QR de WAHA
+
+    // 🔧 FIX: Verificar primero el estado de la sesión para diagnóstico
+    let sessionStatus = 'UNKNOWN';
     try {
-      const r = await fetch(`${WAHA_API_URL}/api/${line.sessionName}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+      const sr = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
+      if (sr.ok) {
+        const sd = await sr.json() as any;
+        sessionStatus = sd.status || 'UNKNOWN';
+        log(`📱 QR solicitado — sesión ${line.sessionName} estado: ${sessionStatus}`);
+        
+        // Si ya está conectada → no hay QR que mostrar
+        if (['WORKING', 'CONNECTED'].includes(sessionStatus)) {
+          const phone = sd.me?.id?.replace('@c.us', '') || null;
+          await prisma.whatsappLine.update({ where: { id }, data: { status: 'connected', ...(phone ? { phone } : {}) } }).catch(() => {});
+          res.json({ qr: null, available: false, connected: true, phone });
+          return;
+        }
+        
+        // Si no está en scan_qr aún → no hay QR disponible todavía
+        if (!['SCAN_QR_CODE'].includes(sessionStatus)) {
+          log(`📱 Sesión en estado "${sessionStatus}" — QR no disponible aún`);
+          res.json({ qr: null, available: false, status: sessionStatus });
+          return;
+        }
+      }
+    } catch (e: any) {
+      log(`⚠️ Error verificando estado sesión ${line.sessionName}: ${e.message}`);
+    }
+    
+    // Sesión en SCAN_QR_CODE → intentar obtener QR
+    // Intento 1: /api/{session}/auth/qr (JSON) — WEBJS 2026 ruta principal
+    try {
+      const r = await fetch(`${WAHA_API_URL}/api/${line.sessionName}/auth/qr`, {
+        headers: { ...getWahaHeaders(), 'Accept': 'application/json' }
+      });
       if (r.ok) {
         const d = await r.json() as any;
-        if (d.mimetype && d.data) qrData = `data:${d.mimetype};base64,${d.data}`;
+        if (d.mimetype && d.data) {
+          qrData = `data:${d.mimetype};base64,${d.data}`;
+          log(`📱 QR obtenido (ruta 1 JSON): ${line.sessionName}`);
+        } else if (typeof d === 'string' && d.startsWith('data:')) {
+          qrData = d;
+          log(`📱 QR obtenido (ruta 1 dataURL): ${line.sessionName}`);
+        }
       }
     } catch {}
-    
+
+    // Intento 2: /api/{session}/auth/qr (imagen PNG directa)
     if (!qrData) {
       try {
-        const r = await fetch(`${WAHA_API_URL}/api/${line.sessionName}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'image/png' } });
+        const r = await fetch(`${WAHA_API_URL}/api/${line.sessionName}/auth/qr`, {
+          headers: { ...getWahaHeaders(), 'Accept': 'image/png' }
+        });
         if (r.ok && r.headers.get('content-type')?.includes('image')) {
           const buf = Buffer.from(await r.arrayBuffer());
           qrData = `data:image/png;base64,${buf.toString('base64')}`;
+          log(`📱 QR obtenido (ruta 2 PNG): ${line.sessionName}`);
         }
       } catch {}
     }
-    
+
+    // Intento 3: /api/sessions/{session}/auth/qr (ruta legacy)
     if (!qrData) {
       try {
-        const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/auth/qr`, { headers: { ...getWahaHeaders(), 'Accept': 'application/json' } });
+        const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/auth/qr`, {
+          headers: { ...getWahaHeaders(), 'Accept': 'application/json' }
+        });
         if (r.ok) {
           const d = await r.json() as any;
-          if (d.mimetype && d.data) qrData = `data:${d.mimetype};base64,${d.data}`;
+          if (d.mimetype && d.data) {
+            qrData = `data:${d.mimetype};base64,${d.data}`;
+            log(`📱 QR obtenido (ruta 3 legacy): ${line.sessionName}`);
+          }
         }
       } catch {}
     }
-    
-    // Check if connected (no QR needed)
+
+    // Intento 4: Screenshot como fallback para WEBJS
     if (!qrData) {
       try {
-        const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
-        if (r.ok) {
-          const data = await r.json() as any;
-          if (['WORKING', 'CONNECTED'].includes(data.status)) {
-            const phone = data.me?.id?.replace('@c.us', '') || null;
-            await prisma.whatsappLine.update({ where: { id }, data: { status: 'connected', ...(phone ? { phone } : {}) } }).catch(() => {});
-            res.json({ qr: null, available: false, connected: true, phone });
-            return;
-          }
-          // WEBJS: If status is SCAN_QR_CODE but qr endpoint failed, try screenshot
-          if (data.status === 'SCAN_QR_CODE' && !qrData) {
-            try {
-              const sr = await fetch(`${WAHA_API_URL}/api/screenshot?session=${line.sessionName}`, { headers: getWahaHeaders() });
-              if (sr.ok && sr.headers.get('content-type')?.includes('image')) {
-                const buf = Buffer.from(await sr.arrayBuffer());
-                qrData = `data:image/png;base64,${buf.toString('base64')}`;
-                log(`📱 QR obtenido via screenshot (WEBJS): ${line.sessionName}`);
-              }
-            } catch {}
-          }
+        const sr = await fetch(`${WAHA_API_URL}/api/screenshot?session=${line.sessionName}`, { headers: getWahaHeaders() });
+        if (sr.ok && sr.headers.get('content-type')?.includes('image')) {
+          const buf = Buffer.from(await sr.arrayBuffer());
+          qrData = `data:image/png;base64,${buf.toString('base64')}`;
+          log(`📱 QR obtenido via screenshot: ${line.sessionName}`);
         }
       } catch {}
     }
+
+    if (!qrData) {
+      log(`⚠️ No se pudo obtener QR para ${line.sessionName} (estado: ${sessionStatus})`);
+    }
     
-    res.json({ qr: qrData, available: !!qrData });
+    res.json({ qr: qrData, available: !!qrData, status: sessionStatus });
   } catch (e: any) {
+    log(`❌ Error en /lines/:id/qr: ${e.message}`);
     res.json({ qr: null, available: false });
   }
 });

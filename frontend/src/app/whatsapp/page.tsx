@@ -154,13 +154,22 @@ export default function WhatsAppPage() {
         method: 'POST', headers: headers()
       });
       if (res.ok) {
-        // Wait for QR
-        setTimeout(() => getQR(lineId), 3000);
-        const qrInterval = setInterval(async () => {
-          const got = await getQR(lineId);
-          if (got) clearInterval(qrInterval);
-        }, 2500);
-        setTimeout(() => clearInterval(qrInterval), 30000);
+        // 🔧 FIX: WEBJS necesita 10-20s para inicializarse antes del primer QR
+        // Antes era 3s — demasiado poco, el QR nunca estaba listo
+        const FIRST_WAIT = 12000;   // 12s antes del primer intento
+        const POLL_INTERVAL = 3000; // intentar cada 3s
+        const MAX_DURATION = 90000; // 90s máximo (era 30s — insuficiente para WEBJS)
+
+        setTimeout(() => {
+          let elapsed = FIRST_WAIT;
+          const qrInterval = setInterval(async () => {
+            const got = await getQR(lineId);
+            elapsed += POLL_INTERVAL;
+            if (got || elapsed >= MAX_DURATION) clearInterval(qrInterval);
+          }, POLL_INTERVAL);
+          // También intentar el primero inmediatamente
+          getQR(lineId);
+        }, FIRST_WAIT);
       }
     } catch (e) { console.error(e); }
     finally { setConnectingLineId(null); }

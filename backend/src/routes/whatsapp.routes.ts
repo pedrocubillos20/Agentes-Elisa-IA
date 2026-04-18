@@ -5013,12 +5013,39 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
     if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
     
     const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
-    
+    log(`📱 Conectando línea ${line.sessionName} → WAHA: ${WAHA_API_URL} | webhook: ${webhookUrl}`);
+
+    // ── TEST CONECTIVIDAD WAHA ─────────────────────────────────────────────
+    try {
+      const ping = await fetch(`${WAHA_API_URL}/api/sessions`, { 
+        headers: getWahaHeaders(), 
+        signal: AbortSignal.timeout(8000) 
+      });
+      const pingOk = ping.status < 500;
+      log(`📱 WAHA ping: HTTP ${ping.status} (${pingOk ? 'OK' : 'ERROR'})`);
+      if (!pingOk) {
+        const errBody = await ping.text().catch(() => '');
+        res.status(502).json({ 
+          error: `WAHA respondió con error ${ping.status}. Cuerpo: ${errBody.substring(0, 200)}`,
+          wahaUrl: WAHA_API_URL, wahaStatus: ping.status
+        });
+        return;
+      }
+    } catch (pingErr: any) {
+      log(`❌ WAHA inalcanzable: ${pingErr.message}`);
+      res.status(502).json({ 
+        error: `No se pudo conectar a WAHA (${WAHA_API_URL}): ${pingErr.message}`,
+        wahaUrl: WAHA_API_URL
+      });
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
     // Verificar si ya existe en WAHA
     const check = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
     
     if (check.status === 404) {
-      // Crear sesión nueva
+      // Crear sesión nueva — verificar respuesta de WAHA
       const createRes = await fetch(`${WAHA_API_URL}/api/sessions`, {
         method: 'POST', headers: getWahaHeaders(),
         body: JSON.stringify({
@@ -5028,27 +5055,30 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
           config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] }
         })
       });
-      log(`📱 Sesión WAHA creada (WEBJS): ${line.sessionName} → ${createRes.status}`);
-    } else {
+      const createBody = await createRes.text().catch(() => '');
+      log(`📱 Crear sesión WAHA "${line.sessionName}": HTTP ${createRes.status} → ${createBody.substring(0, 300)}`);
+      
+      if (!createRes.ok) {
+        res.status(502).json({ 
+          error: `WAHA rechazó crear la sesión (HTTP ${createRes.status}): ${createBody.substring(0, 300)}`,
+          wahaStatus: createRes.status,
+          sessionName: line.sessionName
+        });
+        return;
+      }
+    } else if (check.ok) {
       const data = await check.json() as any;
       log(`📱 Sesión WAHA existe con estado: ${data.status}`);
       
-      // 🔧 FIX: Si está WORKING/CONNECTED ya vinculada a otro número → detener y reiniciar
-      // Antes solo reiniciaba si era STOPPED/FAILED — perdía el caso de sesión ya autenticada
       if (['WORKING', 'CONNECTED'].includes(data.status)) {
-        // Detener la sesión actual primero
         await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/stop`, { method: 'POST', headers: getWahaHeaders() }).catch(() => {});
-        // Esperar 2s para que se detenga
         await new Promise(r => setTimeout(r, 2000));
-        // Reiniciar para obtener nuevo QR
         await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
         log(`📱 Sesión reiniciada para nuevo QR: ${line.sessionName}`);
       } else if (['STOPPED', 'FAILED', 'STARTING'].includes(data.status)) {
         await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
       }
-      // Si está en SCAN_QR_CODE → ya tiene QR, no hacer nada (el frontend lo pedirá)
       
-      // Actualizar webhooks siempre
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
         body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.new', 'session.status'] }] } })
@@ -5062,7 +5092,6 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
     res.status(500).json({ error: e.message });
   }
 });
-
 // POST /lines/:id/disconnect — Desconectar línea
 router.post('/lines/:id/disconnect', async (req: Request, res: Response) => {
   try {
@@ -5247,6 +5276,55 @@ router.get('/status', async (req: Request, res: Response) => {
       session: session.name
     });
   } catch { res.json({ connected: false, status: 'error', phone: null, hasQR: false }); }
+});
+
+// GET /waha-diagnostic — Verificar conectividad con WAHA (para diagnóstico de QR)
+router.get('/waha-diagnostic', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    
+    const startTime = Date.now();
+    let wahaOk = false;
+    let wahaError = '';
+    let wahaStatus = 0;
+    let sessionsCount = 0;
+    
+    try {
+      const r = await fetch(`${WAHA_API_URL}/api/sessions`, { 
+        headers: getWahaHeaders(),
+        signal: AbortSignal.timeout(8000)
+      });
+      wahaStatus = r.status;
+      wahaOk = r.ok;
+      if (r.ok) {
+        const data = await r.json() as any;
+        sessionsCount = Array.isArray(data) ? data.length : (data?.sessions?.length || 0);
+      } else {
+        wahaError = await r.text().catch(() => `HTTP ${r.status}`);
+      }
+    } catch (e: any) {
+      wahaError = e.message;
+    }
+    
+    const latency = Date.now() - startTime;
+    
+    res.json({
+      wahaUrl: WAHA_API_URL,
+      backendUrl: BACKEND_URL,
+      wahaReachable: wahaOk,
+      wahaHttpStatus: wahaStatus,
+      wahaError: wahaError || null,
+      latencyMs: latency,
+      sessionsCount,
+      hasApiKey: !!WAHA_API_KEY,
+      diagnosis: wahaOk 
+        ? `✅ WAHA conectado (${sessionsCount} sesiones, ${latency}ms)` 
+        : `❌ WAHA no responde: ${wahaError || `HTTP ${wahaStatus}`}`
+    });
+  } catch (e: any) {
+    res.json({ wahaReachable: false, wahaError: e.message, diagnosis: `❌ Error: ${e.message}` });
+  }
 });
 
 // =====================================================

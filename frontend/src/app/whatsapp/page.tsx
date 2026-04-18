@@ -19,6 +19,9 @@ export default function WhatsAppPage() {
   const [connectingLineId, setConnectingLineId] = useState<string | null>(null);
   const [qrData, setQrData] = useState<Record<string, string>>({});
   const [qrLoading, setQrLoading] = useState<Record<string, boolean>>({});
+  const [qrError, setQrError] = useState<Record<string, string>>({});  // error por línea
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagResult, setDiagResult] = useState<any>(null);
 
   // Modal
   const [showModal, setShowModal] = useState(false);
@@ -153,26 +156,58 @@ export default function WhatsAppPage() {
       const res = await fetch(`${API_URL}/api/whatsapp/lines/${lineId}/connect`, {
         method: 'POST', headers: headers()
       });
-      if (res.ok) {
-        // 🔧 FIX: WEBJS necesita 10-20s para inicializarse antes del primer QR
-        // Antes era 3s — demasiado poco, el QR nunca estaba listo
-        const FIRST_WAIT = 12000;   // 12s antes del primer intento
-        const POLL_INTERVAL = 3000; // intentar cada 3s
-        const MAX_DURATION = 90000; // 90s máximo (era 30s — insuficiente para WEBJS)
 
-        setTimeout(() => {
-          let elapsed = FIRST_WAIT;
-          const qrInterval = setInterval(async () => {
-            const got = await getQR(lineId);
-            elapsed += POLL_INTERVAL;
-            if (got || elapsed >= MAX_DURATION) clearInterval(qrInterval);
-          }, POLL_INTERVAL);
-          // También intentar el primero inmediatamente
-          getQR(lineId);
-        }, FIRST_WAIT);
+      if (!res.ok) {
+        // 🔧 FIX: Mostrar el error real de WAHA al usuario
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        const errMsg = errData.error || `Error ${res.status}`;
+        console.error('WAHA connect error:', errData);
+        alert(`❌ Error al conectar:\n\n${errMsg}\n\nVerifica que WAHA esté activo y accesible desde el servidor backend.`);
+        return;
       }
-    } catch (e) { console.error(e); }
-    finally { setConnectingLineId(null); }
+
+      // ✅ Conexión iniciada — esperar y buscar QR
+      const FIRST_WAIT = 12000;
+      const POLL_INTERVAL = 3000;
+      const MAX_DURATION = 90000;
+
+      setTimeout(() => {
+        let elapsed = FIRST_WAIT;
+        // Primer intento inmediato tras FIRST_WAIT
+        getQR(lineId);
+        const qrInterval = setInterval(async () => {
+          const got = await getQR(lineId);
+          elapsed += POLL_INTERVAL;
+          if (got || elapsed >= MAX_DURATION) {
+            clearInterval(qrInterval);
+            if (!got && elapsed >= MAX_DURATION) {
+              console.warn('QR timeout: WAHA no generó QR en 90s');
+            }
+          }
+        }, POLL_INTERVAL);
+      }, FIRST_WAIT);
+
+    } catch (e: any) {
+      console.error('Connect error:', e);
+      alert(`❌ Error de red al conectar: ${e.message}\n\nVerifica tu conexión a internet.`);
+    } finally {
+      setConnectingLineId(null);
+    }
+  };
+
+  // Diagnóstico WAHA — verifica conectividad entre backend y WAHA
+  const runDiagnostic = async () => {
+    setDiagRunning(true);
+    setDiagResult(null);
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/waha-diagnostic`, { headers: headers() });
+      const data = await res.json();
+      setDiagResult(data);
+    } catch (e: any) {
+      setDiagResult({ wahaReachable: false, diagnosis: `❌ Error de red: ${e.message}` });
+    } finally {
+      setDiagRunning(false);
+    }
   };
 
   const disconnectLine = async (lineId: string) => {
@@ -384,6 +419,23 @@ export default function WhatsAppPage() {
                   </div>
                 ) : (
                   <div>
+                    {/* Diagnóstico WAHA */}
+                    {diagResult && (
+                      <div className={`mb-3 p-3 rounded-xl text-xs ${diagResult.wahaReachable ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border border-red-500/30 text-red-400'}`}>
+                        <p className="font-semibold">{diagResult.diagnosis}</p>
+                        {!diagResult.wahaReachable && (
+                          <div className="mt-1.5 text-[var(--text-muted)]">
+                            <p>URL WAHA: <span className="font-mono text-red-300">{diagResult.wahaUrl}</span></p>
+                            {diagResult.wahaError && <p>Error: {diagResult.wahaError}</p>}
+                            <p className="mt-1">💡 Verifica que el servidor WAHA esté activo y accesible desde el backend de Railway.</p>
+                          </div>
+                        )}
+                        {diagResult.wahaReachable && (
+                          <p className="text-[var(--text-muted)] mt-1">Sesiones en WAHA: {diagResult.sessionsCount} · Latencia: {diagResult.latencyMs}ms</p>
+                        )}
+                      </div>
+                    )}
+
                     {/* QR Section */}
                     {lineQR ? (
                       <div className="text-center">
@@ -401,14 +453,27 @@ export default function WhatsAppPage() {
                         </div>
                       </div>
                     ) : (
-                      <button 
-                        onClick={() => connectLine(line.id)} 
-                        disabled={isConnecting}
-                        className="btn-primary w-full"
-                      >
-                        {isConnecting ? <div className="loading-spinner w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
-                        {isConnecting ? 'Conectando...' : 'Conectar WhatsApp'}
-                      </button>
+                      <div className="space-y-2">
+                        <button 
+                          onClick={() => connectLine(line.id)} 
+                          disabled={isConnecting}
+                          className="btn-primary w-full"
+                        >
+                          {isConnecting ? <div className="loading-spinner w-4 h-4" /> : <Smartphone className="w-4 h-4" />}
+                          {isConnecting ? 'Conectando...' : 'Conectar WhatsApp'}
+                        </button>
+                        {/* Botón diagnóstico — aparece si hay problemas */}
+                        <button
+                          onClick={runDiagnostic}
+                          disabled={diagRunning}
+                          className="w-full text-xs py-1.5 px-3 rounded-lg border border-[var(--border-primary)] text-[var(--text-muted)] hover:text-white hover:border-amber-500/50 transition-all flex items-center justify-center gap-1.5"
+                        >
+                          {diagRunning
+                            ? <><RefreshCw className="w-3 h-3 animate-spin" /> Verificando WAHA...</>
+                            : <><span>🔍</span> Verificar conexión con WAHA</>
+                          }
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}

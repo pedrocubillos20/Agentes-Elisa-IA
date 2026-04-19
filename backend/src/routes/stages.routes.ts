@@ -194,7 +194,8 @@ router.post('/sync', async (req: Request, res: Response) => {
 function extractStagesFromContext(context: string): any[] {
   if (!context || context.length < 50) return [];
   
-  const stages: any[] = [];\n  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'teal', 'indigo', 'red', 'lime', 'gray'];
+  const stages: any[] = [];
+  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'teal', 'indigo', 'red', 'lime', 'gray'];
   
   let foundItems: string[] = [];
 

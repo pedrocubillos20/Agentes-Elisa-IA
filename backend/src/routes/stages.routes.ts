@@ -44,13 +44,33 @@ router.get('/', async (req: Request, res: Response) => {
       
       // Si no tiene etapas configuradas, intentar extraerlas del asistente
       if (stages.length === 0) {
-        const assistant = await prisma.assistant.findFirst({
-          where: { userId: ownerId, whatsappLineId: lineId },
-          select: { context: true }
+        // 🔧 FIX: Buscar también por assistantId de la línea (además de whatsappLineId)
+        const lineInfo = await prisma.whatsappLine.findFirst({
+          where: { id: lineId, userId: ownerId },
+          select: { assistantId: true }
         });
+        let assistant = await prisma.assistant.findFirst({
+          where: { userId: ownerId, whatsappLineId: lineId },
+          select: { context: true, agenteCliente: true, modAcciones: true, modReglas: true, modProductos: true }
+        });
+        // Fallback: buscar por assistantId de la línea
+        if (!assistant && lineInfo?.assistantId) {
+          assistant = await prisma.assistant.findFirst({
+            where: { userId: ownerId, id: lineInfo.assistantId },
+            select: { context: true, agenteCliente: true, modAcciones: true, modReglas: true, modProductos: true }
+          });
+        }
+        // Combinar todos los módulos en un solo texto para extraer etapas
+        const fullContext = [
+          assistant?.context,
+          assistant?.agenteCliente,
+          assistant?.modAcciones,
+          assistant?.modReglas,
+          assistant?.modProductos,
+        ].filter(Boolean).join('\n\n');
         
-        if (assistant?.context) {
-          const extracted = extractStagesFromContext(assistant.context);
+        if (fullContext) {
+          const extracted = extractStagesFromContext(fullContext);
           if (extracted.length > 0) {
             await prisma.whatsappLine.update({
               where: { id: lineId },
@@ -144,17 +164,37 @@ router.post('/sync', async (req: Request, res: Response) => {
     const { lineId } = req.body;
     if (!lineId) { res.status(400).json({ error: 'lineId requerido' }); return; }
 
-    const assistant = await prisma.assistant.findFirst({
-      where: { userId: ownerId, whatsappLineId: lineId },
-      select: { context: true }
+    // 🔧 FIX: Buscar asistente por whatsappLineId O por assistantId de la línea
+    const lineForSync = await prisma.whatsappLine.findFirst({
+      where: { id: lineId, userId: ownerId },
+      select: { assistantId: true }
     });
+    let assistantSync = await prisma.assistant.findFirst({
+      where: { userId: ownerId, whatsappLineId: lineId },
+      select: { context: true, agenteCliente: true, modAcciones: true, modReglas: true, modProductos: true }
+    });
+    // Fallback: buscar por assistantId de la línea
+    if (!assistantSync && lineForSync?.assistantId) {
+      assistantSync = await prisma.assistant.findFirst({
+        where: { userId: ownerId, id: lineForSync.assistantId },
+        select: { context: true, agenteCliente: true, modAcciones: true, modReglas: true, modProductos: true }
+      });
+    }
+    // Combinar todos los módulos
+    const fullContextSync = [
+      assistantSync?.context,
+      assistantSync?.agenteCliente,
+      assistantSync?.modAcciones,
+      assistantSync?.modReglas,
+      assistantSync?.modProductos,
+    ].filter(Boolean).join('\n\n');
 
-    if (!assistant?.context) {
-      res.status(400).json({ error: 'No hay base de conocimiento configurada para esta línea. Configura tu asistente primero.' });
+    if (!fullContextSync) {
+      res.status(400).json({ error: 'No hay base de conocimiento configurada para esta línea. Ve a Asistentes IA, abre el asistente y guarda el contenido del módulo AGENTE_CLIENTE o acciones.json.' });
       return;
     }
 
-    const stages = extractStagesFromContext(assistant.context);
+    const stages = extractStagesFromContext(fullContextSync);
     
     if (stages.length === 0) {
       res.status(400).json({ error: 'No se encontraron etapas en la base de conocimiento. Asegúrate de tener una sección "ETAPAS DEL PIPELINE" con una lista numerada en tu base de conocimiento.' });

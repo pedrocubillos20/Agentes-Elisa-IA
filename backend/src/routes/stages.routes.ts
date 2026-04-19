@@ -194,21 +194,58 @@ router.post('/sync', async (req: Request, res: Response) => {
 function extractStagesFromContext(context: string): any[] {
   if (!context || context.length < 50) return [];
   
-  const stages: any[] = [];
-  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'teal', 'indigo', 'red', 'lime', 'gray'];
+  const stages: any[] = [];\n  const colors = ['blue', 'cyan', 'yellow', 'orange', 'purple', 'green', 'pink', 'teal', 'indigo', 'red', 'lime', 'gray'];
   
   let foundItems: string[] = [];
 
-  // PASO 1: Buscar sección de etapas/pipeline
-  // Prioridad: ETAPAS > PIPELINE > EMBUDO > FASES > FLUJO (más genérico, al final)
-  // Excluir: FLUJO CORRECTO, FLUJO DE VENTA, FLUJO MULTIMEDIA (no son etapas)
+  // ══════════════════════════════════════════════════════
+  // PASO 0 (PRIORIDAD MÁXIMA): Extraer del JSON pipeline_etapas
+  // Formato: "pipeline_etapas": ["Etapa 1", "Etapa 2", ...]
+  // Compatible con módulo 07_acciones.json de Bizonne
+  // ══════════════════════════════════════════════════════
+  const jsonPipelineMatch = context.match(/"pipeline_etapas"\s*:\s*\[([\s\S]*?)\]/);
+  if (jsonPipelineMatch) {
+    const items = [...jsonPipelineMatch[1].matchAll(/"([^"]+)"/g)].map(m => m[1].trim());
+    const NOISE_JSON = /^(REGLA|NUNCA|SIEMPRE|Nota|Ejemplo|PASO|accion|Pipeline|etapa_actual)/i;
+    const validItems = items.filter(s => s.length >= 2 && s.length <= 45 && !NOISE_JSON.test(s));
+    if (validItems.length >= 2) {
+      console.log(`🎯 Etapas extraídas de pipeline_etapas JSON: ${validItems.join(', ')}`);
+      validItems.slice(0, 15).forEach((label, index) => {
+        stages.push({ id: label, label, color: colors[index % colors.length], description: '' });
+      });
+      return stages;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // PASO 0B: Extraer de arrays JSON con nombre de etapa dentro de acciones
+  // Formato alternativo: "etapas": ["Etapa 1", ...] o "stages": [...]
+  // ══════════════════════════════════════════════════════
+  const jsonAltMatch = context.match(/"(?:etapas?|stages?|pipeline|fases?|embudo)"\s*:\s*\[([\s\S]*?)\]/i);
+  if (jsonAltMatch) {
+    const items = [...jsonAltMatch[1].matchAll(/"([^"]+)"/g)].map(m => m[1].trim());
+    const validItems = items.filter(s => s.length >= 2 && s.length <= 45);
+    if (validItems.length >= 2) {
+      console.log(`🎯 Etapas extraídas de JSON alternativo: ${validItems.join(', ')}`);
+      validItems.slice(0, 15).forEach((label, index) => {
+        stages.push({ id: label, label, color: colors[index % colors.length], description: '' });
+      });
+      return stages;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════
+  // PASO 1: Buscar sección de etapas/pipeline por headers
+  // Incluye ahora: acciones.json, 07_acciones, CRM, etc.
+  // ══════════════════════════════════════════════════════
   const STAGE_SECTION_PATTERNS = [
-    /##?[^\n]*(?:ETAPAS?\s+DEL\s+PIPELINE)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
-    /##?[^\n]*(?:PIPELINE)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
-    /##?[^\n]*(?:EMBUDO)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
-    /##?[^\n]*(?:FASES?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
-    // FLUJO solo si no es "FLUJO CORRECTO", "FLUJO DE VENTA", "FLUJO MULTIMEDIA"
-    /##?[^\n]*(?:FLUJO\s+DEL?\s+(?:NEGOCIO|CLIENTE|PROCESO|PIPELINE))[^\n]*\n([\s\S]*?)(?=\n##|\n---|\/\*|$)/i,
+    /##?[^\n]*(?:ETAPAS?\s+DEL\s+PIPELINE)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
+    /##?[^\n]*(?:PIPELINE)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
+    /##?[^\n]*(?:EMBUDO)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
+    /##?[^\n]*(?:FASES?)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
+    /##?[^\n]*(?:acciones?\.json|07_acciones)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
+    /##?[^\n]*(?:CRM)[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
+    /##?[^\n]*(?:FLUJO\s+DEL?\s+(?:NEGOCIO|CLIENTE|PROCESO|PIPELINE))[^\n]*\n([\s\S]*?)(?=\n##|\n---|\n═|\/\*|$)/i,
   ];
   let sectionMatch: RegExpMatchArray | null = null;
   for (const pat of STAGE_SECTION_PATTERNS) {
@@ -219,14 +256,24 @@ function extractStagesFromContext(context: string): any[] {
   if (sectionMatch) {
     const section = sectionMatch[1];
 
-    // Extraer líneas numeradas simples: "1. Nombre Etapa" (acepta backticks y sin ellos)
-    const numbered = [...section.matchAll(/^\s*\d+\.?\s+([^\n→\-:`]{2,40}?)(?:\s*[→\-–].*)?$/gm)];
-    for (const m of numbered) {
-      const label = m[1].replace(/\*\*/g, '').replace(/[`]/g, '').trim();
-      // Palabras que indican instrucción, no nombre de etapa
-      const isInstruction = /^(REGLA|NUNCA|SIEMPRE|Regla|Nota|Ejemplo|PASO|Saludo|Pedir|Cliente|Mostrar|Informar|Preguntar|Dar precio|Dar |Verificar|Resumen|Confirmar|Enviar|Orientar|Agendar|Ver |Sin |Si |Si no)/i.test(label);
-      if (!isInstruction && label.length >= 3 && label.length <= 40) {
-        foundItems.push(label);
+    // Intentar primero extraer del JSON dentro de la sección
+    const sectionJsonMatch = section.match(/"pipeline_etapas"\s*:\s*\[([\s\S]*?)\]/);
+    if (sectionJsonMatch) {
+      const items = [...sectionJsonMatch[1].matchAll(/"([^"]+)"/g)].map(m => m[1].trim());
+      if (items.length >= 2) {
+        foundItems = items;
+      }
+    }
+
+    if (foundItems.length === 0) {
+      // Extraer líneas numeradas: "1. Nombre Etapa"
+      const numbered = [...section.matchAll(/^\s*\d+\.?\s+([^\n→\-:`]{2,40}?)(?:\s*[→\-–].*)?$/gm)];
+      for (const m of numbered) {
+        const label = m[1].replace(/\*\*/g, '').replace(/[`]/g, '').trim();
+        const isInstruction = /^(REGLA|NUNCA|SIEMPRE|Regla|Nota|Ejemplo|PASO|Saludo|Pedir|Cliente|Mostrar|Informar|Preguntar|Dar |Verificar|Resumen|Confirmar|Enviar|Orientar|Agendar|Ver |Sin |Si |Si no)/i.test(label);
+        if (!isInstruction && label.length >= 3 && label.length <= 40) {
+          foundItems.push(label);
+        }
       }
     }
 
@@ -241,7 +288,7 @@ function extractStagesFromContext(context: string): any[] {
       }
     }
 
-    // Fallback: flujo inline con → DENTRO de la sección (ej: A → B → C)
+    // Fallback: flujo inline con → DENTRO de la sección
     if (foundItems.length === 0) {
       const inSection = [...section.matchAll(/([A-ZÁÉÍÓÚÑ][^\n→`*]{1,35}?)(?:\s*→\s*)/g)];
       for (const m of inSection) {
@@ -253,7 +300,9 @@ function extractStagesFromContext(context: string): any[] {
     }
   }
 
-  // PASO 2: Flujo inline en contexto completo como último recurso
+  // ══════════════════════════════════════════════════════
+  // PASO 2: Flujo inline en contexto completo (último recurso)
+  // ══════════════════════════════════════════════════════
   if (foundItems.length === 0) {
     const inlinePatterns = context.matchAll(/([A-ZÁÉÍÓÚ][^\n→]{2,30}?)(?:\s*→\s*([A-ZÁÉÍÓÚ][^\n→]{2,30}?)){2,}/g);
     for (const m of inlinePatterns) {

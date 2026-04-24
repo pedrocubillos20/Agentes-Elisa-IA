@@ -1433,7 +1433,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
       where: { id: ownerId }, 
-      select: { apiKey: true, apiKeyConnected: true, groqApiKey: true, groqApiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
+      select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
     });
     if (!owner?.apiKey || !owner.apiKeyConnected) {
       clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
@@ -2493,7 +2493,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
       assistantProvider: assistant.aiProvider || 'openai',
       assistantModel:    assistant.model || DEFAULT_MODELS[assistant.aiProvider as 'openai'|'groq' || 'openai'],
       userOpenAiKey:     user.apiKey || null,
-      userGroqKey:       user.groqApiKey || null,
+      userGroqKey:       null,
     });
 
     // Fallback: si el proveedor configurado no tiene key, intentar con el otro
@@ -2501,7 +2501,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
       assistantProvider: assistant.aiProvider === 'groq' ? 'openai' : 'groq',
       assistantModel:    undefined,
       userOpenAiKey:     user.apiKey || null,
-      userGroqKey:       user.groqApiKey || null,
+      userGroqKey:       null,
     }) : null;
 
     const finalConfig = aiConfig || fallbackConfig;
@@ -3934,7 +3934,7 @@ const generateMediaFollowUp = async (
         take: 5,
         select: { content: true, fromMe: true }
       }),
-      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, groqApiKey: true } })
+      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true } })
     ]);
 
     if (!user?.apiKey) return null;
@@ -6359,7 +6359,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
         const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
         if (userIdTemp) {
-          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
+          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
           if (user?.apiKey) {
             const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
             if (downloaded) {
@@ -6405,7 +6405,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
           const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
           if (userIdTemp) {
-            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
+            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
             if (userForVision?.apiKey) {
               // Obtener contexto del negocio para análisis más relevante
               const assistantForContext = await prisma.assistant.findFirst({ 
@@ -7439,7 +7439,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             const audioRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
             if (audioRes.ok) {
               const audioBuf = Buffer.from(await audioRes.arrayBuffer());
-              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
+              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
               const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
               if (apiKey) { const t = await transcribeAudio(audioBuf, apiKey); if (t) messageBody = t; }
             }
@@ -7464,7 +7464,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
               imgMime = imgRes.headers.get('content-type') || 'image/jpeg';
             } else { throw new Error('No access token'); }
 
-            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
+            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
             const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
             if (apiKey) {
               const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });

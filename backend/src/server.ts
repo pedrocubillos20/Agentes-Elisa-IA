@@ -123,9 +123,12 @@ const createRateLimit = (max: number, windowMs: number, message?: string) => rat
 });
 
 const webhookRL = createRateLimit(200, 1000, 'Webhook rate limit');
-const apiRL = createRateLimit(120, 60_000);
-const authRL = createRateLimit(20, 15 * 60 * 1000, 'Demasiados intentos. Espera 15 minutos.');
-const mediaRL = createRateLimit(30, 60_000);
+const apiRL     = createRateLimit(120, 60_000);
+// Solo para login/register/forgot-password (proteccion brute-force)
+const authRL    = createRateLimit(20, 15 * 60 * 1000, 'Demasiados intentos. Espera 15 minutos.');
+// Para /me y /refresh: el frontend los llama en cada navegacion, necesitan limite amplio
+const meRL      = createRateLimit(300, 60_000);
+const mediaRL   = createRateLimit(30, 60_000);
 
 // ===== TIMEOUTS =====
 app.use((req, res, next) => {
@@ -137,6 +140,9 @@ app.use((req, res, next) => {
 });
 
 // ===== PUBLIC ROUTES =====
+// /me y /refresh usan limite amplio (300/min) — el resto de auth usa limite estricto
+app.get('/api/auth/me',      meRL, authRoutes);
+app.post('/api/auth/refresh', meRL, authRoutes);
 app.use('/api/auth', authRL, authRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.get('/api/gcal/callback', handleGCalCallback);

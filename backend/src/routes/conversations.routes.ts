@@ -801,4 +801,142 @@ router.post('/:id/quick-appointment', async (req: Request, res: Response) => {
   }
 });
 
+
+// ═══════════════════════════════════════════════════════════════
+// POST /api/conversations/merge-duplicates
+// ═══════════════════════════════════════════════════════════════
+// SOLUCIÓN DUPLICADOS: Fusiona conversaciones del mismo número
+// en la misma línea. Mantiene la más antigua, migra mensajes,
+// elimina las duplicadas.
+// ═══════════════════════════════════════════════════════════════
+router.post('/merge-duplicates', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    // 1. Normalizar número: quitar @c.us, @s.whatsapp.net, dejar solo dígitos
+    const normalizePhone = (id: string): string => {
+      return id
+        .replace(/@c\.us$/, '')
+        .replace(/@s\.whatsapp\.net$/, '')
+        .replace(/@lid$/, '')
+        .replace(/\D/g, '');
+    };
+
+    // 2. Traer todas las conversaciones no-grupos
+    const allConvs = await prisma.conversation.findMany({
+      where: { userId: ownerId, isGroup: false },
+      select: {
+        id: true, recipientId: true, recipientName: true,
+        whatsappLineId: true, createdAt: true, stage: true,
+        contextData: true, aiPaused: true, assignedTo: true,
+        _count: { select: { messages: true } }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    // 3. Agrupar por (últimos 10 dígitos del número + lineId)
+    const groups: Record<string, typeof allConvs> = {};
+    for (const conv of allConvs) {
+      const normalized = normalizePhone(conv.recipientId);
+      const last10 = normalized.slice(-10);
+      const key = `${last10}__${conv.whatsappLineId || 'noLine'}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(conv);
+    }
+
+    let mergedCount = 0;
+    let deletedCount = 0;
+    const mergeLog: any[] = [];
+
+    // 4. Por cada grupo con más de 1 conversación → fusionar
+    for (const [key, convList] of Object.entries(groups)) {
+      if (convList.length <= 1) continue;
+
+      // Ordenar: primero la que tiene más mensajes, luego la más antigua
+      convList.sort((a, b) => {
+        if (b._count.messages !== a._count.messages) return b._count.messages - a._count.messages;
+        return a.createdAt.getTime() - b.createdAt.getTime();
+      });
+
+      const [keeper, ...dupes] = convList;
+
+      // Migrar mensajes y datos de los duplicados al principal
+      for (const dupe of dupes) {
+        // Mover mensajes
+        await prisma.message.updateMany({
+          where: { conversationId: dupe.id },
+          data: { conversationId: keeper.id }
+        });
+
+        // Preservar contextData si el keeper no tiene
+        if (!keeper.contextData && dupe.contextData) {
+          await prisma.conversation.update({
+            where: { id: keeper.id },
+            data: { contextData: dupe.contextData }
+          });
+        }
+
+        // Preservar nombre si el keeper no tiene
+        if (!keeper.recipientName && dupe.recipientName) {
+          await prisma.conversation.update({
+            where: { id: keeper.id },
+            data: { recipientName: dupe.recipientName }
+          });
+        }
+
+        // Actualizar recipientId al formato más completo (el más largo = más info)
+        const keeperNorm = normalizePhone(keeper.recipientId);
+        const dupeNorm = normalizePhone(dupe.recipientId);
+        if (dupeNorm.length > keeperNorm.length) {
+          await prisma.conversation.update({
+            where: { id: keeper.id },
+            data: { recipientId: dupeNorm }
+          });
+        }
+
+        // Eliminar duplicado
+        await prisma.conversation.delete({ where: { id: dupe.id } }).catch(() => {});
+        deletedCount++;
+      }
+
+      mergedCount++;
+      mergeLog.push({
+        kept: keeper.id,
+        name: keeper.recipientName || key.split('__')[0],
+        deleted: dupes.map(d => d.id),
+        messagesMoved: dupes.reduce((s, d) => s + d._count.messages, 0)
+      });
+    }
+
+    // 5. Actualizar lastMessage en las conversaciones fusionadas
+    for (const entry of mergeLog) {
+      const last = await prisma.message.findFirst({
+        where: { conversationId: entry.kept },
+        orderBy: { timestamp: 'desc' },
+        select: { content: true }
+      });
+      if (last) {
+        await prisma.conversation.update({
+          where: { id: entry.kept },
+          data: { lastMessage: last.content.slice(0, 200) }
+        }).catch(() => {});
+      }
+    }
+
+    res.json({
+      success: true,
+      mergedGroups: mergedCount,
+      deletedConversations: deletedCount,
+      details: mergeLog
+    });
+
+  } catch (error: any) {
+    console.error('Error merge-duplicates:', error);
+    res.status(500).json({ error: 'Error al fusionar duplicados: ' + error.message });
+  }
+});
+
+
 export default router;

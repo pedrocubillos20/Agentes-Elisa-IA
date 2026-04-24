@@ -928,7 +928,7 @@ const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: st
 const sendCloudVoice = async (phoneNumberId: string, accessToken: string, to: string, audioBuffer: Buffer): Promise<boolean> => {
   try {
     const formData = new FormData();
-    formData.append('file', new Blob([audioBuffer], { type: 'audio/ogg' }), 'voice.ogg');
+    formData.append('file', new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' }), 'voice.ogg');
     formData.append('messaging_product', 'whatsapp');
     formData.append('type', 'audio/ogg');
     const uploadRes = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/media`, {
@@ -1007,7 +1007,7 @@ const unifiedSendVoice = async (sessionName: string, chatId: string, audioBuffer
 // ====================================================
 const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<string | null> => {
   try {
-    const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
+    const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' });
     const formData = new FormData();
     formData.append('file', blob, 'audio.ogg');
     formData.append('model', 'whisper-1');
@@ -1813,9 +1813,10 @@ El campo "accion" en MEMORY_JSON ejecuta acciones REALES. Úsalas así:
 📋 BLOQUE DE MEMORIA — OBLIGATORIO EN CADA RESPUESTA
 ══════════════════════════════════════════════════════════
 
-🔴 INCLUYE ESTE BLOQUE AL FINAL DE CADA respuesta, SIEMPRE.
+🔴 INCLUYE ESTE BLOQUE AL FINAL DE CADA respuesta, SIEMPRE — incluye mensajes cortos como sí/dale/ok.
 🔴 Sin él, el sistema NO guarda datos ni mueve etapas.
 🔴 Es INVISIBLE para el cliente (se elimina antes de enviar).
+🔴 Si el cliente envía imagen o audio → IGUAL debes incluirlo.
 
 FORMATO (llena solo lo que sabes, deja "" lo que no):
 
@@ -3077,7 +3078,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 if (!dataComplete) log(`⏳ Cita/reserva presencial pendiente — faltan: ${!hasName ? 'nombre' : 'producto'}`);
               }
               
-              // 🤖 AUTO-DETECT acciones cuando IA omite accion en MEMORY_JSON
+              // 🤖 AUTO-DETECT: Si IA tiene datos pero no puso accion
               if (!actionToTake) {
                 const replyLD = (reply || '').toLowerCase();
                 if (merged.pedido !== 'creado') {
@@ -3096,16 +3097,14 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 if (merged.cita !== 'creada' && !!(merged.fecha_cita || merged.hora_cita)) {
                   const citaSignals = ['cita confirmada','cita agendada','quedó agendad','agendamos tu','tu cita quedó','cita registrada'];
                   if (citaSignals.some(s => replyLD.includes(s)) && hasName) {
-                    merged.accion = 'crear_cita';
-                    (memoryData as any).accion = 'crear_cita';
+                    merged.accion = 'crear_cita'; (memoryData as any).accion = 'crear_cita';
                     log('🤖 AUTO-DETECT: crear_cita');
                   }
                 }
                 if (merged.reserva !== 'creada' && !!(merged.fecha_reserva || merged.hora_reserva)) {
                   const resSignals = ['reserva confirmada','mesa reservada','reservamos','tu reserva quedó'];
                   if (resSignals.some(s => replyLD.includes(s)) && hasName) {
-                    merged.accion = 'crear_reserva';
-                    (memoryData as any).accion = 'crear_reserva';
+                    merged.accion = 'crear_reserva'; (memoryData as any).accion = 'crear_reserva';
                     log('🤖 AUTO-DETECT: crear_reserva');
                   }
                 }
@@ -3889,6 +3888,11 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
             log(`✅ IA response: ${reply.length} chars`);
             return reply;
           }
+        } // end if(aiResult)
+      } catch (e: any) {
+        console.error('❌ AI call error:', e.message);
+      }
+    }
     return null;
   } catch (e: any) { console.error('❌ AI Error:', e.message); return null; }
 };
@@ -4960,7 +4964,7 @@ router.put('/lines/:id', async (req: Request, res: Response) => {
     });
     
     // Clear lineInfo cache if cloud fields changed
-    if (cloudAccessToken || cloudPhoneNumberId) lineInfoCache.delete(id);
+    if (cloudAccessToken || cloudPhoneNumberId) lineInfoCache.delete(String(id));
     
     res.json({ line, success: true });
   } catch (e: any) {
@@ -5273,6 +5277,40 @@ router.put('/api-key-error/clear', async (req: Request, res: Response) => {
 
 // ===== RUTAS LEGACY (compatibilidad) =====
 
+
+// GET /cloud-templates — Obtener plantillas aprobadas de Facebook Business
+router.get('/cloud-templates', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const lineId = req.query.lineId as string;
+    const line = await prisma.whatsappLine.findFirst({
+      where: { userId: ownerId, connectionType: 'cloud_api', ...(lineId ? { id: lineId } : {}) },
+      select: { cloudAccessToken: true, cloudBusinessId: true }
+    });
+    if (!line?.cloudAccessToken) {
+      res.json({ templates: [], error: 'Esta línea no tiene Cloud API configurada.' }); return;
+    }
+    if (!line.cloudBusinessId) {
+      res.json({ templates: [], error: 'Business ID de Meta no configurado.' }); return;
+    }
+    const r = await fetch(
+      `https://graph.facebook.com/v18.0/${line.cloudBusinessId}/message_templates?fields=name,status,language,category,components&limit=100`,
+      { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+    );
+    if (!r.ok) {
+      const errData = await r.json().catch(() => ({})) as any;
+      res.json({ templates: [], error: errData?.error?.message || `HTTP ${r.status}` }); return;
+    }
+    const data = await r.json() as any;
+    const templates = (data.data || []).filter((t: any) => t.status === 'APPROVED');
+    res.json({ templates, total: templates.length });
+  } catch (e: any) {
+    res.json({ templates: [], error: e.message });
+  }
+});
+
 router.get('/status', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -5293,65 +5331,6 @@ router.get('/status', async (req: Request, res: Response) => {
       session: session.name
     });
   } catch { res.json({ connected: false, status: 'error', phone: null, hasQR: false }); }
-});
-
-// GET /cloud-templates — Obtener plantillas aprobadas de Facebook Business
-router.get('/cloud-templates', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
-
-    const lineId = req.query.lineId as string;
-    
-    // Buscar la línea Cloud API del usuario
-    const line = await prisma.whatsappLine.findFirst({
-      where: {
-        userId: ownerId,
-        connectionType: 'cloud_api',
-        ...(lineId ? { id: lineId } : {}),
-      },
-      select: { cloudAccessToken: true, cloudBusinessId: true, cloudPhoneNumberId: true, label: true }
-    });
-
-    if (!line?.cloudAccessToken) {
-      res.json({ templates: [], error: 'Esta línea no tiene Cloud API configurada. Las plantillas requieren una línea con la API oficial de Meta.' });
-      return;
-    }
-
-    // Buscar el WABA ID - puede estar en cloudBusinessId o lo buscamos via API
-    const businessId = line.cloudBusinessId;
-    if (!businessId) {
-      res.json({ templates: [], error: 'Business ID de Meta no configurado. Ve a Configuración → WhatsApp y asegúrate de tener Cloud API activa.' });
-      return;
-    }
-
-    // Llamar a la API de Meta para obtener las plantillas
-    const r = await fetch(
-      `https://graph.facebook.com/v18.0/${businessId}/message_templates?fields=name,status,language,category,components&limit=100&status=APPROVED`,
-      {
-        headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` },
-        signal: AbortSignal.timeout(15000)
-      }
-    );
-
-    if (!r.ok) {
-      const errData = await r.json().catch(() => ({})) as any;
-      const errMsg = errData?.error?.message || `HTTP ${r.status}`;
-      log(`❌ Error obteniendo plantillas Meta: ${errMsg}`);
-      res.json({ templates: [], error: `Error de Meta: ${errMsg}` });
-      return;
-    }
-
-    const data = await r.json() as any;
-    const templates = (data.data || []).filter((t: any) => t.status === 'APPROVED');
-    
-    log(`📋 Plantillas aprobadas obtenidas: ${templates.length}`);
-    res.json({ templates, total: templates.length });
-  } catch (e: any) {
-    console.error('Error obteniendo plantillas:', e.message);
-    res.json({ templates: [], error: e.message });
-  }
 });
 
 // GET /waha-diagnostic — Verificar conectividad con WAHA (para diagnóstico de QR)
@@ -5854,7 +5833,8 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
 // ====================================================
 router.get('/media/:session/:messageId', async (req: Request, res: Response) => {
   try {
-    const { session: sess, messageId } = req.params;
+    const sess = req.params.session as string;
+    const messageId = req.params.messageId as string;
     const downloaded = await downloadMediaFromWaha(sess, messageId);
     if (downloaded) {
       res.setHeader('Content-Type', downloaded.mimetype);
@@ -7013,6 +6993,7 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
     // Verificar token
+    // @ts-ignore
     const jwt = await import('jsonwebtoken');
     let decoded: any;
     try {

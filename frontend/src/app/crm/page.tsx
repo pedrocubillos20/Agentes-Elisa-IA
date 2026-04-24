@@ -551,18 +551,7 @@ export default function CRMPage() {
   const coldLeads = scoredLeads.filter(l => l.leadScore.score < 40);
   const filteredLeads = leadFilter === 'hot' ? hotLeads : leadFilter === 'warm' ? warmLeads : leadFilter === 'cold' ? coldLeads : scoredLeads;
 
-  if (user && user.plan === 'starter' && !user.parentUserId) {
-    return (
-      <div className="h-[calc(100vh-120px)] flex items-center justify-center p-4">
-        <div className="text-center p-6 md:p-8 bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-primary)] max-w-md">
-          <Users className="w-10 h-10 md:w-12 md:h-12 mx-auto mb-4 text-[var(--accent-primary)]" />
-          <h2 className="text-lg md:text-xl font-bold text-white mb-2">CRM en Plan Business</h2>
-          <p className="text-[var(--text-muted)] text-sm mb-4">Gestiona tu pipeline con vista completa.</p>
-          <a href="/subscription" className="btn-primary inline-flex items-center gap-2"><Sparkles className="w-4 h-4" /> Actualizar</a>
-        </div>
-      </div>
-    );
-  }
+  // CRM disponible en Plan Starter y Business (corregido)
 
   if (loading) return <div className="h-[calc(100vh-120px)] flex items-center justify-center"><div className="loading-spinner w-8 h-8" /></div>;
 

@@ -2,37 +2,27 @@ import { Request, Response, NextFunction } from 'express';
 import prisma from '../lib/prisma';
 import { AuthRequest } from './auth.middleware';
 import { subscriptionCache } from '../lib/cache';
-
-/**
- * 🔒 SUBSCRIPTION MIDDLEWARE — Uses unified LRU cache
- * 
- * ANTES: Local Map sin límite → memory leak potential
- * AHORA: LRU cache (500 entries max, 60s TTL, auto-cleanup)
- */
+import logger from '../lib/logger';
 
 export const subscriptionMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = (req as AuthRequest).user?.id;
     if (!userId) { next(); return; }
 
-    // 🛠️ Check if admin is impersonating this user
     const isImpersonating = !!(req as AuthRequest).user?.impersonatedBy;
 
-    // ⚡ Cache hit
     const cached = subscriptionCache.get(userId);
     if (cached) {
       if (cached.isExpired) {
-        res.status(403).json({ 
+        res.status(403).json({
           error: 'subscription_expired',
           message: 'Tu suscripción ha expirado. Renueva tu plan para continuar.',
           blocked: true
         });
         return;
       }
-      // 🛠️ Skip implementation lock if admin is impersonating
       if (cached.hasImplementation && !isImpersonating) {
-        const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants')
-          || req.path.startsWith('/api/integrations') || req.originalUrl?.includes('/api/integrations');
+        const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants');
         if (isConfigRoute && req.method !== 'GET') {
           res.status(403).json({ error: 'implementation_locked', message: 'Configurada por implementación.', locked: true });
           return;
@@ -42,7 +32,6 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
       return;
     }
 
-    // Cache miss — DB queries (once per 60s per user)
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, plan: true, trialEndsAt: true, parentUserId: true }
@@ -66,7 +55,6 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
       where: { userId: ownerId, plan: 'implementation', status: 'approved' }
     }));
 
-    // ⚡ Store in unified cache
     subscriptionCache.set(userId, { isExpired, hasImplementation });
 
     if (isExpired) {
@@ -75,8 +63,7 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
     }
 
     if (hasImplementation && !isImpersonating) {
-      const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants')
-        || req.path.startsWith('/api/integrations') || req.originalUrl?.includes('/api/integrations');
+      const isConfigRoute = req.path.startsWith('/api/assistants') || req.originalUrl?.includes('/api/assistants');
       if (isConfigRoute && req.method !== 'GET') {
         res.status(403).json({ error: 'implementation_locked', message: 'Configurada por implementación.', locked: true });
         return;
@@ -84,8 +71,8 @@ export const subscriptionMiddleware = async (req: Request, res: Response, next: 
     }
 
     next();
-  } catch (error) {
-    console.error('⚠️ subscriptionMiddleware error:', error);
+  } catch (error: any) {
+    logger.error('subscriptionMiddleware error', { error: error.message });
     next();
   }
 };

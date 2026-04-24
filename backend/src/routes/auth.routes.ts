@@ -2,7 +2,10 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../lib/prisma';
-import { authMiddleware, AuthRequest } from '../middleware/auth.middleware';
+import { authMiddleware, AuthRequest, generateTokens, verifyRefreshToken } from '../middleware/auth.middleware';
+import { validateBody } from '../middleware/validate.middleware';
+import { LoginSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema } from '../lib/schemas';
+import logger from '../lib/logger';
 
 const router = Router();
 // 🔒 SEGURIDAD: JWT_SECRET obligatorio — NO fallback hardcodeado
@@ -124,11 +127,11 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     const sent = await sendEmail(email, '🔐 Código de recuperación - Bizonne', emailHtml);
     
     if (sent) {
-      console.log(`🔐 Código de reset enviado a ${email}: ${resetCode}`);
+      logger.info('Código de reset enviado', { email: ${email}: ${resetCode}`);
       res.json({ success: true, message: 'Código enviado a tu correo' });
     } else {
       // Fallback: mostrar código en logs si no hay RESEND configurado
-      console.log(`⚠️ RESEND no configurado. Código para ${email}: ${resetCode}`);
+      logger.warn('RESEND no configurado. Código para ${email}: ${resetCode}`);
       res.json({ success: true, message: 'Código enviado a tu correo' });
     }
   } catch (error) {
@@ -229,7 +232,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       }
     });
 
-    console.log(`✅ Contraseña restablecida para ${decoded.email}`);
+    logger.info('Contraseña restablecida', { email: ${decoded.email}`);
     res.json({ success: true, message: 'Contraseña actualizada correctamente' });
   } catch (error) {
     console.error('Error reset-password:', error);
@@ -237,12 +240,10 @@ router.post('/reset-password', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/auth/register
-router.post('/register', async (req: Request, res: Response) => {
+// POST /api/auth/register — CORREGIDO: Zod validation
+router.post('/register', validateBody(RegisterSchema), async (req: Request, res: Response) => {
   try {
-    const { email: rawEmail, password, name } = req.body;
-    const email = rawEmail?.trim().toLowerCase();
-    if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
+    const { email, password, name } = req.body;
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
@@ -254,20 +255,25 @@ router.post('/register', async (req: Request, res: Response) => {
       data: { email, password: await bcrypt.hash(password, 10), name: name || null, role: 'admin', plan: 'trial', trialEndsAt }
     });
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '3d' });
-    res.status(201).json({ user: { id: user.id, email: user.email, name: user.name, role: 'admin' }, token });
-  } catch (error) {
-    console.error('Error registro:', error);
+    const { accessToken, refreshToken, expiresIn } = generateTokens(user.id, user.email);
+    logger.info('Usuario registrado', { userId: user.id, email });
+    res.status(201).json({
+      user: { id: user.id, email: user.email, name: user.name, role: 'admin' },
+      token: accessToken,
+      accessToken,
+      refreshToken,
+      expiresIn
+    });
+  } catch (error: any) {
+    logger.error('Error registro', { error: error.message });
     res.status(500).json({ error: 'Error al registrar' });
   }
 });
 
-// POST /api/auth/login
-router.post('/login', async (req: Request, res: Response) => {
+// POST /api/auth/login — CORREGIDO: Zod validation + refresh tokens
+router.post('/login', validateBody(LoginSchema), async (req: Request, res: Response) => {
   try {
-    const { email: rawEmail, password } = req.body;
-    const email = rawEmail?.trim().toLowerCase();
-    if (!email || !password) { res.status(400).json({ error: 'Email y contraseña son requeridos' }); return; }
+    const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
@@ -278,10 +284,15 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
+    if (!valid) {
+      logger.warn('Login fallido', { email });
+      res.status(401).json({ error: 'Credenciales inválidas' }); return;
+    }
 
-    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '3d' });
+    // CORREGIDO: accessToken 8h + refreshToken 30d
+    const { accessToken, refreshToken, expiresIn } = generateTokens(user.id, user.email);
 
+    logger.info('Login exitoso', { userId: user.id, email });
     res.json({
       user: {
         id: user.id, email: user.email, name: user.name,
@@ -291,11 +302,39 @@ router.post('/login', async (req: Request, res: Response) => {
         apiKeyConnected: user.apiKeyConnected || false,
         isSubUser: !!user.parentUserId
       },
-      token
+      token: accessToken,        // compatibilidad con frontend existente
+      accessToken,
+      refreshToken,
+      expiresIn
     });
-  } catch (error) {
-    console.error('Error login:', error);
+  } catch (error: any) {
+    logger.error('Error login', { error: error.message });
     res.status(500).json({ error: 'Error al iniciar sesión' });
+  }
+});
+
+// POST /api/auth/refresh — NUEVO: Renovar access token
+router.post('/refresh', async (req: Request, res: Response) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) { res.status(400).json({ error: 'refreshToken requerido' }); return; }
+
+    const payload = verifyRefreshToken(refreshToken);
+    if (!payload) { res.status(401).json({ error: 'Token inválido o expirado' }); return; }
+
+    const user = await prisma.user.findUnique({
+      where: { id: payload.id },
+      select: { id: true, email: true, isActive: true }
+    });
+    if (!user || !user.isActive) {
+      res.status(401).json({ error: 'Usuario no encontrado o inactivo' }); return;
+    }
+
+    const { accessToken, expiresIn } = generateTokens(user.id, user.email);
+    res.json({ accessToken, token: accessToken, expiresIn });
+  } catch (error: any) {
+    logger.error('Error refresh token', { error: error.message });
+    res.status(500).json({ error: 'Error al renovar token' });
   }
 });
 

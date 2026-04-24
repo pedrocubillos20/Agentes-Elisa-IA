@@ -127,11 +127,11 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     const sent = await sendEmail(email, '🔐 Código de recuperación - Bizonne', emailHtml);
     
     if (sent) {
-      logger.info('Código de reset enviado', { email: ${email}: ${resetCode}`);
+      logger.info('Código de reset enviado', { email, code: resetCode });
       res.json({ success: true, message: 'Código enviado a tu correo' });
     } else {
       // Fallback: mostrar código en logs si no hay RESEND configurado
-      logger.warn('RESEND no configurado. Código para ${email}: ${resetCode}`);
+      logger.warn('RESEND no configurado', { email, code: resetCode });
       res.json({ success: true, message: 'Código enviado a tu correo' });
     }
   } catch (error) {
@@ -232,7 +232,7 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       }
     });
 
-    logger.info('Contraseña restablecida', { email: ${decoded.email}`);
+    logger.info('Contraseña restablecida', { email: decoded.email });
     res.json({ success: true, message: 'Contraseña actualizada correctamente' });
   } catch (error) {
     console.error('Error reset-password:', error);

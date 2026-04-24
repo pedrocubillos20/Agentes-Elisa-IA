@@ -34,6 +34,10 @@ import { subscriptionMiddleware } from './middleware/subscription.middleware';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ===== TRUST PROXY — Necesario para Railway/Render/Heroku =====
+// Sin esto, express-rate-limit no puede leer el IP real del cliente
+app.set('trust proxy', 1);
+
 // ===== HELMET — Security Headers =====
 // CORRECCIÓN: Agrega headers de seguridad: X-Content-Type-Options,
 // X-Frame-Options, HSTS, CSP básico, etc.

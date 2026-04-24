@@ -346,7 +346,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     const user: any = await (prisma as any).user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, groqApiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
+      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
     });
 
     if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
@@ -462,7 +462,6 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         subscriptionStatus,
         daysRemaining,
         isBlocked: subscriptionStatus === 'expired',
-        groqApiKeyConnected: user.groqApiKeyConnected || false,
         hasImplementation: !!hasImplementation,
         hasPrioritySupport,
         hasAiConfig,
@@ -722,6 +721,7 @@ router.put('/change-password', authMiddleware, async (req: Request, res: Respons
 router.post('/groq-api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
+    res.status(503).json({ error: 'Groq no disponible — columna pendiente de migración.' }); return;
     const { groqApiKey } = req.body;
     if (!groqApiKey || !userId) { res.status(400).json({ error: 'API Key de Groq requerida' }); return; }
 
@@ -754,6 +754,7 @@ router.delete('/groq-api-key', authMiddleware, async (req: Request, res: Respons
     const userId = (req as AuthRequest).user?.id;
     const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
+    res.status(503).json({ error: 'Groq no disponible — columna pendiente de migración.' }); return;
     await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
     res.json({ success: true });
   } catch (e: any) {

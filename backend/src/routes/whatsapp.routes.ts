@@ -3923,46 +3923,11 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
           }
 
           if (reply) {
-            log(`✅ IA (${model}): ${reply.length} chars`);
+            log(`✅ IA response: ${reply.length} chars`);
             return reply;
           }
-        } else {
-          const st = res.status;
-          const errBody = await res.text().catch(() => '');
-          console.error(`❌ OpenAI ${model}: ${st} - ${errBody.substring(0, 200)}`);
-          
-          // 🔑 TRACKEAR ERROR DE API KEY
-          if (st === 401) {
-            apiKeyErrorCache.set(ownerId, { 
-              type: 'invalid_key', 
-              message: 'API Key de OpenAI inválida o expirada' 
-            });
-            // Marcar como desconectada
-            await prisma.user.update({ where: { id: ownerId }, data: { apiKeyConnected: false } }).catch(() => {});
-            console.error(`🔑❌ API Key INVÁLIDA para usuario ${ownerId}`);
-            return null;
-          }
-          if (st === 429 || st === 402) {
-            const isQuota = errBody.toLowerCase().includes('insufficient_quota') || errBody.toLowerCase().includes('billing') || st === 402;
-            if (isQuota) {
-              apiKeyErrorCache.set(ownerId, { 
-                type: 'no_credits', 
-                  message: 'Sin créditos en OpenAI. Recarga tu cuenta.' 
-              });
-              console.error(`💰❌ SIN CRÉDITOS OpenAI para usuario ${ownerId}`);
-            } else {
-              apiKeyErrorCache.set(ownerId, { 
-                type: 'rate_limit', 
-                  message: 'Límite de velocidad alcanzado. Reintentando...' 
-              });
-            }
-            log('⚠️ Rate limit/quota, reintentando en 2s...'); 
-            await new Promise(r => setTimeout(r, 2000)); 
-            continue;
-          }
-        }
       } catch (e: any) {
-        console.error(`❌ ${model}:`, e.message);
+        console.error('❌ AI response error:', e.message);
       }
     }
     return null;

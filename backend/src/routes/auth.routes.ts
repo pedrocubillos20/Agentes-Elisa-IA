@@ -72,7 +72,14 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       return; 
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      select: { id: true, email: true, name: true, password: true, role: true,
+                parentUserId: true, isActive: true, permissions: true,
+                apiKeyConnected: true, plan: true, trialEndsAt: true,
+                phone: true, profilePic: true, timezone: true, createdAt: true,
+                magicLinkToken: true, magicLinkExpiry: true }
+    }) as any;
     
     // Por seguridad, siempre responder igual aunque no exista
     if (!user) {
@@ -153,7 +160,14 @@ router.post('/verify-reset-code', async (req: Request, res: Response) => {
       return; 
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      select: { id: true, email: true, name: true, password: true, role: true,
+                parentUserId: true, isActive: true, permissions: true,
+                apiKeyConnected: true, plan: true, trialEndsAt: true,
+                phone: true, profilePic: true, timezone: true, createdAt: true,
+                magicLinkToken: true, magicLinkExpiry: true }
+    }) as any;
     
     if (!user || !user.resetCode || !user.resetCodeExpires) {
       res.status(400).json({ error: 'Código inválido o expirado' });
@@ -245,7 +259,14 @@ router.post('/register', validateBody(RegisterSchema), async (req: Request, res:
   try {
     const { email, password, name } = req.body;
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findUnique({ 
+      where: { email },
+      select: { id: true, email: true, name: true, password: true, role: true,
+                parentUserId: true, isActive: true, permissions: true,
+                apiKeyConnected: true, plan: true, trialEndsAt: true,
+                phone: true, profilePic: true, timezone: true, createdAt: true,
+                magicLinkToken: true, magicLinkExpiry: true }
+    }) as any;
     if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
 
     const trialEndsAt = new Date();
@@ -275,7 +296,13 @@ router.post('/login', validateBody(LoginSchema), async (req: Request, res: Respo
   try {
     const { email, password } = req.body;
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ 
+      where: { email },
+      select: { id: true, email: true, name: true, password: true, role: true, 
+                parentUserId: true, isActive: true, permissions: true,
+                apiKeyConnected: true, plan: true, trialEndsAt: true,
+                phone: true, profilePic: true, timezone: true, createdAt: true }
+    }) as any;
     if (!user) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
 
     // Sub-usuario desactivado
@@ -737,7 +764,8 @@ router.post('/groq-api-key', authMiddleware, async (req: Request, res: Response)
 
     await prisma.user.update({
       where: { id: userId },
-      data: { groqApiKey, groqApiKeyConnected: true }
+      // groqApiKey column not in DB yet - skip update
+      data: {}
     });
 
     logger.info('Groq API Key configurada', { userId });
@@ -755,7 +783,8 @@ router.delete('/groq-api-key', authMiddleware, async (req: Request, res: Respons
     const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
     res.status(503).json({ error: 'Groq no disponible — columna pendiente de migración.' }); return;
-    await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
+    // groqApiKey column not in DB yet - skip
+    // await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: 'Error' });

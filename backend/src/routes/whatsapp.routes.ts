@@ -3077,7 +3077,79 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 if (!dataComplete) log(`⏳ Cita/reserva presencial pendiente — faltan: ${!hasName ? 'nombre' : 'producto'}`);
               }
               
-              if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
+              // ══════════════════════════════════════════════════════════════
+              // 🤖 AUTO-DETECT: Si la IA tiene todos los datos pero NO puso accion,
+              // el backend infiere la acción correcta a partir del contexto
+              // Esto resuelve el problema de memoryData accion: "" con datos completos
+              // ══════════════════════════════════════════════════════════════
+              if (!actionToTake && merged.pedido !== 'creado') {
+                const replyLowerAD = (reply || '').toLowerCase();
+                // Señales de confirmación de pedido en la respuesta de la IA
+                const pedidoConfirmSignals = [
+                  'pedido confirmado', 'pedido está confirmado', 'pedido ha sido',
+                  'pedido creado', 'tu pedido', 'registrado el pedido',
+                  'listo tu pedido', '¡listo!', 'procedo a crear', 'voy a crear',
+                  'nuevo pedido', '*nuevo pedido*', 'creo tu pedido',
+                ];
+                const isPedidoConfirm = pedidoConfirmSignals.some(s => replyLowerAD.includes(s));
+                
+                // Si tiene datos completos para pedido Y la IA confirmó → auto-trigger
+                const autoHasData = hasName && hasPhone && hasProduct && hasCity && merged.metodo_pago;
+                const autoHasAddress = !!(merged.direccion);
+                
+                if (isPedidoConfirm && autoHasData && autoHasAddress) {
+                  log(`🤖 AUTO-DETECT: crear_pedido inferido (IA confirmó y datos completos)`);
+                  // Asegurar metodo_pago
+                  if (!merged.metodo_pago || ['por definir','pendiente',''].includes(merged.metodo_pago.toLowerCase())) {
+                    const allMsgsTxt = history.filter(m => !m.fromMe).map(m => m.content).join(' ').toLowerCase();
+                    const pagoMatch = allMsgsTxt.match(/(efectivo|contra\s*entrega|nequi|daviplata|bancolombia|transferencia|tarjeta)/i);
+                    merged.metodo_pago = pagoMatch ? pagoMatch[1] : 'Efectivo contra entrega';
+                  }
+                  // Forzar la acción
+                  merged.accion = 'crear_pedido';
+                  (memoryData as any).accion = 'crear_pedido';
+                }
+              }
+              
+              // ── Auto-detect CITA ──────────────────────────────────────────
+              if (!actionToTake && merged.cita !== 'creada') {
+                const replyLowerAC = (reply || '').toLowerCase();
+                const citaConfirmSignals = [
+                  'cita confirmada', 'cita agendada', 'cita registrada', 'turno confirmado',
+                  'quedó agendad', 'agenda tu cita', 'tu cita quedó', 'agendamos',
+                  'reservamos tu cita', 'cita para el', 'registré tu cita',
+                ];
+                const isCitaConfirm = citaConfirmSignals.some(s => replyLowerAC.includes(s));
+                const hasDateCita = !!(merged.fecha_cita || merged.hora_cita);
+                
+                if (isCitaConfirm && hasName && hasDateCita) {
+                  log(`🤖 AUTO-DETECT: crear_cita inferido (IA confirmó y tiene fecha/hora)`);
+                  merged.accion = 'crear_cita';
+                  (memoryData as any).accion = 'crear_cita';
+                }
+              }
+              
+              // ── Auto-detect RESERVA ───────────────────────────────────────
+              if (!actionToTake && merged.reserva !== 'creada') {
+                const replyLowerAR = (reply || '').toLowerCase();
+                const reservaConfirmSignals = [
+                  'reserva confirmada', 'reserva registrada', 'reservación confirmada',
+                  'mesa reservada', 'reservamos', 'tu reserva quedó', 'reserva para el',
+                ];
+                const iReservaConfirm = reservaConfirmSignals.some(s => replyLowerAR.includes(s));
+                const hasDateRes = !!(merged.fecha_reserva || merged.hora_reserva);
+                
+                if (iReservaConfirm && hasName && hasDateRes) {
+                  log(`🤖 AUTO-DETECT: crear_reserva inferido (IA confirmó y tiene fecha/hora)`);
+                  merged.accion = 'crear_reserva';
+                  (memoryData as any).accion = 'crear_reserva';
+                }
+              }
+
+              // Re-evaluar actionToTake después del auto-detect
+              const actionToTakeResolved = (memoryData as any).accion || actionToTake;
+
+              if (actionToTakeResolved === 'crear_pedido' && merged.pedido !== 'creado') {
                 if (!dataComplete) {
                   // dataComplete ya tiene el log detallado arriba
                   // No crear el pedido aún, esperar a que el cliente complete datos
@@ -3230,7 +3302,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               
               // 📅 CREAR CITA AUTOMÁTICA
-              if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
+              if (actionToTakeResolved === 'crear_cita' && merged.cita !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
                   let citaDate = parseSmartDate(merged.fecha_cita || merged.fecha_reserva || '');
@@ -3409,7 +3481,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               
               // 🏨 CREAR RESERVA AUTOMÁTICA
-              if (actionToTake === 'crear_reserva' && merged.reserva !== 'creada') {
+              if (actionToTakeResolved === 'crear_reserva' && merged.reserva !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
                   let reservaDate = parseSmartDate(merged.fecha_reserva || merged.fecha_cita || '');
@@ -3590,7 +3662,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
 
               // ═══ 🔄 ACTUALIZAR PEDIDO EXISTENTE ═══
-              if (actionToTake === 'actualizar_pedido' && merged.pedido === 'creado') {
+              if (actionToTakeResolved === 'actualizar_pedido' && merged.pedido === 'creado') {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   const existingOrder = await prisma.appointment.findFirst({
@@ -3640,7 +3712,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
               // ═══ 🔄 ACTUALIZAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use actualizar_cita OR actualizar_reserva regardless of actual DB type
-              if ((actionToTake === 'actualizar_cita' || actionToTake === 'actualizar_reserva') && 
+              if ((actionToTakeResolved === 'actualizar_cita' || actionToTakeResolved === 'actualizar_reserva') && 
                   (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
@@ -3718,7 +3790,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
 
               // ═══ 🔄 ACTUALIZAR PEDIDO EXISTENTE ═══
-              if (actionToTake === 'actualizar_pedido' && (merged.pedido === 'creado' || merged.pedido === 'actualizado')) {
+              if (actionToTakeResolved === 'actualizar_pedido' && (merged.pedido === 'creado' || merged.pedido === 'actualizado')) {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   const existingOrder = await prisma.appointment.findFirst({
@@ -3746,7 +3818,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
               // ═══ ❌ CANCELAR CITA/RESERVA (TYPE-AGNOSTIC) ═══
               // AI may use cancelar_cita OR cancelar_reserva regardless of actual DB type
-              if ((actionToTake === 'cancelar_cita' || actionToTake === 'cancelar_reserva') &&
+              if ((actionToTakeResolved === 'cancelar_cita' || actionToTakeResolved === 'cancelar_reserva') &&
                   (merged.cita === 'creada' || merged.reserva === 'creada' || merged.cita === 'actualizada' || merged.reserva === 'actualizada')) {
                 try {
                   const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
@@ -3792,7 +3864,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
 
               // ═══ ❌ CANCELAR PEDIDO ═══
-              if (actionToTake === 'cancelar_pedido' && (merged.pedido === 'creado' || merged.pedido === 'actualizado')) {
+              if (actionToTakeResolved === 'cancelar_pedido' && (merged.pedido === 'creado' || merged.pedido === 'actualizado')) {
                 try {
                   const phoneCleanC = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   const existingOrder = await prisma.appointment.findFirst({

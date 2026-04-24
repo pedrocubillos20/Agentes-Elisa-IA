@@ -8,7 +8,7 @@ import {
   LayoutGrid, Calendar, Repeat, ChevronDown, Image, Mic, Paperclip,
   CheckCircle, AlertCircle, Loader, FileText, MessageSquare,
   Upload, Download, Sheet, Eye, EyeOff, BarChart3, ChevronUp,
-  ArrowUpFromLine, Info, RefreshCw
+  ArrowUpFromLine, Info, RefreshCw, Zap, ChevronRight
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -45,7 +45,6 @@ const TARGET_TYPES = [
   { id: 'bulk_excel', label: 'Importar Excel', icon: ArrowUpFromLine,  desc: 'Subir lista .xlsx' },
 ];
 
-// Columnas aceptadas para el Excel
 const PHONE_COLS    = ['telefono','phone','celular','movil','whatsapp','numero','tel','mobile','number'];
 const NAME_COLS     = ['nombre','name','cliente','contacto','apellido','fullname','full_name','nombres'];
 
@@ -56,12 +55,10 @@ const isValidPhone = (p: string): boolean => {
 
 const normalizePhone = (p: string): string => String(p || '').replace(/\D/g,'');
 
-// Parsear fila de Excel → { phone, name, valid }
 const parseRow = (row: any): { phone: string; name: string; valid: boolean; raw: string } => {
   const keys = Object.keys(row).map(k => k.toLowerCase().trim());
   let phone = '';
   let name  = '';
-
   for (const col of PHONE_COLS) {
     const key = keys.find(k => k.includes(col) || col.includes(k));
     if (key) { phone = String(row[Object.keys(row)[keys.indexOf(key)]] || '').trim(); break; }
@@ -70,17 +67,74 @@ const parseRow = (row: any): { phone: string; name: string; valid: boolean; raw:
     const key = keys.find(k => k.includes(col) || col.includes(k));
     if (key) { name = String(row[Object.keys(row)[keys.indexOf(key)]] || '').trim(); break; }
   }
-
-  // Si no encontró columna phone, tomar primer campo que parece número
   if (!phone) {
     for (const val of Object.values(row)) {
       const s = String(val || '').replace(/\D/g,'');
       if (s.length >= 7 && s.length <= 15) { phone = String(val); break; }
     }
   }
-
   const normalized = normalizePhone(phone);
   return { phone: normalized, name, valid: isValidPhone(normalized), raw: phone };
+};
+
+// ── TEMPLATE PREVIEW ────────────────────────────────────────────
+const TemplatePreview = ({ template, variables }: { template: any; variables: string[] }) => {
+  if (!template) return null;
+
+  const renderBody = () => {
+    let text = template.components?.find((c: any) => c.type === 'BODY')?.text || '';
+    variables.forEach((v, i) => {
+      text = text.replace(`{{${i + 1}}}`, v ? `*${v}*` : `{{${i + 1}}}`);
+    });
+    return text;
+  };
+
+  const header = template.components?.find((c: any) => c.type === 'HEADER');
+  const footer = template.components?.find((c: any) => c.type === 'FOOTER');
+  const buttons = template.components?.find((c: any) => c.type === 'BUTTONS');
+
+  return (
+    <div className="rounded-xl overflow-hidden border border-[var(--border-primary)] bg-[#0b141a]">
+      {/* WhatsApp-style chat bubble */}
+      <div className="p-3 bg-[#1a272f]">
+        <p className="text-xs text-[var(--text-muted)] mb-2 flex items-center gap-1">
+          <Eye className="w-3 h-3" /> Vista previa
+        </p>
+        <div className="bg-[#202c33] rounded-xl p-3 max-w-[85%] ml-auto relative">
+          {/* Tail */}
+          <div className="absolute right-[-6px] top-3 w-0 h-0 border-l-[6px] border-l-[#202c33] border-t-[6px] border-t-transparent border-b-[6px] border-b-transparent" />
+          
+          {header && (
+            <div className="mb-2">
+              {header.format === 'TEXT' && <p className="font-bold text-white text-sm">{header.text}</p>}
+              {header.format === 'IMAGE' && <div className="w-full h-20 bg-white/10 rounded-lg flex items-center justify-center mb-1"><Image className="w-6 h-6 text-gray-400" /></div>}
+              {header.format === 'VIDEO' && <div className="w-full h-20 bg-white/10 rounded-lg flex items-center justify-center mb-1"><span className="text-2xl">▶️</span></div>}
+              {header.format === 'DOCUMENT' && <div className="w-full h-12 bg-white/10 rounded-lg flex items-center gap-2 px-3 mb-1"><FileText className="w-4 h-4 text-gray-400" /><span className="text-xs text-gray-400">Documento</span></div>}
+            </div>
+          )}
+          
+          <p className="text-sm text-white leading-relaxed whitespace-pre-wrap">{renderBody()}</p>
+          
+          {footer && <p className="text-xs text-gray-400 mt-2">{footer.text}</p>}
+          
+          <p className="text-[10px] text-gray-500 text-right mt-1">12:00 ✓✓</p>
+        </div>
+        
+        {buttons?.buttons && (
+          <div className="mt-1 space-y-1 max-w-[85%] ml-auto">
+            {buttons.buttons.map((btn: any, i: number) => (
+              <div key={i} className="bg-[#202c33] rounded-lg py-2 px-3 text-center border-t border-white/10">
+                <span className="text-[#53bdeb] text-sm font-medium">
+                  {btn.type === 'URL' ? '🔗 ' : btn.type === 'PHONE_NUMBER' ? '📞 ' : ''}
+                  {btn.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 };
 
 export default function ProgramadosPage() {
@@ -107,13 +161,13 @@ export default function ProgramadosPage() {
   const excelInputRef = useRef<HTMLInputElement>(null);
 
   // Excel bulk
-  const [excelContacts, setExcelContacts] = useState<any[]>([]);   // [{phone,name,valid}]
+  const [excelContacts, setExcelContacts] = useState<any[]>([]);
   const [excelFileName, setExcelFileName] = useState('');
   const [excelParsing, setExcelParsing]   = useState(false);
   const [showExcelPreview, setShowExcelPreview] = useState(true);
   const [isDragging, setIsDragging]       = useState(false);
 
-  // CRM clients
+  // CRM data
   const [conversations, setConversations] = useState<any[]>([]);
   const [groups, setGroups]               = useState<any[]>([]);
   const [stages, setStages]               = useState<any[]>([]);
@@ -121,20 +175,29 @@ export default function ProgramadosPage() {
   const [clientFilter, setClientFilter]   = useState('all');
   const [saving, setSaving]               = useState(false);
 
+  // ── PLANTILLAS FACEBOOK ──────────────────────────────────────
+  const [useTemplate, setUseTemplate]           = useState(false);
+  const [templates, setTemplates]               = useState<any[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [templateVariables, setTemplateVariables] = useState<string[]>([]);
+  const [templateSearch, setTemplateSearch]     = useState('');
+  const [showTemplateList, setShowTemplateList] = useState(false);
+
   const getLineId = () => (typeof window !== 'undefined' ? localStorage.getItem('selectedLineId') : '') || '';
+  const headers   = () => ({ Authorization: `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}` });
 
   useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
-    const token   = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
-    const lineId  = getLineId();
+    const lineId = getLineId();
     try {
       const [schedRes, convRes, groupRes, stageRes, clientsRes] = await Promise.all([
-        fetch(`${API_URL}/api/scheduled?lineId=${lineId}`,             { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations?lineId=${lineId}`,          { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/conversations/groups?lineId=${lineId}`,   { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/stages?lineId=${lineId}`,                 { headers: { Authorization: `Bearer ${token}` } }),
-        fetch(`${API_URL}/api/clients?lineId=${lineId}`,                { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/scheduled?lineId=${lineId}`,           { headers: headers() }),
+        fetch(`${API_URL}/api/conversations?lineId=${lineId}`,        { headers: headers() }),
+        fetch(`${API_URL}/api/conversations/groups?lineId=${lineId}`, { headers: headers() }),
+        fetch(`${API_URL}/api/stages?lineId=${lineId}`,               { headers: headers() }),
+        fetch(`${API_URL}/api/clients?lineId=${lineId}`,              { headers: headers() }),
       ]);
       if (schedRes.ok)   setScheduled((await schedRes.json()).scheduled || []);
       if (convRes.ok)    setConversations((await convRes.json()).conversations || []);
@@ -145,7 +208,34 @@ export default function ProgramadosPage() {
     finally { setLoading(false); }
   };
 
-  // ── EXCEL PARSE ───────────────────────────────────────────────
+  // ── CARGAR PLANTILLAS DE FACEBOOK ──────────────────────────
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const lineId = getLineId();
+      const res = await fetch(`${API_URL}/api/whatsapp/cloud-templates?lineId=${lineId}`, { headers: headers() });
+      if (res.ok) {
+        const data = await res.json();
+        // Solo mostrar plantillas APPROVED
+        const approved = (data.templates || data.data || []).filter((t: any) =>
+          t.status === 'APPROVED' || t.status === 'approved'
+        );
+        setTemplates(approved);
+      }
+    } catch (e) { console.error('Error cargando plantillas:', e); }
+    finally { setTemplatesLoading(false); }
+  };
+
+  const selectTemplate = (tpl: any) => {
+    setSelectedTemplate(tpl);
+    setShowTemplateList(false);
+    // Contar variables {{1}}, {{2}}, etc. en el body
+    const body = tpl.components?.find((c: any) => c.type === 'BODY')?.text || '';
+    const varCount = (body.match(/\{\{\d+\}\}/g) || []).length;
+    setTemplateVariables(Array(varCount).fill(''));
+  };
+
+  // ── EXCEL ───────────────────────────────────────────────────
   const parseExcel = useCallback((file: File) => {
     setExcelParsing(true);
     setExcelFileName(file.name);
@@ -163,54 +253,40 @@ export default function ProgramadosPage() {
         setTargetId('bulk_excel');
         setTargetName(`${dedup.filter(r=>r.valid).length} contactos importados`);
       } catch (err) {
-        alert('Error leyendo el archivo. Asegúrate de que sea un .xlsx o .csv válido.');
+        alert('Error leyendo el archivo.');
         console.error(err);
-      } finally {
-        setExcelParsing(false);
-      }
-    };
-    reader.onerror = () => {
-      alert('Error al leer el archivo.');
-      setExcelParsing(false);
+      } finally { setExcelParsing(false); }
     };
     reader.readAsArrayBuffer(file);
   }, []);
 
   const handleExcelFile = (file: File) => {
     if (!file) return;
-    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
-      alert('Solo se aceptan archivos .xlsx, .xls o .csv'); return;
-    }
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) { alert('Solo .xlsx, .xls o .csv'); return; }
     parseExcel(file);
   };
+  const handleExcelInput = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) handleExcelFile(f); e.target.value = ''; };
+  const handleDrop       = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files?.[0]; if (f) handleExcelFile(f); };
+  const handleDragOver   = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave  = (e: React.DragEvent) => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
 
-  const handleExcelInput  = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; if (f) handleExcelFile(f); e.target.value = ''; };
-  const handleDrop        = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); const f = e.dataTransfer.files?.[0]; if (f) handleExcelFile(f); };
-  const handleDragOver    = (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
-  const handleDragLeave   = (e: React.DragEvent) => { e.preventDefault(); if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
-
-  // ── PLANTILLA EXCEL ───────────────────────────────────────────
   const downloadTemplate = () => {
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['nombre', 'telefono'],
-      ['Juan Pérez', '573001234567'],
-      ['María García', '573109876543'],
-      ['Carlos López', '573208765432'],
-    ]);
+    const ws = XLSX.utils.aoa_to_sheet([['nombre','telefono'],['Juan Pérez','573001234567'],['María García','573109876543']]);
     ws['!cols'] = [{ wch: 25 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Contactos');
     XLSX.writeFile(wb, 'plantilla_envio_masivo.xlsx');
   };
 
-  // ── RESET ─────────────────────────────────────────────────────
+  // ── RESET ───────────────────────────────────────────────────
   const resetForm = () => {
     setTargetType('contact'); setTargetId(''); setTargetName(''); setMessage('');
     setScheduledDate(''); setScheduledTime(''); setRecurrence('once');
     setRecurrenceDays([]); setRecurrenceEnd('');
     setMediaFile(null); setMediaPreview(null); setEditing(null);
     setExcelContacts([]); setExcelFileName(''); setClientFilter('all');
-    setShowExcelPreview(true);
+    setShowExcelPreview(true); setUseTemplate(false); setSelectedTemplate(null);
+    setTemplateVariables([]); setTemplateSearch(''); setShowTemplateList(false);
   };
 
   const openCreate = () => {
@@ -231,17 +307,22 @@ export default function ProgramadosPage() {
     setRecurrence(item.recurrence || 'once'); setRecurrenceDays(item.recurrenceDays || []);
     setRecurrenceEnd(item.recurrenceEnd ? new Date(item.recurrenceEnd).toISOString().split('T')[0] : '');
     setMediaFile(null); setMediaPreview(null);
-    if (item.targetType === 'bulk_excel' && item.bulkRecipients) {
-      setExcelContacts(item.bulkRecipients);
+    if (item.targetType === 'bulk_excel' && item.bulkRecipients) setExcelContacts(item.bulkRecipients);
+    // Restore template if was template message
+    if (item.templateName) {
+      setUseTemplate(true);
+      setSelectedTemplate({ name: item.templateName, components: [] });
+      setTemplateVariables(item.templateVariables || []);
     }
     setShowModal(true);
   };
 
-  // ── SAVE ──────────────────────────────────────────────────────
+  // ── SAVE ────────────────────────────────────────────────────
   const handleSave = async () => {
     const validTargetId = targetType === 'bulk_excel' ? 'bulk_excel' : targetId;
     if (!validTargetId || !scheduledDate || !scheduledTime) return;
-    if (!message && !mediaFile) return;
+    if (!useTemplate && !message && !mediaFile) return;
+    if (useTemplate && !selectedTemplate) return;
     if (targetType === 'bulk_excel' && excelContacts.filter(c=>c.valid).length === 0) return;
 
     setSaving(true);
@@ -249,7 +330,7 @@ export default function ProgramadosPage() {
 
     let mediaUrl: string | null = null;
     let mediaType: string | null = null;
-    if (mediaFile) {
+    if (mediaFile && !useTemplate) {
       mediaUrl = await new Promise<string>((res, rej) => {
         const reader = new FileReader();
         reader.onload  = () => res(reader.result as string);
@@ -270,9 +351,9 @@ export default function ProgramadosPage() {
       targetType,
       targetId:   validTargetId,
       targetName: targetType === 'bulk_excel'
-        ? `📊 ${validContacts.length} contactos Excel${excelFileName ? ` · ${excelFileName}` : ''}`
+        ? `📊 ${validContacts.length} contactos${excelFileName ? ` · ${excelFileName}` : ''}`
         : (targetName || undefined),
-      message:    message || undefined,
+      message:    useTemplate ? undefined : (message || undefined),
       ...(mediaUrl && { mediaUrl, mediaType }),
       scheduledAt, recurrence,
       recurrenceDays: recurrence === 'weekly' ? recurrenceDays : undefined,
@@ -281,14 +362,21 @@ export default function ProgramadosPage() {
       ...(targetType === 'bulk_excel' && {
         bulkRecipients: validContacts.map(c => ({ phone: c.phone, name: c.name || '' })),
       }),
+      // Template fields
+      ...(useTemplate && selectedTemplate && {
+        templateName: selectedTemplate.name,
+        templateLanguage: selectedTemplate.language || 'es',
+        templateVariables: templateVariables,
+        message: `[Plantilla: ${selectedTemplate.name}]`, // fallback display
+      }),
     };
 
     try {
       const url = editing ? `${API_URL}/api/scheduled/${editing.id}` : `${API_URL}/api/scheduled`;
       const res = await fetch(url, {
-        method:  editing ? 'PUT' : 'POST',
+        method: editing ? 'PUT' : 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
+        body: JSON.stringify(body),
       });
       if (res.ok) { setShowModal(false); resetForm(); fetchAll(); }
       else        { const err = await res.json(); alert(`Error: ${err.error || 'Error al guardar'}`); }
@@ -298,15 +386,13 @@ export default function ProgramadosPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar este mensaje programado?')) return;
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
-    await fetch(`${API_URL}/api/scheduled/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await fetch(`${API_URL}/api/scheduled/${id}`, { method: 'DELETE', headers: headers() });
     fetchAll();
   };
 
   const handleCancel = async (id: string) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
     await fetch(`${API_URL}/api/scheduled/${id}`, {
-      method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      method: 'PUT', headers: { ...headers(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'cancelled' }),
     });
     fetchAll();
@@ -326,6 +412,9 @@ export default function ProgramadosPage() {
     setRecurrenceDays(prev => prev.includes(dayId) ? prev.filter(d => d !== dayId) : [...prev, dayId]);
 
   const filteredScheduled = scheduled.filter(s => filter === 'all' || s.status === filter);
+  const filteredTemplates = templates.filter(t =>
+    !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())
+  );
 
   const stats = {
     pending: scheduled.filter(s => s.status === 'pending').length,
@@ -335,6 +424,11 @@ export default function ProgramadosPage() {
 
   const excelValid   = excelContacts.filter(c => c.valid).length;
   const excelInvalid = excelContacts.filter(c => !c.valid).length;
+
+  const canSave = !saving &&
+    scheduledDate && scheduledTime &&
+    (targetType === 'bulk_excel' ? excelValid > 0 : !!targetId) &&
+    (useTemplate ? !!selectedTemplate : (!!(message || mediaFile)));
 
   if (loading) return (
     <div className="h-[calc(100vh-120px)] flex items-center justify-center">
@@ -397,11 +491,12 @@ export default function ProgramadosPage() {
       {/* ── LIST ─── */}
       <div className="space-y-2">
         {filteredScheduled.map(item => {
-          const status    = STATUS_STYLES[item.status] || STATUS_STYLES.pending;
+          const status     = STATUS_STYLES[item.status] || STATUS_STYLES.pending;
           const StatusIcon = status.icon;
-          const dt        = new Date(item.scheduledAt);
-          const isBulk    = item.targetType === 'bulk_excel';
-          const expanded  = expandedId === item.id;
+          const dt         = new Date(item.scheduledAt);
+          const isBulk     = item.targetType === 'bulk_excel';
+          const isTemplate = !!item.templateName;
+          const expanded   = expandedId === item.id;
 
           return (
             <div key={item.id} className="card hover:border-[var(--accent-primary)]/30 transition-all overflow-hidden">
@@ -420,29 +515,22 @@ export default function ProgramadosPage() {
                             🔄 {RECURRENCE_OPTIONS.find(r=>r.id===item.recurrence)?.label}
                           </span>
                         )}
-                        {isBulk && (
-                          <span className="px-1.5 py-0.5 rounded text-xs bg-purple-500/20 text-purple-400">📊 Excel masivo</span>
-                        )}
+                        {isBulk && <span className="px-1.5 py-0.5 rounded text-xs bg-purple-500/20 text-purple-400">📊 Excel masivo</span>}
+                        {isTemplate && <span className="px-1.5 py-0.5 rounded text-xs bg-blue-500/20 text-blue-400">⚡ Plantilla</span>}
                       </div>
                       <p className="text-xs text-[var(--text-muted)] truncate mb-1">
-                        {item.mediaUrl && '📎 '}{item.message || '[Solo media]'}
+                        {isTemplate ? `📋 ${item.templateName}` : `${item.mediaUrl ? '📎 ' : ''}${item.message || '[Solo media]'}`}
                       </p>
                       <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
                         <span>📅 {dt.toLocaleDateString('es-CO',{weekday:'short',day:'numeric',month:'short'})} {dt.toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'})}</span>
                         {item.sendCount > 0 && <span>· Enviado {item.sendCount}x</span>}
-                        {isBulk && item.bulkTotal > 0 && (
-                          <span className="text-emerald-400">· ✓{item.bulkSent}/{item.bulkTotal} enviados</span>
-                        )}
-                        {isBulk && item.bulkFailed > 0 && (
-                          <span className="text-red-400">· ✗{item.bulkFailed} fallidos</span>
-                        )}
+                        {isBulk && item.bulkTotal > 0 && <span className="text-emerald-400">· ✓{item.bulkSent}/{item.bulkTotal}</span>}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isBulk && item.bulkTotal > 0 && (
-                      <button onClick={() => setExpandedId(expanded ? null : item.id)}
-                        className="p-1.5 hover:bg-white/10 rounded-lg" title="Ver detalle">
+                      <button onClick={() => setExpandedId(expanded ? null : item.id)} className="p-1.5 hover:bg-white/10 rounded-lg">
                         {expanded ? <ChevronUp className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <BarChart3 className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
                       </button>
                     )}
@@ -456,36 +544,19 @@ export default function ProgramadosPage() {
                   </div>
                 </div>
               </div>
-
-              {/* Detalle bulk expandido */}
               {expanded && isBulk && (
                 <div className="border-t border-[var(--border-primary)] p-4 bg-[var(--bg-tertiary)]">
                   <div className="grid grid-cols-3 gap-3 mb-3">
-                    <div className="p-2 rounded-lg bg-[var(--bg-secondary)] text-center">
-                      <p className="text-lg font-bold text-white">{item.bulkTotal}</p>
-                      <p className="text-xs text-[var(--text-muted)]">Total</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-emerald-500/10 text-center">
-                      <p className="text-lg font-bold text-emerald-400">{item.bulkSent}</p>
-                      <p className="text-xs text-[var(--text-muted)]">Enviados</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-red-500/10 text-center">
-                      <p className="text-lg font-bold text-red-400">{item.bulkFailed}</p>
-                      <p className="text-xs text-[var(--text-muted)]">Fallidos</p>
-                    </div>
+                    <div className="p-2 rounded-lg bg-[var(--bg-secondary)] text-center"><p className="text-lg font-bold text-white">{item.bulkTotal}</p><p className="text-xs text-[var(--text-muted)]">Total</p></div>
+                    <div className="p-2 rounded-lg bg-emerald-500/10 text-center"><p className="text-lg font-bold text-emerald-400">{item.bulkSent}</p><p className="text-xs text-[var(--text-muted)]">Enviados</p></div>
+                    <div className="p-2 rounded-lg bg-red-500/10 text-center"><p className="text-lg font-bold text-red-400">{item.bulkFailed}</p><p className="text-xs text-[var(--text-muted)]">Fallidos</p></div>
                   </div>
-                  {item.bulkTotal > 0 && (
-                    <div className="w-full h-2 rounded-full bg-[var(--bg-secondary)] overflow-hidden">
-                      <div className="h-full bg-emerald-500 rounded-full transition-all"
-                        style={{ width: `${(item.bulkSent / item.bulkTotal) * 100}%` }} />
-                    </div>
-                  )}
+                  {item.bulkTotal > 0 && <div className="w-full h-2 rounded-full bg-[var(--bg-secondary)] overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(item.bulkSent/item.bulkTotal)*100}%` }} /></div>}
                 </div>
               )}
             </div>
           );
         })}
-
         {filteredScheduled.length === 0 && (
           <div className="card p-12 text-center">
             <Clock className="w-12 h-12 mx-auto mb-3 text-[var(--text-muted)] opacity-30" />
@@ -497,23 +568,17 @@ export default function ProgramadosPage() {
         )}
       </div>
 
-      {/* ════════════════════════════════════════════════════════
-          📅  MODAL
-          ════════════════════════════════════════════════════════ */}
+      {/* ════════════════════════ MODAL ════════════════════════ */}
       {showModal && createPortal(
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', backdropFilter:'blur(8px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:9999, padding:'1rem' }}
           onClick={() => !saving && setShowModal(false)}>
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl w-full max-w-lg max-h-[92vh] sm:max-h-[88vh] flex flex-col"
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col"
             onClick={e => e.stopPropagation()}>
 
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border-primary)] flex-shrink-0">
-              <h3 className="font-bold text-white text-lg">
-                {editing ? 'Editar Programado' : 'Nuevo Mensaje Programado'}
-              </h3>
-              <button onClick={() => !saving && setShowModal(false)} className="p-1 hover:bg-white/10 rounded">
-                <X className="w-5 h-5" />
-              </button>
+              <h3 className="font-bold text-white text-lg">{editing ? 'Editar Programado' : 'Nuevo Mensaje Programado'}</h3>
+              <button onClick={() => !saving && setShowModal(false)} className="p-1 hover:bg-white/10 rounded"><X className="w-5 h-5" /></button>
             </div>
 
             {/* Body scroll */}
@@ -522,15 +587,15 @@ export default function ProgramadosPage() {
               {/* ── Tipo de destinatario ── */}
               <div>
                 <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Enviar a</label>
-                <div className="grid grid-cols-3 xs:grid-cols-5 sm:grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-5 gap-1.5">
                   {TARGET_TYPES.map(t => {
                     const Icon = t.icon;
                     const active = targetType === t.id;
                     return (
                       <button key={t.id} onClick={() => { setTargetType(t.id); setTargetId(''); setTargetName(''); setExcelContacts([]); setExcelFileName(''); }}
-                        className={`p-2 sm:p-2.5 rounded-xl border text-center transition-all ${active ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
-                        <Icon className={`w-4 h-4 sm:w-5 sm:h-5 mx-auto mb-0.5 sm:mb-1 ${active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
-                        <p className="text-[10px] sm:text-xs font-medium text-white leading-tight">{t.label}</p>
+                        className={`p-2 rounded-xl border text-center transition-all ${active ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
+                        <Icon className={`w-4 h-4 mx-auto mb-0.5 ${active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                        <p className="text-[10px] font-medium text-white leading-tight">{t.label}</p>
                       </button>
                     );
                   })}
@@ -540,12 +605,12 @@ export default function ProgramadosPage() {
               {/* ── Contacto ── */}
               {targetType === 'contact' && (
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Contacto</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] block">Contacto</label>
                   <input type="text" value={targetId} onChange={e => setTargetId(e.target.value)} placeholder="Ej: 573001234567"
-                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors" />
                   {conversations.length > 0 && (
                     <select value="" onChange={e => { const c = conversations.find(c=>c.recipientId===e.target.value); if(c){setTargetId(c.recipientId);setTargetName(c.recipientName||c.recipientId);} }}
-                      className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none">
+                      className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] [color-scheme:dark]">
                       <option value="">O selecciona uno existente...</option>
                       {conversations.filter(c=>!c.isGroup).map(c=>(
                         <option key={c.id} value={c.recipientId}>{c.recipientName||c.recipientId}</option>
@@ -555,37 +620,31 @@ export default function ProgramadosPage() {
                 </div>
               )}
 
-              {/* ── Grupo ── */}
               {targetType === 'group' && (
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Grupo</label>
                   <select value={targetId} onChange={e=>{const g=groups.find(gr=>gr.recipientId===e.target.value);setTargetId(e.target.value);if(g)setTargetName(g.groupName||g.recipientName||e.target.value);}}
-                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none">
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] [color-scheme:dark]">
                     <option value="">Selecciona un grupo...</option>
                     {groups.map(g=><option key={g.id} value={g.recipientId}>{g.groupName||g.recipientName||g.recipientId}</option>)}
                   </select>
                 </div>
               )}
 
-              {/* ── Etapa embudo ── */}
               {targetType === 'stage' && (
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Etapa del embudo</label>
                   <select value={targetId} onChange={e=>{setTargetId(e.target.value);const s=stages.find(st=>st.id===e.target.value);setTargetName(s?.label||e.target.value);}}
-                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none">
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] [color-scheme:dark]">
                     <option value="">Selecciona una etapa...</option>
-                    {stages.map(s=>{
-                      const count = conversations.filter(c=>c.stage===s.id).length;
-                      return <option key={s.id} value={s.id}>{s.label} ({count} contactos)</option>;
-                    })}
+                    {stages.map(s=><option key={s.id} value={s.id}>{s.label} ({conversations.filter(c=>c.stage===s.id).length} contactos)</option>)}
                   </select>
                 </div>
               )}
 
-              {/* ── Clientes CRM ── */}
               {targetType === 'clients' && (
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-1 block">Clientes CRM</label>
+                  <label className="text-sm font-semibold text-[var(--text-muted)] block">Clientes CRM</label>
                   <div className="flex flex-wrap gap-1.5">
                     {[{id:'all',label:'Todos'},{id:'active',label:'✅ Activos'},{id:'lead',label:'🔵 Leads'},{id:'vip',label:'⭐ VIP'}].map(f=>(
                       <button key={f.id} onClick={()=>{setClientFilter(f.id);setTargetId(`clients:${f.id}`);setTargetName(`Clientes: ${f.label}`);}}
@@ -597,206 +656,255 @@ export default function ProgramadosPage() {
                 </div>
               )}
 
-              {/* ── EXCEL IMPORT ── */}
               {targetType === 'bulk_excel' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-sm font-semibold text-[var(--text-muted)]">Importar desde Excel</label>
-                    <button onClick={downloadTemplate}
-                      className="flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline">
-                      <Download className="w-3 h-3" /> Descargar plantilla
+                    <button onClick={downloadTemplate} className="flex items-center gap-1 text-sm text-[var(--accent-primary)] hover:underline">
+                      <Download className="w-3 h-3" /> Plantilla
                     </button>
                   </div>
-
-                  {/* Drop zone */}
-                  {excelContacts.length === 0 && (
-                    <div
-                      onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
+                  {excelContacts.length === 0 ? (
+                    <div onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
                       onClick={() => excelInputRef.current?.click()}
-                      className={`border-2 border-dashed rounded-xl p-4 sm:p-6 text-center cursor-pointer transition-all ${isDragging ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/5' : 'border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50 hover:bg-white/2'}`}>
-                      {excelParsing ? (
-                        <div className="flex flex-col items-center gap-2">
-                          <Loader className="w-8 h-8 text-[var(--accent-primary)] animate-spin" />
-                          <p className="text-sm text-[var(--text-muted)]">Procesando archivo...</p>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center">
-                            <ArrowUpFromLine className="w-6 h-6 text-green-400" />
+                      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${isDragging ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/5' : 'border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50'}`}>
+                      {excelParsing
+                        ? <div className="flex flex-col items-center gap-2"><Loader className="w-8 h-8 text-[var(--accent-primary)] animate-spin" /><p className="text-sm text-[var(--text-muted)]">Procesando...</p></div>
+                        : <div className="flex flex-col items-center gap-2">
+                            <ArrowUpFromLine className="w-8 h-8 text-green-400" />
+                            <p className="text-sm font-semibold text-white">Arrastra tu Excel aquí</p>
+                            <p className="text-xs text-[var(--text-muted)]">.xlsx .xls .csv</p>
                           </div>
-                          <div>
-                            <p className="text-base font-semibold text-white">Arrastra tu Excel aquí</p>
-                            <p className="text-sm text-[var(--text-muted)] mt-1">o haz clic para seleccionar · .xlsx .xls .csv</p>
-                          </div>
-                          <div className="mt-1 p-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-left">
-                            <p className="text-xs text-blue-400 font-medium mb-1">📋 Columnas reconocidas automáticamente:</p>
-                            <p className="text-xs text-[var(--text-muted)]"><span className="text-white">Teléfono:</span> telefono, phone, celular, movil, whatsapp, numero...</p>
-                            <p className="text-xs text-[var(--text-muted)]"><span className="text-white">Nombre:</span> nombre, name, cliente, contacto...</p>
-                          </div>
-                        </div>
-                      )}
+                      }
                       <input ref={excelInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleExcelInput} className="hidden" />
                     </div>
-                  )}
-
-                  {/* Resultado del parse */}
-                  {excelContacts.length > 0 && (
+                  ) : (
                     <div className="space-y-2">
-                      {/* Stats */}
                       <div className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
-                        <div className="flex items-center gap-3">
-                          <div className="text-center">
-                            <p className="text-lg font-bold text-white">{excelContacts.length}</p>
-                            <p className="text-xs text-[var(--text-muted)]">Total</p>
-                          </div>
-                          <div className="w-px h-8 bg-[var(--border-primary)]" />
-                          <div className="text-center">
-                            <p className="text-lg font-bold text-emerald-400">{excelValid}</p>
-                            <p className="text-xs text-[var(--text-muted)]">Válidos</p>
-                          </div>
-                          {excelInvalid > 0 && (
-                            <>
-                              <div className="w-px h-8 bg-[var(--border-primary)]" />
-                              <div className="text-center">
-                                <p className="text-lg font-bold text-amber-400">{excelInvalid}</p>
-                                <p className="text-xs text-[var(--text-muted)]">Inválidos</p>
-                              </div>
-                            </>
-                          )}
+                        <div className="flex items-center gap-4">
+                          <div className="text-center"><p className="text-lg font-bold text-white">{excelContacts.length}</p><p className="text-xs text-[var(--text-muted)]">Total</p></div>
+                          <div className="text-center"><p className="text-lg font-bold text-emerald-400">{excelValid}</p><p className="text-xs text-[var(--text-muted)]">Válidos</p></div>
+                          {excelInvalid > 0 && <div className="text-center"><p className="text-lg font-bold text-amber-400">{excelInvalid}</p><p className="text-xs text-[var(--text-muted)]">Inválidos</p></div>}
                         </div>
-                        <div className="flex gap-1.5">
-                          <button onClick={() => setShowExcelPreview(p => !p)}
-                            className="p-1.5 hover:bg-white/10 rounded-lg" title="Ver/ocultar lista">
+                        <div className="flex gap-1">
+                          <button onClick={() => setShowExcelPreview(p => !p)} className="p-1.5 hover:bg-white/10 rounded-lg">
                             {showExcelPreview ? <EyeOff className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <Eye className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
                           </button>
-                          <button onClick={() => { setExcelContacts([]); setExcelFileName(''); if(excelInputRef.current) excelInputRef.current.value=''; }}
-                            className="p-1.5 hover:bg-red-500/10 rounded-lg" title="Limpiar">
+                          <button onClick={() => { setExcelContacts([]); setExcelFileName(''); }} className="p-1.5 hover:bg-red-500/10 rounded-lg">
                             <Trash2 className="w-3.5 h-3.5 text-red-400" />
                           </button>
                         </div>
                       </div>
-
-                      {/* Nombre del archivo */}
-                      {excelFileName && (
-                        <p className="text-xs text-[var(--text-muted)] flex items-center gap-1">
-                          <FileText className="w-3 h-3" /> {excelFileName}
-                        </p>
-                      )}
-
-                      {/* Barra de validez */}
-                      <div className="w-full h-1.5 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full" style={{ width:`${(excelValid/excelContacts.length)*100}%` }} />
-                      </div>
-
-                      {/* Lista preview */}
                       {showExcelPreview && (
                         <div className="rounded-xl border border-[var(--border-primary)] overflow-hidden">
-                          <div className="grid grid-cols-[auto_1fr_1fr] text-xs font-semibold text-[var(--text-muted)] bg-[var(--bg-tertiary)] px-3 py-2 gap-3">
-                            <span>#</span><span>Nombre</span><span>Teléfono</span>
-                          </div>
-                          <div className="max-h-40 overflow-y-auto divide-y divide-[var(--border-primary)]">
-                            {excelContacts.slice(0, 50).map((c, i) => (
-                              <div key={i} className={`grid grid-cols-[auto_1fr_1fr] text-xs px-3 py-1.5 gap-3 items-center ${c.valid ? '' : 'bg-amber-500/5'}`}>
+                          <div className="max-h-32 overflow-y-auto divide-y divide-[var(--border-primary)]">
+                            {excelContacts.slice(0,30).map((c,i) => (
+                              <div key={i} className="grid grid-cols-[auto_1fr_1fr] text-xs px-3 py-1.5 gap-3 items-center">
                                 <span className="text-[var(--text-muted)]">{i+1}</span>
-                                <span className="text-white truncate">{c.name || <span className="text-[var(--text-muted)] italic">Sin nombre</span>}</span>
-                                <span className={`font-mono ${c.valid ? 'text-emerald-400' : 'text-amber-400'}`}>
-                                  {c.phone || c.raw} {!c.valid && '⚠️'}
-                                </span>
+                                <span className="text-white truncate">{c.name || <span className="text-gray-500 italic">Sin nombre</span>}</span>
+                                <span className={`font-mono ${c.valid ? 'text-emerald-400' : 'text-amber-400'}`}>{c.phone} {!c.valid && '⚠️'}</span>
                               </div>
                             ))}
-                            {excelContacts.length > 50 && (
-                              <div className="px-3 py-2 text-xs text-[var(--text-muted)] text-center">
-                                ... y {excelContacts.length - 50} contactos más
-                              </div>
-                            )}
                           </div>
                         </div>
                       )}
-
-                      {excelInvalid > 0 && (
-                        <div className="flex items-start gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                          <Info className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
-                          <p className="text-xs text-amber-300">
-                            {excelInvalid} contacto{excelInvalid>1?'s':''} con número inválido serán ignorados al momento del envío.
-                            Solo se enviarán los {excelValid} válidos.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Cambiar archivo */}
-                      <button onClick={() => { setExcelContacts([]); setExcelFileName(''); if(excelInputRef.current) excelInputRef.current.value=''; }}
-                        className="text-xs text-[var(--accent-primary)] hover:underline flex items-center gap-1">
-                        <Upload className="w-3 h-3" /> Cambiar archivo
-                      </button>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* ── MENSAJE ── */}
+              {/* ══════════════════════════════════════════════════════
+                  ⚡ TIPO DE CONTENIDO: Mensaje libre vs Plantilla
+                  ══════════════════════════════════════════════════════ */}
               <div>
-                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
-                <textarea value={message} onChange={e => setMessage(e.target.value)}
-                  placeholder="Escribe tu mensaje..."
-                  className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors min-h-[80px] resize-none" />
-                {targetType === 'bulk_excel' && (
-                  <p className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-1">
-                    <Info className="w-3 h-3" /> Puedes personalizar con variables si tu lista incluye nombres
-                  </p>
-                )}
+                <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Tipo de contenido</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setUseTemplate(false)}
+                    className={`p-3 rounded-xl border text-left transition-all ${!useTemplate ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
+                    <MessageSquare className={`w-4 h-4 mb-1 ${!useTemplate ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                    <p className="text-xs font-semibold text-white">Mensaje libre</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">Texto + imagen personalizada</p>
+                  </button>
+                  <button onClick={() => { setUseTemplate(true); if (templates.length === 0) fetchTemplates(); }}
+                    className={`p-3 rounded-xl border text-left transition-all ${useTemplate ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
+                    <Zap className={`w-4 h-4 mb-1 ${useTemplate ? 'text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                    <p className="text-xs font-semibold text-white">Plantilla aprobada</p>
+                    <p className="text-[10px] text-[var(--text-muted)]">Facebook Business + botones</p>
+                  </button>
+                </div>
               </div>
 
-              {/* ── MEDIA ── */}
-              <div>
-                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Adjunto (opcional)</label>
-                <input ref={fileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx" onChange={handleFileSelect} className="hidden" />
-                {mediaFile ? (
-                  <div className="flex items-center gap-3 p-2.5 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-primary)]">
-                    {mediaPreview
-                      ? <img src={mediaPreview} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                      : <div className="w-10 h-10 rounded-lg bg-[var(--accent-primary)]/20 flex items-center justify-center"><FileText className="w-5 h-5 text-[var(--accent-primary)]" /></div>
-                    }
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-white truncate">{mediaFile.name}</p>
-                      <p className="text-xs text-[var(--text-muted)]">{(mediaFile.size/1024).toFixed(0)} KB</p>
+              {/* ── MENSAJE LIBRE ── */}
+              {!useTemplate && (
+                <>
+                  <div>
+                    <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
+                    <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Escribe tu mensaje..."
+                      className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors min-h-[80px] resize-none" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Adjunto (opcional)</label>
+                    <input ref={fileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf" onChange={handleFileSelect} className="hidden" />
+                    {mediaFile ? (
+                      <div className="flex items-center gap-3 p-2.5 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-primary)]">
+                        {mediaPreview ? <img src={mediaPreview} alt="" className="w-10 h-10 rounded-lg object-cover" /> : <FileText className="w-8 h-8 text-[var(--accent-primary)]" />}
+                        <div className="flex-1 min-w-0"><p className="text-xs text-white truncate">{mediaFile.name}</p><p className="text-xs text-[var(--text-muted)]">{(mediaFile.size/1024).toFixed(0)} KB</p></div>
+                        <button onClick={() => { setMediaFile(null); setMediaPreview(null); }} className="p-1 hover:bg-white/10 rounded"><X className="w-4 h-4 text-red-400" /></button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        {[{label:'Imagen',icon:Image,accept:'image/*'},{label:'Audio',icon:Mic,accept:'audio/*'},{label:'Archivo',icon:Paperclip,accept:'*/*'}].map(({label,icon:Icon,accept}) => (
+                          <button key={label} onClick={() => { if(fileInputRef.current){fileInputRef.current.accept=accept;fileInputRef.current.click();} }}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-tertiary)] rounded-lg text-sm text-[var(--text-muted)] hover:text-white border border-[var(--border-primary)] transition-all">
+                            <Icon className="w-3.5 h-3.5" /> {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* ══ PLANTILLAS FACEBOOK ══════════════════════════════ */}
+              {useTemplate && (
+                <div className="space-y-3">
+
+                  {/* Selector de plantilla */}
+                  <div>
+                    <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Plantilla aprobada</label>
+                    
+                    {templatesLoading ? (
+                      <div className="flex items-center gap-2 p-3 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-primary)]">
+                        <Loader className="w-4 h-4 animate-spin text-[var(--accent-primary)]" />
+                        <span className="text-sm text-[var(--text-muted)]">Cargando plantillas...</span>
+                      </div>
+                    ) : templates.length === 0 ? (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-center">
+                        <p className="text-sm text-amber-300 font-medium mb-1">No hay plantillas aprobadas</p>
+                        <p className="text-xs text-[var(--text-muted)]">Esta función requiere una línea con Cloud API de Meta activa y plantillas aprobadas en Facebook Business.</p>
+                        <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline flex items-center gap-1 mx-auto">
+                          <RefreshCw className="w-3 h-3" /> Recargar plantillas
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        {/* Trigger button */}
+                        <button onClick={() => setShowTemplateList(!showTemplateList)}
+                          className="w-full flex items-center justify-between p-3 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-xl hover:border-[var(--accent-primary)]/50 transition-all">
+                          {selectedTemplate ? (
+                            <div className="text-left">
+                              <p className="text-sm font-semibold text-white">{selectedTemplate.name}</p>
+                              <p className="text-xs text-[var(--text-muted)]">{selectedTemplate.category} · {selectedTemplate.language}</p>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-[var(--text-muted)]">Selecciona una plantilla...</span>
+                          )}
+                          <ChevronDown className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${showTemplateList ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {/* Dropdown */}
+                        {showTemplateList && (
+                          <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl overflow-hidden z-10 shadow-xl">
+                            {/* Search */}
+                            <div className="p-2 border-b border-[var(--border-primary)]">
+                              <input
+                                type="text" value={templateSearch} onChange={e => setTemplateSearch(e.target.value)}
+                                placeholder="Buscar plantilla..." autoFocus
+                                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)]"
+                              />
+                            </div>
+                            {/* List */}
+                            <div className="max-h-48 overflow-y-auto">
+                              {filteredTemplates.length === 0 ? (
+                                <p className="text-sm text-[var(--text-muted)] text-center py-4">Sin resultados</p>
+                              ) : filteredTemplates.map(tpl => (
+                                <button key={tpl.id || tpl.name} onClick={() => selectTemplate(tpl)}
+                                  className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-all text-left border-b border-[var(--border-primary)] last:border-0">
+                                  <div>
+                                    <p className="text-sm font-medium text-white">{tpl.name}</p>
+                                    <p className="text-xs text-[var(--text-muted)]">{tpl.category} · {tpl.language}</p>
+                                    {tpl.components?.find((c: any) => c.type === 'BUTTONS')?.buttons?.length > 0 && (
+                                      <span className="text-[10px] text-blue-400 font-medium">
+                                        🔘 {tpl.components.find((c: any) => c.type === 'BUTTONS').buttons.length} botón(es)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Variables de la plantilla */}
+                  {selectedTemplate && templateVariables.length > 0 && (
+                    <div className="space-y-2">
+                      <label className="text-sm font-semibold text-[var(--text-muted)] block">
+                        Variables de la plantilla
+                      </label>
+                      <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl mb-2">
+                        <p className="text-xs text-blue-300 flex items-start gap-1.5">
+                          <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                          Ingresa el valor para cada variable. Si usas Excel, puedes poner <code className="bg-blue-900/40 px-1 rounded">{'{{nombre}}'}</code> para usar el nombre de cada contacto.
+                        </p>
+                      </div>
+                      {templateVariables.map((v, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-primary)] px-2 py-1.5 rounded-lg text-[var(--accent-primary)] flex-shrink-0">
+                            {`{{${i + 1}}}`}
+                          </span>
+                          <input
+                            type="text" value={v}
+                            onChange={e => { const vars = [...templateVariables]; vars[i] = e.target.value; setTemplateVariables(vars); }}
+                            placeholder={`Variable ${i + 1} (ej: nombre del cliente)`}
+                            className="flex-1 bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors"
+                          />
+                        </div>
+                      ))}
                     </div>
-                    <button onClick={() => { setMediaFile(null); setMediaPreview(null); }} className="p-1 hover:bg-white/10 rounded">
-                      <X className="w-4 h-4 text-red-400" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    {[{label:'Imagen',icon:Image,accept:'image/*'},{label:'Audio',icon:Mic,accept:'audio/*'},{label:'Archivo',icon:Paperclip,accept:'*/*'}].map(({label,icon:Icon,accept}) => (
-                      <button key={label} onClick={() => { if(fileInputRef.current){fileInputRef.current.accept=accept;fileInputRef.current.click();} }}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-[var(--bg-tertiary)] rounded-lg text-sm text-[var(--text-muted)] hover:text-white border border-[var(--border-primary)] transition-all">
-                        <Icon className="w-3.5 h-3.5" /> {label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  )}
+
+                  {/* Preview de la plantilla */}
+                  {selectedTemplate && selectedTemplate.components?.length > 0 && (
+                    <TemplatePreview template={selectedTemplate} variables={templateVariables} />
+                  )}
+
+                  {selectedTemplate && (!selectedTemplate.components || selectedTemplate.components.length === 0) && (
+                    <div className="p-3 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-xl">
+                      <p className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
+                        <Info className="w-3.5 h-3.5" />
+                        Plantilla seleccionada: <strong className="text-white">{selectedTemplate.name}</strong>. La vista previa no está disponible para esta plantilla.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* ── FECHA Y HORA ── */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Fecha</label>
-                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
+                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)}
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] [color-scheme:dark]" />
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Hora</label>
-                  <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)} className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
+                  <input type="time" value={scheduledTime} onChange={e => setScheduledTime(e.target.value)}
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] [color-scheme:dark]" />
                 </div>
               </div>
 
-              {/* Info anti-bloqueo para bulk */}
               {targetType === 'bulk_excel' && excelValid > 0 && (
                 <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-primary)]">
                   <p className="text-sm font-semibold text-white mb-2">⏱️ Estimación de envío</p>
                   <div className="space-y-1 text-xs text-[var(--text-muted)]">
-                    <p>• Delay entre mensajes: 8–18 segundos (anti-bloqueo)</p>
+                    <p>• Delay entre mensajes: 8–18 segundos</p>
                     <p>• Pausa cada 10 mensajes: 30–60 segundos</p>
-                    <p>• Tiempo estimado total: <span className="text-white font-medium">~{Math.ceil((excelValid * 13 + Math.floor(excelValid/10) * 45) / 60)} minutos</span></p>
-                    <p className="text-emerald-400">✓ Variación de texto automática para evitar spam</p>
+                    <p>• Tiempo estimado: <span className="text-white font-medium">~{Math.ceil((excelValid*13+Math.floor(excelValid/10)*45)/60)} min</span></p>
+                    {useTemplate && <p className="text-blue-400">⚡ Las plantillas tienen mayor tasa de entrega</p>}
                   </div>
                 </div>
               )}
@@ -832,7 +940,8 @@ export default function ProgramadosPage() {
               {recurrence !== 'once' && (
                 <div>
                   <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Repetir hasta (opcional)</label>
-                  <input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)} className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors [color-scheme:dark] appearance-none" />
+                  <input type="date" value={recurrenceEnd} onChange={e => setRecurrenceEnd(e.target.value)}
+                    className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--accent-primary)] [color-scheme:dark]" />
                   {!recurrenceEnd && <p className="text-xs text-amber-400 mt-1">Sin fecha fin = se repite indefinidamente</p>}
                 </div>
               )}
@@ -841,22 +950,16 @@ export default function ProgramadosPage() {
 
             {/* Footer */}
             <div className="p-4 border-t border-[var(--border-primary)] flex gap-2 flex-shrink-0">
-              <button onClick={() => !saving && setShowModal(false)} className="btn-secondary flex-1 py-2.5 text-base" disabled={saving}>
+              <button onClick={() => !saving && setShowModal(false)} className="btn-secondary flex-1 py-2.5" disabled={saving}>
                 Cancelar
               </button>
-              <button onClick={handleSave} disabled={
-                saving ||
-                (!message && !mediaFile) ||
-                !scheduledDate || !scheduledTime ||
-                (targetType !== 'bulk_excel' && !targetId) ||
-                (targetType === 'bulk_excel' && excelValid === 0)
-              }
-                className="btn-primary flex-1 py-2.5 text-base disabled:opacity-50 flex items-center justify-center gap-2">
-                {saving ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              <button onClick={handleSave} disabled={!canSave}
+                className="btn-primary flex-1 py-2.5 disabled:opacity-50 flex items-center justify-center gap-2">
+                {saving ? <Loader className="w-4 h-4 animate-spin" /> : useTemplate ? <Zap className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                 {saving ? 'Guardando...' : editing ? 'Guardar cambios' : (
                   targetType === 'bulk_excel' && excelValid > 0
-                    ? `Programar a ${excelValid} contactos`
-                    : 'Programar envío'
+                    ? `Programar a ${excelValid} contactos${useTemplate ? ' · plantilla' : ''}`
+                    : useTemplate ? 'Programar plantilla' : 'Programar envío'
                 )}
               </button>
             </div>

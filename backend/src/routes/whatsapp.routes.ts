@@ -5295,6 +5295,65 @@ router.get('/status', async (req: Request, res: Response) => {
   } catch { res.json({ connected: false, status: 'error', phone: null, hasQR: false }); }
 });
 
+// GET /cloud-templates — Obtener plantillas aprobadas de Facebook Business
+router.get('/cloud-templates', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    const lineId = req.query.lineId as string;
+    
+    // Buscar la línea Cloud API del usuario
+    const line = await prisma.whatsappLine.findFirst({
+      where: {
+        userId: ownerId,
+        connectionType: 'cloud_api',
+        ...(lineId ? { id: lineId } : {}),
+      },
+      select: { cloudAccessToken: true, cloudBusinessId: true, cloudPhoneNumberId: true, label: true }
+    });
+
+    if (!line?.cloudAccessToken) {
+      res.json({ templates: [], error: 'Esta línea no tiene Cloud API configurada. Las plantillas requieren una línea con la API oficial de Meta.' });
+      return;
+    }
+
+    // Buscar el WABA ID - puede estar en cloudBusinessId o lo buscamos via API
+    const businessId = line.cloudBusinessId;
+    if (!businessId) {
+      res.json({ templates: [], error: 'Business ID de Meta no configurado. Ve a Configuración → WhatsApp y asegúrate de tener Cloud API activa.' });
+      return;
+    }
+
+    // Llamar a la API de Meta para obtener las plantillas
+    const r = await fetch(
+      `https://graph.facebook.com/v18.0/${businessId}/message_templates?fields=name,status,language,category,components&limit=100&status=APPROVED`,
+      {
+        headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` },
+        signal: AbortSignal.timeout(15000)
+      }
+    );
+
+    if (!r.ok) {
+      const errData = await r.json().catch(() => ({})) as any;
+      const errMsg = errData?.error?.message || `HTTP ${r.status}`;
+      log(`❌ Error obteniendo plantillas Meta: ${errMsg}`);
+      res.json({ templates: [], error: `Error de Meta: ${errMsg}` });
+      return;
+    }
+
+    const data = await r.json() as any;
+    const templates = (data.data || []).filter((t: any) => t.status === 'APPROVED');
+    
+    log(`📋 Plantillas aprobadas obtenidas: ${templates.length}`);
+    res.json({ templates, total: templates.length });
+  } catch (e: any) {
+    console.error('Error obteniendo plantillas:', e.message);
+    res.json({ templates: [], error: e.message });
+  }
+});
+
 // GET /waha-diagnostic — Verificar conectividad con WAHA (para diagnóstico de QR)
 router.get('/waha-diagnostic', async (req: Request, res: Response) => {
   try {

@@ -346,7 +346,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     const user: any = await (prisma as any).user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
+      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, groqApiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
     });
 
     if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
@@ -462,6 +462,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         subscriptionStatus,
         daysRemaining,
         isBlocked: subscriptionStatus === 'expired',
+        groqApiKeyConnected: user.groqApiKeyConnected || false,
         hasImplementation: !!hasImplementation,
         hasPrioritySupport,
         hasAiConfig,
@@ -711,6 +712,68 @@ router.put('/change-password', authMiddleware, async (req: Request, res: Respons
     res.json({ success: true, message: 'Contrasena actualizada' });
   } catch (error: any) { res.status(500).json({ error: error.message }); }
 });
+
+
+// ====================================================
+// 🟣 GROQ API KEY — Guardar y validar
+// ====================================================
+
+// POST /api/auth/groq-api-key
+router.post('/groq-api-key', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    const { groqApiKey } = req.body;
+    if (!groqApiKey || !userId) { res.status(400).json({ error: 'API Key de Groq requerida' }); return; }
+
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
+    if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador puede configurar la API Key' }); return; }
+
+    // Validar que la key funciona
+    const { validateApiKey } = require('../lib/ai');
+    const validation = await validateApiKey('groq', groqApiKey);
+    if (!validation.valid) {
+      res.status(400).json({ error: validation.message }); return;
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { groqApiKey, groqApiKeyConnected: true }
+    });
+
+    logger.info('Groq API Key configurada', { userId });
+    res.json({ success: true, message: 'API Key de Groq guardada correctamente' });
+  } catch (e: any) {
+    logger.error('Error guardando Groq key', { error: e.message });
+    res.status(500).json({ error: 'Error al guardar la API Key' });
+  }
+});
+
+// DELETE /api/auth/groq-api-key
+router.delete('/groq-api-key', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
+    if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
+    await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+// POST /api/auth/groq-api-key/validate
+router.post('/groq-api-key/validate', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { groqApiKey } = req.body;
+    if (!groqApiKey) { res.status(400).json({ error: 'API Key requerida' }); return; }
+    const { validateApiKey } = require('../lib/ai');
+    const result = await validateApiKey('groq', groqApiKey);
+    res.json(result);
+  } catch (e: any) {
+    res.status(500).json({ valid: false, message: e.message });
+  }
+});
+
 
 export default router;
 

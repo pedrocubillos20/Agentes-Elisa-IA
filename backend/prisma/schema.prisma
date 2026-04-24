@@ -17,6 +17,10 @@ model User {
   apiKey          String?
   apiKeyConnected Boolean        @default(false)
   
+  // === GROQ AI ===
+  groqApiKey          String?   @db.Text
+  groqApiKeyConnected Boolean   @default(false)
+  
   // === TEAM / SUB-USERS ===
   role            String         @default("admin")   // admin, manager, agent, support, viewer
   parentUserId    String?                             // null = dueño principal, con valor = sub-usuario
@@ -127,6 +131,9 @@ model Assistant {
   model           String    @default("gpt-4-turbo-preview")
   temperature     Float     @default(0.7)
   maxTokens       Int       @default(500)
+  
+  // 🤖 PROVEEDOR DE IA: openai | groq
+  aiProvider      String    @default("openai")
   
   whatsappLineId  String?
   isActive        Boolean   @default(false)

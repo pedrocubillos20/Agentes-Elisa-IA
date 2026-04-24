@@ -193,6 +193,7 @@ router.post('/', async (req: Request, res: Response) => {
       // ✅ Trim learningHistory to prevent bloat (max 20 entries)
       learningHistory: trimLearningHistory(body.learningHistory || [], 20),
       model: body.model || 'gpt-4o-mini',
+      aiProvider: body.aiProvider || 'openai',
       temperature: body.temperature || 0.7,
       maxTokens: body.maxTokens || 500,
       isActive: true
@@ -381,6 +382,7 @@ router.put('/:id', async (req: Request, res: Response) => {
         autoLearn: body.autoLearn,
         learningHistory: trimLearningHistory(body.learningHistory || [], 20),
         model: body.model,
+        aiProvider: body.aiProvider,
         temperature: body.temperature,
         maxTokens: body.maxTokens,
         isActive: body.isActive
@@ -661,7 +663,13 @@ router.post('/learn/dismiss', async (req: Request, res: Response) => {
 // POST /api/assistants/elevenlabs/voices
 router.post('/elevenlabs/voices', async (req: Request, res: Response) => {
   try {
-    const { apiKey } = req.body;
+    // GET /api/assistants/ai-models — Retorna modelos disponibles por proveedor
+router.get('/ai-models', (req: Request, res: Response) => {
+  const { AI_MODELS, DEFAULT_MODELS } = require('../lib/ai');
+  res.json({ models: AI_MODELS, defaults: DEFAULT_MODELS });
+});
+
+const { apiKey } = req.body;
     if (!apiKey) return res.status(400).json({ error: 'API Key requerida' });
     const response = await fetch('https://api.elevenlabs.io/v1/voices', { headers: { 'xi-api-key': apiKey } });
     if (response.ok) {

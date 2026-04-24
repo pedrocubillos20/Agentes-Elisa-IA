@@ -22,6 +22,8 @@ export default function AsistentesPage() {
   // Context (legacy)
   const [context, setContext] = useState('');
   const [assistantName, setAssistantName] = useState('Asistente Principal');
+  const [aiProvider, setAiProvider] = useState<'openai'|'groq'>('openai');
+  const [aiModel, setAiModel] = useState('gpt-4o-mini');
   const [knowledgeItems, setKnowledgeItems] = useState<any[]>([]);
 
   // 🧩 MÓDULOS v2
@@ -116,6 +118,8 @@ export default function AsistentesPage() {
         if (active) {
           // Cargar datos del asistente existente
           setAssistantName(active.name || 'Asistente Principal');
+      if (active.aiProvider) { setAiProvider(active.aiProvider as 'openai'|'groq'); }
+      if (active.model) { setAiModel(active.model); }
           setContext(active.context || '');
           setKnowledgeItems(
             Array.isArray(active.knowledgeItems) ? active.knowledgeItems : 
@@ -213,6 +217,8 @@ export default function AsistentesPage() {
           coverageLat: coverageLat ? parseFloat(coverageLat) : null,
           coverageLon: coverageLon ? parseFloat(coverageLon) : null,
           coverageRadiusKm: coverageRadiusKm ? parseFloat(coverageRadiusKm) : null,
+          aiProvider,
+          model: aiModel,
           autoLearn,
           learningHistory,
           isActive: true,
@@ -606,6 +612,8 @@ export default function AsistentesPage() {
           coverageLat: coverageLat ? parseFloat(coverageLat) : null,
           coverageLon: coverageLon ? parseFloat(coverageLon) : null,
           coverageRadiusKm: coverageRadiusKm ? parseFloat(coverageRadiusKm) : null,
+          aiProvider,
+          model: aiModel,
           autoLearn,
           learningHistory,
           isActive: true,
@@ -1484,7 +1492,83 @@ export default function AsistentesPage() {
       {activeTab === 'voice' && (
         <div className="space-y-6">
           <div className="card">
-            <div className="flex items-center gap-4 mb-6">
+            
+            {/* ===== SELECTOR DE PROVEEDOR DE IA ===== */}
+            <div className="mb-8 p-6 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-secondary)]">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Proveedor de IA</h3>
+                  <p className="text-sm text-[var(--text-muted)]">Elige con qué inteligencia artificial responderá este asistente</p>
+                </div>
+              </div>
+
+              {/* Cards de selección */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                {/* OpenAI */}
+                <div
+                  onClick={() => { setAiProvider('openai'); setAiModel('gpt-4o-mini'); }}
+                  className={`cursor-pointer rounded-xl p-4 border-2 transition-all ${aiProvider === 'openai' ? 'border-green-500 bg-green-500/10' : 'border-[var(--border-primary)] hover:border-green-500/50'}`}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-green-500/20 flex items-center justify-center text-sm font-bold text-green-400">AI</div>
+                    <span className="font-semibold text-white">OpenAI</span>
+                    {aiProvider === 'openai' && <span className="ml-auto text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full">Activo</span>}
+                  </div>
+                  <p className="text-xs text-[var(--text-muted)]">GPT-4o, GPT-4 Turbo, GPT-3.5 — Poderoso y versátil</p>
+                </div>
+
+                {/* Groq */}
+                <div
+                  onClick={() => { setAiProvider('groq'); setAiModel('llama-3.3-70b-versatile'); }}
+                  className={`cursor-pointer rounded-xl p-4 border-2 transition-all ${aiProvider === 'groq' ? 'border-purple-500 bg-purple-500/10' : 'border-[var(--border-primary)] hover:border-purple-500/50'}`}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center text-sm font-bold text-purple-400">⚡</div>
+                    <span className="font-semibold text-white">Groq</span>
+                    <span className="text-xs bg-purple-500/20 text-purple-400 px-2 py-0.5 rounded-full">10x rápido</span>
+                    {aiProvider === 'groq' && <span className="ml-auto text-xs bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full">Activo</span>}
+                  </div>
+                  <p className="text-xs text-[var(--text-muted)]">Llama 3.3, Mixtral, Gemma — Ultrarrápido y económico</p>
+                </div>
+              </div>
+
+              {/* Selector de modelo */}
+              <div>
+                <label className="input-label">Modelo específico</label>
+                <select
+                  value={aiModel}
+                  onChange={(e) => setAiModel(e.target.value)}
+                  className="input w-full"
+                >
+                  {aiProvider === 'openai' ? (
+                    <>
+                      <option value="gpt-4o-mini">GPT-4o Mini — Rápido y económico (recomendado)</option>
+                      <option value="gpt-4o">GPT-4o — El más inteligente de OpenAI</option>
+                      <option value="gpt-4-turbo-preview">GPT-4 Turbo — Potente y versátil</option>
+                      <option value="gpt-3.5-turbo">GPT-3.5 Turbo — Más económico</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="llama-3.3-70b-versatile">Llama 3.3 70B — Ultra rápido, mejor calidad (recomendado)</option>
+                      <option value="llama-3.1-8b-instant">Llama 3.1 8B — El más rápido, ideal para soporte</option>
+                      <option value="mixtral-8x7b-32768">Mixtral 8x7B — Excelente en español</option>
+                      <option value="gemma2-9b-it">Gemma 2 9B — Preciso y eficiente</option>
+                      <option value="llama-3.1-70b-versatile">Llama 3.1 70B — Gran razonamiento</option>
+                    </>
+                  )}
+                </select>
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  {aiProvider === 'groq'
+                    ? '⚡ Groq usa hardware LPU especializado — respuestas en ~200ms vs ~2s de OpenAI'
+                    : '🧠 OpenAI ofrece los modelos más avanzados del mercado'}
+                </p>
+              </div>
+            </div>
+
+<div className="flex items-center gap-4 mb-6">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                 <Mic className="w-8 h-8 text-white" />
               </div>

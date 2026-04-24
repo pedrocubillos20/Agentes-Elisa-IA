@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
 import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock, wamidCache } from '../lib/cache';
+import { callAI, resolveAIConfig, DEFAULT_MODELS } from '../lib/ai';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { sendPushToUser } from './push.routes';
 import { isColombianHoliday, getUpcomingHolidays, getHolidaySummaryForAI } from './colombian-holidays';
@@ -1432,7 +1433,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
       where: { id: ownerId }, 
-      select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
+      select: { apiKey: true, apiKeyConnected: true, groqApiKey: true, groqApiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
     });
     if (!owner?.apiKey || !owner.apiKeyConnected) {
       clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
@@ -2486,29 +2487,49 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
     const messageWithQuoted = quotedContext ? `[Respondiendo a: "${quotedContext}"] ${message}` : message;
     messages.push({ role: 'user', content: messageWithQuoted + criticalRulesReminder + memoryReminder });
 
-    // Llamar a OpenAI
-    // 💰 MODELO FIJO: gpt-4o-mini para todos (económico y potente)
-    const FIXED_MODEL = 'gpt-4o-mini';
-    for (const model of [FIXED_MODEL]) {
-      try {
-        log(`🤖 OpenAI (${model}, ${messages.length} msgs)...`);
-        const ctrl = new AbortController();
-        const to = setTimeout(() => ctrl.abort(), 35000);
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.apiKey}` },
-          body: JSON.stringify({
-            model, messages,
-            temperature: assistant.temperature || 0.7,
-            max_tokens: (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1000)
-          }),
-          signal: ctrl.signal
-        });
-        clearTimeout(to);
+    // 🤖 Llamar a OpenAI O Groq según la configuración del asistente
+    const aiConfig = resolveAIConfig({
+      assistantProvider: assistant.aiProvider || 'openai',
+      assistantModel:    assistant.model || DEFAULT_MODELS[assistant.aiProvider as 'openai'|'groq' || 'openai'],
+      userOpenAiKey:     user.apiKey || null,
+      userGroqKey:       user.groqApiKey || null,
+    });
 
-        if (res.ok) {
-          const d = await res.json() as any;
-          let reply = d.choices?.[0]?.message?.content;
+    // Fallback: si el proveedor configurado no tiene key, intentar con el otro
+    const fallbackConfig = !aiConfig ? resolveAIConfig({
+      assistantProvider: assistant.aiProvider === 'groq' ? 'openai' : 'groq',
+      assistantModel:    undefined,
+      userOpenAiKey:     user.apiKey || null,
+      userGroqKey:       user.groqApiKey || null,
+    }) : null;
+
+    const finalConfig = aiConfig || fallbackConfig;
+
+    if (!finalConfig) {
+      log(`❌ Sin API key de IA configurada (userId: ${ownerId})`);
+      apiKeyErrorCache.set(ownerId, { type: 'not_connected', message: 'Configura tu API Key de OpenAI o Groq en Configuración' });
+      return null;
+    }
+
+    if (fallbackConfig && !aiConfig) {
+      log(`⚠️ Usando fallback de proveedor: ${finalConfig.provider}`);
+    }
+
+    for (const _ of [1]) {
+      try {
+        log(`🤖 ${finalConfig.provider.toUpperCase()} (${finalConfig.model}, ${messages.length} msgs)...`);
+        const aiResult = await callAI({
+          provider:    finalConfig.provider,
+          apiKey:      finalConfig.apiKey,
+          model:       finalConfig.model,
+          messages:    messages as any,
+          temperature: assistant.temperature || 0.7,
+          maxTokens:   (conversation?.isGroup || isPersonalAssistant) ? 2000 : (assistant.maxTokens || 1000),
+          timeoutMs:   35000,
+        });
+
+        if (aiResult) {
+          let reply = aiResult.content;
           if (!reply) continue;
 
           // 🧠 EXTRAER Y GUARDAR BLOQUE DE MEMORIA + DETECTAR ETAPA AUTOMÁTICA
@@ -3913,7 +3934,7 @@ const generateMediaFollowUp = async (
         take: 5,
         select: { content: true, fromMe: true }
       }),
-      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true } })
+      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, groqApiKey: true } })
     ]);
 
     if (!user?.apiKey) return null;
@@ -6303,7 +6324,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
         const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
         if (userIdTemp) {
-          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
+          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
           if (user?.apiKey) {
             const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
             if (downloaded) {
@@ -6349,7 +6370,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
           const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
           if (userIdTemp) {
-            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
+            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
             if (userForVision?.apiKey) {
               // Obtener contexto del negocio para análisis más relevante
               const assistantForContext = await prisma.assistant.findFirst({ 
@@ -7382,7 +7403,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             const audioRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
             if (audioRes.ok) {
               const audioBuf = Buffer.from(await audioRes.arrayBuffer());
-              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
               const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
               if (apiKey) { const t = await transcribeAudio(audioBuf, apiKey); if (t) messageBody = t; }
             }
@@ -7407,7 +7428,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
               imgMime = imgRes.headers.get('content-type') || 'image/jpeg';
             } else { throw new Error('No access token'); }
 
-            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
             const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
             if (apiKey) {
               const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });

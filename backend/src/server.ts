@@ -176,6 +176,21 @@ app.get('/api/subscription/exchange-rate', (req, res, next) => {
   req.url = '/exchange-rate';
   subscriptionRoutes(req, res, next);
 });
+
+// ✅ PÚBLICO — VAPID key para push notifications (no requiere auth)
+// El frontend necesita esta key ANTES de autenticarse
+app.get('/api/push/vapid-key', (req, res) => {
+  const key = process.env.VAPID_PUBLIC_KEY || '';
+  const configured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  res.json({ key, configured });
+});
+
+// ✅ PÚBLICO — Alias legacy sin prefijo /api/push (compatibilidad)
+app.get('/vapid-key', (req, res) => {
+  const key = process.env.VAPID_PUBLIC_KEY || '';
+  const configured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  res.json({ key, configured });
+});
 app.get('/api/ghl/callback', (req, res, next) => {
   req.url = '/callback';
   ghlRoutes(req, res, next);

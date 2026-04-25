@@ -928,7 +928,7 @@ const sendCloudMedia = async (phoneNumberId: string, accessToken: string, to: st
 const sendCloudVoice = async (phoneNumberId: string, accessToken: string, to: string, audioBuffer: Buffer): Promise<boolean> => {
   try {
     const formData = new FormData();
-    formData.append('file', new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' }), 'voice.ogg');
+    formData.append('file', new Blob([audioBuffer], { type: 'audio/ogg' }), 'voice.ogg');
     formData.append('messaging_product', 'whatsapp');
     formData.append('type', 'audio/ogg');
     const uploadRes = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/media`, {
@@ -1007,7 +1007,7 @@ const unifiedSendVoice = async (sessionName: string, chatId: string, audioBuffer
 // ====================================================
 const transcribeAudio = async (audioBuffer: Buffer, apiKey: string): Promise<string | null> => {
   try {
-    const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' });
+    const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
     const formData = new FormData();
     formData.append('file', blob, 'audio.ogg');
     formData.append('model', 'whisper-1');
@@ -1433,7 +1433,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     // 🔒 VERIFICAR SUSCRIPCIÓN — No responder si expiró
     const owner = await prisma.user.findUnique({ 
       where: { id: ownerId }, 
-      select: { apiKey: true, apiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
+      select: { apiKey: true, apiKeyConnected: true, groqApiKey: true, groqApiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
     });
     if (!owner?.apiKey || !owner.apiKeyConnected) {
       clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
@@ -1813,10 +1813,9 @@ El campo "accion" en MEMORY_JSON ejecuta acciones REALES. Úsalas así:
 📋 BLOQUE DE MEMORIA — OBLIGATORIO EN CADA RESPUESTA
 ══════════════════════════════════════════════════════════
 
-🔴 INCLUYE ESTE BLOQUE AL FINAL DE CADA respuesta, SIEMPRE — incluye mensajes cortos como sí/dale/ok.
+🔴 INCLUYE ESTE BLOQUE AL FINAL DE CADA respuesta, SIEMPRE.
 🔴 Sin él, el sistema NO guarda datos ni mueve etapas.
 🔴 Es INVISIBLE para el cliente (se elimina antes de enviar).
-🔴 Si el cliente envía imagen o audio → IGUAL debes incluirlo.
 
 FORMATO (llena solo lo que sabes, deja "" lo que no):
 
@@ -2490,18 +2489,18 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
     // 🤖 Llamar a OpenAI O Groq según la configuración del asistente
     const aiConfig = resolveAIConfig({
-      assistantProvider: (assistant as any).aiProvider || 'openai',
-      assistantModel:    assistant.model || DEFAULT_MODELS[((assistant as any).aiProvider || 'openai') as 'openai'|'groq'],
+      assistantProvider: assistant.aiProvider || 'openai',
+      assistantModel:    assistant.model || DEFAULT_MODELS[assistant.aiProvider as 'openai'|'groq' || 'openai'],
       userOpenAiKey:     user.apiKey || null,
-      userGroqKey:       null,
+      userGroqKey:       user.groqApiKey || null,
     });
 
     // Fallback: si el proveedor configurado no tiene key, intentar con el otro
     const fallbackConfig = !aiConfig ? resolveAIConfig({
-      assistantProvider: ((assistant as any).aiProvider || 'openai') === 'groq' ? 'openai' : 'groq',
+      assistantProvider: assistant.aiProvider === 'groq' ? 'openai' : 'groq',
       assistantModel:    undefined,
       userOpenAiKey:     user.apiKey || null,
-      userGroqKey:       null,
+      userGroqKey:       user.groqApiKey || null,
     }) : null;
 
     const finalConfig = aiConfig || fallbackConfig;
@@ -3078,40 +3077,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 if (!dataComplete) log(`⏳ Cita/reserva presencial pendiente — faltan: ${!hasName ? 'nombre' : 'producto'}`);
               }
               
-              // 🤖 AUTO-DETECT: Si IA tiene datos pero no puso accion
-              if (!actionToTake) {
-                const replyLD = (reply || '').toLowerCase();
-                if (merged.pedido !== 'creado') {
-                  const pedidoSignals = ['pedido confirmado','tu pedido','listo tu pedido','creo tu pedido','nuevo pedido','pedido creado','pedido est'];
-                  if (pedidoSignals.some(s => replyLD.includes(s)) && hasName && hasPhone && hasProduct && hasCity && !!(merged.direccion)) {
-                    if (!merged.metodo_pago || ['por definir','pendiente',''].includes((merged.metodo_pago||'').toLowerCase().trim())) {
-                      const allTxt = history.filter(m => !m.fromMe).map(m => m.content).join(' ');
-                      const pm = allTxt.match(/(efectivo|contra entrega|nequi|daviplata|bancolombia|tarjeta)/i);
-                      merged.metodo_pago = pm ? pm[1] : 'Efectivo contra entrega';
-                    }
-                    merged.accion = 'crear_pedido';
-                    (memoryData as any).accion = 'crear_pedido';
-                    log('🤖 AUTO-DETECT: crear_pedido');
-                  }
-                }
-                if (merged.cita !== 'creada' && !!(merged.fecha_cita || merged.hora_cita)) {
-                  const citaSignals = ['cita confirmada','cita agendada','quedó agendad','agendamos tu','tu cita quedó','cita registrada'];
-                  if (citaSignals.some(s => replyLD.includes(s)) && hasName) {
-                    merged.accion = 'crear_cita'; (memoryData as any).accion = 'crear_cita';
-                    log('🤖 AUTO-DETECT: crear_cita');
-                  }
-                }
-                if (merged.reserva !== 'creada' && !!(merged.fecha_reserva || merged.hora_reserva)) {
-                  const resSignals = ['reserva confirmada','mesa reservada','reservamos','tu reserva quedó'];
-                  if (resSignals.some(s => replyLD.includes(s)) && hasName) {
-                    merged.accion = 'crear_reserva'; (memoryData as any).accion = 'crear_reserva';
-                    log('🤖 AUTO-DETECT: crear_reserva');
-                  }
-                }
-              }
-              const actionToTakeResolved = (memoryData as any).accion || actionToTake;
-
-              if (actionToTakeResolved === 'crear_pedido' && merged.pedido !== 'creado') {
+              if (actionToTake === 'crear_pedido' && merged.pedido !== 'creado') {
                 if (!dataComplete) {
                   // dataComplete ya tiene el log detallado arriba
                   // No crear el pedido aún, esperar a que el cliente complete datos
@@ -3264,7 +3230,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               
               // 📅 CREAR CITA AUTOMÁTICA
-              if (actionToTakeResolved === 'crear_cita' && merged.cita !== 'creada') {
+              if (actionToTake === 'crear_cita' && merged.cita !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
                   let citaDate = parseSmartDate(merged.fecha_cita || merged.fecha_reserva || '');
@@ -3443,7 +3409,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               
               // 🏨 CREAR RESERVA AUTOMÁTICA
-              if (actionToTakeResolved === 'crear_reserva' && merged.reserva !== 'creada') {
+              if (actionToTake === 'crear_reserva' && merged.reserva !== 'creada') {
                 try {
                   // 📅 Parsear fecha y hora inteligente
                   let reservaDate = parseSmartDate(merged.fecha_reserva || merged.fecha_cita || '');
@@ -3624,7 +3590,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
 
               // ═══ 🔄 ACTUALIZAR PEDIDO EXISTENTE ═══
-              if (actionToTakeResolved === 'actualizar_pedido' && merged.pedido === 'creado') {
+              if (actionToTake === 'actualizar_pedido' && merged.pedido === 'creado') {
                 try {
                   const phoneCleanU = clientPhone.replace('@c.us', '').replace('@s.whatsapp.net', '');
                   const existingOrder = await prisma.appointment.findFirst({
@@ -3885,12 +3851,46 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
           }
 
           if (reply) {
-            log(`✅ IA response: ${reply.length} chars`);
+            log(`✅ IA (${finalConfig.model}): ${reply.length} chars`);
             return reply;
           }
-        } // end if(aiResult)
+        } else {
+          const st = res.status;
+          const errBody = await res.text().catch(() => '');
+          console.error(`❌ OpenAI ${finalConfig.model}: ${st} - ${errBody.substring(0, 200)}`);
+          
+          // 🔑 TRACKEAR ERROR DE API KEY
+          if (st === 401) {
+            apiKeyErrorCache.set(ownerId, { 
+              type: 'invalid_key', 
+              message: 'API Key de OpenAI inválida o expirada' 
+            });
+            // Marcar como desconectada
+            await prisma.user.update({ where: { id: ownerId }, data: { apiKeyConnected: false } }).catch(() => {});
+            console.error(`🔑❌ API Key INVÁLIDA para usuario ${ownerId}`);
+            return null;
+          }
+          if (st === 429 || st === 402) {
+            const isQuota = errBody.toLowerCase().includes('insufficient_quota') || errBody.toLowerCase().includes('billing') || st === 402;
+            if (isQuota) {
+              apiKeyErrorCache.set(ownerId, { 
+                type: 'no_credits', 
+                  message: 'Sin créditos en OpenAI. Recarga tu cuenta.' 
+              });
+              console.error(`💰❌ SIN CRÉDITOS OpenAI para usuario ${ownerId}`);
+            } else {
+              apiKeyErrorCache.set(ownerId, { 
+                type: 'rate_limit', 
+                  message: 'Límite de velocidad alcanzado. Reintentando...' 
+              });
+            }
+            log('⚠️ Rate limit/quota, reintentando en 2s...'); 
+            await new Promise(r => setTimeout(r, 2000)); 
+            continue;
+          }
+        }
       } catch (e: any) {
-        console.error('❌ AI call error:', e.message);
+        console.error(`❌ ${finalConfig.model}:`, e.message);
       }
     }
     return null;
@@ -3934,7 +3934,7 @@ const generateMediaFollowUp = async (
         take: 5,
         select: { content: true, fromMe: true }
       }),
-      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true } })
+      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, groqApiKey: true } })
     ]);
 
     if (!user?.apiKey) return null;
@@ -4964,7 +4964,7 @@ router.put('/lines/:id', async (req: Request, res: Response) => {
     });
     
     // Clear lineInfo cache if cloud fields changed
-    if (cloudAccessToken || cloudPhoneNumberId) lineInfoCache.delete(String(id));
+    if (cloudAccessToken || cloudPhoneNumberId) lineInfoCache.delete(id);
     
     res.json({ line, success: true });
   } catch (e: any) {
@@ -5276,40 +5276,6 @@ router.put('/api-key-error/clear', async (req: Request, res: Response) => {
 });
 
 // ===== RUTAS LEGACY (compatibilidad) =====
-
-
-// GET /cloud-templates — Obtener plantillas aprobadas de Facebook Business
-router.get('/cloud-templates', async (req: Request, res: Response) => {
-  try {
-    const userId = (req as AuthRequest).user?.id;
-    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
-    const ownerId = await getOwnerId(userId);
-    const lineId = req.query.lineId as string;
-    const line = await prisma.whatsappLine.findFirst({
-      where: { userId: ownerId, connectionType: 'cloud_api', ...(lineId ? { id: lineId } : {}) },
-      select: { cloudAccessToken: true, cloudBusinessId: true }
-    });
-    if (!line?.cloudAccessToken) {
-      res.json({ templates: [], error: 'Esta línea no tiene Cloud API configurada.' }); return;
-    }
-    if (!line.cloudBusinessId) {
-      res.json({ templates: [], error: 'Business ID de Meta no configurado.' }); return;
-    }
-    const r = await fetch(
-      `https://graph.facebook.com/v18.0/${line.cloudBusinessId}/message_templates?fields=name,status,language,category,components&limit=100`,
-      { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
-    );
-    if (!r.ok) {
-      const errData = await r.json().catch(() => ({})) as any;
-      res.json({ templates: [], error: errData?.error?.message || `HTTP ${r.status}` }); return;
-    }
-    const data = await r.json() as any;
-    const templates = (data.data || []).filter((t: any) => t.status === 'APPROVED');
-    res.json({ templates, total: templates.length });
-  } catch (e: any) {
-    res.json({ templates: [], error: e.message });
-  }
-});
 
 router.get('/status', async (req: Request, res: Response) => {
   try {
@@ -5833,8 +5799,7 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
 // ====================================================
 router.get('/media/:session/:messageId', async (req: Request, res: Response) => {
   try {
-    const sess = req.params.session as string;
-    const messageId = req.params.messageId as string;
+    const { session: sess, messageId } = req.params;
     const downloaded = await downloadMediaFromWaha(sess, messageId);
     if (downloaded) {
       res.setHeader('Content-Type', downloaded.mimetype);
@@ -6359,7 +6324,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
         const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
         if (userIdTemp) {
-          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
+          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
           if (user?.apiKey) {
             const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
             if (downloaded) {
@@ -6405,7 +6370,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
           const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
           if (userIdTemp) {
-            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true } });
+            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
             if (userForVision?.apiKey) {
               // Obtener contexto del negocio para análisis más relevante
               const assistantForContext = await prisma.assistant.findFirst({ 
@@ -6993,7 +6958,6 @@ router.post('/analyze-stages', async (req: Request, res: Response) => {
     if (!token) return res.status(401).json({ error: 'No autorizado' });
 
     // Verificar token
-    // @ts-ignore
     const jwt = await import('jsonwebtoken');
     let decoded: any;
     try {
@@ -7439,7 +7403,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             const audioRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
             if (audioRes.ok) {
               const audioBuf = Buffer.from(await audioRes.arrayBuffer());
-              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
               const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
               if (apiKey) { const t = await transcribeAudio(audioBuf, apiKey); if (t) messageBody = t; }
             }
@@ -7464,7 +7428,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
               imgMime = imgRes.headers.get('content-type') || 'image/jpeg';
             } else { throw new Error('No access token'); }
 
-            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true } });
+            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
             const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
             if (apiKey) {
               const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });

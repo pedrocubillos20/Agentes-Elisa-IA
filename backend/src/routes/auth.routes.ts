@@ -72,14 +72,7 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       return; 
     }
 
-    const user = await prisma.user.findUnique({ 
-      where: { email },
-      select: { id: true, email: true, name: true, password: true, role: true,
-                parentUserId: true, isActive: true, permissions: true,
-                apiKeyConnected: true, plan: true, trialEndsAt: true,
-                phone: true, profilePic: true, timezone: true, createdAt: true,
-                magicLinkToken: true, magicLinkExpiry: true }
-    }) as any;
+    const user = await prisma.user.findUnique({ where: { email } });
     
     // Por seguridad, siempre responder igual aunque no exista
     if (!user) {
@@ -160,14 +153,7 @@ router.post('/verify-reset-code', async (req: Request, res: Response) => {
       return; 
     }
 
-    const user = await prisma.user.findUnique({ 
-      where: { email },
-      select: { id: true, email: true, name: true, password: true, role: true,
-                parentUserId: true, isActive: true, permissions: true,
-                apiKeyConnected: true, plan: true, trialEndsAt: true,
-                phone: true, profilePic: true, timezone: true, createdAt: true,
-                magicLinkToken: true, magicLinkExpiry: true }
-    }) as any;
+    const user = await prisma.user.findUnique({ where: { email } });
     
     if (!user || !user.resetCode || !user.resetCodeExpires) {
       res.status(400).json({ error: 'Código inválido o expirado' });
@@ -259,14 +245,7 @@ router.post('/register', validateBody(RegisterSchema), async (req: Request, res:
   try {
     const { email, password, name } = req.body;
 
-    const existing = await prisma.user.findUnique({ 
-      where: { email },
-      select: { id: true, email: true, name: true, password: true, role: true,
-                parentUserId: true, isActive: true, permissions: true,
-                apiKeyConnected: true, plan: true, trialEndsAt: true,
-                phone: true, profilePic: true, timezone: true, createdAt: true,
-                magicLinkToken: true, magicLinkExpiry: true }
-    }) as any;
+    const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: 'El email ya está registrado' }); return; }
 
     const trialEndsAt = new Date();
@@ -296,13 +275,7 @@ router.post('/login', validateBody(LoginSchema), async (req: Request, res: Respo
   try {
     const { email, password } = req.body;
 
-    const user = await prisma.user.findUnique({ 
-      where: { email },
-      select: { id: true, email: true, name: true, password: true, role: true, 
-                parentUserId: true, isActive: true, permissions: true,
-                apiKeyConnected: true, plan: true, trialEndsAt: true,
-                phone: true, profilePic: true, timezone: true, createdAt: true }
-    }) as any;
+    const user = await prisma.user.findUnique({ where: { email } });
     if (!user) { res.status(401).json({ error: 'Credenciales inválidas' }); return; }
 
     // Sub-usuario desactivado
@@ -373,7 +346,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     const user: any = await (prisma as any).user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
+      select: { id: true, email: true, name: true, phone: true, profilePic: true, timezone: true, apiKeyConnected: true, groqApiKeyConnected: true, createdAt: true, role: true, parentUserId: true, permissions: true, isActive: true, plan: true, trialEndsAt: true }
     });
 
     if (!user) { res.status(404).json({ error: 'No encontrado' }); return; }
@@ -489,6 +462,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
         subscriptionStatus,
         daysRemaining,
         isBlocked: subscriptionStatus === 'expired',
+        groqApiKeyConnected: user.groqApiKeyConnected || false,
         hasImplementation: !!hasImplementation,
         hasPrioritySupport,
         hasAiConfig,
@@ -748,7 +722,6 @@ router.put('/change-password', authMiddleware, async (req: Request, res: Respons
 router.post('/groq-api-key', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-    res.status(503).json({ error: 'Groq no disponible — columna pendiente de migración.' }); return;
     const { groqApiKey } = req.body;
     if (!groqApiKey || !userId) { res.status(400).json({ error: 'API Key de Groq requerida' }); return; }
 
@@ -764,15 +737,20 @@ router.post('/groq-api-key', authMiddleware, async (req: Request, res: Response)
 
     await prisma.user.update({
       where: { id: userId },
-      // groqApiKey column not in DB yet - skip update
-      data: {}
+      data: { groqApiKey, groqApiKeyConnected: true }
     });
 
     logger.info('Groq API Key configurada', { userId });
     res.json({ success: true, message: 'API Key de Groq guardada correctamente' });
   } catch (e: any) {
     logger.error('Error guardando Groq key', { error: e.message });
-    res.status(500).json({ error: 'Error al guardar la API Key' });
+    // Detectar error de columna faltante (migración pendiente)
+    const isColumnMissing = e.message?.includes('column') || e.code === 'P2022' || e.meta?.column_name === 'groqApiKey';
+    if (isColumnMissing) {
+      res.status(500).json({ error: 'Error de base de datos: ejecuta "npx prisma migrate deploy" para habilitar Groq.' });
+    } else {
+      res.status(500).json({ error: 'Error al guardar la API Key' });
+    }
   }
 });
 
@@ -782,9 +760,7 @@ router.delete('/groq-api-key', authMiddleware, async (req: Request, res: Respons
     const userId = (req as AuthRequest).user?.id;
     const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
-    res.status(503).json({ error: 'Groq no disponible — columna pendiente de migración.' }); return;
-    // groqApiKey column not in DB yet - skip
-    // await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
+    await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: 'Error' });

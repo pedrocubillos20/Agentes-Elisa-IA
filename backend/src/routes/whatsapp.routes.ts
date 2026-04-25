@@ -2490,15 +2490,15 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
 
     // 🤖 Llamar a OpenAI O Groq según la configuración del asistente
     const aiConfig = resolveAIConfig({
-      assistantProvider: assistant.aiProvider || 'openai',
-      assistantModel:    assistant.model || DEFAULT_MODELS[assistant.aiProvider as 'openai'|'groq' || 'openai'],
+      assistantProvider: (assistant as any).aiProvider || 'openai',
+      assistantModel:    assistant.model || DEFAULT_MODELS[((assistant as any).aiProvider || 'openai') as 'openai'|'groq'],
       userOpenAiKey:     user.apiKey || null,
       userGroqKey:       null,
     });
 
     // Fallback: si el proveedor configurado no tiene key, intentar con el otro
     const fallbackConfig = !aiConfig ? resolveAIConfig({
-      assistantProvider: assistant.aiProvider === 'groq' ? 'openai' : 'groq',
+      assistantProvider: ((assistant as any).aiProvider || 'openai') === 'groq' ? 'openai' : 'groq',
       assistantModel:    undefined,
       userOpenAiKey:     user.apiKey || null,
       userGroqKey:       null,

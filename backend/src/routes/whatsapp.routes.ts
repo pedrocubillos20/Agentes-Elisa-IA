@@ -3854,42 +3854,18 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
             log(`✅ IA (${finalConfig.model}): ${reply.length} chars`);
             return reply;
           }
-        } else {
-          const st = res.status;
-          const errBody = await res.text().catch(() => '');
-          console.error(`❌ OpenAI ${finalConfig.model}: ${st} - ${errBody.substring(0, 200)}`);
-          
-          // 🔑 TRACKEAR ERROR DE API KEY
-          if (st === 401) {
-            apiKeyErrorCache.set(ownerId, { 
-              type: 'invalid_key', 
-              message: 'API Key de OpenAI inválida o expirada' 
-            });
-            // Marcar como desconectada
-            await prisma.user.update({ where: { id: ownerId }, data: { apiKeyConnected: false } }).catch(() => {});
-            console.error(`🔑❌ API Key INVÁLIDA para usuario ${ownerId}`);
-            return null;
-          }
-          if (st === 429 || st === 402) {
-            const isQuota = errBody.toLowerCase().includes('insufficient_quota') || errBody.toLowerCase().includes('billing') || st === 402;
-            if (isQuota) {
-              apiKeyErrorCache.set(ownerId, { 
-                type: 'no_credits', 
-                  message: 'Sin créditos en OpenAI. Recarga tu cuenta.' 
-              });
-              console.error(`💰❌ SIN CRÉDITOS OpenAI para usuario ${ownerId}`);
-            } else {
-              apiKeyErrorCache.set(ownerId, { 
-                type: 'rate_limit', 
-                  message: 'Límite de velocidad alcanzado. Reintentando...' 
-              });
-            }
-            log('⚠️ Rate limit/quota, reintentando en 2s...'); 
-            await new Promise(r => setTimeout(r, 2000)); 
-            continue;
-          }
         }
       } catch (e: any) {
+        const code = (e as any).code;
+        if (code === 'invalid_key') {
+          apiKeyErrorCache.set(ownerId, { type: 'invalid_key', message: 'API Key inválida o expirada' });
+          await prisma.user.update({ where: { id: ownerId }, data: { apiKeyConnected: false } }).catch(() => {});
+        } else if (code === 'no_credits') {
+          apiKeyErrorCache.set(ownerId, { type: 'no_credits', message: 'Sin créditos. Recarga tu cuenta.' });
+        } else if (code === 'rate_limit') {
+          apiKeyErrorCache.set(ownerId, { type: 'rate_limit', message: 'Límite de velocidad. Reintentando...' });
+          await new Promise(r => setTimeout(r, 2000));
+        }
         console.error(`❌ ${finalConfig.model}:`, e.message);
       }
     }

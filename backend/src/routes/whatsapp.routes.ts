@@ -1435,7 +1435,10 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
       where: { id: ownerId }, 
       select: { apiKey: true, apiKeyConnected: true, groqApiKey: true, groqApiKeyConnected: true, plan: true, trialEndsAt: true, timezone: true } 
     });
-    if (!owner?.apiKey || !owner.apiKeyConnected) {
+    // ✅ Verificar que tenga AL MENOS una API key activa (OpenAI O Groq)
+    const hasOpenAI = !!(owner?.apiKey && owner.apiKeyConnected);
+    const hasGroq   = !!(owner?.groqApiKey && owner.groqApiKeyConnected);
+    if (!hasOpenAI && !hasGroq) {
       clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
       return null;
     }

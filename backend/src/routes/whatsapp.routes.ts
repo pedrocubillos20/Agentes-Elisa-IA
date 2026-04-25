@@ -2491,19 +2491,23 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
     messages.push({ role: 'user', content: messageWithQuoted + criticalRulesReminder + memoryReminder });
 
     // 🤖 Llamar a OpenAI O Groq según la configuración del asistente
+    // ✅ Solo pasar keys que están ACTIVAS (connected=true) para evitar usar keys inválidas
+    const activeOpenAiKey = (user.apiKey && user.apiKeyConnected)     ? user.apiKey     : null;
+    const activeGroqKey   = (user.groqApiKey && user.groqApiKeyConnected) ? user.groqApiKey : null;
+
     const aiConfig = resolveAIConfig({
       assistantProvider: assistant.aiProvider || 'openai',
       assistantModel:    assistant.model || DEFAULT_MODELS[assistant.aiProvider as 'openai'|'groq' || 'openai'],
-      userOpenAiKey:     user.apiKey || null,
-      userGroqKey:       user.groqApiKey || null,
+      userOpenAiKey:     activeOpenAiKey,
+      userGroqKey:       activeGroqKey,
     });
 
-    // Fallback: si el proveedor configurado no tiene key, intentar con el otro
+    // Fallback: si el proveedor configurado no tiene key activa, intentar con el otro
     const fallbackConfig = !aiConfig ? resolveAIConfig({
       assistantProvider: assistant.aiProvider === 'groq' ? 'openai' : 'groq',
       assistantModel:    undefined,
-      userOpenAiKey:     user.apiKey || null,
-      userGroqKey:       user.groqApiKey || null,
+      userOpenAiKey:     activeOpenAiKey,
+      userGroqKey:       activeGroqKey,
     }) : null;
 
     const finalConfig = aiConfig || fallbackConfig;

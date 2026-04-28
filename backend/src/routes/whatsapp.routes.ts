@@ -954,6 +954,70 @@ const markCloudRead = async (phoneNumberId: string, accessToken: string, message
 };
 
 // ====================================================
+// 📋 SEND CLOUD TEMPLATE — Envía plantilla aprobada de Meta
+// ====================================================
+const sendCloudTemplate = async (
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  templateName: string,
+  languageCode: string,
+  variables: string[] = [],
+  headerMedia?: { type: 'image' | 'video' | 'document'; url: string }
+): Promise<{ ok: boolean; wamid?: string }> => {
+  try {
+    const cleanTo = to.replace(/\D/g, '');
+
+    // Construir componentes de la plantilla
+    const components: any[] = [];
+
+    // Header con media (si tiene)
+    if (headerMedia) {
+      const mediaPayload: any = { type: headerMedia.type };
+      mediaPayload[headerMedia.type] = { link: headerMedia.url };
+      components.push({ type: 'header', parameters: [mediaPayload] });
+    }
+
+    // Body con variables {{1}}, {{2}}, etc.
+    if (variables.length > 0) {
+      components.push({
+        type: 'body',
+        parameters: variables.map(v => ({ type: 'text', text: v || '' })),
+      });
+    }
+
+    const body: any = {
+      messaging_product: 'whatsapp',
+      to: cleanTo,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: languageCode || 'es' },
+        ...(components.length > 0 ? { components } : {}),
+      },
+    };
+
+    const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const data = await r.json() as any;
+    if (r.ok) {
+      const wamid = data?.messages?.[0]?.id;
+      log(`📋 Cloud template "${templateName}" → ${cleanTo}${wamid ? ' [' + wamid.substring(0, 20) + ']' : ''}`);
+      return { ok: true, wamid };
+    }
+    console.error(`❌ Cloud template (${r.status}): ${JSON.stringify(data).substring(0, 300)}`);
+    return { ok: false };
+  } catch (e: any) {
+    console.error('❌ Cloud sendTemplate:', e.message);
+    return { ok: false };
+  }
+};
+
+// ====================================================
 // 🔀 UNIFIED SEND — Auto-detect Cloud API vs WAHA
 // ====================================================
 const lineInfoCache = new Map<string, { type: string; pnid?: string; token?: string; ttl: number }>();
@@ -5497,8 +5561,9 @@ router.post('/disconnect', async (req: Request, res: Response) => {
 router.post('/send', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
-    const { to, message, whatsappLineId, lineId: legacyLineId, mediaUrl, mediaType: sendMediaType } = req.body;
-    if (!userId || !to || (!message && !mediaUrl)) { res.status(400).json({ error: 'Faltan datos' }); return; }
+    const { to, message, whatsappLineId, lineId: legacyLineId, mediaUrl, mediaType: sendMediaType,
+            templateName, templateLanguage, templateVariables } = req.body;
+    if (!userId || !to || (!message && !mediaUrl && !templateName)) { res.status(400).json({ error: 'Faltan datos' }); return; }
     const ownerId = await getOwnerId(userId);
     const cleanNumber = to.replace(/\D/g, '');
     // WEBJS: Always use @c.us (WEBJS doesn't use @lid)
@@ -5535,7 +5600,15 @@ router.post('/send', async (req: Request, res: Response) => {
     const isCloud = lineRecord?.connectionType === 'cloud_api' && lineRecord?.cloudPhoneNumberId && lineRecord?.cloudAccessToken;
     
     if (isCloud) {
-      if (message) sent = (await sendCloudText(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, message)).ok;
+      // 📋 Plantilla aprobada de Meta
+      if (templateName) {
+        const result = await sendCloudTemplate(
+          lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber,
+          templateName, templateLanguage || 'es', templateVariables || []
+        );
+        sent = result.ok;
+      }
+      if (message) sent = (await sendCloudText(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, message)).ok || sent;
       if (mediaUrl) {
         const mediaObj = { url: mediaUrl, type: sendMediaType || 'image', name: 'media' };
         sent = (await sendCloudMedia(lineRecord.cloudPhoneNumberId, lineRecord.cloudAccessToken, cleanNumber, mediaObj, !message ? '' : undefined)).ok || sent;
@@ -7605,5 +7678,67 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
     console.error('☁️ Cloud webhook error:', e.message);
   }
 });
+
+// ====================================================
+// 📋 GET /templates — Lista plantillas aprobadas de Meta (Cloud API)
+// ====================================================
+router.get('/templates', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+
+    const { lineId } = req.query;
+    if (!lineId) { res.status(400).json({ error: 'lineId requerido' }); return; }
+
+    const ownerId = await getOwnerId(userId);
+    const line = await prisma.whatsappLine.findFirst({
+      where: { id: String(lineId), userId: ownerId },
+      select: { connectionType: true, cloudPhoneNumberId: true, cloudAccessToken: true, cloudBusinessId: true },
+    });
+
+    if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
+
+    // Solo funciona con Cloud API + WABA ID configurado
+    if (line.connectionType !== 'cloud_api' || !line.cloudAccessToken || !line.cloudBusinessId) {
+      res.json({ templates: [], message: 'La línea debe ser Cloud API con WABA ID configurado' });
+      return;
+    }
+
+    // Obtener plantillas de Meta Graph API
+    const fields = 'id,name,language,status,category,components,quality_score';
+    const url = `${CLOUD_API_URL}/${line.cloudBusinessId}/message_templates?fields=${fields}&limit=100&status=APPROVED`;
+
+    const metaRes = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` },
+    });
+
+    if (!metaRes.ok) {
+      const errText = await metaRes.text().catch(() => '');
+      console.error(`❌ Meta templates API (${metaRes.status}):`, errText.substring(0, 300));
+      res.status(metaRes.status).json({ error: 'Error al obtener plantillas de Meta', details: errText.substring(0, 200) });
+      return;
+    }
+
+    const data = await metaRes.json() as any;
+    // Filtrar solo APPROVED y mapear al formato del frontend
+    const templates = (data.data || [])
+      .filter((t: any) => t.status === 'APPROVED')
+      .map((t: any) => ({
+        id:         t.id,
+        name:       t.name,
+        language:   t.language,
+        category:   t.category,
+        status:     t.status,
+        components: t.components || [],
+      }));
+
+    res.json({ templates, total: templates.length });
+  } catch (e: any) {
+    console.error('❌ Error fetching templates:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+export { sendCloudTemplate };
 
 export default router;

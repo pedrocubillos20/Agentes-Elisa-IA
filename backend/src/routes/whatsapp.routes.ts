@@ -7683,6 +7683,40 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
 // 📋 GET /templates — Lista plantillas aprobadas de Meta
 // Soporta multi-tenant: admin + sub-usuarios con allowedLines
 // ====================================================
+// GET /waba-id — Auto-detectar WABA ID desde el Phone Number ID
+router.get('/waba-id', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const lineId = req.query.lineId as string;
+
+    const line = await prisma.whatsappLine.findFirst({
+      where: { id: String(lineId), userId: ownerId },
+      select: { cloudPhoneNumberId: true, cloudAccessToken: true, cloudBusinessId: true }
+    });
+    if (!line?.cloudAccessToken || !line?.cloudPhoneNumberId) {
+      res.status(400).json({ error: 'Sin config Cloud API' }); return;
+    }
+
+    // Método 1: Phone Number → WABA
+    const r = await fetch(
+      `${CLOUD_API_URL}/${line.cloudPhoneNumberId}?fields=id,display_phone_number,whatsapp_business_account`,
+      { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+    );
+    if (r.ok) {
+      const d = await r.json() as any;
+      const wabaId = d?.whatsapp_business_account?.id;
+      if (wabaId) {
+        await prisma.whatsappLine.update({ where: { id: String(lineId) }, data: { cloudBusinessId: wabaId } }).catch(() => {});
+        res.json({ wabaId, saved: true });
+        return;
+      }
+    }
+    res.json({ wabaId: null, current: line.cloudBusinessId });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.get('/templates', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -7753,18 +7787,45 @@ router.get('/templates', async (req: Request, res: Response) => {
       return;
     }
 
-    if (!line.cloudBusinessId) {
+    let wabaId = line.cloudBusinessId || '';
+    
+    // ── Auto-detect WABA ID if not set or if previous attempt failed ──────
+    // When cloudBusinessId is missing or wrong, fetch it from the phone number
+    if (!wabaId && line.cloudPhoneNumberId) {
+      try {
+        const phoneRes = await fetch(
+          `${CLOUD_API_URL}/${line.cloudPhoneNumberId}?fields=id,display_phone_number,name_status,quality_rating,whatsapp_business_account`,
+          { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+        );
+        if (phoneRes.ok) {
+          const phoneData = await phoneRes.json() as any;
+          wabaId = phoneData?.whatsapp_business_account?.id || '';
+          if (wabaId) {
+            log(`✅ WABA ID auto-detectado: ${wabaId} para línea ${lineId}`);
+            // Save it back so next time it's already there
+            await prisma.whatsappLine.update({
+              where: { id: String(lineId) },
+              data: { cloudBusinessId: wabaId }
+            }).catch(() => {});
+          }
+        }
+      } catch (autoErr: any) {
+        log(`⚠️ No se pudo auto-detectar WABA ID: ${autoErr.message}`);
+      }
+    }
+    
+    if (!wabaId) {
       res.json({
         templates: [],
         reason: 'missing_waba_id',
-        message: 'Falta el Business Account ID (WABA ID) en la configuración de la línea. Agrégalo en Configuración → Líneas.',
+        message: 'Falta el WhatsApp Business Account ID (WABA ID). Ve a la configuración de la línea → campo "WhatsApp Business Account ID". Encuéntralo en Meta Business → Configuración → Cuentas de WhatsApp.',
       });
       return;
     }
 
     // ── Llamar a Meta Graph API ────────────────────────────────────
     const fields = 'id,name,language,status,category,components';
-    const url = `${CLOUD_API_URL}/${line.cloudBusinessId}/message_templates?fields=${fields}&limit=100`;
+    const url = `${CLOUD_API_URL}/${wabaId}/message_templates?fields=${fields}&limit=100`;
 
     const metaRes = await fetch(url, {
       headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` },
@@ -7778,7 +7839,10 @@ router.get('/templates', async (req: Request, res: Response) => {
         errMsg = errJson?.error?.message || errMsg;
       } catch { /* noop */ }
       console.error(`❌ Meta templates (${metaRes.status}) lineId=${lineId}:`, errText.substring(0, 300));
-      res.status(metaRes.status).json({ error: errMsg, reason: 'meta_api_error' });
+      // If 400 with nonexisting field, likely using Business Manager ID instead of WABA ID
+      const isWrongId = errText.includes('nonexisting field') || errText.includes('message_templates');
+      const hint = isWrongId ? ' El ID configurado parece ser el Business Manager ID, no el WABA ID. Ve a Meta Business → Configuración → Cuentas de WhatsApp para obtener el ID correcto.' : '';
+      res.status(metaRes.status).json({ error: errMsg + hint, reason: 'meta_api_error' });
       return;
     }
 

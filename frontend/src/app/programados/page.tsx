@@ -129,11 +129,36 @@ export default function ProgramadosPage() {
   const [templateVars, setTemplateVars]       = useState<string[]>([]);
   const [templateSearch, setTemplateSearch]   = useState('');
   const [showTemplateList, setShowTemplateList] = useState(false);
-  const [templatesError, setTemplatesError]   = useState('');
 
   const getLineId = () => (typeof window !== 'undefined' ? localStorage.getItem('selectedLineId') : '') || '';
+  const headers = () => ({ Authorization: `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}` });
 
   useEffect(() => { fetchAll(); }, []);
+  
+  // ── Fetch Facebook Templates ────────────────────────────────────
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const lineId = getLineId();
+      // Auto-detect WABA ID first
+      await fetch(`${API_URL}/api/whatsapp/waba-id?lineId=${lineId}`, { headers: headers() }).catch(() => {});
+      // Fetch templates
+      const res = await fetch(`${API_URL}/api/whatsapp/templates?lineId=${lineId}`, { headers: headers() });
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data.templates || []);
+      }
+    } catch (e) { console.error('fetchTemplates error:', e); }
+    finally { setTemplatesLoading(false); }
+  };
+
+  const selectTemplate = (tpl: any) => {
+    setSelectedTemplate(tpl);
+    setShowTemplateList(false);
+    const body = tpl.components?.find((c: any) => c.type === 'BODY')?.text || '';
+    const varCount = (body.match(/\{\{\d+\}\}/g) || []).length;
+    setTemplateVars(Array(varCount).fill(''));
+  };
 
   const fetchAll = async () => {
     const token   = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
@@ -222,7 +247,7 @@ export default function ProgramadosPage() {
     setExcelContacts([]); setExcelFileName(''); setClientFilter('all');
     setShowExcelPreview(true);
     setUseTemplate(false); setSelectedTemplate(null); setTemplateVars([]);
-    setTemplateSearch(''); setShowTemplateList(false); setTemplates([]); setTemplatesError('');
+    setTemplateSearch(''); setShowTemplateList(false); setTemplates([]);
   };
 
   const openCreate = () => {
@@ -253,8 +278,7 @@ export default function ProgramadosPage() {
   const handleSave = async () => {
     const validTargetId = targetType === 'bulk_excel' ? 'bulk_excel' : targetId;
     if (!validTargetId || !scheduledDate || !scheduledTime) return;
-    if (!useTemplate && !message && !mediaFile) return;
-    if (useTemplate && !selectedTemplate) return;
+    if (!message && !mediaFile) return;
     if (targetType === 'bulk_excel' && excelContacts.filter(c=>c.valid).length === 0) return;
 
     setSaving(true);
@@ -343,57 +367,6 @@ export default function ProgramadosPage() {
 
   const toggleDay = (dayId: number) =>
     setRecurrenceDays(prev => prev.includes(dayId) ? prev.filter(d => d !== dayId) : [...prev, dayId]);
-
-  // ── PLANTILLAS FACEBOOK ────────────────────────────────────────
-  const fetchTemplates = async () => {
-    setTemplatesLoading(true);
-    const token  = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
-    const lineId = getLineId();
-    if (!lineId) {
-      setTemplates([]);
-      setTemplatesLoading(false);
-      return;
-    }
-    try {
-      const res = await fetch(`${API_URL}/api/whatsapp/templates?lineId=${lineId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        // Error del servidor — mostrar mensaje concreto
-        setTemplates([]);
-        setTemplatesError(data.error || 'Error al cargar plantillas');
-        return;
-      }
-      if (data.reason) {
-        // Backend indicó una razón específica (no es error, es configuración)
-        setTemplates([]);
-        setTemplatesError(data.message || 'Sin plantillas disponibles');
-        return;
-      }
-      setTemplates(data.templates || []);
-      setTemplatesError('');
-    } catch (e) {
-      console.error('Error fetching templates:', e);
-      setTemplates([]);
-      setTemplatesError('Error de conexión al cargar plantillas');
-    } finally {
-      setTemplatesLoading(false);
-    }
-  };
-
-  const selectTemplate = (tpl: any) => {
-    setSelectedTemplate(tpl);
-    setShowTemplateList(false);
-    setTemplateSearch('');
-    // Extraer cuántas variables {{1}}, {{2}}, etc. tiene el body
-    const bodyText = tpl.components?.find((c: any) => c.type === 'BODY')?.text || '';
-    const matches  = bodyText.match(/\{\{(\d+)\}\}/g) || [];
-    const maxVar   = matches.length > 0
-      ? Math.max(...matches.map((m: string) => parseInt(m.replace(/\D/g, ''))))
-      : 0;
-    setTemplateVars(Array(maxVar).fill(''));
-  };
 
   const filteredScheduled = scheduled.filter(s => filter === 'all' || s.status === filter);
 
@@ -832,16 +805,10 @@ export default function ProgramadosPage() {
                         <div className="loading-spinner w-4 h-4" />
                         <span className="text-sm text-[var(--text-muted)]">Cargando plantillas...</span>
                       </div>
-                    ) : templatesError ? (
-                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                        <p className="text-sm text-amber-300 font-medium mb-1">⚠️ Sin plantillas disponibles</p>
-                        <p className="text-xs text-[var(--text-muted)]">{templatesError}</p>
-                        <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Reintentar</button>
-                      </div>
                     ) : templates.length === 0 ? (
                       <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                         <p className="text-sm text-amber-300 font-medium mb-1">No hay plantillas aprobadas</p>
-                        <p className="text-xs text-[var(--text-muted)]">Crea y aprueba plantillas en Meta Business Manager, luego regresa aquí.</p>
+                        <p className="text-xs text-[var(--text-muted)]">Requiere línea con Cloud API de Meta activa y plantillas aprobadas en Facebook Business.</p>
                         <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Recargar</button>
                       </div>
                     ) : (
@@ -903,12 +870,7 @@ export default function ProgramadosPage() {
                                   <div className="w-full h-16 bg-white/10 rounded-lg flex items-center justify-center mb-1"><span>▶️</span></div>
                                 )}
                                 <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">
-                                  {(() => {
-                                    const bodyText = selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text || '';
-                                    return bodyText.replace(/\{\{(\d+)\}\}/g, (_m: string, n: string) =>
-                                      templateVars[parseInt(n) - 1] || _m
-                                    );
-                                  })()}
+                                  {selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text?.replace(/\{\{(\d+)\}\}/g, (m: string, n: string) => templateVars[parseInt(n)-1] ? `*${templateVars[parseInt(n)-1]}*` : m) || ''}
                                 </p>
                                 {selectedTemplate.components?.find((c: any) => c.type === 'FOOTER') && (
                                   <p className="text-xs text-gray-400 mt-1">{selectedTemplate.components.find((c: any) => c.type === 'FOOTER').text}</p>
@@ -929,11 +891,11 @@ export default function ProgramadosPage() {
                           <div className="space-y-2 mt-2">
                             <label className="text-sm font-semibold text-[var(--text-muted)] block">Variables de la plantilla</label>
                             <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                              <p className="text-xs text-blue-300">ℹ️ Para envíos masivos puedes usar {'{{nombre}}'} para personalizar con el nombre de cada contacto.</p>
+                              <p className="text-xs text-blue-300">ℹ️ Para envíos masivos puedes usar {`{{nombre}}`} para personalizar con el nombre de cada contacto.</p>
                             </div>
                             {templateVars.map((v, i) => (
                               <div key={i} className="flex items-center gap-2">
-                                <span className="text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-primary)] px-2 py-1.5 rounded-lg text-[var(--accent-primary)] flex-shrink-0">{'{{' + (i + 1) + '}}'}</span>
+                                <span className="text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-primary)] px-2 py-1.5 rounded-lg text-[var(--accent-primary)] flex-shrink-0">{`{{${i+1}}}`}</span>
                                 <input type="text" value={v}
                                   onChange={e => { const v2 = [...templateVars]; v2[i] = e.target.value; setTemplateVars(v2); }}
                                   placeholder={`Variable ${i+1}`}
@@ -961,7 +923,6 @@ export default function ProgramadosPage() {
                     )}
                   </div>
                 )}
-              </div>
 
               {/* ── MEDIA ── */}
               {!useTemplate && <div>
@@ -1063,8 +1024,7 @@ export default function ProgramadosPage() {
               </button>
               <button onClick={handleSave} disabled={
                 saving ||
-                (!useTemplate && !message && !mediaFile) ||
-                (useTemplate && !selectedTemplate) ||
+                (!message && !mediaFile) ||
                 !scheduledDate || !scheduledTime ||
                 (targetType !== 'bulk_excel' && !targetId) ||
                 (targetType === 'bulk_excel' && excelValid === 0)

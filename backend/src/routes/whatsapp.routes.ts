@@ -7680,7 +7680,8 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
 });
 
 // ====================================================
-// 📋 GET /templates — Lista plantillas aprobadas de Meta (Cloud API)
+// 📋 GET /templates — Lista plantillas aprobadas de Meta
+// Soporta multi-tenant: admin + sub-usuarios con allowedLines
 // ====================================================
 router.get('/templates', async (req: Request, res: Response) => {
   try {
@@ -7690,23 +7691,80 @@ router.get('/templates', async (req: Request, res: Response) => {
     const { lineId } = req.query;
     if (!lineId) { res.status(400).json({ error: 'lineId requerido' }); return; }
 
+    // ── Resolver owner (sub-usuarios → su admin) ──────────────────
     const ownerId = await getOwnerId(userId);
+
+    // ── Verificar que el sub-usuario tiene acceso a esta línea ─────
+    const currentUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { permissions: true, role: true, parentUserId: true },
+    });
+    const isSubUser = userId !== ownerId || currentUser?.parentUserId != null || currentUser?.role !== 'admin';
+
+    if (isSubUser) {
+      let perms: any = currentUser?.permissions;
+      if (typeof perms === 'string') { try { perms = JSON.parse(perms); } catch { perms = {}; } }
+      const allowedLines = perms?.allowedLines;
+      const hasAccess =
+        !allowedLines ||
+        allowedLines.includes('all') ||
+        !Array.isArray(allowedLines) ||
+        allowedLines.length === 0 ||
+        allowedLines.includes(String(lineId));
+      if (!hasAccess) {
+        res.status(403).json({ error: 'Sin acceso a esta línea' });
+        return;
+      }
+    }
+
+    // ── Obtener la línea verificando que pertenece al owner ────────
     const line = await prisma.whatsappLine.findFirst({
       where: { id: String(lineId), userId: ownerId },
-      select: { connectionType: true, cloudPhoneNumberId: true, cloudAccessToken: true, cloudBusinessId: true },
+      select: {
+        connectionType: true,
+        cloudPhoneNumberId: true,
+        cloudAccessToken: true,
+        cloudBusinessId: true,
+        label: true,
+      },
     });
 
-    if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
-
-    // Solo funciona con Cloud API + WABA ID configurado
-    if (line.connectionType !== 'cloud_api' || !line.cloudAccessToken || !line.cloudBusinessId) {
-      res.json({ templates: [], message: 'La línea debe ser Cloud API con WABA ID configurado' });
+    if (!line) {
+      res.status(404).json({ error: 'Línea no encontrada' });
       return;
     }
 
-    // Obtener plantillas de Meta Graph API
-    const fields = 'id,name,language,status,category,components,quality_score';
-    const url = `${CLOUD_API_URL}/${line.cloudBusinessId}/message_templates?fields=${fields}&limit=100&status=APPROVED`;
+    // ── Validar que sea Cloud API ──────────────────────────────────
+    if (line.connectionType !== 'cloud_api') {
+      res.json({
+        templates: [],
+        reason: 'not_cloud_api',
+        message: `La línea "${line.label || ''}" usa WAHA, no Cloud API de Meta. Las plantillas solo funcionan con Cloud API.`,
+      });
+      return;
+    }
+
+    if (!line.cloudAccessToken) {
+      res.json({
+        templates: [],
+        reason: 'missing_token',
+        message: 'Falta el Access Token permanente en la configuración de la línea.',
+      });
+      return;
+    }
+
+    if (!line.cloudBusinessId) {
+      res.json({
+        templates: [],
+        reason: 'missing_waba_id',
+        message: 'Falta el Business Account ID (WABA ID) en la configuración de la línea. Agrégalo en Configuración → Líneas.',
+      });
+      return;
+    }
+
+    // ── Llamar a Meta Graph API ────────────────────────────────────
+    const fields = 'id,name,language,status,category,components';
+    const url = `${CLOUD_API_URL}/${line.cloudBusinessId}/message_templates?fields=${fields}&limit=100`;
 
     const metaRes = await fetch(url, {
       headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` },
@@ -7714,12 +7772,18 @@ router.get('/templates', async (req: Request, res: Response) => {
 
     if (!metaRes.ok) {
       const errText = await metaRes.text().catch(() => '');
-      console.error(`❌ Meta templates API (${metaRes.status}):`, errText.substring(0, 300));
-      res.status(metaRes.status).json({ error: 'Error al obtener plantillas de Meta', details: errText.substring(0, 200) });
+      let errMsg = `Error Meta API (${metaRes.status})`;
+      try {
+        const errJson = JSON.parse(errText);
+        errMsg = errJson?.error?.message || errMsg;
+      } catch { /* noop */ }
+      console.error(`❌ Meta templates (${metaRes.status}) lineId=${lineId}:`, errText.substring(0, 300));
+      res.status(metaRes.status).json({ error: errMsg, reason: 'meta_api_error' });
       return;
     }
 
     const data = await metaRes.json() as any;
+
     // Filtrar solo APPROVED y mapear al formato del frontend
     const templates = (data.data || [])
       .filter((t: any) => t.status === 'APPROVED')

@@ -129,6 +129,7 @@ export default function ProgramadosPage() {
   const [templateVars, setTemplateVars]       = useState<string[]>([]);
   const [templateSearch, setTemplateSearch]   = useState('');
   const [showTemplateList, setShowTemplateList] = useState(false);
+  const [templatesError, setTemplatesError]   = useState('');
 
   const getLineId = () => (typeof window !== 'undefined' ? localStorage.getItem('selectedLineId') : '') || '';
 
@@ -221,7 +222,7 @@ export default function ProgramadosPage() {
     setExcelContacts([]); setExcelFileName(''); setClientFilter('all');
     setShowExcelPreview(true);
     setUseTemplate(false); setSelectedTemplate(null); setTemplateVars([]);
-    setTemplateSearch(''); setShowTemplateList(false); setTemplates([]);
+    setTemplateSearch(''); setShowTemplateList(false); setTemplates([]); setTemplatesError('');
   };
 
   const openCreate = () => {
@@ -348,19 +349,34 @@ export default function ProgramadosPage() {
     setTemplatesLoading(true);
     const token  = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
     const lineId = getLineId();
+    if (!lineId) {
+      setTemplates([]);
+      setTemplatesLoading(false);
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/api/whatsapp/templates?lineId=${lineId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setTemplates(data.templates || []);
-      } else {
+      const data = await res.json();
+      if (!res.ok) {
+        // Error del servidor — mostrar mensaje concreto
         setTemplates([]);
+        setTemplatesError(data.error || 'Error al cargar plantillas');
+        return;
       }
+      if (data.reason) {
+        // Backend indicó una razón específica (no es error, es configuración)
+        setTemplates([]);
+        setTemplatesError(data.message || 'Sin plantillas disponibles');
+        return;
+      }
+      setTemplates(data.templates || []);
+      setTemplatesError('');
     } catch (e) {
       console.error('Error fetching templates:', e);
       setTemplates([]);
+      setTemplatesError('Error de conexión al cargar plantillas');
     } finally {
       setTemplatesLoading(false);
     }
@@ -816,10 +832,16 @@ export default function ProgramadosPage() {
                         <div className="loading-spinner w-4 h-4" />
                         <span className="text-sm text-[var(--text-muted)]">Cargando plantillas...</span>
                       </div>
+                    ) : templatesError ? (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                        <p className="text-sm text-amber-300 font-medium mb-1">⚠️ Sin plantillas disponibles</p>
+                        <p className="text-xs text-[var(--text-muted)]">{templatesError}</p>
+                        <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Reintentar</button>
+                      </div>
                     ) : templates.length === 0 ? (
                       <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                         <p className="text-sm text-amber-300 font-medium mb-1">No hay plantillas aprobadas</p>
-                        <p className="text-xs text-[var(--text-muted)]">Requiere línea con Cloud API de Meta activa y plantillas aprobadas en Facebook Business.</p>
+                        <p className="text-xs text-[var(--text-muted)]">Crea y aprueba plantillas en Meta Business Manager, luego regresa aquí.</p>
                         <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Recargar</button>
                       </div>
                     ) : (

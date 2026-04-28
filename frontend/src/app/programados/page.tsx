@@ -884,20 +884,22 @@ export default function ProgramadosPage() {
                 )}
 
                 {/* Mensaje libre */}
-                {!useTemplate && (<>
-                <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
-                <textarea value={message} onChange={e => setMessage(e.target.value)}
-                  placeholder="Escribe tu mensaje..."
-                  className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors min-h-[80px] resize-none" />
-                {targetType === 'bulk_excel' && (
-                  <p className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-1">
-                    <Info className="w-3 h-3" /> Puedes personalizar con variables si tu lista incluye nombres
-                  </p>
+                {!useTemplate && (
+                  <div>
+                    <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
+                    <textarea value={message} onChange={e => setMessage(e.target.value)}
+                      placeholder="Escribe tu mensaje..."
+                      className="w-full bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)] transition-colors min-h-[80px] resize-none" />
+                    {targetType === 'bulk_excel' && (
+                      <p className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-1">
+                        <Info className="w-3 h-3" /> Puedes personalizar con variables si tu lista incluye nombres
+                      </p>
+                    )}
+                  </div>
                 )}
-              </div>
 
               {/* ── MEDIA ── */}
-              <div>
+              {!useTemplate && <div>
                 <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Adjunto (opcional)</label>
                 <input ref={fileInputRef} type="file" accept="image/*,audio/*,video/*,application/pdf,.doc,.docx" onChange={handleFileSelect} className="hidden" />
                 {mediaFile ? (
@@ -924,7 +926,7 @@ export default function ProgramadosPage() {
                     ))}
                   </div>
                 )}
-              </div>
+              </div>}
 
               {/* ── FECHA Y HORA ── */}
               <div className="grid grid-cols-2 gap-3">

@@ -121,6 +121,15 @@ export default function ProgramadosPage() {
   const [clientFilter, setClientFilter]   = useState('all');
   const [saving, setSaving]               = useState(false);
 
+  // ── Plantillas Facebook ──────────────────────────────────────────
+  const [useTemplate, setUseTemplate]         = useState(false);
+  const [templates, setTemplates]             = useState<any[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [templateVars, setTemplateVars]       = useState<string[]>([]);
+  const [templateSearch, setTemplateSearch]   = useState('');
+  const [showTemplateList, setShowTemplateList] = useState(false);
+
   const getLineId = () => (typeof window !== 'undefined' ? localStorage.getItem('selectedLineId') : '') || '';
 
   useEffect(() => { fetchAll(); }, []);
@@ -211,6 +220,8 @@ export default function ProgramadosPage() {
     setMediaFile(null); setMediaPreview(null); setEditing(null);
     setExcelContacts([]); setExcelFileName(''); setClientFilter('all');
     setShowExcelPreview(true);
+    setUseTemplate(false); setSelectedTemplate(null); setTemplateVars([]);
+    setTemplateSearch(''); setShowTemplateList(false); setTemplates([]);
   };
 
   const openCreate = () => {
@@ -280,6 +291,12 @@ export default function ProgramadosPage() {
       recurrenceEnd:  recurrenceEnd ? new Date(`${recurrenceEnd}T23:59:59`).toISOString() : undefined,
       ...(targetType === 'bulk_excel' && {
         bulkRecipients: validContacts.map(c => ({ phone: c.phone, name: c.name || '' })),
+      }),
+      // Template data
+      ...(useTemplate && selectedTemplate && {
+        templateName: selectedTemplate.name,
+        templateLanguage: selectedTemplate.language || 'es',
+        templateVariables: templateVars,
       }),
     };
 
@@ -735,6 +752,139 @@ export default function ProgramadosPage() {
 
               {/* ── MENSAJE ── */}
               <div>
+                {/* Tipo de contenido */}
+                <div className="mb-3">
+                  <label className="text-sm font-semibold text-[var(--text-muted)] mb-2 block">Tipo de contenido</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setUseTemplate(false)}
+                      className={`p-3 rounded-xl border text-left transition-all ${!useTemplate ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
+                      <span className="text-sm">💬</span>
+                      <p className="text-xs font-semibold text-white mt-1">Mensaje libre</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">Texto + imagen personalizada</p>
+                    </button>
+                    <button onClick={() => { setUseTemplate(true); if (templates.length === 0) fetchTemplates(); }}
+                      className={`p-3 rounded-xl border text-left transition-all ${useTemplate ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10' : 'border-[var(--border-primary)] hover:border-white/20'}`}>
+                      <span className="text-sm">⚡</span>
+                      <p className="text-xs font-semibold text-white mt-1">Plantilla aprobada</p>
+                      <p className="text-[10px] text-[var(--text-muted)]">Facebook Business + botones</p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Plantilla Facebook */}
+                {useTemplate && (
+                  <div className="space-y-3 mb-3">
+                    {templatesLoading ? (
+                      <div className="flex items-center gap-2 p-3 bg-[var(--bg-tertiary)] rounded-xl border border-[var(--border-primary)]">
+                        <div className="loading-spinner w-4 h-4" />
+                        <span className="text-sm text-[var(--text-muted)]">Cargando plantillas...</span>
+                      </div>
+                    ) : templates.length === 0 ? (
+                      <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                        <p className="text-sm text-amber-300 font-medium mb-1">No hay plantillas aprobadas</p>
+                        <p className="text-xs text-[var(--text-muted)]">Requiere línea con Cloud API de Meta activa y plantillas aprobadas en Facebook Business.</p>
+                        <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Recargar</button>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Plantilla aprobada</label>
+                        <div className="relative">
+                          <button onClick={() => setShowTemplateList(!showTemplateList)}
+                            className="w-full flex items-center justify-between p-3 bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-xl hover:border-[var(--accent-primary)]/50 transition-all">
+                            {selectedTemplate ? (
+                              <div className="text-left">
+                                <p className="text-sm font-semibold text-white">{selectedTemplate.name}</p>
+                                <p className="text-xs text-[var(--text-muted)]">{selectedTemplate.category} · {selectedTemplate.language}</p>
+                                {selectedTemplate.components?.find((c: any) => c.type === 'BUTTONS')?.buttons?.length > 0 && (
+                                  <p className="text-[10px] text-blue-400">🔘 {selectedTemplate.components.find((c: any) => c.type === 'BUTTONS').buttons.length} botón(es)</p>
+                                )}
+                              </div>
+                            ) : <span className="text-sm text-[var(--text-muted)]">Selecciona una plantilla...</span>}
+                            <span className="text-[var(--text-muted)]">{showTemplateList ? '▲' : '▼'}</span>
+                          </button>
+                          {showTemplateList && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-[var(--bg-secondary)] border border-[var(--border-primary)] rounded-xl overflow-hidden z-20 shadow-xl">
+                              <div className="p-2 border-b border-[var(--border-primary)]">
+                                <input type="text" value={templateSearch} onChange={e => setTemplateSearch(e.target.value)}
+                                  placeholder="Buscar plantilla..." autoFocus
+                                  className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)]" />
+                              </div>
+                              <div className="max-h-44 overflow-y-auto">
+                                {templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(tpl => (
+                                  <button key={tpl.id || tpl.name} onClick={() => selectTemplate(tpl)}
+                                    className="w-full flex items-center justify-between p-3 hover:bg-white/5 transition-all text-left border-b border-[var(--border-primary)] last:border-0">
+                                    <div>
+                                      <p className="text-sm font-medium text-white">{tpl.name}</p>
+                                      <p className="text-xs text-[var(--text-muted)]">{tpl.category} · {tpl.language}</p>
+                                      {tpl.components?.find((c: any) => c.type === 'BUTTONS')?.buttons?.length > 0 && (
+                                        <p className="text-[10px] text-blue-400">🔘 {tpl.components.find((c: any) => c.type === 'BUTTONS').buttons.length} botón(es): {tpl.components.find((c: any) => c.type === 'BUTTONS').buttons.map((b: any) => b.text).join(' · ')}</p>
+                                      )}
+                                    </div>
+                                    <span className="text-[var(--text-muted)] text-xs">›</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Preview de plantilla */}
+                        {selectedTemplate && (
+                          <div className="mt-3 rounded-xl overflow-hidden border border-[var(--border-primary)] bg-[#0b141a]">
+                            <div className="p-3 bg-[#1a272f]">
+                              <p className="text-xs text-[var(--text-muted)] mb-2">👁️ Vista previa</p>
+                              <div className="bg-[#202c33] rounded-xl p-3 max-w-[90%] ml-auto">
+                                {selectedTemplate.components?.find((c: any) => c.type === 'HEADER')?.format === 'TEXT' && (
+                                  <p className="font-bold text-white text-sm mb-1">{selectedTemplate.components.find((c: any) => c.type === 'HEADER').text}</p>
+                                )}
+                                {selectedTemplate.components?.find((c: any) => c.type === 'HEADER')?.format === 'IMAGE' && (
+                                  <div className="w-full h-16 bg-white/10 rounded-lg flex items-center justify-center mb-1"><span>🖼️</span></div>
+                                )}
+                                {selectedTemplate.components?.find((c: any) => c.type === 'HEADER')?.format === 'VIDEO' && (
+                                  <div className="w-full h-16 bg-white/10 rounded-lg flex items-center justify-center mb-1"><span>▶️</span></div>
+                                )}
+                                <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">
+                                  {selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text?.replace(/\{\{(\d+)\}\}/g, (m: string, n: string) => templateVars[parseInt(n)-1] ? `*${templateVars[parseInt(n)-1]}*` : m) || ''}
+                                </p>
+                                {selectedTemplate.components?.find((c: any) => c.type === 'FOOTER') && (
+                                  <p className="text-xs text-gray-400 mt-1">{selectedTemplate.components.find((c: any) => c.type === 'FOOTER').text}</p>
+                                )}
+                                <p className="text-[10px] text-gray-500 text-right mt-1">✓✓</p>
+                              </div>
+                              {selectedTemplate.components?.find((c: any) => c.type === 'BUTTONS')?.buttons?.map((btn: any, i: number) => (
+                                <div key={i} className="mt-1 bg-[#202c33] rounded-lg py-2 px-3 text-center max-w-[90%] ml-auto">
+                                  <span className="text-[#53bdeb] text-sm">{btn.type === 'URL' ? '🔗 ' : btn.type === 'PHONE_NUMBER' ? '📞 ' : ''}{btn.text}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Variables */}
+                        {selectedTemplate && templateVars.length > 0 && (
+                          <div className="space-y-2 mt-2">
+                            <label className="text-sm font-semibold text-[var(--text-muted)] block">Variables de la plantilla</label>
+                            <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                              <p className="text-xs text-blue-300">ℹ️ Para envíos masivos puedes usar {`{{nombre}}`} para personalizar con el nombre de cada contacto.</p>
+                            </div>
+                            {templateVars.map((v, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <span className="text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-primary)] px-2 py-1.5 rounded-lg text-[var(--accent-primary)] flex-shrink-0">{`{{${i+1}}}`}</span>
+                                <input type="text" value={v}
+                                  onChange={e => { const v2 = [...templateVars]; v2[i] = e.target.value; setTemplateVars(v2); }}
+                                  placeholder={`Variable ${i+1}`}
+                                  className="flex-1 bg-[#1a1a2e] border border-[var(--border-primary)] rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[var(--accent-primary)]" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Mensaje libre */}
+                {!useTemplate && (<>
                 <label className="text-sm font-semibold text-[var(--text-muted)] mb-1.5 block">Mensaje</label>
                 <textarea value={message} onChange={e => setMessage(e.target.value)}
                   placeholder="Escribe tu mensaje..."

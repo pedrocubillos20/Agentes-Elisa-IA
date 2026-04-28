@@ -194,14 +194,15 @@ router.post('/', async (req: Request, res: Response) => {
       whatsappLineId, targetType, targetId, targetName,
       message, mediaUrl, mediaType,
       scheduledAt, recurrence, recurrenceDays, recurrenceTime, recurrenceEnd,
-      timezone, bulkRecipients
+      timezone, bulkRecipients,
+      templateName, templateLanguage, templateVariables
     } = req.body;
 
     if (!targetId || !scheduledAt) {
       res.status(400).json({ error: 'Se requiere destinatario y fecha/hora' }); return;
     }
-    if (!message && !mediaUrl) {
-      res.status(400).json({ error: 'Se requiere mensaje o media' }); return;
+    if (!message && !mediaUrl && !req.body.templateName) {
+      res.status(400).json({ error: 'Se requiere mensaje, media o plantilla de WhatsApp' }); return;
     }
 
     // 🖼️ Si mediaUrl es base64, subir a R2 primero
@@ -225,9 +226,11 @@ router.post('/', async (req: Request, res: Response) => {
       data: {
         userId: ownerId, whatsappLineId: whatsappLineId || null,
         targetType: targetType || 'contact', targetId,
-        targetName: targetName || null, message: message || null,
+        targetName: targetName || null,
+        message: message || (templateName ? `[Plantilla: ${templateName}]` : null),
         mediaUrl: finalMediaUrl, mediaType: mediaType || null,
         scheduledAt: new Date(scheduledAt), recurrence: recurrence || 'once',
+        ...(templateName && { templateName, templateLanguage: templateLanguage || 'es', templateVariables: JSON.stringify(templateVariables || []) }),
         recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
         timezone: timezone || 'America/Bogota', status: 'pending',
@@ -441,6 +444,12 @@ const processScheduledMessage = async (msg: any) => {
   const seen = new Set<string>();
   targets = targets.filter(t => { if (seen.has(t.chatId)) return false; seen.add(t.chatId); return true; });
 
+  // Load line data for Cloud API template sending
+  const lineData = effectiveLineId ? await prisma.whatsappLine.findFirst({
+    where: { id: effectiveLineId },
+    select: { connectionType: true, cloudAccessToken: true, cloudPhoneNumberId: true }
+  }) : null;
+
   log(`📅 Enviando programado ${msg.id} a ${targets.length} destinatarios vía sesión ${sessionName}`);
 
   // 4. 🛡️ ANTI-BLOQUEO CONFIG
@@ -466,7 +475,55 @@ const processScheduledMessage = async (msg: any) => {
         await randomDelay(batchPause, batchPause + 1000);
       }
 
-      // ⌨️ Simular typing antes de enviar
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 📋 PLANTILLA DE FACEBOOK (Cloud API) — envío directo
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      if (msg.templateName && lineData?.connectionType === 'cloud_api' && lineData?.cloudAccessToken && lineData?.cloudPhoneNumberId) {
+        const tplVars = msg.templateVariables ? JSON.parse(msg.templateVariables) : [];
+        const phone = target.chatId.replace('@c.us', '').replace(/\D/g, '');
+
+        // Build components array for template
+        const bodyComponents: any[] = [];
+        if (tplVars.length > 0) {
+          bodyComponents.push({
+            type: 'body',
+            parameters: tplVars.map((v: string) => ({ type: 'text', text: v || ' ' }))
+          });
+        }
+
+        const tplBody: any = {
+          messaging_product: 'whatsapp',
+          to: phone,
+          type: 'template',
+          template: {
+            name: msg.templateName,
+            language: { code: msg.templateLanguage || 'es' },
+            ...(bodyComponents.length > 0 && { components: bodyComponents })
+          }
+        };
+
+        try {
+          const tplRes = await fetch(`https://graph.facebook.com/v18.0/${lineData.cloudPhoneNumberId}/messages`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${lineData.cloudAccessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(tplBody)
+          });
+          if (tplRes.ok) {
+            sentCount++;
+            log(`✅ Plantilla '${msg.templateName}' enviada a ${target.name || phone}`);
+          } else {
+            const errD = await tplRes.json().catch(() => ({})) as any;
+            console.error(`❌ Plantilla falló (${tplRes.status}):`, errD?.error?.message || 'unknown');
+            failedCount++;
+          }
+        } catch (tplErr: any) {
+          console.error(`❌ Error enviando plantilla:`, tplErr.message);
+          failedCount++;
+        }
+        continue; // Skip normal send flow for template messages
+      }
+
+      // ⌨️ Simular typing antes de enviar (solo para mensajes normales)
       await simulateTyping(sessionName!, target.chatId);
       await randomDelay(TYPING_DURATION_MIN, TYPING_DURATION_MAX);
       await stopTyping(sessionName!, target.chatId);
@@ -479,14 +536,12 @@ const processScheduledMessage = async (msg: any) => {
         mediaSent = await sendMedia(sessionName!, target.chatId, mediaUrl, mediaType || 'image', undefined, 3);
         if (!mediaSent) {
           log(`❌ Media falló para ${target.name || target.chatId}`);
-          // Continuar con texto si media falla
         }
-        // Delay entre media y texto
         if (message && mediaSent) await randomDelay(1500, 3000);
       }
 
       // 💬 PASO 2: Enviar TEXTO después (con variación anti-spam)
-      if (message) {
+      if (message && !msg.templateName) {
         const variedMsg = varyMessage(message, i);
         textSent = await sendText(sessionName!, target.chatId, variedMsg, 3);
         if (!textSent) {

@@ -252,7 +252,8 @@ export default function ProgramadosPage() {
   const handleSave = async () => {
     const validTargetId = targetType === 'bulk_excel' ? 'bulk_excel' : targetId;
     if (!validTargetId || !scheduledDate || !scheduledTime) return;
-    if (!message && !mediaFile) return;
+    if (!useTemplate && !message && !mediaFile) return;
+    if (useTemplate && !selectedTemplate) return;
     if (targetType === 'bulk_excel' && excelContacts.filter(c=>c.valid).length === 0) return;
 
     setSaving(true);
@@ -341,6 +342,42 @@ export default function ProgramadosPage() {
 
   const toggleDay = (dayId: number) =>
     setRecurrenceDays(prev => prev.includes(dayId) ? prev.filter(d => d !== dayId) : [...prev, dayId]);
+
+  // ── PLANTILLAS FACEBOOK ────────────────────────────────────────
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    const token  = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+    const lineId = getLineId();
+    try {
+      const res = await fetch(`${API_URL}/api/whatsapp/templates?lineId=${lineId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data.templates || []);
+      } else {
+        setTemplates([]);
+      }
+    } catch (e) {
+      console.error('Error fetching templates:', e);
+      setTemplates([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const selectTemplate = (tpl: any) => {
+    setSelectedTemplate(tpl);
+    setShowTemplateList(false);
+    setTemplateSearch('');
+    // Extraer cuántas variables {{1}}, {{2}}, etc. tiene el body
+    const bodyText = tpl.components?.find((c: any) => c.type === 'BODY')?.text || '';
+    const matches  = bodyText.match(/\{\{(\d+)\}\}/g) || [];
+    const maxVar   = matches.length > 0
+      ? Math.max(...matches.map((m: string) => parseInt(m.replace(/\D/g, ''))))
+      : 0;
+    setTemplateVars(Array(maxVar).fill(''));
+  };
 
   const filteredScheduled = scheduled.filter(s => filter === 'all' || s.status === filter);
 
@@ -998,7 +1035,8 @@ export default function ProgramadosPage() {
               </button>
               <button onClick={handleSave} disabled={
                 saving ||
-                (!message && !mediaFile) ||
+                (!useTemplate && !message && !mediaFile) ||
+                (useTemplate && !selectedTemplate) ||
                 !scheduledDate || !scheduledTime ||
                 (targetType !== 'bulk_excel' && !targetId) ||
                 (targetType === 'bulk_excel' && excelValid === 0)

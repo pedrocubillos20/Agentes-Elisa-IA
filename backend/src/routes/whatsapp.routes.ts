@@ -846,6 +846,87 @@ const sendCloudText = async (phoneNumberId: string, accessToken: string, to: str
   } catch (e: any) { console.error('❌ Cloud sendText:', e.message); return { ok: false }; }
 };
 
+// ☁️ Enviar mensaje interactivo (botones o lista) via Cloud API
+// type: 'button' = hasta 3 botones de respuesta rápida
+// type: 'list'   = lista con hasta 10 opciones en secciones
+const sendCloudInteractive = async (
+  phoneNumberId: string,
+  accessToken: string,
+  to: string,
+  interactive: {
+    type: 'button' | 'list';
+    body: string;           // Texto principal del mensaje
+    buttons?: string[];     // Para type='button': hasta 3 textos
+    listTitle?: string;     // Para type='list': título del botón de lista
+    sections?: Array<{      // Para type='list': secciones con opciones
+      title?: string;
+      rows: Array<{ id: string; title: string; description?: string }>;
+    }>;
+    header?: string;        // Opcional: texto encima del body
+    footer?: string;        // Opcional: texto debajo del body
+  }
+): Promise<{ ok: boolean; wamid?: string }> => {
+  try {
+    let interactiveBody: any;
+
+    if (interactive.type === 'button') {
+      // Botones de respuesta rápida (max 3)
+      const buttons = (interactive.buttons || []).slice(0, 3).map((text, i) => ({
+        type: 'reply',
+        reply: { id: `btn_${i}`, title: text.substring(0, 20) } // WhatsApp max 20 chars
+      }));
+      interactiveBody = {
+        type: 'button',
+        ...(interactive.header && { header: { type: 'text', text: interactive.header } }),
+        body: { text: interactive.body },
+        ...(interactive.footer && { footer: { text: interactive.footer } }),
+        action: { buttons }
+      };
+    } else {
+      // Lista interactiva (max 10 filas total)
+      const sections = interactive.sections || [{
+        rows: (interactive.buttons || []).slice(0, 10).map((text, i) => ({
+          id: `row_${i}`, title: text.substring(0, 24)
+        }))
+      }];
+      interactiveBody = {
+        type: 'list',
+        ...(interactive.header && { header: { type: 'text', text: interactive.header } }),
+        body: { text: interactive.body },
+        ...(interactive.footer && { footer: { text: interactive.footer } }),
+        action: {
+          button: interactive.listTitle || 'Ver opciones',
+          sections
+        }
+      };
+    }
+
+    const r = await fetch(`${CLOUD_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: to.replace(/\D/g, ''),
+        type: 'interactive',
+        interactive: interactiveBody
+      })
+    });
+
+    if (r.ok) {
+      const data = await r.json().catch(() => ({})) as any;
+      const wamid = data?.messages?.[0]?.id;
+      log(`☁️ 🔘 Interactivo (${interactive.type}) → ${to} [${(interactive.buttons || []).length} opciones]`);
+      return { ok: true, wamid };
+    }
+    const errBody = await r.text().catch(() => '');
+    console.error(`❌ Cloud sendInteractive (${r.status}): ${errBody.substring(0, 300)}`);
+    return { ok: false };
+  } catch (e: any) {
+    console.error('❌ Cloud sendInteractive:', e.message);
+    return { ok: false };
+  }
+};
+
 // ☁️ Enviar respuesta dividida en párrafos (más natural, simula "escribiendo")
 const sendCloudSplitMessages = async (phoneNumberId: string, accessToken: string, to: string, fullText: string): Promise<boolean> => {
   // Dividir por doble salto de línea en párrafos
@@ -2546,7 +2627,43 @@ Puedes coordinar tareas, dar información de la agenda y responder consultas del
 [COPILOTO — OBLIGATORIO: Termina con <<MEMORY_JSON>>...<<END_MEMORY>>.
 ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_cita(cliente_nombre,fecha_cita,hora_cita,tipo_cita) | crear_pedido(cliente_nombre,producto_servicio,total,fecha_entrega) | crear_reserva(cliente_nombre,fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva | mover_etapa(cliente_telefono,nueva_etapa)]` : `
 
-[SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.${stagesHint}
+[SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.
+
+🔘 BOTONES INTERACTIVOS (opcional, solo si mejora la experiencia):
+Para enviar botones o listas interactivas al cliente, incluye el campo "interactive" en el MEMORY_JSON.
+SOLO en momentos clave donde los botones simplifican la elección. NO usar en cada mensaje.
+
+FORMATO BOTONES (máx 3 opciones, 20 chars c/u):
+"interactive": {
+  "type": "button",
+  "body": "¿Qué calidad prefieres?",
+  "buttons": ["🥇 Premium $115.000", "🥈 Monaco $90.000"],
+  "footer": "Los dos son de excelente calidad"
+}
+
+FORMATO LISTA (hasta 10 opciones, útil para equipos/métodos de pago):
+"interactive": {
+  "type": "list",
+  "body": "¿De qué equipo quieres tu hoodie?",
+  "listTitle": "Ver equipos",
+  "buttons": ["Millonarios", "Nacional", "América", "Santa Fe", "Barcelona", "Real Madrid", "Colombia", "Junior", "Once Caldas", "Cali"]
+}
+
+CUÁNDO usar botones (momentos clave recomendados):
+- Elegir calidad: Premium vs Monaco → 2 botones
+- Elegir método de pago → 3 botones (Contra entrega, Nequi/Daviplata, Bancolombia)
+- Confirmar pedido: Confirmar vs Cancelar → 2 botones
+- Elegir talla adulto/niño → 2 botones
+- Primer mensaje sin equipo definido → lista con equipos
+
+CUÁNDO NO usar botones:
+- Preguntar equipo si ya lo saben y solo confirman
+- Preguntar talla exacta (muchas opciones → solo texto)
+- Mensajes de información pura
+- Si ya hay un trigger de imagen (catálogo)
+
+IMPORTANTE: Si envías "interactive", el texto del "body" llega al cliente como mensaje con botones.
+El texto principal de tu respuesta llega primero como mensaje de texto, luego los botones.${stagesHint}
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.
 ⚠️ INTEGRIDAD DE PRECIOS: NUNCA inventes precios. Usa ÚNICAMENTE los precios de tu base de conocimiento. Si tu base de conocimiento tiene precios, úsalos exactos — no los estimes ni reduzcas.
 ⚠️ FLUJO: Si ya tienes datos del cliente en memoria (equipo/color/talla/ciudad), NO vuelvas a preguntar. Continúa desde donde quedaste.]`;
@@ -2798,6 +2915,38 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               // 🎯 DETECTAR ETAPA AUTOMÁTICA
               const detectedStage = (memoryData.etapa_actual || memoryData.paso_actual || '').trim();
               const actionToTake = memoryData.accion || '';
+
+              // 🔘 MENSAJE INTERACTIVO (botones o lista)
+              // Si la IA puso "interactive" en el MEMORY_JSON → enviar como mensaje interactivo
+              const interactiveData = memoryData.interactive as any;
+              if (interactiveData && isCloudAPI && line?.cloudAccessToken && line?.cloudPhoneNumberId) {
+                // Enviar el texto ANTES de los botones (si el mensaje principal lo tiene)
+                // Los botones se envían como mensaje SEPARADO después del texto
+                setTimeout(async () => {
+                  try {
+                    const iResult = await sendCloudInteractive(
+                      line.cloudPhoneNumberId!,
+                      line.cloudAccessToken!,
+                      from.replace(/@.*/, ''),
+                      {
+                        type: interactiveData.type || 'button',
+                        body: interactiveData.body || interactiveData.texto || '',
+                        buttons: interactiveData.buttons || interactiveData.opciones || [],
+                        listTitle: interactiveData.listTitle || interactiveData.titulo_lista || 'Ver opciones',
+                        sections: interactiveData.sections || undefined,
+                        header: interactiveData.header || undefined,
+                        footer: interactiveData.footer || undefined,
+                      }
+                    );
+                    if (iResult.ok) {
+                      log(\`🔘 Interactivo enviado a \${senderName}: \${interactiveData.type}\`);
+                      if (iResult.wamid) wamidCache.set(iResult.wamid, interactiveData.body || '');
+                    }
+                  } catch (ie: any) {
+                    console.error('❌ Error enviando interactivo:', ie.message);
+                  }
+                }, 1500); // Pequeño delay para que llegue después del texto
+              }
 
               // ════════════════════════════════════════════════════════════════
               // 🤖 COPILOTO IA — ACCIONES DEL DUEÑO (isPersonalAssistant)

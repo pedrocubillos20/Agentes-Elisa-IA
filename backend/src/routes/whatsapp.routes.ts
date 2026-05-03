@@ -39,8 +39,8 @@ const BURST_CONFIG = {
   CONTINUE_WAIT_MS: 3000,     // Mensajes adicionales: 3s (era 2s)
   FRAGMENT_WAIT_MS: 5000,     // Fragmentos: 5s (era 4s)
   // CLOUD API (Meta webhooks con delay 2-6s entre entregas del mismo segundo)
-  CLOUD_INITIAL_WAIT_MS: 10000,  // Primera espera Cloud: 10s (era 7s) — más tiempo para acumular mensajes
-  CLOUD_CONTINUE_WAIT_MS: 7000,  // Adicionales Cloud: 7s (era 4s) — si el cliente sigue escribiendo, esperar más
+  CLOUD_INITIAL_WAIT_MS: 12000,  // Primera espera Cloud: 12s — acumular mensajes del cliente
+  CLOUD_CONTINUE_WAIT_MS: 8000,  // Adicionales Cloud: 8s — si sigue escribiendo esperar más
   CLOUD_FRAGMENT_WAIT_MS: 8000,  // Fragmentos Cloud: 8s (era 6s)
   // Límites globales
   MAX_WAIT_MS: 30000,         // Máximo absoluto: 30s (era 25s)
@@ -334,7 +334,7 @@ const messageBuffer: Map<string, {
 
 // 🛡️ Cache de últimas respuestas enviadas — evita duplicados (30s TTL)
 const lastSentResponses = new Map<string, { text: string; ts: number }>();
-const LAST_SENT_TTL = 30000;
+const LAST_SENT_TTL = 60000; // 60s para bloquear mejor los duplicados
 
 // ===== SESSION MANAGEMENT (multi-tenant) =====
 const getUserSessionName = (userId: string): string => `user_${userId}`;
@@ -4709,9 +4709,11 @@ const processBufferedMessages = async (bufferKey: string) => {
             // 🛡️ ANTI-DUPLICADO: Verificar que no sea la misma respuesta que la anterior
             const lastSent = lastSentResponses.get(bufferKey);
             const now = Date.now();
-            const isDuplicate = lastSent && 
-              lastSent.text === cleanResponse && 
-              (now - lastSent.ts) < LAST_SENT_TTL;
+            // 🔧 Enhanced: exact match OR any response within 5s (prevents near-duplicate)
+            const timeSinceLastSent = lastSent ? (now - lastSent.ts) : Infinity;
+            const isExactDup = lastSent && lastSent.text === cleanResponse && timeSinceLastSent < LAST_SENT_TTL;
+            const isNearDup = lastSent && timeSinceLastSent < 5000;
+            const isDuplicate = isExactDup || isNearDup;
             
             if (isDuplicate) {
               clog(`🚫 Respuesta duplicada bloqueada para ${senderName}`);
@@ -4763,8 +4765,20 @@ const processBufferedMessages = async (bufferKey: string) => {
         ? BURST_CONFIG.PENDING_DELAY_CLOUD
         : BURST_CONFIG.PENDING_DELAY_WAHA;
       
-      clog(`🔄 ${realPendingCount} msg(s) pendiente(s) de ${senderName} → procesando en ${(pendingDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''} (esperando si el cliente sigue escribiendo)...`);
-      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), pendingDelay);
+      // 🔧 FIX ANTI-DUPLICADO: Si el pending es solo una continuación muy corta
+      // ("este l", "que precio") y ya enviamos respuesta, esperar más para acumular
+      const pendingText = pending.messages.join(' ').trim();
+      const isVeryShort = pendingText.length < 8;
+      const lastSentRecently = lastSentResponses.has(bufferKey) && 
+        (Date.now() - (lastSentResponses.get(bufferKey)?.ts || 0)) < 8000;
+      
+      // Si el mensaje es muy corto Y acabamos de responder → darle más tiempo al cliente
+      const effectiveDelay = (isVeryShort && lastSentRecently && pending.isCloud)
+        ? Math.max(pendingDelay, 15000) // 15s si es continuación corta post-respuesta
+        : pendingDelay;
+      
+      clog(`🔄 ${realPendingCount} msg(s) pendiente(s) de ${senderName} → procesando en ${(effectiveDelay/1000).toFixed(1)}s${pending.isCloud ? ' (Cloud)' : ''}${isVeryShort && lastSentRecently ? ' [short+recent → extra wait]' : ''} (esperando si el cliente sigue escribiendo)...`);
+      pending.timer = setTimeout(() => processBufferedMessages(bufferKey), effectiveDelay);
     }
   }
 };
@@ -7789,9 +7803,12 @@ router.get('/templates', async (req: Request, res: Response) => {
 
     let wabaId = line.cloudBusinessId || '';
     
-    // ── Auto-detect WABA ID if not set or if previous attempt failed ──────
-    // When cloudBusinessId is missing or wrong, fetch it from the phone number
-    if (!wabaId && line.cloudPhoneNumberId) {
+    // ── Auto-detect WABA ID — siempre intentar si el actual podría ser incorrecto ──
+    // The cloudBusinessId might be the Phone Number ID (wrong) instead of WABA ID
+    // WABA IDs are typically 15 digits starting with a small number like 10-12...
+    // Phone Number IDs are typically 15-18 digits starting with 9...
+    const looksLikePhoneId = wabaId && wabaId.startsWith('9') && wabaId.length >= 15;
+    if (!wabaId || looksLikePhoneId) {
       try {
         const phoneRes = await fetch(
           `${CLOUD_API_URL}/${line.cloudPhoneNumberId}?fields=id,display_phone_number,name_status,quality_rating,whatsapp_business_account`,

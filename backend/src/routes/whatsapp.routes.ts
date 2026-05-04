@@ -2525,7 +2525,7 @@ REGLAS DE TRANSFERENCIA:
               take: 10
             });
             if (teamMembers.length > 0) {
-              biLines.push(`\n━━━ 👨‍💼 EQUIPO (${teamMembers.length} miembros) ━━━`);
+              biLines.push(`\n━━━ 👨💼 EQUIPO (${teamMembers.length} miembros) ━━━`);
               teamMembers.forEach((m: any) => biLines.push(`  • ${m.name} | ${m.role || 'Agente'}`));
             }
           }
@@ -2916,37 +2916,6 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               const detectedStage = (memoryData.etapa_actual || memoryData.paso_actual || '').trim();
               const actionToTake = memoryData.accion || '';
 
-              // 🔘 MENSAJE INTERACTIVO (botones o lista)
-              // Si la IA puso "interactive" en el MEMORY_JSON → enviar como mensaje interactivo
-              const interactiveData = memoryData.interactive as any;
-              if (interactiveData && isCloudAPI && line?.cloudAccessToken && line?.cloudPhoneNumberId) {
-                // Enviar el texto ANTES de los botones (si el mensaje principal lo tiene)
-                // Los botones se envían como mensaje SEPARADO después del texto
-                setTimeout(async () => {
-                  try {
-                    const iResult = await sendCloudInteractive(
-                      line.cloudPhoneNumberId!,
-                      line.cloudAccessToken!,
-                      from.replace(/@.*/, ''),
-                      {
-                        type: interactiveData.type || 'button',
-                        body: interactiveData.body || interactiveData.texto || '',
-                        buttons: interactiveData.buttons || interactiveData.opciones || [],
-                        listTitle: interactiveData.listTitle || interactiveData.titulo_lista || 'Ver opciones',
-                        sections: interactiveData.sections || undefined,
-                        header: interactiveData.header || undefined,
-                        footer: interactiveData.footer || undefined,
-                      }
-                    );
-                    if (iResult.ok) {
-                      log(\`🔘 Interactivo enviado a \${senderName}: \${interactiveData.type}\`);
-                      if (iResult.wamid) wamidCache.set(iResult.wamid, interactiveData.body || '');
-                    }
-                  } catch (ie: any) {
-                    console.error('❌ Error enviando interactivo:', ie.message);
-                  }
-                }, 1500); // Pequeño delay para que llegue después del texto
-              }
 
               // ════════════════════════════════════════════════════════════════
               // 🤖 COPILOTO IA — ACCIONES DEL DUEÑO (isPersonalAssistant)
@@ -4744,6 +4713,42 @@ const processBufferedMessages = async (bufferKey: string) => {
 
           const textResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
           const textSent = textResult.ok;
+
+          // 🔘 BOTONES INTERACTIVOS — enviar después del texto si la IA incluyó "interactive" en MEMORY_JSON
+          try {
+            const iData = (aiResponse as any)?._interactive || (() => {
+              try {
+                const memJson = aiResponse?.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
+                return memJson ? JSON.parse(memJson)?.interactive : null;
+              } catch { return null; }
+            })();
+            if (iData && isCloudAPI && lineInfo?.pnid && lineInfo?.token) {
+              const phoneNum = from.replace(/@.*/, '').replace(/\D/g, '');
+              setTimeout(async () => {
+                try {
+                  const iResult = await sendCloudInteractive(
+                    lineInfo.pnid!,
+                    lineInfo.token!,
+                    phoneNum,
+                    {
+                      type: iData.type || 'button',
+                      body: iData.body || iData.texto || cleanResponse.substring(0, 250),
+                      buttons: iData.buttons || iData.opciones || [],
+                      listTitle: iData.listTitle || iData.titulo_lista || 'Ver opciones',
+                      sections: iData.sections || undefined,
+                      header: iData.header || undefined,
+                      footer: iData.footer || undefined,
+                    }
+                  );
+                  if (iResult.ok) {
+                    log(`🔘 Interactivo (${iData.type}) → ${senderName}: ${(iData.buttons || []).length} opciones`);
+                  }
+                } catch (ie: any) {
+                  console.error('❌ sendCloudInteractive error:', ie.message);
+                }
+              }, 1800);
+            }
+          } catch {}
           const botWamid = textResult.wamid;
           if (textSent) {
             if (botWamid) wamidCache.set(botWamid, cleanResponse);
@@ -6906,7 +6911,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       await setPresence(sessionName, from, 'typing');
       await new Promise(r => setTimeout(r, 1000));
       await stopPresence(sessionName, from);
-      const pauseMsg = '🙋‍♂️ Te conecto con un asesor humano. En un momento te atienden.';
+      const pauseMsg = '🙋♂️ Te conecto con un asesor humano. En un momento te atienden.';
       await unifiedSendText(sessionName, from, pauseMsg, whatsappLineId);
       await prisma.message.create({ data: { conversationId: conv.id, content: pauseMsg, fromMe: true, userId, role: 'assistant' } });
       await prisma.conversation.update({ where: { id: conv.id }, data: { lastMessage: pauseMsg } });
@@ -7784,7 +7789,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
       // Pause/Resume commands
       if (messageBody.trim() === '0') {
         await prisma.conversation.update({ where: { id: conv.id }, data: { aiPaused: true } });
-        const pauseMsg = '🙋‍♂️ Te conecto con un asesor humano. En un momento te atienden.';
+        const pauseMsg = '🙋♂️ Te conecto con un asesor humano. En un momento te atienden.';
         if (line.cloudAccessToken) await sendCloudText(phoneNumberId, line.cloudAccessToken, recipientId, pauseMsg);
         await prisma.message.create({ data: { conversationId: conv.id, content: pauseMsg, fromMe: true, userId, role: 'assistant' } });
         continue;

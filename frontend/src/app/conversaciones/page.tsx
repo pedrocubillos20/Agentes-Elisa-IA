@@ -1361,66 +1361,134 @@ export default function ConversacionesPage() {
                 )}
                 {messages.map((msg, idx) => (
                   <div key={msg.id || idx} className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`${msg.mediaType === 'image' ? 'max-w-[85%]' : 'max-w-[75%]'} px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
+                    <div className={`${['image','video','sticker'].includes(msg.mediaType || '') ? 'max-w-[85%]' : 'max-w-[75%]'} px-3 py-2 rounded-2xl text-sm ${msg.fromMe ? 'bg-[var(--accent-primary)] text-white rounded-br-sm' : 'bg-[var(--bg-tertiary)] text-white rounded-bl-sm'}`}>
                       {/* 💬 QUOTED MESSAGE — muestra el mensaje al que respondió */}
-                      
-                      {msg.mediaType === 'image' && msg.mediaUrl && (() => {
+
+                      {/* 🖼️ IMAGEN — muestra la foto del cliente */}
+                      {(msg.mediaType === 'image' || msg.mediaType === 'sticker') && msg.mediaUrl && (() => {
                         const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
-                        const imgSrc = msg.mediaUrl.startsWith('data:') ? msg.mediaUrl 
+                        const imgSrc = msg.mediaUrl.startsWith('data:') ? msg.mediaUrl
                           : msg.mediaUrl.startsWith('/api/') ? `${API_URL}${msg.mediaUrl}?token=${t}`
                           : msg.mediaUrl.startsWith('http') ? msg.mediaUrl
                           : `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
                         return (
-                          <img 
-                            src={imgSrc}
-                            alt="" 
-                            className="max-w-full w-full rounded-lg mb-1 cursor-pointer hover:opacity-90 transition" 
-                            style={{ maxWidth: '420px', imageRendering: 'auto' }}
-                            onClick={() => window.open(imgSrc, '_blank')}
-                            onError={(e) => { 
-                              const el = e.target as HTMLImageElement;
-                              if (!el.dataset.retried) {
-                                el.dataset.retried = '1';
-                                el.src = `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
-                              } else {
-                                el.style.display = 'none';
-                              }
-                            }}
-                            loading="lazy"
-                          />
+                          <div className="relative group mb-1">
+                            <img
+                              src={imgSrc}
+                              alt="Imagen del cliente"
+                              className="max-w-full rounded-xl cursor-pointer hover:opacity-95 transition-opacity shadow-md"
+                              style={{ maxWidth: '320px', maxHeight: '400px', objectFit: 'cover' }}
+                              onClick={() => window.open(imgSrc, '_blank')}
+                              onError={(e) => {
+                                const el = e.target as HTMLImageElement;
+                                if (!el.dataset.retried) {
+                                  el.dataset.retried = '1';
+                                  el.src = `${API_URL}/api/media-proxy/${msg.id}?token=${t}`;
+                                } else {
+                                  el.style.display = 'none';
+                                  const fallback = el.parentElement?.querySelector('.img-fallback') as HTMLElement;
+                                  if (fallback) fallback.style.display = 'flex';
+                                }
+                              }}
+                              loading="lazy"
+                            />
+                            <div className="img-fallback hidden items-center gap-2 px-3 py-2 rounded-xl bg-black/20">
+                              <span className="text-sm">🖼️</span>
+                              <span className="text-xs opacity-60">Imagen no disponible</span>
+                            </div>
+                            <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => window.open(imgSrc, '_blank')}
+                                className="bg-black/60 hover:bg-black/80 text-white rounded-lg px-2 py-1 text-[10px] flex items-center gap-1">
+                                ↗️ Abrir
+                              </button>
+                            </div>
+                          </div>
                         );
                       })()}
-                      {msg.mediaType === 'image' && !msg.mediaUrl && (
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
-                          <Image className="w-4 h-4 opacity-60" />
+                      {(msg.mediaType === 'image' || msg.mediaType === 'sticker') && !msg.mediaUrl && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 mb-1">
+                          <span className="text-sm">🖼️</span>
                           <span className="text-xs opacity-60">Imagen recibida</span>
                         </div>
                       )}
-                      {msg.mediaType === 'audio' && (
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
-                          <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-                            <span className="text-xs">🎤</span>
+
+                      {/* 🎥 VIDEO */}
+                      {msg.mediaType === 'video' && (() => {
+                        const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+                        const vidSrc = msg.mediaUrl?.startsWith('data:') ? msg.mediaUrl
+                          : msg.mediaUrl?.startsWith('/api/') ? `${API_URL}${msg.mediaUrl}?token=${t}`
+                          : msg.mediaUrl?.startsWith('http') ? msg.mediaUrl
+                          : msg.id ? `${API_URL}/api/media-proxy/${msg.id}?token=${t}` : null;
+                        return vidSrc ? (
+                          <div className="mb-1">
+                            <video controls className="max-w-full rounded-xl" style={{ maxWidth: '320px', maxHeight: '300px' }}>
+                              <source src={vidSrc} />
+                            </video>
                           </div>
+                        ) : (
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 mb-1">
+                            <span className="text-sm">🎥</span>
+                            <span className="text-xs opacity-60">Video recibido</span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* 📄 DOCUMENTO */}
+                      {msg.mediaType === 'document' && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-black/20 mb-1">
+                          <span className="text-sm">📄</span>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <div className="flex gap-[2px] items-end h-3">
-                                {[3,5,7,4,6,8,5,7,3,5,6,4,7,5,3].map((h,i) => (
-                                  <div key={i} className="w-[2px] rounded-full bg-emerald-400/60" style={{height: `${h * 1.5}px`}} />
-                                ))}
-                              </div>
-                              <span className="text-[9px] opacity-60 ml-1">Audio</span>
-                            </div>
-                            {msg.content && !msg.content.includes('[Audio') && (
-                              <p className="text-[9px] text-emerald-400/80 mt-0.5">✨ Transcrito por IA</p>
+                            <p className="text-xs font-medium">Documento</p>
+                            {msg.mediaUrl && (
+                              <a href={msg.mediaUrl} target="_blank" rel="noreferrer"
+                                className="text-[10px] text-blue-300 hover:underline">
+                                Ver / Descargar ↗
+                              </a>
                             )}
                           </div>
                         </div>
                       )}
+
+                      {/* 🎤 AUDIO */}
+                      {msg.mediaType === 'audio' && (() => {
+                        const t = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+                        const audSrc = msg.mediaUrl?.startsWith('data:') ? msg.mediaUrl
+                          : msg.mediaUrl?.startsWith('/api/') ? `${API_URL}${msg.mediaUrl}?token=${t}`
+                          : msg.mediaUrl?.startsWith('http') ? msg.mediaUrl
+                          : msg.id ? `${API_URL}/api/media-proxy/${msg.id}?token=${t}` : null;
+                        return (
+                          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-black/20 mb-1">
+                            <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                              <span className="text-xs">🎤</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              {audSrc ? (
+                                <audio controls className="w-full h-7" style={{ minWidth: '160px' }}>
+                                  <source src={audSrc} />
+                                </audio>
+                              ) : (
+                                <div className="flex gap-[2px] items-end h-4">
+                                  {[3,5,7,4,6,8,5,7,3,5,6,4,7,5,3].map((h,i) => (
+                                    <div key={i} className="w-[2px] rounded-full bg-emerald-400/60" style={{height: `${h * 1.5}px`}} />
+                                  ))}
+                                </div>
+                              )}
+                              {msg.content && !msg.content.includes('[Audio') && (
+                                <p className="text-[9px] text-emerald-400/80 mt-0.5">✨ {msg.content}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       <p className="whitespace-pre-wrap break-words">
-                        {msg.mediaType === 'image' && msg.mediaUrl && (msg.content === '📷 [Imagen]' || msg.content === '📷 [Imagen enviada por el cliente]' || msg.content?.startsWith('📷 [Imagen'))
-                          ? '' 
-                          : msg.mediaType === 'image' && msg.content?.startsWith('[El cliente envió una imagen')
-                            ? msg.content.replace(/^\[El cliente envió una imagen[^.]*\.\s*Contenido(?:\s*de la imagen)?:\s*/, '👁️ ').replace(/\]$/, '')
+                        {(msg.mediaType === 'image' || msg.mediaType === 'sticker') && msg.mediaUrl &&
+                          (msg.content === '📷 [Imagen]' || msg.content === '📷 [Imagen enviada por el cliente]' || msg.content?.startsWith('📷 [Imagen'))
+                          ? ''
+                          : (msg.mediaType === 'image' || msg.mediaType === 'sticker') && msg.content?.startsWith('[El cliente envió una imagen')
+                            ? msg.content.replace(/^\[El cliente envió una imagen[^.]*\.\s*Contenido(?:\s*de la imagen)?:\s*/, '👁️ IA: ').replace(/\]$/, '')
+                            : msg.mediaType === 'video' && (!msg.content || msg.content === '🎥 [Video]') ? ''
+                            : msg.mediaType === 'audio' && (!msg.content || msg.content.startsWith('🎤')) ? ''
                             : msg.content
                         }
                       </p>

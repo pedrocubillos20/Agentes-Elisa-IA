@@ -378,6 +378,10 @@ export default function ProgramadosPage() {
 
   const excelValid   = excelContacts.filter(c => c.valid).length;
   const excelInvalid = excelContacts.filter(c => !c.valid).length;
+  const filteredTemplates = templates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()));
+  const canSave = !saving && scheduledDate && scheduledTime &&
+    (targetType === 'bulk_excel' ? excelValid > 0 : !!targetId) &&
+    (useTemplate ? !!selectedTemplate : (!!(message || mediaFile)));
 
   if (loading) return (
     <div className="h-[calc(100vh-120px)] flex items-center justify-center">
@@ -870,13 +874,7 @@ export default function ProgramadosPage() {
                                   <div className="w-full h-16 bg-white/10 rounded-lg flex items-center justify-center mb-1"><span>▶️</span></div>
                                 )}
                                 <p className="text-sm text-white whitespace-pre-wrap leading-relaxed">
-                                  {(() => {
-                                    const bodyText = selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text || '';
-                                    return bodyText.replace(/\{\{(\d+)\}\}/g, (m: string, n: string) => {
-                                      const val = templateVars[parseInt(n)-1];
-                                      return val ? '*' + val + '*' : m;
-                                    });
-                                  })()}
+                                  {selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text?.replace(/\{\{(\d+)\}\}/g, (m: string, n: string) => templateVars[parseInt(n)-1] ? `*${templateVars[parseInt(n)-1]}*` : m) || ''}
                                 </p>
                                 {selectedTemplate.components?.find((c: any) => c.type === 'FOOTER') && (
                                   <p className="text-xs text-gray-400 mt-1">{selectedTemplate.components.find((c: any) => c.type === 'FOOTER').text}</p>
@@ -897,11 +895,11 @@ export default function ProgramadosPage() {
                           <div className="space-y-2 mt-2">
                             <label className="text-sm font-semibold text-[var(--text-muted)] block">Variables de la plantilla</label>
                             <div className="p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                              <p className="text-xs text-blue-300">ℹ️ Para envíos masivos puedes usar {"{{nombre}}"} para personalizar con el nombre de cada contacto.</p>
+                              <p className="text-xs text-blue-300">ℹ️ Para envíos masivos puedes usar {`{{nombre}}`} para personalizar con el nombre de cada contacto.</p>
                             </div>
                             {templateVars.map((v, i) => (
                               <div key={i} className="flex items-center gap-2">
-                                <span className="text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-primary)] px-2 py-1.5 rounded-lg text-[var(--accent-primary)] flex-shrink-0">{"{{" + (i+1) + "}}"}</span>
+                                <span className="text-xs font-mono bg-[var(--bg-tertiary)] border border-[var(--border-primary)] px-2 py-1.5 rounded-lg text-[var(--accent-primary)] flex-shrink-0">{`{{${i+1}}}`}</span>
                                 <input type="text" value={v}
                                   onChange={e => { const v2 = [...templateVars]; v2[i] = e.target.value; setTemplateVars(v2); }}
                                   placeholder={`Variable ${i+1}`}

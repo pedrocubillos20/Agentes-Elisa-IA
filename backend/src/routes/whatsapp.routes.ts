@@ -7936,14 +7936,35 @@ router.get('/templates', async (req: Request, res: Response) => {
       return;
     }
 
-    // ── Validar que sea Cloud API ──────────────────────────────────
+    // ── Validar que sea Cloud API — si no lo es, buscar automáticamente ──────────
     if (line.connectionType !== 'cloud_api') {
-      res.json({
-        templates: [],
-        reason: 'not_cloud_api',
-        message: `La línea "${line.label || ''}" usa WAHA, no Cloud API de Meta. Las plantillas solo funcionan con Cloud API.`,
+      // La línea seleccionada es WAHA → buscar la línea Cloud API del usuario
+      const cloudLine = await prisma.whatsappLine.findFirst({
+        where: {
+          userId: ownerId,
+          connectionType: 'cloud_api',
+          cloudAccessToken: { not: null },
+          cloudPhoneNumberId: { not: null },
+        },
+        select: {
+          connectionType: true,
+          cloudPhoneNumberId: true,
+          cloudAccessToken: true,
+          cloudBusinessId: true,
+          label: true,
+        },
       });
-      return;
+      if (!cloudLine) {
+        res.json({
+          templates: [],
+          reason: 'not_cloud_api',
+          message: 'No tienes ninguna línea con Cloud API de Meta activa. Crea una línea Cloud API en la sección de WhatsApp.',
+        });
+        return;
+      }
+      // Usar la línea Cloud API encontrada automáticamente
+      Object.assign(line, cloudLine);
+      log(`✅ Templates: usando línea Cloud API automática "${cloudLine.label}" para userId ${ownerId}`);
     }
 
     if (!line.cloudAccessToken) {

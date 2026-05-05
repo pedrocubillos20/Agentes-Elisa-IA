@@ -116,11 +116,43 @@ export default function ProgramadosPage() {
   const fetchTemplates = async () => {
     setTemplatesLoading(true);
     try {
-      const lineId = getLineId();
+      let lineId = getLineId();
+
+      // Si no hay lineId, buscar la línea Cloud API directamente
+      if (!lineId) {
+        const linesRes = await fetch(API_URL + '/api/whatsapp/lines', { headers: authHeader() });
+        if (linesRes.ok) {
+          const linesData = await linesRes.json();
+          const cloudLine = (linesData.lines || []).find((l: any) => l.connectionType === 'cloud_api');
+          if (cloudLine) lineId = cloudLine.id;
+        }
+      }
+
+      if (!lineId) { setTemplates([]); return; }
+
+      // Auto-detectar WABA ID
       await fetch(API_URL + '/api/whatsapp/waba-id?lineId=' + lineId, { headers: authHeader() }).catch(() => {});
+
       const res = await fetch(API_URL + '/api/whatsapp/templates?lineId=' + lineId, { headers: authHeader() });
       if (res.ok) {
         const data = await res.json();
+        // Si la línea seleccionada no es Cloud API, buscar automáticamente la que sí lo es
+        if (data.reason === 'not_cloud_api' || data.reason === 'missing_token') {
+          const linesRes = await fetch(API_URL + '/api/whatsapp/lines', { headers: authHeader() });
+          if (linesRes.ok) {
+            const linesData = await linesRes.json();
+            const cloudLine = (linesData.lines || []).find((l: any) => l.connectionType === 'cloud_api');
+            if (cloudLine) {
+              await fetch(API_URL + '/api/whatsapp/waba-id?lineId=' + cloudLine.id, { headers: authHeader() }).catch(() => {});
+              const res2 = await fetch(API_URL + '/api/whatsapp/templates?lineId=' + cloudLine.id, { headers: authHeader() });
+              if (res2.ok) {
+                const data2 = await res2.json();
+                setTemplates(data2.templates || []);
+                return;
+              }
+            }
+          }
+        }
         setTemplates(data.templates || []);
       }
     } catch (e) {

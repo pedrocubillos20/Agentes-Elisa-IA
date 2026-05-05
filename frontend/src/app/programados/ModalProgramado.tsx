@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Send, Loader, Info, Download, Upload, FileText, Trash2,
   Eye, EyeOff, ArrowUpFromLine, Image, Mic, Paperclip,
@@ -155,7 +156,10 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
       ) || '')
     : '';
 
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const modalContent = (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
       onClick={() => { if (!saving) onClose(); }}
@@ -453,7 +457,8 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
                 ) : templates.length === 0 ? (
                   <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                     <p className="text-sm text-amber-300 font-medium mb-1">No hay plantillas aprobadas</p>
-                    <p className="text-xs text-[var(--text-muted)]">Requiere línea con Cloud API de Meta activa.</p>
+                    <p className="text-xs text-[var(--text-muted)]">Verifica que tu línea Cloud API (The Four) tenga el WABA ID configurado y plantillas con estado <strong>APPROVED</strong> en Meta Business Manager.</p>
+                    <p className="text-xs text-amber-400 mt-1">💡 El WABA ID lo encuentras en Meta Business → Configuración → Cuentas de WhatsApp</p>
                     <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Recargar</button>
                   </div>
                 ) : (
@@ -698,4 +703,7 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
       </div>
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(modalContent, document.body);
 }

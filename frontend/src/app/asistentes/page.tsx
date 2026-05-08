@@ -14,7 +14,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 export default function AsistentesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'modules' | 'media' | 'learning' | 'voice'>('modules');
+  const [activeTab, setActiveTab] = useState<'modules' | 'media' | 'learning' | 'voice' | 'flow'>('modules');
   const [activeModule, setActiveModule] = useState<string>('identidad');
   const [viewMode, setViewMode] = useState<'markdown' | 'json'>('markdown');
   const [message, setMessage] = useState({ type: '', text: '' });
@@ -696,6 +696,7 @@ export default function AsistentesPage() {
           { id: 'media', label: 'Multimedia', icon: Image, badge: mediaItems.length || undefined },
           { id: 'learning', label: 'Auto-Aprendizaje', icon: TrendingUp, badge: pendingSuggestions.length || undefined },
           { id: 'voice', label: 'Voz (ElevenLabs)', icon: Volume2 },
+          { id: 'flow', label: 'Flujo IA', icon: GitBranch },
         ].map((tab) => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
             className={`flex items-center gap-2 px-5 py-3 rounded-lg font-medium transition-all whitespace-nowrap ${
@@ -1667,6 +1668,104 @@ export default function AsistentesPage() {
               <li>3. Pégalos arriba, activa el toggle y dale "Guardar Todo"</li>
               <li>4. Plan gratis: 10,000 caracteres/mes (~10 min de audio)</li>
             </ol>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== FLUJO IA TAB ==================== */}
+      {activeTab === 'flow' && (
+        <div className="space-y-5">
+          <div className="card p-5">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
+                <GitBranch className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-white">Flujo de Conversación IA</h2>
+                <p className="text-xs text-white/35">Pasos que sigue el asistente con cada cliente</p>
+              </div>
+            </div>
+
+            {/* Steps */}
+            {[
+              { num: '1', color: '#0F6E56', bg: '#E1F5EE', label: 'Saludo + Equipo', sub: 'Bienvenida variada → muestra los 7 equipos disponibles', tag: null, badge: 'Primer mensaje', badgeColor: 'bg-blue-500/20 text-blue-300' },
+              { num: '2', color: '#0F6E56', bg: '#E1F5EE', label: 'Catálogo del equipo', sub: 'Envía TODOS los colores disponibles del equipo elegido', tag: 'colores [equipo]', badge: null },
+              { num: '3A', color: '#854F0B', bg: '#FAEEDA', label: 'Cliente elige COLOR', sub: 'Negro, Rojo, Azul... = color únicamente. Dispara imágenes del color', tag: '[equipo] [color]', badge: '≠ diseño', badgeColor: 'bg-amber-500/20 text-amber-300' },
+              { num: '3B', color: '#3B6D11', bg: '#EAF3DE', label: 'Confirma DISEÑO (Opción N)', sub: 'Reply a imagen O dice "Opción 2" → guarda detalles_producto. ⛔ No más imágenes', tag: null, badge: 'Avanza a talla', badgeColor: 'bg-green-500/20 text-green-300' },
+              { num: '4', color: '#185FA5', bg: '#E6F1FB', label: 'Talla', sub: 'Adulto: XS S M L XL 2XL 3XL 4XL · Niño: 2-4 6-8 10-12 14-16', tag: null, badge: null },
+              { num: '5', color: '#185FA5', bg: '#E6F1FB', label: 'Calidad + Precio', sub: 'Premium 300g vs Monaco 260g · Verificar precio en productos.json SIEMPRE', tag: null, badge: null },
+              { num: '6', color: '#185FA5', bg: '#E6F1FB', label: 'Ciudad + Envío', sub: 'Bogotá/Soacha = gratis · Otras ciudades = Inter Rapidísimo · total = subtotal + envío', tag: null, badge: null },
+              { num: '7', color: '#185FA5', bg: '#E6F1FB', label: 'Datos de entrega', sub: 'Nombre · Teléfono · Dirección completa · Barrio · Solo pide lo que falta', tag: null, badge: null },
+              { num: '8', color: '#993C1D', bg: '#FAECE7', label: 'Resumen + Order Bump', sub: '2do buzo 15% OFF · 3er buzo 20% OFF · Siempre después del resumen', tag: null, badge: null },
+              { num: '9', color: '#993C1D', bg: '#FAECE7', label: 'Método de pago', sub: 'Efectivo · Nequi · Bancolombia · Tarjeta +5% · NUNCA vacío al crear pedido', tag: null, badge: '⚠️ obligatorio', badgeColor: 'bg-red-500/20 text-red-300' },
+              { num: '10', color: '#534AB7', bg: '#EEEDFE', label: 'Crear pedido', sub: 'Checklist completo: nombre + tel + dirección + barrio + ciudad + producto + total + pago + fecha', tag: null, badge: 'acción: crear_pedido', badgeColor: 'bg-violet-500/20 text-violet-300' },
+            ].map((step, i) => (
+              <div key={step.num}>
+                <div className="flex gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-default">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5"
+                    style={{ background: step.bg, color: step.color }}
+                  >
+                    {step.num}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center flex-wrap gap-2">
+                      <span className="text-sm font-semibold text-white">{step.label}</span>
+                      {step.badge && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${step.badgeColor}`}>
+                          {step.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">{step.sub}</p>
+                    {step.tag && (
+                      <code className="text-[10px] mt-1.5 inline-block bg-white/8 border border-white/10 rounded px-2 py-0.5 text-white/50 font-mono">
+                        {step.tag}
+                      </code>
+                    )}
+                  </div>
+                </div>
+                {i < 10 && (
+                  <div className="ml-7 w-px h-4 bg-white/10" />
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Regla crítica COLOR vs DISEÑO */}
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span className="text-sm font-semibold text-amber-300">Regla crítica — COLOR ≠ DISEÑO</span>
+            </div>
+            <div className="space-y-2 text-xs text-amber-200/70 leading-relaxed">
+              <p>Cuando el cliente dice <code className="bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-300 font-mono">"Negro"</code> — es selección de <strong className="text-amber-200">color</strong> → disparar trigger <code className="bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-300 font-mono">barcelona negro</code> → mostrar los diseños → esperar.</p>
+              <p>Cuando dice <code className="bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-300 font-mono">"Opción 2"</code> o hace reply a imagen — es selección de <strong className="text-amber-200">diseño</strong> → confirmar → avanzar a talla.</p>
+              <p className="text-amber-400">⛔ NUNCA tratar la selección de color como confirmación de diseño. Son pasos distintos.</p>
+            </div>
+          </div>
+
+          {/* Rutas especiales */}
+          <div className="card p-5">
+            <h3 className="text-sm font-semibold text-white mb-4">Rutas especiales (en cualquier paso)</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { emoji: '💬', label: 'Objeción de precio', desc: '10% solo si el cliente lo pide. "Lo vi más barato" → calidad DTF + contra entrega' },
+                { emoji: '🔁', label: 'Recompra', desc: 'Confirmar dirección anterior → limpiar memoria → flujo desde Paso 2' },
+                { emoji: '🙋', label: 'Transferir humano', desc: 'Cuando insiste 2+ veces o reclamo > $200.000' },
+                { emoji: '✏️', label: 'Modificar pedido', desc: 'pedido = creado → preguntar cambio → resumen → actualizar_pedido' },
+                { emoji: '📏', label: 'Tallas especiales', desc: '2XL/3XL/4XL y niño → sobre pedido → 3-4 días hábiles' },
+                { emoji: '📦', label: 'Cancelar pedido', desc: 'Pedir confirmación explícita → SÍ → cancelar_pedido' },
+              ].map((route) => (
+                <div key={route.label} className="p-3 rounded-xl border border-white/8 bg-white/3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{route.emoji}</span>
+                    <span className="text-xs font-semibold text-white">{route.label}</span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{route.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

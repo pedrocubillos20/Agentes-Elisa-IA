@@ -359,7 +359,7 @@ const resolveUserFromWebhook = async (sessionName: string, recipientId: string):
   // 1. ÚNICO MÉTODO: Buscar por sessionName de línea de WhatsApp
   // Cada línea tiene su sessionName único y pertenece a UN solo usuario
   const waLine = await prisma.whatsappLine.findUnique({ 
-    where: { sessionName },
+    where: { sessionName, connectionType: { not: 'cloud_api' } },
     select: { userId: true }
   }).catch(() => null);
   
@@ -4483,6 +4483,9 @@ const processBufferedMessages = async (bufferKey: string) => {
   const lineInfo = await getLineInfo(whatsappLineId);
   const isCloudAPI = lineInfo?.type === 'cloud_api';
 
+  // 📋 Log claro de separación WAHA vs Cloud API
+  clog(`🔀 Procesando: ${isCloudAPI ? '☁️ CLOUD API' : '📱 WAHA'} | lineId: ${whatsappLineId || 'global'} | usuario: ${senderName}`);
+
   // 🧠 Si es continuación (mensaje pendiente mientras IA procesaba), agregar contexto
   // Esto ayuda a que la IA responda brevemente sin repetir info previa
   const aiMessage = buf.previousContext
@@ -4496,7 +4499,18 @@ const processBufferedMessages = async (bufferKey: string) => {
       assistant = await prisma.assistant.findFirst({ where: { userId, whatsappLineId } });
     }
     if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+      // Fallback: buscar asistente activo pero que NO esté asignado a OTRA línea
+      // Esto evita que Cloud API use el asistente de Elisa_IA (WAHA) y viceversa
+      assistant = await prisma.assistant.findFirst({ 
+        where: { userId, isActive: true, whatsappLineId: null } 
+      });
+      if (!assistant) {
+        // Último recurso: cualquier asistente activo del usuario
+        assistant = await prisma.assistant.findFirst({ where: { userId, isActive: true } });
+      }
+      if (assistant) {
+        clog(`⚠️ Asistente fallback usado para lineId:${whatsappLineId} → "${assistant.name}" (lineId asistente: ${(assistant as any).whatsappLineId || 'global'})`);
+      }
     }
     if (!assistant) {
       // ⚠️ Sin asistente configurado → no responder, evita respuestas vacías sin contexto
@@ -6430,7 +6444,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       
       // Mensaje enviado manualmente desde el celular → GUARDAR
       try {
-        const line = await prisma.whatsappLine.findFirst({ where: { sessionName } });
+        const line = await prisma.whatsappLine.findFirst({ where: { sessionName, connectionType: { not: 'cloud_api' } } });
         if (line) {
           const ownerId = line.userId;
           const recipientNumber = cleanFrom.replace(/\D/g, '');
@@ -6776,7 +6790,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
     if (!userId) { res.status(400).json({ error: 'No user' }); return; }
 
     // 🔗 Buscar whatsappLineId por sessionName
-    const waLine = await prisma.whatsappLine.findUnique({ where: { sessionName } }).catch(() => null);
+    // 🔒 SEPARACIÓN WAHA/CLOUD: solo buscar líneas WAHA — nunca procesar Cloud API lines aquí
+    const waLine = await prisma.whatsappLine.findFirst({ 
+      where: { sessionName, connectionType: { not: 'cloud_api' } } 
+    }).catch(() => null);
     const whatsappLineId = waLine?.id || null;
 
     // 🚫 ANTI-LOOP: ignorar mensajes del propio número de la línea

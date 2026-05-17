@@ -2910,96 +2910,6 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               }
               const memoryData = JSON.parse(rawMemory);
               console.log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')} | interactive: ${memoryData.interactive ? '✅ SÍ' : '❌ NO'}`);
-
-              // 🔘 AUTO-INYECTAR BOTONES según etapa_actual si la IA no los incluyó
-              if (!memoryData.interactive && isCloudAPI) {
-                const etapa = (memoryData.etapa_actual || '').toLowerCase();
-                const ciudad = (memoryData.ciudad || '').toLowerCase();
-                const esIR = ciudad && ciudad !== 'bogotá' && ciudad !== 'bogota' && ciudad !== 'soacha';
-
-                if (!etapa || etapa.includes('equipo') || etapa.includes('nuevo')) {
-                  memoryData.interactive = {
-                    type: 'button',
-                    body: '¡Hola! ¿En qué te puedo ayudar? 👇',
-                    buttons: ['Ver catálogo 👕', 'Ver precios 💰', 'Hablar con asesor']
-                  };
-                } else if (etapa.includes('color')) {
-                  memoryData.interactive = {
-                    type: 'list',
-                    body: '¿De qué equipo buscas el buzo? 🔥',
-                    listTitle: 'Elegir equipo',
-                    sections: [
-                      { title: '🇨🇴 Colombia', rows: [
-                        { id: 'eq_nacional', title: '🟢 Nacional', description: 'Atlético Nacional' },
-                        { id: 'eq_america', title: '🔴 América', description: 'América de Cali' },
-                        { id: 'eq_millonarios', title: '🔵 Millonarios', description: 'Millonarios FC' },
-                        { id: 'eq_santafe', title: '🔴 Santa Fe', description: 'Independiente Santa Fe' }
-                      ]},
-                      { title: '🌍 Internacional', rows: [
-                        { id: 'eq_barcelona', title: '🔵🔴 Barcelona', description: 'FC Barcelona' },
-                        { id: 'eq_realmadrid', title: '⬜ Real Madrid', description: 'Real Madrid CF' },
-                        { id: 'eq_argentina', title: '💙 Argentina', description: 'Selección Argentina' }
-                      ]}
-                    ]
-                  };
-                } else if (etapa.includes('talla')) {
-                  memoryData.interactive = {
-                    type: 'list',
-                    body: '¿Cuál talla necesitas? 📏',
-                    listTitle: 'Elegir talla',
-                    sections: [
-                      { title: 'Tallas adulto', rows: [
-                        { id: 'talla_xs', title: 'XS', description: 'Extra pequeño' },
-                        { id: 'talla_s', title: 'S', description: 'Pequeño' },
-                        { id: 'talla_m', title: 'M', description: 'Mediano' },
-                        { id: 'talla_l', title: 'L', description: 'Grande' },
-                        { id: 'talla_xl', title: 'XL', description: 'Extra grande' },
-                        { id: 'talla_2xl', title: '2XL', description: 'Sobre pedido 3-4 días' },
-                        { id: 'talla_3xl', title: '3XL', description: 'Sobre pedido 3-4 días' },
-                        { id: 'talla_4xl', title: '4XL', description: 'Sobre pedido 3-4 días' }
-                      ]},
-                      { title: 'Tallas niño', rows: [
-                        { id: 'talla_n24', title: '2-4', description: 'Talla niño' },
-                        { id: 'talla_n68', title: '6-8', description: 'Talla niño' },
-                        { id: 'talla_n1012', title: '10-12', description: 'Talla niño' },
-                        { id: 'talla_n1416', title: '14-16', description: 'Talla niño' }
-                      ]}
-                    ]
-                  };
-                } else if (etapa.includes('calidad')) {
-                  memoryData.interactive = {
-                    type: 'button',
-                    body: '¿Qué calidad prefieres?',
-                    footer: 'Premium = más grueso y duradero',
-                    buttons: ['⭐ Premium 300g', '💫 Monaco 260g', '¿Cuál diferencia?']
-                  };
-                } else if (etapa.includes('pago') || etapa.includes('cotizado')) {
-                  if (esIR) {
-                    memoryData.interactive = {
-                      type: 'button',
-                      body: 'El envío se paga anticipado. ¿Cómo prefieres?',
-                      buttons: ['📱 Nequi', '🏦 Bancolombia', '💳 Todo con tarjeta']
-                    };
-                  } else {
-                    memoryData.interactive = {
-                      type: 'button',
-                      body: '¿Cómo prefieres pagar?',
-                      buttons: ['💵 Efectivo', '📱 Nequi/Bancolombia', '💳 Tarjeta (+5%)']
-                    };
-                  }
-                } else if (etapa.includes('confirmado') || etapa.includes('confirmar')) {
-                  memoryData.interactive = {
-                    type: 'button',
-                    body: '¿Confirmamos el pedido? 🚀',
-                    buttons: ['✅ Confirmar pedido', '✏️ Cambiar algo']
-                  };
-                }
-                if (memoryData.interactive) {
-                  log(`🔘 AUTO-BOTONES inyectados por etapa "${etapa}" → ${memoryData.interactive.type}`);
-                  // Guardar en aiResponse para que los bloques de envío lo lean
-                  (aiResponse as any)._interactive = memoryData.interactive;
-                }
-              }
               // Merge con datos existentes (no borrar datos previos si vienen vacíos)
               const merged = { ...savedContext };
               for (const [key, value] of Object.entries(memoryData)) {
@@ -4749,6 +4659,53 @@ const processBufferedMessages = async (bufferKey: string) => {
 
       if (!aiResponse) {
         clog(`⚠️ AI sin respuesta para ${senderName} (userId: ${userId}, lineId: ${whatsappLineId || 'global'}, isCloud: ${isCloudAPI})`);
+      }
+
+      // 🔘 AUTO-INYECTAR BOTONES: leer etapa_actual del MEMORY_JSON y asignar botones si la IA no los incluyó
+      if (aiResponse && isCloudAPI) {
+        try {
+          const memRaw = aiResponse.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
+          if (memRaw) {
+            const mem = JSON.parse(memRaw);
+            if (!mem.interactive) {
+              const etapa = (mem.etapa_actual || '').toLowerCase();
+              const ciudad = (mem.ciudad || '').toLowerCase();
+              const esIR = ciudad && ciudad !== 'bogotá' && ciudad !== 'bogota' && ciudad !== 'soacha';
+              let autoInteractive: any = null;
+
+              if (!etapa || etapa.includes('equipo') || etapa.includes('nuevo')) {
+                autoInteractive = { type: 'button', body: '¡Hola! ¿En qué te puedo ayudar? 👇', buttons: ['Ver catálogo 👕', 'Ver precios 💰', 'Hablar con asesor'] };
+              } else if (etapa.includes('color')) {
+                autoInteractive = { type: 'list', body: '¿De qué equipo buscas el buzo? 🔥', listTitle: 'Elegir equipo',
+                  sections: [
+                    { title: '🇨🇴 Colombia', rows: [{ id: 'eq_nacional', title: '🟢 Nacional', description: 'Atlético Nacional' }, { id: 'eq_america', title: '🔴 América', description: 'América de Cali' }, { id: 'eq_millonarios', title: '🔵 Millonarios', description: 'Millonarios FC' }, { id: 'eq_santafe', title: '🔴 Santa Fe', description: 'Independiente Santa Fe' }] },
+                    { title: '🌍 Internacional', rows: [{ id: 'eq_barcelona', title: '🔵🔴 Barcelona', description: 'FC Barcelona' }, { id: 'eq_realmadrid', title: '⬜ Real Madrid', description: 'Real Madrid CF' }, { id: 'eq_argentina', title: '💙 Argentina', description: 'Selección Argentina' }] }
+                  ]
+                };
+              } else if (etapa.includes('talla')) {
+                autoInteractive = { type: 'list', body: '¿Cuál talla necesitas? 📏', listTitle: 'Elegir talla',
+                  sections: [
+                    { title: 'Tallas adulto', rows: [{ id: 'talla_xs', title: 'XS', description: 'Extra pequeño' }, { id: 'talla_s', title: 'S', description: 'Pequeño' }, { id: 'talla_m', title: 'M', description: 'Mediano' }, { id: 'talla_l', title: 'L', description: 'Grande' }, { id: 'talla_xl', title: 'XL', description: 'Extra grande' }, { id: 'talla_2xl', title: '2XL', description: 'Sobre pedido 3-4 días' }, { id: 'talla_3xl', title: '3XL', description: 'Sobre pedido 3-4 días' }, { id: 'talla_4xl', title: '4XL', description: 'Sobre pedido 3-4 días' }] },
+                    { title: 'Tallas niño', rows: [{ id: 'talla_n24', title: '2-4', description: 'Talla niño' }, { id: 'talla_n68', title: '6-8', description: 'Talla niño' }, { id: 'talla_n1012', title: '10-12', description: 'Talla niño' }, { id: 'talla_n1416', title: '14-16', description: 'Talla niño' }] }
+                  ]
+                };
+              } else if (etapa.includes('calidad')) {
+                autoInteractive = { type: 'button', body: '¿Qué calidad prefieres?', footer: 'Premium = más grueso y duradero', buttons: ['⭐ Premium 300g', '💫 Monaco 260g', '¿Cuál diferencia?'] };
+              } else if (etapa.includes('pago') || etapa.includes('cotizado')) {
+                autoInteractive = esIR
+                  ? { type: 'button', body: 'El envío se paga anticipado. ¿Cómo prefieres?', buttons: ['📱 Nequi', '🏦 Bancolombia', '💳 Todo con tarjeta'] }
+                  : { type: 'button', body: '¿Cómo prefieres pagar?', buttons: ['💵 Efectivo', '📱 Nequi/Bancolombia', '💳 Tarjeta (+5%)'] };
+              } else if (etapa.includes('confirmar') || etapa.includes('confirmado')) {
+                autoInteractive = { type: 'button', body: '¿Confirmamos el pedido? 🚀', buttons: ['✅ Confirmar pedido', '✏️ Cambiar algo'] };
+              }
+
+              if (autoInteractive) {
+                (aiResponse as any)._interactive = autoInteractive;
+                log(`🔘 AUTO-BOTONES → etapa:"${etapa}" tipo:${autoInteractive.type}`);
+              }
+            }
+          }
+        } catch { /* no bloquear si falla el parse */ }
       }
 
       if (aiResponse) {

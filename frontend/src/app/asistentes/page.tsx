@@ -1683,103 +1683,298 @@ export default function AsistentesPage() {
 
       {/* ==================== FLUJO IA TAB ==================== */}
       {activeTab === 'flow' && (
-        <div className="space-y-5">
-          <div className="card p-5">
-            <div className="flex items-center gap-3 mb-6">
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
                 <GitBranch className="w-5 h-5 text-white" />
               </div>
               <div>
                 <h2 className="text-sm font-bold text-white">Flujo de Conversación IA</h2>
-                <p className="text-xs text-white/35">Pasos que sigue el asistente con cada cliente</p>
+                <p className="text-xs text-white/35">Diagrama completo del asistente Elisa</p>
               </div>
             </div>
-
-            {/* Steps */}
-            {[
-              { num: '1', color: '#0F6E56', bg: '#E1F5EE', label: 'Saludo + Equipo', sub: 'Bienvenida variada → muestra los 7 equipos disponibles', tag: null, badge: 'Primer mensaje', badgeColor: 'bg-blue-500/20 text-blue-300' },
-              { num: '2', color: '#0F6E56', bg: '#E1F5EE', label: 'Catálogo del equipo', sub: 'Envía TODOS los colores disponibles del equipo elegido', tag: 'colores [equipo]', badge: null },
-              { num: '3A', color: '#854F0B', bg: '#FAEEDA', label: 'Cliente elige COLOR', sub: 'Negro, Rojo, Azul... = color únicamente. Dispara imágenes del color', tag: '[equipo] [color]', badge: '≠ diseño', badgeColor: 'bg-amber-500/20 text-amber-300' },
-              { num: '3B', color: '#3B6D11', bg: '#EAF3DE', label: 'Confirma DISEÑO (Opción N)', sub: 'Reply a imagen O dice "Opción 2" → guarda detalles_producto. ⛔ No más imágenes', tag: null, badge: 'Avanza a talla', badgeColor: 'bg-green-500/20 text-green-300' },
-              { num: '4', color: '#185FA5', bg: '#E6F1FB', label: 'Talla', sub: 'Adulto: XS S M L XL 2XL 3XL 4XL · Niño: 2-4 6-8 10-12 14-16', tag: null, badge: null },
-              { num: '5', color: '#185FA5', bg: '#E6F1FB', label: 'Calidad + Precio', sub: 'Premium 300g vs Monaco 260g · Verificar precio en productos.json SIEMPRE', tag: null, badge: null },
-              { num: '6', color: '#185FA5', bg: '#E6F1FB', label: 'Ciudad + Envío', sub: 'Bogotá/Soacha = gratis · Otras ciudades = Inter Rapidísimo · total = subtotal + envío', tag: null, badge: null },
-              { num: '7', color: '#185FA5', bg: '#E6F1FB', label: 'Datos de entrega', sub: 'Nombre · Teléfono · Dirección completa · Barrio · Solo pide lo que falta', tag: null, badge: null },
-              { num: '8', color: '#993C1D', bg: '#FAECE7', label: 'Resumen + Order Bump', sub: '2do buzo 15% OFF · 3er buzo 20% OFF · Siempre después del resumen', tag: null, badge: null },
-              { num: '9', color: '#993C1D', bg: '#FAECE7', label: 'Método de pago', sub: 'Efectivo · Nequi · Bancolombia · Tarjeta +5% · NUNCA vacío al crear pedido', tag: null, badge: '⚠️ obligatorio', badgeColor: 'bg-red-500/20 text-red-300' },
-              { num: '10', color: '#534AB7', bg: '#EEEDFE', label: 'Crear pedido', sub: 'Checklist completo: nombre + tel + dirección + barrio + ciudad + producto + total + pago + fecha', tag: null, badge: 'acción: crear_pedido', badgeColor: 'bg-violet-500/20 text-violet-300' },
-            ].map((step, i) => (
-              <div key={step.num}>
-                <div className="flex gap-3 p-3 rounded-xl hover:bg-white/5 transition-colors cursor-default">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5"
-                    style={{ background: step.bg, color: step.color }}
-                  >
-                    {step.num}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center flex-wrap gap-2">
-                      <span className="text-sm font-semibold text-white">{step.label}</span>
-                      {step.badge && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${step.badgeColor}`}>
-                          {step.badge}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">{step.sub}</p>
-                    {step.tag && (
-                      <code className="text-[10px] mt-1.5 inline-block bg-white/8 border border-white/10 rounded px-2 py-0.5 text-white/50 font-mono">
-                        {step.tag}
-                      </code>
-                    )}
-                  </div>
-                </div>
-                {i < 10 && (
-                  <div className="ml-7 w-px h-4 bg-white/10" />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Regla crítica COLOR vs DISEÑO */}
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-              <span className="text-sm font-semibold text-amber-300">Regla crítica — COLOR ≠ DISEÑO</span>
-            </div>
-            <div className="space-y-2 text-xs text-amber-200/70 leading-relaxed">
-              <p>Cuando el cliente dice <code className="bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-300 font-mono">"Negro"</code> — es selección de <strong className="text-amber-200">color</strong> → disparar trigger <code className="bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-300 font-mono">barcelona negro</code> → mostrar los diseños → esperar.</p>
-              <p>Cuando dice <code className="bg-amber-500/15 px-1.5 py-0.5 rounded text-amber-300 font-mono">"Opción 2"</code> o hace reply a imagen — es selección de <strong className="text-amber-200">diseño</strong> → confirmar → avanzar a talla.</p>
-              <p className="text-amber-400">⛔ NUNCA tratar la selección de color como confirmación de diseño. Son pasos distintos.</p>
-            </div>
-          </div>
-
-          {/* Rutas especiales */}
-          <div className="card p-5">
-            <h3 className="text-sm font-semibold text-white mb-4">Rutas especiales (en cualquier paso)</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { emoji: '💬', label: 'Objeción de precio', desc: '10% solo si el cliente lo pide. "Lo vi más barato" → calidad DTF + contra entrega' },
-                { emoji: '🔁', label: 'Recompra', desc: 'Confirmar dirección anterior → limpiar memoria → flujo desde Paso 2' },
-                { emoji: '🙋', label: 'Transferir humano', desc: 'Cuando insiste 2+ veces o reclamo > $200.000' },
-                { emoji: '✏️', label: 'Modificar pedido', desc: 'pedido = creado → preguntar cambio → resumen → actualizar_pedido' },
-                { emoji: '📏', label: 'Tallas especiales', desc: '2XL/3XL/4XL y niño → sobre pedido → 3-4 días hábiles' },
-                { emoji: '📦', label: 'Cancelar pedido', desc: 'Pedir confirmación explícita → SÍ → cancelar_pedido' },
-                { emoji: '🔘', label: 'Botones interactivos', desc: 'Ver 16_botones.json — 8 pasos con botones. El backend los envía automáticamente vía MEMORY_JSON' },
-              ].map((route) => (
-                <div key={route.label} className="p-3 rounded-xl border border-white/8 bg-white/3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-base">{route.emoji}</span>
-                    <span className="text-xs font-semibold text-white">{route.label}</span>
-                  </div>
-                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">{route.desc}</p>
+            <div className="flex gap-2 text-[10px]">
+              {[{color:'bg-emerald-500',label:'Acción IA'},{color:'bg-violet-500',label:'Decisión'},{color:'bg-amber-500',label:'Alerta'},{color:'bg-blue-500',label:'Dato'}].map(l=>(
+                <div key={l.label} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 border border-white/8">
+                  <div className={`w-2 h-2 rounded-full ${l.color}`}/>
+                  <span className="text-white/50">{l.label}</span>
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Diagram canvas */}
+          <div className="card p-0 overflow-hidden">
+            <div className="overflow-auto" style={{maxHeight:'78vh'}}>
+              <svg viewBox="0 0 900 2080" xmlns="http://www.w3.org/2000/svg" style={{width:'100%',minWidth:'640px',display:'block'}}>
+                <defs>
+                  <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#ffffff30"/>
+                  </marker>
+                  <marker id="arr-warn" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b80"/>
+                  </marker>
+                  <marker id="arr-ok" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#10b98180"/>
+                  </marker>
+                  <filter id="glow">
+                    <feGaussianBlur stdDeviation="3" result="blur"/>
+                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                  </filter>
+                </defs>
+
+                {/* BG */}
+                <rect width="900" height="2080" fill="#0a0a0f"/>
+                {/* Grid dots */}
+                {Array.from({length:42}).map((_,row)=>Array.from({length:18}).map((_,col)=>(
+                  <circle key={`${row}-${col}`} cx={col*50+25} cy={row*50+25} r="1" fill="#ffffff08"/>
+                )))}
+
+                {/* ── INICIO ── */}
+                <ellipse cx="450" cy="55" rx="80" ry="26" fill="#10b981" opacity="0.15" stroke="#10b981" strokeWidth="1.5"/>
+                <text x="450" y="60" textAnchor="middle" fill="#10b981" fontSize="13" fontWeight="600">🚀 Inicio</text>
+
+                {/* arrow */}
+                <line x1="450" y1="81" x2="450" y2="108" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 1: SALUDO ── */}
+                <rect x="290" y="112" width="320" height="70" rx="14" fill="#10b98112" stroke="#10b981" strokeWidth="1.5"/>
+                <text x="450" y="137" textAnchor="middle" fill="#10b981" fontSize="12" fontWeight="700">PASO 1 — Saludo + Equipo</text>
+                <text x="450" y="155" textAnchor="middle" fill="#ffffff60" fontSize="10">Bienvenida variada → pregunta el equipo</text>
+                <text x="450" y="170" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [Ver catálogo | Ver precios | Asesor]</text>
+
+                <line x1="450" y1="182" x2="450" y2="210" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 2: CATÁLOGO ── */}
+                <rect x="290" y="214" width="320" height="66" rx="14" fill="#10b98112" stroke="#10b981" strokeWidth="1.5"/>
+                <text x="450" y="238" textAnchor="middle" fill="#10b981" fontSize="12" fontWeight="700">PASO 2 — Catálogo del Equipo</text>
+                <text x="450" y="256" textAnchor="middle" fill="#ffffff60" fontSize="10">Trigger: colores [equipo] → envía todas las imágenes</text>
+                <text x="450" y="271" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Lista: [Nacional | Barcelona | Millonarios | ...]</text>
+
+                <line x1="450" y1="280" x2="450" y2="308" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 3A: COLOR ── */}
+                <rect x="265" y="312" width="370" height="78" rx="14" fill="#f59e0b12" stroke="#f59e0b" strokeWidth="1.5"/>
+                <text x="450" y="337" textAnchor="middle" fill="#f59e0b" fontSize="12" fontWeight="700">PASO 3A — Cliente elige COLOR</text>
+                <rect x="330" y="346" width="80" height="18" rx="6" fill="#ef444420"/>
+                <text x="370" y="358" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600">≠ diseño</text>
+                <text x="460" y="358" textAnchor="middle" fill="#ffffff60" fontSize="10">Negro, Rojo, Azul... = solo color</text>
+                <text x="450" y="378" textAnchor="middle" fill="#ffffff60" fontSize="10">Trigger: [equipo] [color] → envía diseños de ese color</text>
+
+                <line x1="450" y1="390" x2="450" y2="418" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── DECISIÓN ── */}
+                <polygon points="450,422 560,452 450,482 340,452" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="1.5"/>
+                <text x="450" y="449" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">¿Cómo confirma</text>
+                <text x="450" y="464" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">el diseño?</text>
+
+                {/* Sí - reply */}
+                <line x1="560" y1="452" x2="680" y2="452" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
+                <text x="618" y="446" textAnchor="middle" fill="#10b981" fontSize="9">Reply imagen</text>
+                <rect x="682" y="432" width="160" height="42" rx="10" fill="#10b98112" stroke="#10b981" strokeWidth="1"/>
+                <text x="762" y="450" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="600">Sistema inyecta</text>
+                <text x="762" y="464" textAnchor="middle" fill="#ffffff60" fontSize="9">[cliente seleccionó: X-Opción N]</text>
+                <line x1="762" y1="474" x2="762" y2="530" stroke="#10b98160" strokeWidth="1.5"/>
+                <line x1="762" y1="530" x2="560" y2="530" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
+
+                {/* Ambiguo */}
+                <line x1="340" y1="452" x2="200" y2="452" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
+                <text x="272" y="446" textAnchor="middle" fill="#f59e0b" fontSize="9">Ambiguo</text>
+                <rect x="58" y="432" width="140" height="42" rx="10" fill="#f59e0b12" stroke="#f59e0b" strokeWidth="1"/>
+                <text x="128" y="450" textAnchor="middle" fill="#f59e0b" fontSize="10" fontWeight="600">Pedir claridad</text>
+                <text x="128" y="464" textAnchor="middle" fill="#ffffff60" fontSize="9">¿Opción 1, 2 o 3?</text>
+                <line x1="128" y1="474" x2="128" y2="530" stroke="#f59e0b60" strokeWidth="1.5"/>
+                <line x1="128" y1="530" x2="340" y2="530" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
+
+                {/* Dice opción N */}
+                <line x1="450" y1="482" x2="450" y2="510" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+                <text x="500" y="500" fill="#ffffff50" fontSize="9">Dice "Opción 2"</text>
+
+                {/* ── PASO 3B: DISEÑO ── */}
+                <rect x="280" y="514" width="340" height="68" rx="14" fill="#10b98112" stroke="#10b981" strokeWidth="2"/>
+                <text x="450" y="538" textAnchor="middle" fill="#10b981" fontSize="12" fontWeight="700">PASO 3B — Confirma DISEÑO</text>
+                <rect x="360" y="547" width="90" height="18" rx="6" fill="#10b98120"/>
+                <text x="405" y="559" textAnchor="middle" fill="#10b981" fontSize="9" fontWeight="600">Opción N confirmada</text>
+                <text x="450" y="573" textAnchor="middle" fill="#ffffff60" fontSize="10">Guarda detalles_producto → ⛔ No más imágenes</text>
+
+                <line x1="450" y1="582" x2="450" y2="610" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 4: TALLA ── */}
+                <rect x="290" y="614" width="320" height="66" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
+                <text x="450" y="638" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 4 — Talla</text>
+                <text x="450" y="656" textAnchor="middle" fill="#ffffff60" fontSize="10">Adulto: XS S M L XL 2XL 3XL 4XL</text>
+                <text x="450" y="671" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Lista: adulto (8) + niño (4) · La talla define el tipo</text>
+
+                <line x1="450" y1="680" x2="450" y2="708" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 5: CALIDAD ── */}
+                <rect x="290" y="712" width="320" height="66" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
+                <text x="450" y="736" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 5 — Calidad + Precio</text>
+                <text x="450" y="754" textAnchor="middle" fill="#ffffff60" fontSize="10">Premium 300g vs Monaco 260g · Precio exacto de productos.json</text>
+                <text x="450" y="769" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [⭐ Premium | 💫 Monaco | ¿Diferencia?]</text>
+
+                <line x1="450" y1="778" x2="450" y2="806" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 6: CIUDAD ── */}
+                <rect x="290" y="810" width="320" height="66" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
+                <text x="450" y="834" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 6 — Ciudad + Envío</text>
+                <text x="450" y="852" textAnchor="middle" fill="#ffffff60" fontSize="10">Bogotá/Soacha = GRATIS · Otras = Inter Rapidísimo</text>
+                <text x="450" y="867" textAnchor="middle" fill="#ffffff60" fontSize="10">Total = subtotal + envío SIEMPRE</text>
+
+                <line x1="450" y1="876" x2="450" y2="904" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── DECISIÓN CIUDAD ── */}
+                <polygon points="450,908 570,932 450,956 330,932" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="1.5"/>
+                <text x="450" y="936" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">¿Ciudad?</text>
+
+                {/* Bogotá path */}
+                <line x1="330" y1="932" x2="170" y2="932" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
+                <text x="252" y="926" textAnchor="middle" fill="#10b981" fontSize="9">Bogotá/Soacha</text>
+                <rect x="40" y="912" width="128" height="42" rx="10" fill="#10b98112" stroke="#10b981" strokeWidth="1"/>
+                <text x="104" y="929" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="600">Domicilio</text>
+                <text x="104" y="943" textAnchor="middle" fill="#ffffff60" fontSize="9">Pide dirección + barrio</text>
+                <line x1="104" y1="954" x2="104" y2="1010" stroke="#10b98160" strokeWidth="1.5"/>
+                <line x1="104" y1="1010" x2="330" y2="1010" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
+
+                {/* IR path */}
+                <line x1="570" y1="932" x2="710" y2="932" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
+                <text x="638" y="926" textAnchor="middle" fill="#f59e0b" fontSize="9">Otra ciudad</text>
+                <rect x="712" y="910" width="148" height="46" rx="10" fill="#f59e0b12" stroke="#f59e0b" strokeWidth="1"/>
+                <text x="786" y="929" textAnchor="middle" fill="#f59e0b" fontSize="10" fontWeight="600">Inter Rapidísimo</text>
+                <text x="786" y="943" textAnchor="middle" fill="#ffffff60" fontSize="9">Oficina principal</text>
+                <text x="786" y="956" textAnchor="middle" fill="#ffffff60" fontSize="9">Pide cédula (no dirección)</text>
+                <line x1="786" y1="956" x2="786" y2="1010" stroke="#f59e0b60" strokeWidth="1.5"/>
+                <line x1="786" y1="1010" x2="570" y2="1010" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
+
+                {/* ── PASO 7: DATOS ── */}
+                <rect x="285" y="1014" width="330" height="56" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
+                <text x="450" y="1037" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 7 — Datos del Cliente</text>
+                <text x="450" y="1055" textAnchor="middle" fill="#ffffff60" fontSize="10">Nombre · Teléfono · [Dirección+Barrio o Cédula]</text>
+
+                <line x1="450" y1="1070" x2="450" y2="1098" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 8: RESUMEN + ORDER BUMP ── */}
+                <rect x="275" y="1102" width="350" height="76" rx="14" fill="#ef444412" stroke="#ef4444" strokeWidth="1.5"/>
+                <text x="450" y="1126" textAnchor="middle" fill="#ef4444" fontSize="12" fontWeight="700">PASO 8 — Resumen + Order Bump</text>
+                <text x="450" y="1144" textAnchor="middle" fill="#ffffff60" fontSize="10">Muestra resumen completo del pedido</text>
+                <text x="450" y="1159" textAnchor="middle" fill="#f59e0b" fontSize="10">🔥 Ofrece 2do buzo 15% OFF · 3er buzo 20% OFF</text>
+                <text x="450" y="1170" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [🛒 Sí, otro | ✅ Solo este]</text>
+
+                <line x1="450" y1="1178" x2="450" y2="1206" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── DECISIÓN ORDER BUMP ── */}
+                <polygon points="450,1210 555,1232 450,1254 345,1232" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="1.5"/>
+                <text x="450" y="1236" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">¿2do buzo?</text>
+
+                {/* Acepta order bump */}
+                <line x1="555" y1="1232" x2="680" y2="1232" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
+                <text x="616" y="1226" textAnchor="middle" fill="#10b981" fontSize="9">Sí</text>
+                <rect x="682" y="1214" width="148" height="38" rx="10" fill="#10b98112" stroke="#10b981" strokeWidth="1"/>
+                <text x="756" y="1231" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="600">Agregar 2do buzo</text>
+                <text x="756" y="1245" textAnchor="middle" fill="#ffffff60" fontSize="9">→ vuelve al paso 3</text>
+                <line x1="756" y1="1252" x2="756" y2="1290" stroke="#10b98160" strokeWidth="1.5"/>
+                <line x1="756" y1="1290" x2="556" y2="1290" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
+
+                {/* No order bump */}
+                <line x1="450" y1="1254" x2="450" y2="1282" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+                <text x="470" y="1272" fill="#ffffff50" fontSize="9">No</text>
+
+                {/* ── PASO 9: PAGO ── */}
+                <rect x="280" y="1286" width="340" height="76" rx="14" fill="#ef444412" stroke="#ef4444" strokeWidth="1.5"/>
+                <text x="450" y="1310" textAnchor="middle" fill="#ef4444" fontSize="12" fontWeight="700">PASO 9 — Método de Pago</text>
+                <text x="450" y="1328" textAnchor="middle" fill="#10b981" fontSize="10">Bogotá: Efectivo · Nequi · Bancolombia · Tarjeta</text>
+                <text x="450" y="1343" textAnchor="middle" fill="#f59e0b" fontSize="10">IR: Envío anticipado (Nequi/Bancolombia) + buzo al recoger</text>
+                <text x="450" y="1354" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones según ciudad · ⚠️ NUNCA vacío</text>
+
+                <line x1="450" y1="1362" x2="450" y2="1390" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── PASO 10: CONFIRMAR ── */}
+                <rect x="280" y="1394" width="340" height="90" rx="14" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="2"/>
+                <text x="450" y="1418" textAnchor="middle" fill="#a78bfa" fontSize="12" fontWeight="700">PASO 10 — Crear Pedido</text>
+                <text x="450" y="1436" textAnchor="middle" fill="#ffffff60" fontSize="10">Checklist completo antes de crear:</text>
+                <text x="450" y="1451" textAnchor="middle" fill="#10b981" fontSize="9">✅ nombre · teléfono · dirección/cédula · ciudad</text>
+                <text x="450" y="1465" textAnchor="middle" fill="#10b981" fontSize="9">✅ producto · total · metodo_pago · fecha_entrega</text>
+                <text x="450" y="1477" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [✅ Confirmar | ✏️ Cambiar algo]</text>
+
+                <line x1="450" y1="1484" x2="450" y2="1512" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── accion: crear_pedido ── */}
+                <rect x="310" y="1516" width="280" height="44" rx="12" fill="#7c3aed25" stroke="#7c3aed" strokeWidth="2"/>
+                <text x="450" y="1535" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="700">⚡ accion: crear_pedido</text>
+                <text x="450" y="1551" textAnchor="middle" fill="#ffffff60" fontSize="10">etapa_actual = Confirmado</text>
+
+                <line x1="450" y1="1560" x2="450" y2="1590" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
+
+                {/* ── FIN ── */}
+                <ellipse cx="450" cy="1610" rx="80" ry="26" fill="#10b981" opacity="0.15" stroke="#10b981" strokeWidth="1.5"/>
+                <text x="450" y="1615" textAnchor="middle" fill="#10b981" fontSize="13" fontWeight="600">🎉 Pedido creado</text>
+
+                {/* ════ RUTAS ESPECIALES (lateral) ════ */}
+                <text x="450" y="1670" textAnchor="middle" fill="#ffffff30" fontSize="11" fontWeight="500">── Rutas especiales (en cualquier paso) ──</text>
+
+                <rect x="30" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
+                <text x="123" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">💬 Objeción de precio</text>
+                <text x="123" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">10% solo si el cliente</text>
+                <text x="123" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">lo pide explícitamente</text>
+
+                <rect x="234" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
+                <text x="327" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">🔁 Recompra</text>
+                <text x="327" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">Confirmar ciudad anterior</text>
+                <text x="327" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">→ flujo desde Paso 2</text>
+
+                <rect x="438" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
+                <text x="531" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">🙋 Transferir humano</text>
+                <text x="531" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">2+ insistencias o reclamo</text>
+                <text x="531" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">mayor a $200.000</text>
+
+                <rect x="642" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
+                <text x="735" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">✏️ Modificar pedido</text>
+                <text x="735" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">pedido = creado →</text>
+                <text x="735" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">actualizar_pedido</text>
+
+                <rect x="132" y="1758" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
+                <text x="225" y="1779" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">📏 Tallas especiales</text>
+                <text x="225" y="1796" textAnchor="middle" fill="#ffffff45" fontSize="9">2XL/3XL/4XL y niño →</text>
+                <text x="225" y="1808" textAnchor="middle" fill="#ffffff45" fontSize="9">sobre pedido 3-4 días</text>
+
+                <rect x="336" y="1758" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
+                <text x="429" y="1779" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">📦 Cancelar pedido</text>
+                <text x="429" y="1796" textAnchor="middle" fill="#ffffff45" fontSize="9">Confirmar explícita →</text>
+                <text x="429" y="1808" textAnchor="middle" fill="#ffffff45" fontSize="9">cancelar_pedido</text>
+
+                <rect x="540" y="1758" width="200" height="52" rx="12" fill="#6366f115" stroke="#6366f140" strokeWidth="1"/>
+                <text x="640" y="1779" textAnchor="middle" fill="#818cf8" fontSize="11" fontWeight="600">🔘 Botones interactivos</text>
+                <text x="640" y="1796" textAnchor="middle" fill="#ffffff45" fontSize="9">8 pasos con botones →</text>
+                <text x="640" y="1808" textAnchor="middle" fill="#ffffff45" fontSize="9">ver 16_botones.json</text>
+
+                {/* ── REGLA CRÍTICA box ── */}
+                <rect x="160" y="1830" width="580" height="60" rx="14" fill="#f59e0b08" stroke="#f59e0b40" strokeWidth="1.5"/>
+                <text x="450" y="1853" textAnchor="middle" fill="#f59e0b" fontSize="11" fontWeight="700">⚠️ Regla crítica — COLOR ≠ DISEÑO</text>
+                <text x="450" y="1870" textAnchor="middle" fill="#ffffff55" fontSize="10">"Negro" = COLOR → trigger [equipo] [color] → mostrar diseños → esperar</text>
+                <text x="450" y="1885" textAnchor="middle" fill="#ffffff55" fontSize="10">"Opción 2" o reply = DISEÑO → confirmar → avanzar a talla</text>
+
+                {/* Step labels on left rail */}
+                {[
+                  [450, 148, '#10b981', '01'],
+                  [450, 248, '#10b981', '02'],
+                  [450, 352, '#f59e0b', '3A'],
+                  [450, 548, '#10b981', '3B'],
+                  [450, 648, '#3b82f6', '04'],
+                  [450, 747, '#3b82f6', '05'],
+                  [450, 843, '#3b82f6', '06'],
+                  [450, 1042, '#3b82f6', '07'],
+                  [450, 1141, '#ef4444', '08'],
+                  [450, 1324, '#ef4444', '09'],
+                  [450, 1440, '#7c3aed', '10'],
+                ].map(([,,c,n]) => null)}
+
+              </svg>
+            </div>
+          </div>
         </div>
       )}
-
       {/* Footer */}
       <div className="flex items-center justify-center py-6">
         <div className="flex items-center gap-3 px-6 py-3 rounded-2xl bg-white/5 border border-white/10">

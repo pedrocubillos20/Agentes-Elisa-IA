@@ -1730,6 +1730,7 @@ ${content.trim()}`);
       addMod('CATÁLOGO (13)',            (assistant as any).modCatalogo);
       addMod('NLU MAP (14)',             (assistant as any).modNlu);
       addMod('MOTOR DE OFERTAS (15)',    (assistant as any).modOfertas);
+      addMod('BOTONES INTERACTIVOS (16)', (assistant as any).modBotones);
 
       if (moduleParts.length > 0) {
         promptParts.push(`=== 📚 BASE DE CONOCIMIENTO Y CONFIGURACIÓN DEL ASISTENTE ===
@@ -2629,41 +2630,39 @@ ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_
 
 [SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.
 
-🔘 BOTONES INTERACTIVOS (opcional, solo si mejora la experiencia):
-Para enviar botones o listas interactivas al cliente, incluye el campo "interactive" en el MEMORY_JSON.
-SOLO en momentos clave donde los botones simplifican la elección. NO usar en cada mensaje.
+🔘 BOTONES INTERACTIVOS — OBLIGATORIO en los pasos del flujo marcados con ⚡:
+Incluir campo "interactive" en MEMORY_JSON. El texto llega primero, los botones después automáticamente.
 
 FORMATO BOTONES (máx 3 opciones, 20 chars c/u):
 "interactive": {
   "type": "button",
   "body": "¿Qué calidad prefieres?",
-  "buttons": ["🥇 Premium $115.000", "🥈 Monaco $90.000"],
-  "footer": "Los dos son de excelente calidad"
+  "buttons": ["⭐ Premium 300g", "💫 Monaco 260g", "¿Cuál diferencia?"],
+  "footer": "Premium = más grueso y duradero"
 }
 
-FORMATO LISTA (hasta 10 opciones, útil para equipos/métodos de pago):
+FORMATO LISTA (sections, hasta 10 filas total):
 "interactive": {
   "type": "list",
-  "body": "¿De qué equipo quieres tu hoodie?",
-  "listTitle": "Ver equipos",
-  "buttons": ["Millonarios", "Nacional", "América", "Santa Fe", "Barcelona", "Real Madrid", "Colombia", "Junior", "Once Caldas", "Cali"]
+  "body": "¿De qué equipo buscas el buzo?",
+  "listTitle": "Elegir equipo",
+  "sections": [
+    {"title":"Colombia","rows":[{"id":"eq_nacional","title":"🟢 Nacional"},{"id":"eq_america","title":"🔴 América"},{"id":"eq_millonarios","title":"🔵 Millonarios"},{"id":"eq_santafe","title":"🔴 Santa Fe"}]},
+    {"title":"Internacional","rows":[{"id":"eq_barcelona","title":"🔵🔴 Barcelona"},{"id":"eq_realmadrid","title":"⬜ Real Madrid"},{"id":"eq_argentina","title":"💙 Argentina"}]}
+  ]
 }
 
-CUÁNDO usar botones (momentos clave recomendados):
-- Elegir calidad: Premium vs Monaco → 2 botones
-- Elegir método de pago → 3 botones (Contra entrega, Nequi/Daviplata, Bancolombia)
-- Confirmar pedido: Confirmar vs Cancelar → 2 botones
-- Elegir talla adulto/niño → 2 botones
-- Primer mensaje sin equipo definido → lista con equipos
+USAR BOTONES EN ESTOS 8 PASOS (ver 16_botones.json):
+1. Saludo → button [Ver catálogo 👕 | Ver precios 💰 | Hablar con asesor]
+2. Elegir equipo → list secciones Colombia + Internacional
+3. Talla → list secciones Adulto (XS S M L XL 2XL 3XL 4XL) + Niño (2-4 6-8 10-12 14-16)
+4. Calidad → button [⭐ Premium 300g | 💫 Monaco 260g | ¿Cuál diferencia?]
+5. Order Bump → button [🛒 Sí, quiero otro | ✅ Solo este por ahora]
+6. Pago Bogotá/Soacha → button [💵 Efectivo | 📱 Nequi/Bancolombia | 💳 Tarjeta (+5%)]
+7. Pago Inter Rapidísimo → button [📱 Nequi | 🏦 Bancolombia | 💳 Todo con tarjeta]
+8. Confirmar pedido → button [✅ Confirmar pedido | ✏️ Cambiar algo]
 
-CUÁNDO NO usar botones:
-- Preguntar equipo si ya lo saben y solo confirman
-- Preguntar talla exacta (muchas opciones → solo texto)
-- Mensajes de información pura
-- Si ya hay un trigger de imagen (catálogo)
-
-IMPORTANTE: Si envías "interactive", el texto del "body" llega al cliente como mensaje con botones.
-El texto principal de tu respuesta llega primero como mensaje de texto, luego los botones.${stagesHint}
+NO usar botones si hay trigger de imagen activo. NO repetir opciones en texto Y botones.${stagesHint}
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.
 ⚠️ INTEGRIDAD DE PRECIOS: NUNCA inventes precios. Usa ÚNICAMENTE los precios de tu base de conocimiento. Si tu base de conocimiento tiene precios, úsalos exactos — no los estimes ni reduzcas.
 ⚠️ FLUJO: Si ya tienes datos del cliente en memoria (equipo/color/talla/ciudad), NO vuelvas a preguntar. Continúa desde donde quedaste.]`;
@@ -4741,7 +4740,7 @@ const processBufferedMessages = async (bufferKey: string) => {
                     }
                   );
                   if (iResult.ok) {
-                    log(`🔘 Interactivo (${iData.type}) → ${senderName}: ${(iData.buttons || []).length} opciones`);
+                    log(`🔘 Interactivo (${iData.type}) → ${senderName}: ${(iData.buttons || iData.sections?.flatMap((s: any) => s.rows) || []).length} opciones`);
                   }
                 } catch (ie: any) {
                   console.error('❌ sendCloudInteractive error:', ie.message);
@@ -4883,6 +4882,44 @@ const processBufferedMessages = async (bufferKey: string) => {
                   if (now - v.ts > LAST_SENT_TTL * 2) lastSentResponses.delete(k);
                 }
                 clog(`🤖 Respuesta → ${senderName} (${msgs.length} msgs agrupados${isCloudAPI ? ', Cloud' : ''})`);
+
+                // 🔘 BOTONES INTERACTIVOS — enviar después del texto (ruta sin media)
+                if (isCloudAPI && lineInfo?.pnid && lineInfo?.token) {
+                  try {
+                    const iDataText = (() => {
+                      try {
+                        const memJson = aiResponse?.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
+                        return memJson ? JSON.parse(memJson)?.interactive : null;
+                      } catch { return null; }
+                    })();
+                    if (iDataText) {
+                      const phoneNum = from.replace(/@.*/, '').replace(/\D/g, '');
+                      setTimeout(async () => {
+                        try {
+                          const iResult = await sendCloudInteractive(
+                            lineInfo.pnid!,
+                            lineInfo.token!,
+                            phoneNum,
+                            {
+                              type: iDataText.type || 'button',
+                              body: iDataText.body || iDataText.texto || cleanResponse.substring(0, 250),
+                              buttons: iDataText.buttons || iDataText.opciones || [],
+                              listTitle: iDataText.listTitle || iDataText.titulo_lista || 'Ver opciones',
+                              sections: iDataText.sections || undefined,
+                              header: iDataText.header || undefined,
+                              footer: iDataText.footer || undefined,
+                            }
+                          );
+                          if (iResult.ok) {
+                            log(`🔘 Interactivo texto (${iDataText.type}) → ${senderName}: ${(iDataText.buttons || iDataText.sections?.flatMap((s: any) => s.rows) || []).length} opciones`);
+                          }
+                        } catch (ie: any) {
+                          console.error('❌ sendCloudInteractive (texto) error:', ie.message);
+                        }
+                      }, 1800);
+                    }
+                  } catch {}
+                }
               }
             }
           }

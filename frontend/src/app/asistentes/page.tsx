@@ -45,6 +45,7 @@ export default function AsistentesPage() {
   const [modCatalogo, setModCatalogo] = useState('');
   const [modNlu, setModNlu] = useState('');
   const [modOfertas, setModOfertas] = useState('');
+  const [modBotones, setModBotones] = useState('');
 
   // Media
   const [mediaItems, setMediaItems] = useState<any[]>([]);
@@ -148,6 +149,7 @@ export default function AsistentesPage() {
           setModCatalogo((active as any).modCatalogo || '');
           setModNlu((active as any).modNlu || '');
           setModOfertas((active as any).modOfertas || '');
+          setModBotones((active as any).modBotones || '');
           setElevenLabsKey(active.elevenLabsKey || '');
           setSelectedVoice(active.selectedVoice || '');
           setVoiceEnabled(active.voiceEnabled || false);
@@ -208,7 +210,7 @@ export default function AsistentesPage() {
           agenteCliente, agenteAdmin,
           modOrquestador,
           modZonas, modMemoriaCliente, modMetricas, modDetector,
-          modTriggers, modCatalogo, modNlu, modOfertas,
+          modTriggers, modCatalogo, modNlu, modOfertas, modBotones,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -603,7 +605,7 @@ export default function AsistentesPage() {
           agenteCliente, agenteAdmin,
           modOrquestador,
           modZonas, modMemoriaCliente, modMetricas, modDetector,
-          modTriggers, modCatalogo, modNlu, modOfertas,
+          modTriggers, modCatalogo, modNlu, modOfertas, modBotones,
           knowledgeItems,
           mediaItems,
           elevenLabsKey,
@@ -805,6 +807,7 @@ export default function AsistentesPage() {
                       {id:'catalogo',       emoji:'🗂️', label:'contexto_catalogo.json',   val:modCatalogo},
                       {id:'nlu',            emoji:'🔤', label:'nlu_map.json',             val:modNlu},
                       {id:'ofertas',        emoji:'💡', label:'motor_ofertas.json',        val:modOfertas},
+                      {id:'botones',        emoji:'🔘', label:'16_botones.json',            val:modBotones},
                     ].map((m, i) => (
                       <button key={m.id} onClick={() => setActiveModule(m.id)}
                         className={`w-full flex items-center gap-1.5 text-xs py-1 rounded transition-colors text-left ${activeModule === m.id ? 'text-violet-200 font-medium' : 'text-white/55 hover:text-white/75'}`}>
@@ -999,6 +1002,12 @@ export default function AsistentesPage() {
               desc:'Reglas de descuentos automáticos, promociones activas y lógica de Order Bumps.',
               placeholder:'## Reglas de descuento\n\n### Order Bump 1 — 2do artículo\n- Descuento: 15% sobre precio base del 2do\n- Cuándo ofrecer: después del resumen del 1er artículo, siempre\n- Cómo ofrecer: [ver plantilla Módulo 05]\n\n### Order Bump 2 — 3er artículo\n- Descuento: 20% sobre precio base del 3er\n- Cuándo ofrecer: después de confirmar el 2do artículo\n\n### Descuento especial — 10%\n- Condición: SOLO si el cliente lo pide explícitamente\n- Aplicar sobre: total final (incluyendo envío)\n- NUNCA ofrecer proactivamente\n\n## Promociones activas\n[actualizar con campañas vigentes]\n\nEjemplo:\n```\nPromoción: 3x2 en Monaco niño\nVigencia: hasta [fecha]\nCondición: comprar 3 buzos Monaco niño → el más barato es gratis\n```\n\n## Temporadas especiales\n[Día del padre, Navidad, rebajas — definir lógica por fecha]\n\n## Reglas anti-descuento\n- El 1er artículo NUNCA tiene descuento automático\n- No acumular Order Bump + 10% sin validar el total\n- Tarjeta de crédito: siempre añadir 5% antes de mostrar total',
               val: modOfertas, set: setModOfertas
+            },
+            {
+              id:'botones', num:'16', emoji:'🔘', label:'Botones Interactivos', file:'16_botones.json', color:'pink',
+              desc:'Mapa de botones y listas interactivas por paso del flujo. El backend los envía automáticamente.',
+              placeholder:'{\n  "DESCRIPCION": "Botones interactivos por paso del flujo de ventas",\n  "pasos": {\n    "SALUDO_INICIAL": {\n      "tipo": "button",\n      "interactive_json": {\n        "type": "button",\n        "body": "¡Hola! ¿En qué te puedo ayudar? 👇",\n        "buttons": ["Ver catálogo 👕", "Ver precios 💰", "Hablar con asesor"]\n      }\n    }\n  }\n}',
+              val: modBotones, set: setModBotones
             },
           ].filter(m => m.id === activeModule).map(mod => (
             <div key={mod.id} className="card p-0 overflow-hidden">
@@ -1756,6 +1765,7 @@ export default function AsistentesPage() {
                 { emoji: '✏️', label: 'Modificar pedido', desc: 'pedido = creado → preguntar cambio → resumen → actualizar_pedido' },
                 { emoji: '📏', label: 'Tallas especiales', desc: '2XL/3XL/4XL y niño → sobre pedido → 3-4 días hábiles' },
                 { emoji: '📦', label: 'Cancelar pedido', desc: 'Pedir confirmación explícita → SÍ → cancelar_pedido' },
+                { emoji: '🔘', label: 'Botones interactivos', desc: 'Ver 16_botones.json — 8 pasos con botones. El backend los envía automáticamente vía MEMORY_JSON' },
               ].map((route) => (
                 <div key={route.label} className="p-3 rounded-xl border border-white/8 bg-white/3">
                   <div className="flex items-center gap-2 mb-1">

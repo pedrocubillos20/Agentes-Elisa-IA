@@ -117,6 +117,7 @@ model Assistant {
   modCatalogo        String?   @db.Text   // Módulo 13: contexto catálogo dinámico
   modNlu             String?   @db.Text   // Módulo 14: mapa NLU entidades y sinónimos
   modOfertas         String?   @db.Text   // Módulo 15: motor de ofertas y promociones
+  modBotones         String?   @db.Text   // Módulo 16: botones interactivos por paso del flujo
 
   knowledgeItems  Json      @default("[]")
   mediaItems      Json      @default("[]")

@@ -180,6 +180,7 @@ router.post('/', async (req: Request, res: Response) => {
       ...(body.modCatalogo !== undefined && { modCatalogo: body.modCatalogo || null }),
       ...(body.modNlu !== undefined && { modNlu: body.modNlu || null }),
       ...(body.modOfertas !== undefined && { modOfertas: body.modOfertas || null }),
+      ...(body.modBotones !== undefined && { modBotones: body.modBotones || null }),
       knowledgeItems: body.knowledgeItems || [],
       mediaItems: newMediaItems,
       elevenLabsKey: body.elevenLabsKey || null,

@@ -2630,7 +2630,14 @@ ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_
 
 [SISTEMA — OBLIGATORIO: Termina SIEMPRE con <<MEMORY_JSON>>...<<END_MEMORY>> actualizado.
 
-🔘 BOTONES INTERACTIVOS — OBLIGATORIO en los pasos del flujo marcados con ⚡:
+🔘 BOTONES INTERACTIVOS — REGLA ABSOLUTA:
+Cada vez que el sistema espera la elección del cliente (talla, calidad, pago, confirmar, etc.), DEBES incluir el campo "interactive" en tu MEMORY_JSON.
+Si NO incluyes "interactive" en el MEMORY_JSON cuando corresponde, el cliente no verá botones y la experiencia empeora.
+
+EJEMPLO OBLIGATORIO — PRIMER MENSAJE (saludo):
+Si es el primer mensaje del cliente, tu MEMORY_JSON DEBE incluir:
+"interactive": {"type":"button","body":"¡Hola! ¿En qué te puedo ayudar? 👇","buttons":["Ver catálogo 👕","Ver precios 💰","Hablar con asesor"]}
+
 Incluir campo "interactive" en MEMORY_JSON. El texto llega primero, los botones después automáticamente.
 
 FORMATO BOTONES (máx 3 opciones, 20 chars c/u):
@@ -2902,7 +2909,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 if (opens > closes) rawMemory += '}'.repeat(opens - closes);
               }
               const memoryData = JSON.parse(rawMemory);
-              console.log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')}`);
+              console.log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')} | interactive: ${memoryData.interactive ? '✅ SÍ' : '❌ NO'}`);
               // Merge con datos existentes (no borrar datos previos si vienen vacíos)
               const merged = { ...savedContext };
               for (const [key, value] of Object.entries(memoryData)) {

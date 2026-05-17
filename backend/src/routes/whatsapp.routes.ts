@@ -4661,51 +4661,54 @@ const processBufferedMessages = async (bufferKey: string) => {
         clog(`⚠️ AI sin respuesta para ${senderName} (userId: ${userId}, lineId: ${whatsappLineId || 'global'}, isCloud: ${isCloudAPI})`);
       }
 
-      // 🔘 AUTO-INYECTAR BOTONES: leer etapa_actual del MEMORY_JSON y asignar botones si la IA no los incluyó
+      // 🔘 AUTO-INYECTAR BOTONES: variable separada (NO en el string — los strings son primitivos)
+      let autoInteractiveData: any = null;
       if (aiResponse && isCloudAPI) {
         try {
           const memRaw = aiResponse.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
           if (memRaw) {
             const mem = JSON.parse(memRaw);
-            if (!mem.interactive) {
+            // Primero revisar si la IA ya incluyó interactive
+            if (mem.interactive) {
+              autoInteractiveData = mem.interactive;
+              log(`🔘 BOTONES desde IA → tipo:${mem.interactive.type}`);
+            } else {
               const etapa = (mem.etapa_actual || '').toLowerCase();
               const ciudad = (mem.ciudad || '').toLowerCase();
               const esIR = ciudad && ciudad !== 'bogotá' && ciudad !== 'bogota' && ciudad !== 'soacha';
-              let autoInteractive: any = null;
 
               if (!etapa || etapa.includes('equipo') || etapa.includes('nuevo')) {
-                autoInteractive = { type: 'button', body: '¡Hola! ¿En qué te puedo ayudar? 👇', buttons: ['Ver catálogo 👕', 'Ver precios 💰', 'Hablar con asesor'] };
+                autoInteractiveData = { type: 'button', body: '¡Hola! ¿En qué te puedo ayudar? 👇', buttons: ['Ver catálogo 👕', 'Ver precios 💰', 'Hablar con asesor'] };
               } else if (etapa.includes('color')) {
-                autoInteractive = { type: 'list', body: '¿De qué equipo buscas el buzo? 🔥', listTitle: 'Elegir equipo',
+                autoInteractiveData = { type: 'list', body: '¿De qué equipo buscas el buzo? 🔥', listTitle: 'Elegir equipo',
                   sections: [
                     { title: '🇨🇴 Colombia', rows: [{ id: 'eq_nacional', title: '🟢 Nacional', description: 'Atlético Nacional' }, { id: 'eq_america', title: '🔴 América', description: 'América de Cali' }, { id: 'eq_millonarios', title: '🔵 Millonarios', description: 'Millonarios FC' }, { id: 'eq_santafe', title: '🔴 Santa Fe', description: 'Independiente Santa Fe' }] },
                     { title: '🌍 Internacional', rows: [{ id: 'eq_barcelona', title: '🔵🔴 Barcelona', description: 'FC Barcelona' }, { id: 'eq_realmadrid', title: '⬜ Real Madrid', description: 'Real Madrid CF' }, { id: 'eq_argentina', title: '💙 Argentina', description: 'Selección Argentina' }] }
                   ]
                 };
               } else if (etapa.includes('talla')) {
-                autoInteractive = { type: 'list', body: '¿Cuál talla necesitas? 📏', listTitle: 'Elegir talla',
+                autoInteractiveData = { type: 'list', body: '¿Cuál talla necesitas? 📏', listTitle: 'Elegir talla',
                   sections: [
                     { title: 'Tallas adulto', rows: [{ id: 'talla_xs', title: 'XS', description: 'Extra pequeño' }, { id: 'talla_s', title: 'S', description: 'Pequeño' }, { id: 'talla_m', title: 'M', description: 'Mediano' }, { id: 'talla_l', title: 'L', description: 'Grande' }, { id: 'talla_xl', title: 'XL', description: 'Extra grande' }, { id: 'talla_2xl', title: '2XL', description: 'Sobre pedido 3-4 días' }, { id: 'talla_3xl', title: '3XL', description: 'Sobre pedido 3-4 días' }, { id: 'talla_4xl', title: '4XL', description: 'Sobre pedido 3-4 días' }] },
                     { title: 'Tallas niño', rows: [{ id: 'talla_n24', title: '2-4', description: 'Talla niño' }, { id: 'talla_n68', title: '6-8', description: 'Talla niño' }, { id: 'talla_n1012', title: '10-12', description: 'Talla niño' }, { id: 'talla_n1416', title: '14-16', description: 'Talla niño' }] }
                   ]
                 };
               } else if (etapa.includes('calidad')) {
-                autoInteractive = { type: 'button', body: '¿Qué calidad prefieres?', footer: 'Premium = más grueso y duradero', buttons: ['⭐ Premium 300g', '💫 Monaco 260g', '¿Cuál diferencia?'] };
+                autoInteractiveData = { type: 'button', body: '¿Qué calidad prefieres?', footer: 'Premium = más grueso y duradero', buttons: ['⭐ Premium 300g', '💫 Monaco 260g', '¿Cuál diferencia?'] };
               } else if (etapa.includes('pago') || etapa.includes('cotizado')) {
-                autoInteractive = esIR
+                autoInteractiveData = esIR
                   ? { type: 'button', body: 'El envío se paga anticipado. ¿Cómo prefieres?', buttons: ['📱 Nequi', '🏦 Bancolombia', '💳 Todo con tarjeta'] }
                   : { type: 'button', body: '¿Cómo prefieres pagar?', buttons: ['💵 Efectivo', '📱 Nequi/Bancolombia', '💳 Tarjeta (+5%)'] };
               } else if (etapa.includes('confirmar') || etapa.includes('confirmado')) {
-                autoInteractive = { type: 'button', body: '¿Confirmamos el pedido? 🚀', buttons: ['✅ Confirmar pedido', '✏️ Cambiar algo'] };
+                autoInteractiveData = { type: 'button', body: '¿Confirmamos el pedido? 🚀', buttons: ['✅ Confirmar pedido', '✏️ Cambiar algo'] };
               }
 
-              if (autoInteractive) {
-                (aiResponse as any)._interactive = autoInteractive;
-                log(`🔘 AUTO-BOTONES → etapa:"${etapa}" tipo:${autoInteractive.type}`);
+              if (autoInteractiveData) {
+                log(`🔘 AUTO-BOTONES → etapa:"${etapa}" tipo:${autoInteractiveData.type}`);
               }
             }
           }
-        } catch { /* no bloquear si falla el parse */ }
+        } catch (e: any) { log(`⚠️ Auto-botones parse error: ${e.message}`); }
       }
 
       if (aiResponse) {
@@ -4781,9 +4784,9 @@ const processBufferedMessages = async (bufferKey: string) => {
           const textResult = await unifiedSendAIResponse(sessionName, from, cleanResponse, whatsappLineId);
           const textSent = textResult.ok;
 
-          // 🔘 BOTONES INTERACTIVOS — enviar después del texto si la IA incluyó "interactive" en MEMORY_JSON
+          // 🔘 BOTONES INTERACTIVOS — enviar después del texto si hay datos de botones
           try {
-            const iData = (aiResponse as any)?._interactive || (() => {
+            const iData = autoInteractiveData || (() => {
               try {
                 const memJson = aiResponse?.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
                 return memJson ? JSON.parse(memJson)?.interactive : null;
@@ -4954,7 +4957,7 @@ const processBufferedMessages = async (bufferKey: string) => {
                 // 🔘 BOTONES INTERACTIVOS — enviar después del texto (ruta sin media)
                 if (isCloudAPI && lineInfo?.pnid && lineInfo?.token) {
                   try {
-                    const iDataText = (() => {
+                    const iDataText = autoInteractiveData || (() => {
                       try {
                         const memJson = aiResponse?.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
                         return memJson ? JSON.parse(memJson)?.interactive : null;

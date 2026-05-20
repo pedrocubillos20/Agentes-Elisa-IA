@@ -919,7 +919,20 @@ const sendCloudInteractive = async (
       return { ok: true, wamid };
     }
     const errBody = await r.text().catch(() => '');
-    console.error(`❌ Cloud sendInteractive (${r.status}): ${errBody.substring(0, 300)}`);
+    // Log detallado para diagnosticar errores de botones interactivos
+    console.error(`❌ Cloud sendInteractive (${r.status}) → ${to}: ${errBody.substring(0, 500)}`);
+    // Errores comunes de Meta:
+    // 131009 = parámetro inválido (título botón > 20 chars, etc.)
+    // 131047 = número no elegible para mensajes interactivos
+    // 100    = parámetro faltante o incorrecto
+    try {
+      const errJson = JSON.parse(errBody);
+      if (errJson?.error?.code === 131047) {
+        console.error(`⚠️ BOTONES: El número ${to} no está habilitado para mensajes interactivos. Requiere: número verificado + tier activo en Meta Business.`);
+      } else if (errJson?.error?.code === 131009) {
+        console.error(`⚠️ BOTONES: Parámetro inválido — revisar longitud de títulos (max 20 chars botones, max 24 chars lista).`);
+      }
+    } catch {}
     return { ok: false };
   } catch (e: any) {
     console.error('❌ Cloud sendInteractive:', e.message);
@@ -2634,42 +2647,28 @@ ACCIONES disponibles: enviar_mensaje(destinatario_nombre,mensaje_texto) | crear_
 Cada vez que el sistema espera la elección del cliente (talla, calidad, pago, confirmar, etc.), DEBES incluir el campo "interactive" en tu MEMORY_JSON.
 Si NO incluyes "interactive" en el MEMORY_JSON cuando corresponde, el cliente no verá botones y la experiencia empeora.
 
-EJEMPLO OBLIGATORIO — PRIMER MENSAJE (saludo):
-Si es el primer mensaje del cliente, tu MEMORY_JSON DEBE incluir:
-"interactive": {"type":"button","body":"¡Hola! ¿En qué te puedo ayudar? 👇","buttons":["Ver catálogo 👕","Ver precios 💰","Hablar con asesor"]}
-
-Incluir campo "interactive" en MEMORY_JSON. El texto llega primero, los botones después automáticamente.
+Incluir campo "interactive" en MEMORY_JSON cuando quieras enviar botones o listas interactivas al cliente. El texto llega primero, los botones después automáticamente.
 
 FORMATO BOTONES (máx 3 opciones, 20 chars c/u):
 "interactive": {
   "type": "button",
-  "body": "¿Qué calidad prefieres?",
-  "buttons": ["⭐ Premium 300g", "💫 Monaco 260g", "¿Cuál diferencia?"],
-  "footer": "Premium = más grueso y duradero"
+  "body": "¿Cómo prefieres pagar?",
+  "buttons": ["Opción A", "Opción B", "Opción C"],
+  "footer": "texto opcional abajo"
 }
 
 FORMATO LISTA (sections, hasta 10 filas total):
 "interactive": {
   "type": "list",
-  "body": "¿De qué equipo buscas el buzo?",
-  "listTitle": "Elegir equipo",
+  "body": "Selecciona una opción",
+  "listTitle": "Ver opciones",
   "sections": [
-    {"title":"Colombia","rows":[{"id":"eq_nacional","title":"🟢 Nacional"},{"id":"eq_america","title":"🔴 América"},{"id":"eq_millonarios","title":"🔵 Millonarios"},{"id":"eq_santafe","title":"🔴 Santa Fe"}]},
-    {"title":"Internacional","rows":[{"id":"eq_barcelona","title":"🔵🔴 Barcelona"},{"id":"eq_realmadrid","title":"⬜ Real Madrid"},{"id":"eq_argentina","title":"💙 Argentina"}]}
+    {"title":"Grupo 1","rows":[{"id":"r1","title":"Opción 1","description":"detalle"}]}
   ]
 }
 
-USAR BOTONES EN ESTOS 8 PASOS (ver 16_botones.json):
-1. Saludo → button [Ver catálogo 👕 | Ver precios 💰 | Hablar con asesor]
-2. Elegir equipo → list secciones Colombia + Internacional
-3. Talla → list secciones Adulto (XS S M L XL 2XL 3XL 4XL) + Niño (2-4 6-8 10-12 14-16)
-4. Calidad → button [⭐ Premium 300g | 💫 Monaco 260g | ¿Cuál diferencia?]
-5. Order Bump → button [🛒 Sí, quiero otro | ✅ Solo este por ahora]
-6. Pago Bogotá/Soacha → button [💵 Efectivo | 📱 Nequi/Bancolombia | 💳 Tarjeta (+5%)]
-7. Pago Inter Rapidísimo → button [📱 Nequi | 🏦 Bancolombia | 💳 Todo con tarjeta]
-8. Confirmar pedido → button [✅ Confirmar pedido | ✏️ Cambiar algo]
-
-NO usar botones si hay trigger de imagen activo. NO repetir opciones en texto Y botones.${stagesHint}
+USAR BOTONES según indique tu base de conocimiento (módulo 16_botones o 17_botones).
+NO repetir opciones en texto Y botones. Si el cliente responde texto libre → continuar normalmente.${stagesHint}
 ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_servicio,total,fecha_entrega) | crear_reserva(fecha_reserva,hora_reserva,tipo_reserva,num_personas) | actualizar_cita | actualizar_pedido | actualizar_reserva | cancelar_cita | cancelar_pedido | cancelar_reserva. Vacío si no hay acción. NUNCA crear_* si ya está creado en memoria.
 ⚠️ INTEGRIDAD DE PRECIOS: NUNCA inventes precios. Usa ÚNICAMENTE los precios de tu base de conocimiento. Si tu base de conocimiento tiene precios, úsalos exactos — no los estimes ni reduzcas.
 ⚠️ FLUJO: Si ya tienes datos del cliente en memoria (equipo/color/talla/ciudad), NO vuelvas a preguntar. Continúa desde donde quedaste.]`;
@@ -3213,8 +3212,9 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               const hasName    = !!(merged.nombre);
               const hasPhone   = !!(merged.telefono || merged.celular);
               const hasProduct = !!(merged.producto_servicio || merged.detalles_producto || merged.notas);
-              // dirección REAL de calle — no basta solo ciudad o barrio
-              const hasRealAddress = !!(merged.direccion);
+              // Dirección: cualquier valor en el campo direccion es válido
+              // El prompt de cada negocio es responsable de definir qué va en este campo
+              const hasRealAddress = !!(merged.direccion && merged.direccion.length > 2);
               const hasCity    = !!(merged.ciudad);
               // Pago confirmado — rechazar "Por definir", vacío o pendiente
               const rawPago = (merged.metodo_pago || '').toLowerCase().trim();
@@ -3243,14 +3243,14 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
                 dataComplete = hasName && hasProduct && hasRealAddress && hasCity && hasPhone && hasPaymentFix;
                 if (!dataComplete) {
                   const missing = [
-                    !hasName        && 'nombre',
-                    !hasProduct     && 'producto',
-                    !hasRealAddress && 'dirección (calle completa)',
-                    !hasCity        && 'ciudad',
-                    !hasPhone       && 'teléfono',
-                    !hasPaymentFix  && 'método de pago confirmado',
-                  ].filter(Boolean).join(', ');
-                  log(`⏳ crear_pedido bloqueado — faltan datos obligatorios: ${missing}`);
+                    !hasName        && `nombre (actual: "${merged.nombre || 'vacío'}")`,
+                    !hasProduct     && `producto_servicio (actual: "${(merged.producto_servicio || merged.detalles_producto || '').substring(0,30) || 'vacío'}")`,
+                    !hasRealAddress && `dirección (actual: "${merged.direccion || 'vacío'}")`,
+                    !hasCity        && `ciudad (actual: "${merged.ciudad || 'vacío'}")`,
+                    !hasPhone       && `teléfono (actual: "${merged.telefono || merged.celular || 'vacío'}")`,
+                    !hasPaymentFix  && `método de pago (actual: "${merged.metodo_pago || 'vacío'}")`,
+                  ].filter(Boolean).join(' | ');
+                  log(`⏳ crear_pedido BLOQUEADO — faltan: ${missing}`);
                 }
               } else if (isDelivery) {
                 // 🚚 DELIVERY (cita/reserva con domicilio): exige datos completos
@@ -4661,54 +4661,20 @@ const processBufferedMessages = async (bufferKey: string) => {
         clog(`⚠️ AI sin respuesta para ${senderName} (userId: ${userId}, lineId: ${whatsappLineId || 'global'}, isCloud: ${isCloudAPI})`);
       }
 
-      // 🔘 AUTO-INYECTAR BOTONES: variable separada (NO en el string — los strings son primitivos)
+      // 🔘 BOTONES INTERACTIVOS: leer del MEMORY_JSON que genera la IA
+      // El contenido de los botones lo define el prompt de cada negocio — el backend es genérico
       let autoInteractiveData: any = null;
       if (aiResponse && isCloudAPI) {
         try {
           const memRaw = aiResponse.match(/<<MEMORY_JSON>>([\s\S]*?)<<END_MEMORY>>/)?.[1];
           if (memRaw) {
             const mem = JSON.parse(memRaw);
-            // Primero revisar si la IA ya incluyó interactive
             if (mem.interactive) {
               autoInteractiveData = mem.interactive;
               log(`🔘 BOTONES desde IA → tipo:${mem.interactive.type}`);
-            } else {
-              const etapa = (mem.etapa_actual || '').toLowerCase();
-              const ciudad = (mem.ciudad || '').toLowerCase();
-              const esIR = ciudad && ciudad !== 'bogotá' && ciudad !== 'bogota' && ciudad !== 'soacha';
-
-              if (!etapa || etapa.includes('equipo') || etapa.includes('nuevo')) {
-                autoInteractiveData = { type: 'button', body: '¡Hola! ¿En qué te puedo ayudar? 👇', buttons: ['Ver catálogo 👕', 'Ver precios 💰', 'Hablar con asesor'] };
-              } else if (etapa.includes('color')) {
-                autoInteractiveData = { type: 'list', body: '¿De qué equipo buscas el buzo? 🔥', listTitle: 'Elegir equipo',
-                  sections: [
-                    { title: '🇨🇴 Colombia', rows: [{ id: 'eq_nacional', title: '🟢 Nacional', description: 'Atlético Nacional' }, { id: 'eq_america', title: '🔴 América', description: 'América de Cali' }, { id: 'eq_millonarios', title: '🔵 Millonarios', description: 'Millonarios FC' }, { id: 'eq_santafe', title: '🔴 Santa Fe', description: 'Independiente Santa Fe' }] },
-                    { title: '🌍 Internacional', rows: [{ id: 'eq_barcelona', title: '🔵🔴 Barcelona', description: 'FC Barcelona' }, { id: 'eq_realmadrid', title: '⬜ Real Madrid', description: 'Real Madrid CF' }, { id: 'eq_argentina', title: '💙 Argentina', description: 'Selección Argentina' }] }
-                  ]
-                };
-              } else if (etapa.includes('talla')) {
-                autoInteractiveData = { type: 'list', body: '¿Cuál talla necesitas? 📏', listTitle: 'Elegir talla',
-                  sections: [
-                    { title: 'Tallas adulto', rows: [{ id: 'talla_xs', title: 'XS', description: 'Extra pequeño' }, { id: 'talla_s', title: 'S', description: 'Pequeño' }, { id: 'talla_m', title: 'M', description: 'Mediano' }, { id: 'talla_l', title: 'L', description: 'Grande' }, { id: 'talla_xl', title: 'XL', description: 'Extra grande' }, { id: 'talla_2xl', title: '2XL', description: 'Sobre pedido 3-4 días' }, { id: 'talla_3xl', title: '3XL', description: 'Sobre pedido 3-4 días' }, { id: 'talla_4xl', title: '4XL', description: 'Sobre pedido 3-4 días' }] },
-                    { title: 'Tallas niño', rows: [{ id: 'talla_n24', title: '2-4', description: 'Talla niño' }, { id: 'talla_n68', title: '6-8', description: 'Talla niño' }, { id: 'talla_n1012', title: '10-12', description: 'Talla niño' }, { id: 'talla_n1416', title: '14-16', description: 'Talla niño' }] }
-                  ]
-                };
-              } else if (etapa.includes('calidad')) {
-                autoInteractiveData = { type: 'button', body: '¿Qué calidad prefieres?', footer: 'Premium = más grueso y duradero', buttons: ['⭐ Premium 300g', '💫 Monaco 260g', '¿Cuál diferencia?'] };
-              } else if (etapa.includes('pago') || etapa.includes('cotizado')) {
-                autoInteractiveData = esIR
-                  ? { type: 'button', body: 'El envío se paga anticipado. ¿Cómo prefieres?', buttons: ['📱 Nequi', '🏦 Bancolombia', '💳 Todo con tarjeta'] }
-                  : { type: 'button', body: '¿Cómo prefieres pagar?', buttons: ['💵 Efectivo', '📱 Nequi/Bancolombia', '💳 Tarjeta (+5%)'] };
-              } else if (etapa.includes('confirmar') || etapa.includes('confirmado')) {
-                autoInteractiveData = { type: 'button', body: '¿Confirmamos el pedido? 🚀', buttons: ['✅ Confirmar pedido', '✏️ Cambiar algo'] };
-              }
-
-              if (autoInteractiveData) {
-                log(`🔘 AUTO-BOTONES → etapa:"${etapa}" tipo:${autoInteractiveData.type}`);
-              }
             }
           }
-        } catch (e: any) { log(`⚠️ Auto-botones parse error: ${e.message}`); }
+        } catch (e: any) { log(`⚠️ Botones parse error: ${e.message}`); }
       }
 
       if (aiResponse) {

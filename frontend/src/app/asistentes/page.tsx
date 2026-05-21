@@ -13,68 +13,176 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // ═══════════════════════════════════════════════════════
-// 🔀 FLUJO IA — Editor visual bidireccional
-// Lee módulos → genera pasos editables → guarda de vuelta
+// 🔀 FLUJO IA — Editor visual profesional estilo Miro
+// Nodos arrastrables, flechas SVG, diamantes de decisión
 // Genérico para cualquier negocio en el Sistema Modular IA
 // ═══════════════════════════════════════════════════════
 
-type FlowStep = {
+type NodeType = 'start' | 'end' | 'action' | 'decision' | 'media' | 'alert';
+
+type FlowNode = {
   id: string;
-  num: string;
-  titulo: string;
-  descripcion: string;
+  type: NodeType;
+  label: string;
+  sublabel?: string;
+  x: number;
+  y: number;
   color: string;
-  tipo: 'accion' | 'dato' | 'cierre' | 'decision' | 'alerta';
-  botones?: string[];
-  regla?: string;
+  width?: number;
+  height?: number;
 };
 
-type FlowDecision = {
+type FlowEdge = {
   id: string;
-  pregunta: string;
-  despues_del_paso: string;
-  opciones: { label: string; va_a_paso: string; color: string }[];
+  from: string;
+  to: string;
+  label?: string;
+  color?: string;
 };
 
-type FlowData = {
+type FlowCanvas = {
   negocio: string;
   objetivo: string;
-  pasos: FlowStep[];
-  decisiones: FlowDecision[];
-  alertas: { texto: string }[];
-  rutas_especiales: { emoji: string; nombre: string; desc: string }[];
-  multimedia?: { tipo: string; nombre: string; keywords: string; descripcion: string }[];
+  nodes: FlowNode[];
+  edges: FlowEdge[];
 };
 
-const STEP_COLORS = [
-  { color: '#10b981', label: 'Verde — Acción', border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
-  { color: '#3b82f6', label: 'Azul — Dato', border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400' },
-  { color: '#ef4444', label: 'Rojo — Cierre/Pago', border: 'border-red-500', bg: 'bg-red-500/10', text: 'text-red-400' },
-  { color: '#7c3aed', label: 'Violeta — Decisión', border: 'border-violet-500', bg: 'bg-violet-500/10', text: 'text-violet-400' },
-  { color: '#f59e0b', label: 'Amarillo — Alerta', border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400' },
-];
+const NODE_COLORS: Record<NodeType, { bg: string; border: string; text: string; shadow: string }> = {
+  start:    { bg: '#10b981', border: '#059669', text: '#fff', shadow: 'rgba(16,185,129,0.4)' },
+  end:      { bg: '#10b981', border: '#059669', text: '#fff', shadow: 'rgba(16,185,129,0.4)' },
+  action:   { bg: '#1e293b', border: '#3b82f6', text: '#93c5fd', shadow: 'rgba(59,130,246,0.3)' },
+  decision: { bg: '#2d1b69', border: '#7c3aed', text: '#c4b5fd', shadow: 'rgba(124,58,237,0.4)' },
+  media:    { bg: '#1e1b4b', border: '#6366f1', text: '#a5b4fc', shadow: 'rgba(99,102,241,0.3)' },
+  alert:    { bg: '#292524', border: '#f59e0b', text: '#fcd34d', shadow: 'rgba(245,158,11,0.3)' },
+};
 
-function getStyle(color: string) {
-  return STEP_COLORS.find(c => c.color === color) || STEP_COLORS[0];
+// ─── SVG Arrow path between two nodes ───
+function getEdgePath(from: FlowNode, to: FlowNode): string {
+  const fw = (from.width || 180) / 2;
+  const fh = (from.height || (from.type === 'decision' ? 60 : 70)) / 2;
+  const tw = (to.width || 180) / 2;
+  const th = (to.height || (to.type === 'decision' ? 60 : 70)) / 2;
+
+  const fx = from.x + fw;
+  const fy = from.y + fh;
+  const tx = to.x + tw;
+  const ty = to.y + th;
+
+  // Exit from bottom, enter from top
+  const exitX = fx;
+  const exitY = from.y + fh * 2;
+  const entX = tx;
+  const entY = to.y;
+
+  const midY = (exitY + entY) / 2;
+  return `M ${exitX} ${exitY} C ${exitX} ${midY}, ${entX} ${midY}, ${entX} ${entY}`;
 }
 
+// ─── Node renderer ───
+function FlowNodeEl({
+  node, selected, onSelect, onDragEnd, onEdit
+}: {
+  node: FlowNode;
+  selected: boolean;
+  onSelect: () => void;
+  onDragEnd: (id: string, x: number, y: number) => void;
+  onEdit: (node: FlowNode) => void;
+}) {
+  const dragRef = useRef<{ startX: number; startY: number; nodeX: number; nodeY: number } | null>(null);
+  const c = NODE_COLORS[node.type];
+  const w = node.width || 180;
+  const h = node.type === 'decision' ? 60 : (node.type === 'start' || node.type === 'end') ? 44 : 70;
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSelect();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, nodeX: node.x, nodeY: node.y };
+    const onMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      onDragEnd(node.id, Math.max(0, dragRef.current.nodeX + dx), Math.max(0, dragRef.current.nodeY + dy));
+    };
+    const onUp = () => { dragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  if (node.type === 'start' || node.type === 'end') {
+    return (
+      <g transform={`translate(${node.x}, ${node.y})`} onMouseDown={handleMouseDown} onDoubleClick={() => onEdit(node)} style={{ cursor: 'grab' }}>
+        <rect x={0} y={0} width={w} height={h} rx={h/2} fill={c.bg} stroke={selected ? '#fff' : c.border} strokeWidth={selected ? 2.5 : 2}
+          style={{ filter: `drop-shadow(0 4px 12px ${c.shadow})` }} />
+        <text x={w/2} y={h/2} textAnchor="middle" dominantBaseline="middle" fill={c.text} fontSize="13" fontWeight="700" fontFamily="system-ui">
+          {node.label}
+        </text>
+      </g>
+    );
+  }
+
+  if (node.type === 'decision') {
+    const dw = w;
+    const dh = h + 20;
+    const pts = `${dw/2},0 ${dw},${dh/2} ${dw/2},${dh} 0,${dh/2}`;
+    return (
+      <g transform={`translate(${node.x}, ${node.y})`} onMouseDown={handleMouseDown} onDoubleClick={() => onEdit(node)} style={{ cursor: 'grab' }}>
+        <polygon points={pts} fill={c.bg} stroke={selected ? '#fff' : c.border} strokeWidth={selected ? 2.5 : 2}
+          style={{ filter: `drop-shadow(0 4px 14px ${c.shadow})` }} />
+        <text x={dw/2} y={dh/2-6} textAnchor="middle" dominantBaseline="middle" fill={c.text} fontSize="11" fontWeight="600" fontFamily="system-ui">
+          {node.label}
+        </text>
+        {node.sublabel && (
+          <text x={dw/2} y={dh/2+8} textAnchor="middle" dominantBaseline="middle" fill={c.text} fontSize="9" opacity="0.7" fontFamily="system-ui">
+            {node.sublabel}
+          </text>
+        )}
+      </g>
+    );
+  }
+
+  return (
+    <g transform={`translate(${node.x}, ${node.y})`} onMouseDown={handleMouseDown} onDoubleClick={() => onEdit(node)} style={{ cursor: 'grab' }}>
+      <rect x={0} y={0} width={w} height={h} rx={10} fill={c.bg} stroke={selected ? '#fff' : c.border} strokeWidth={selected ? 2.5 : 1.5}
+        style={{ filter: `drop-shadow(0 4px 12px ${c.shadow})` }} />
+      {/* Top accent bar */}
+      <rect x={0} y={0} width={w} height={3} rx={0} fill={c.border} opacity="0.8" />
+      <text x={12} y={22} fill={c.text} fontSize="12" fontWeight="600" fontFamily="system-ui">
+        {node.label.length > 22 ? node.label.substring(0, 22) + '…' : node.label}
+      </text>
+      {node.sublabel && (
+        <foreignObject x={12} y={30} width={w - 24} height={32}>
+          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', lineHeight: '1.4', overflow: 'hidden' }}>
+            {node.sublabel}
+          </div>
+        </foreignObject>
+      )}
+    </g>
+  );
+}
+
+// ─── Main FlowTab component ───
 function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAcciones, modMemoria, agenteCliente, modBotones, onUpdateModFlujo }: {
   modOrquestador?: string; modFlujo?: string; modReglas?: string; modIdentidad?: string;
   modAcciones?: string; modMemoria?: string; agenteCliente?: string; modBotones?: string;
   onUpdateModFlujo?: (val: string) => void;
 }) {
-  const [flowData, setFlowData] = useState<FlowData | null>(null);
+  const [canvas, setCanvas] = useState<FlowCanvas | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [editingStep, setEditingStep] = useState<FlowStep | null>(null);
-  const [editingAlert, setEditingAlert] = useState<string | null>(null);
-  const [addingStep, setAddingStep] = useState(false);
-  const [lastSaved, setLastSaved] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingNode, setEditingNode] = useState<FlowNode | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const hasKnowledge = !!(modFlujo || modOrquestador || agenteCliente || modReglas);
 
-  // ── Analizar módulos con Claude y generar flujo estructurado ──
+  // Build canvas dimensions
+  const canvasW = canvas ? Math.max(1200, ...canvas.nodes.map(n => n.x + (n.width || 200))) + 100 : 1200;
+  const canvasH = canvas ? Math.max(800, ...canvas.nodes.map(n => n.y + 120)) + 100 : 800;
+
   const analyzeAndGenerate = async () => {
     setAnalyzing(true);
     setMsg('');
@@ -83,503 +191,389 @@ function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAccione
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
       const res = await fetch(`${API_URL}/api/assistants/generate-flow`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-      const parsed: FlowData = data.flow;
-      setFlowData(parsed);
+
+      // Convert flow steps → canvas nodes with auto-layout
+      const flow = data.flow;
+      const nodes: FlowNode[] = [];
+      const edges: FlowEdge[] = [];
+
+      const COL_W = 220;
+      const ROW_H = 130;
+      const START_X = 60;
+      const START_Y = 40;
+
+      // Start node
+      nodes.push({ id: 'start', type: 'start', label: '🚀 Inicio', x: START_X + 200, y: START_Y, width: 140 });
+
+      let prevId = 'start';
+      let col = 0;
+
+      (flow.pasos || []).forEach((paso: any, i: number) => {
+        const id = paso.id || `p${i}`;
+        const type: NodeType = paso.color === '#ef4444' ? 'action' : paso.color === '#7c3aed' ? 'action' : paso.color === '#f59e0b' ? 'alert' : 'action';
+        const x = START_X + (i % 3) * COL_W * 1.1;
+        const y = START_Y + 80 + Math.floor(i / 3) * ROW_H * 1.4;
+        const node: FlowNode = {
+          id, type, label: `${paso.num}. ${paso.titulo}`,
+          sublabel: paso.descripcion?.substring(0, 60),
+          x, y, color: paso.color || '#3b82f6', width: 190, height: 70
+        };
+        nodes.push(node);
+        edges.push({ id: `e-${prevId}-${id}`, from: prevId, to: id, color: '#ffffff20' });
+
+        // Decision after this step?
+        const decision = (flow.decisiones || []).find((d: any) => d.despues_del_paso === paso.num);
+        if (decision) {
+          const dId = decision.id;
+          const dX = x + 10;
+          const dY = y + ROW_H * 0.9;
+          nodes.push({ id: dId, type: 'decision', label: decision.pregunta, x: dX, y: dY, color: '#7c3aed', width: 170 });
+          edges.push({ id: `e-${id}-${dId}`, from: id, to: dId, color: '#7c3aed60' });
+          prevId = dId;
+          col++;
+        } else {
+          prevId = id;
+        }
+      });
+
+      // End node
+      const lastNode = nodes[nodes.length - 1];
+      const endId = 'end';
+      nodes.push({ id: endId, type: 'end', label: '✅ Pedido creado', x: lastNode.x + 10, y: lastNode.y + ROW_H, width: 160 });
+      edges.push({ id: `e-${lastNode.id}-end`, from: lastNode.id, to: endId, color: '#10b98160' });
+
+      // Multimedia nodes in a side column
+      if (flow.multimedia && flow.multimedia.length > 0) {
+        const mxBase = START_X + 3 * COL_W * 1.1 + 40;
+        flow.multimedia.slice(0, 6).forEach((m: any, i: number) => {
+          const mId = `media-${i}`;
+          const myIcon = m.tipo === 'catalogo' ? '📂' : m.tipo === 'video' ? '🎥' : m.tipo === 'audio' ? '🎵' : '🖼️';
+          nodes.push({
+            id: mId, type: 'media',
+            label: `${myIcon} ${m.nombre?.substring(0, 18) || 'Media'}`,
+            sublabel: m.keywords?.substring(0, 40),
+            x: mxBase, y: START_Y + 80 + i * 105,
+            color: '#6366f1', width: 175
+          });
+        });
+      }
+
+      // Alert nodes at bottom
+      if (flow.alertas && flow.alertas.length > 0) {
+        const aY = canvasH - 120;
+        flow.alertas.slice(0, 3).forEach((a: any, i: number) => {
+          nodes.push({
+            id: `alert-${i}`, type: 'alert',
+            label: '⚠️ Regla crítica',
+            sublabel: a.texto?.substring(0, 55),
+            x: START_X + i * 230, y: aY,
+            color: '#f59e0b', width: 210
+          });
+        });
+      }
+
+      setCanvas({ negocio: flow.negocio, objetivo: flow.objetivo, nodes, edges });
+      // Center view
+      setZoom(0.75);
+      setPan({ x: 20, y: 20 });
     } catch (e: any) {
-      setMsg(e.message || 'Error al analizar. Verifica que tienes módulos y API Key configurados.');
+      setMsg(e.message || 'Error al generar. Verifica tu API Key y módulos configurados.');
     } finally {
       setAnalyzing(false);
     }
   };
 
-  // ── Guardar flujo de vuelta al módulo 06_flujos ──
-  const saveFlowToModule = () => {
-    if (!flowData || !onUpdateModFlujo) return;
-    setSaving(true);
-    try {
-      // Serializar el flowData como markdown estructurado para modFlujo
-      const lines: string[] = [];
-      lines.push(`# FLUJO DE CONVERSACIÓN — ${flowData.negocio}`);
-      lines.push(`## Objetivo: ${flowData.objetivo}`);
+  const updateNodePos = (id: string, x: number, y: number) => {
+    if (!canvas) return;
+    setCanvas({ ...canvas, nodes: canvas.nodes.map(n => n.id === id ? { ...n, x, y } : n) });
+  };
+
+  const updateNode = (updated: FlowNode) => {
+    if (!canvas) return;
+    setCanvas({ ...canvas, nodes: canvas.nodes.map(n => n.id === updated.id ? updated : n) });
+    setEditingNode(null);
+  };
+
+  const deleteNode = (id: string) => {
+    if (!canvas) return;
+    setCanvas({
+      ...canvas,
+      nodes: canvas.nodes.filter(n => n.id !== id),
+      edges: canvas.edges.filter(e => e.from !== id && e.to !== id),
+    });
+    setSelectedId(null);
+  };
+
+  const addNode = () => {
+    if (!canvas) return;
+    const id = `node-${Date.now()}`;
+    const newNode: FlowNode = {
+      id, type: 'action', label: 'Nuevo paso', sublabel: 'Descripción del paso',
+      x: 100, y: 100, color: '#3b82f6', width: 190,
+    };
+    setCanvas({ ...canvas, nodes: [...canvas.nodes, newNode] });
+    setEditingNode(newNode);
+    setSelectedId(id);
+  };
+
+  const saveFlow = () => {
+    if (!canvas || !onUpdateModFlujo) return;
+    const lines = [`# FLUJO — ${canvas.negocio}`, `## Objetivo: ${canvas.objetivo}`, ''];
+    canvas.nodes.filter(n => n.type === 'action' || n.type === 'alert').forEach(n => {
+      lines.push(`## ${n.label}`);
+      if (n.sublabel) lines.push(n.sublabel);
       lines.push('');
-      flowData.pasos.forEach(p => {
-        lines.push(`## PASO ${p.num} — ${p.titulo}`);
-        lines.push(p.descripcion);
-        if (p.botones && p.botones.length > 0) {
-          lines.push(`⚡ BOTONES: [${p.botones.join(' | ')}]`);
-        }
-        if (p.regla) lines.push(`⚠️ REGLA: ${p.regla}`);
-        lines.push('');
-      });
-      if (flowData.alertas?.length) {
-        lines.push('## REGLAS CRÍTICAS');
-        flowData.alertas.forEach(a => lines.push(`🚨 ${a.texto}`));
-        lines.push('');
-      }
-      if (flowData.rutas_especiales?.length) {
-        lines.push('## RUTAS ESPECIALES');
-        flowData.rutas_especiales.forEach(r => lines.push(`${r.emoji} ${r.nombre}: ${r.desc}`));
-      }
-      const markdown = lines.join('\n');
-      onUpdateModFlujo(markdown);
-      setLastSaved(new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }));
-      setMsg('✅ Flujo guardado en el módulo 06_flujos. Haz clic en "Guardar Todo" para persistir.');
-      setTimeout(() => setMsg(''), 4000);
-    } finally {
-      setSaving(false);
+    });
+    onUpdateModFlujo(lines.join('\n'));
+    setMsg('✅ Flujo guardado en módulo 06_flujos. Haz clic en "Guardar Todo".');
+    setTimeout(() => setMsg(''), 4000);
+  };
+
+  // Pan handlers
+  const handleSvgMouseDown = (e: React.MouseEvent) => {
+    if (e.target === svgRef.current || (e.target as Element).tagName === 'svg') {
+      setSelectedId(null);
+      setIsPanning(true);
+      panRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
     }
   };
-
-  // ── Editar paso ──
-  const updateStep = (updated: FlowStep) => {
-    if (!flowData) return;
-    setFlowData({ ...flowData, pasos: flowData.pasos.map(p => p.id === updated.id ? updated : p) });
-    setEditingStep(null);
+  const handleSvgMouseMove = (e: React.MouseEvent) => {
+    if (!isPanning || !panRef.current) return;
+    setPan({ x: panRef.current.panX + (e.clientX - panRef.current.startX), y: panRef.current.panY + (e.clientY - panRef.current.startY) });
   };
-
-  const deleteStep = (id: string) => {
-    if (!flowData) return;
-    setFlowData({ ...flowData, pasos: flowData.pasos.filter(p => p.id !== id) });
-  };
-
-  const addStep = (step: Omit<FlowStep, 'id'>) => {
-    if (!flowData) return;
-    const newId = `p${Date.now()}`;
-    const newNum = String(flowData.pasos.length + 1);
-    setFlowData({ ...flowData, pasos: [...flowData.pasos, { ...step, id: newId, num: step.num || newNum }] });
-    setAddingStep(false);
-  };
-
-  const moveStep = (id: string, dir: 'up' | 'down') => {
-    if (!flowData) return;
-    const idx = flowData.pasos.findIndex(p => p.id === id);
-    if (dir === 'up' && idx === 0) return;
-    if (dir === 'down' && idx === flowData.pasos.length - 1) return;
-    const newPasos = [...flowData.pasos];
-    const swap = dir === 'up' ? idx - 1 : idx + 1;
-    [newPasos[idx], newPasos[swap]] = [newPasos[swap], newPasos[idx]];
-    // Renumber
-    newPasos.forEach((p, i) => { p.num = String(i + 1); });
-    setFlowData({ ...flowData, pasos: newPasos });
-  };
-
-  const updateAlert = (idx: number, texto: string) => {
-    if (!flowData) return;
-    const newAlerts = [...flowData.alertas];
-    newAlerts[idx] = { texto };
-    setFlowData({ ...flowData, alertas: newAlerts });
-    setEditingAlert(null);
-  };
-
-  const deleteAlert = (idx: number) => {
-    if (!flowData) return;
-    setFlowData({ ...flowData, alertas: flowData.alertas.filter((_, i) => i !== idx) });
-  };
-
-  const addAlert = () => {
-    if (!flowData) return;
-    setFlowData({ ...flowData, alertas: [...(flowData.alertas || []), { texto: 'Nueva regla crítica' }] });
-  };
+  const handleSvgMouseUp = () => { setIsPanning(false); panRef.current = null; };
 
   return (
-    <div className="space-y-4">
-      {/* Header toolbar */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    <div className="space-y-3">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
-            <GitBranch className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center">
+            <GitBranch className="w-4 h-4 text-white" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white">
-              {flowData ? flowData.negocio : 'Editor de Flujo IA'}
-            </h2>
-            <p className="text-xs text-white/35">
-              {flowData ? flowData.objetivo : 'Visualiza y edita el flujo de tu asistente'}
-            </p>
+            <h2 className="text-sm font-bold text-white">{canvas ? canvas.negocio : 'Editor de Flujo IA'}</h2>
+            <p className="text-[10px] text-white/35">{canvas ? canvas.objetivo : 'Diagrama visual de tu asistente'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {lastSaved && <span className="text-[10px] text-white/30">Guardado {lastSaved}</span>}
-          {flowData && onUpdateModFlujo && (
-            <button onClick={saveFlowToModule} disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50 transition-all">
-              <Check className="w-3.5 h-3.5" />
-              {saving ? 'Guardando...' : 'Guardar en módulo'}
-            </button>
+          {canvas && (
+            <>
+              {/* Zoom */}
+              <div className="flex items-center gap-1 bg-white/5 rounded-lg px-2 py-1">
+                <button onClick={() => setZoom(z => Math.max(0.3, z - 0.15))} className="text-white/60 hover:text-white w-5 h-5 flex items-center justify-center">−</button>
+                <span className="text-[10px] text-white/50 w-9 text-center">{Math.round(zoom * 100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(2, z + 0.15))} className="text-white/60 hover:text-white w-5 h-5 flex items-center justify-center">+</button>
+              </div>
+              <button onClick={() => { setZoom(0.75); setPan({ x: 20, y: 20 }); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-xs transition-all">
+                Centrar
+              </button>
+              <button onClick={addNode} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-xs transition-all">
+                <Plus className="w-3.5 h-3.5" />Nodo
+              </button>
+              {onUpdateModFlujo && (
+                <button onClick={saveFlow} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
+                  <Check className="w-3.5 h-3.5" />Guardar módulo
+                </button>
+              )}
+            </>
           )}
           <button onClick={analyzeAndGenerate} disabled={analyzing || !hasKnowledge}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-semibold hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 transition-all">
-            {analyzing
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</>
-              : <><Sparkles className="w-3.5 h-3.5" />{flowData ? 'Re-analizar' : 'Generar desde módulos'}</>}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-all">
+            {analyzing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</> : <><Sparkles className="w-3.5 h-3.5" />{canvas ? 'Re-generar' : 'Generar Flujo'}</>}
           </button>
         </div>
       </div>
 
-      {/* Message */}
       {msg && (
-        <div className={`p-3 rounded-xl text-xs font-medium ${msg.startsWith('✅') ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border border-red-500/30 text-red-300'}`}>
+        <div className={`px-4 py-2 rounded-xl text-xs font-medium border ${msg.startsWith('✅') ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`}>
           {msg}
         </div>
       )}
 
-      {/* Empty — no knowledge */}
+      {/* Legend */}
+      {canvas && (
+        <div className="flex flex-wrap gap-3">
+          {([['start', '🚀 Inicio/Fin'], ['action', '📋 Acción'], ['decision', '💠 Decisión'], ['media', '🖼️ Multimedia'], ['alert', '⚠️ Alerta']] as [NodeType, string][]).map(([type, label]) => {
+            const c = NODE_COLORS[type];
+            return (
+              <div key={type} className="flex items-center gap-1.5 text-[10px] text-white/40">
+                <div className="w-2.5 h-2.5 rounded-sm border" style={{ background: c.bg, borderColor: c.border }} />
+                {label}
+              </div>
+            );
+          })}
+          <div className="text-[10px] text-white/25 ml-2">· Arrastra nodos · Doble clic para editar · Scroll para zoom</div>
+        </div>
+      )}
+
+      {/* Canvas */}
       {!hasKnowledge && !analyzing && (
-        <div className="card p-10 text-center space-y-3">
-          <GitBranch className="w-10 h-10 text-violet-400/50 mx-auto" />
-          <h3 className="text-sm font-semibold text-white">Configura la Base IA primero</h3>
-          <p className="text-xs text-white/40 max-w-xs mx-auto">
-            Agrega contenido a los módulos en la pestaña "Base IA" para generar el diagrama del flujo.
-          </p>
+        <div className="rounded-2xl border border-white/8 bg-white/3 p-16 text-center space-y-3">
+          <GitBranch className="w-10 h-10 text-violet-400/40 mx-auto" />
+          <p className="text-sm text-white/50">Configura los módulos en "Base IA" primero</p>
         </div>
       )}
 
-      {/* Loading */}
       {analyzing && (
-        <div className="card p-8 text-center space-y-4">
-          <Loader2 className="w-8 h-8 text-violet-400 animate-spin mx-auto" />
+        <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-16 text-center space-y-4">
+          <Loader2 className="w-10 h-10 text-violet-400 animate-spin mx-auto" />
           <p className="text-sm text-white/60">Analizando tu base de conocimiento...</p>
-          <p className="text-xs text-white/30">La IA está leyendo tus módulos y construyendo el flujo</p>
         </div>
       )}
 
-      {/* Prompt to generate */}
-      {hasKnowledge && !flowData && !analyzing && (
-        <div className="card p-10 text-center space-y-4">
+      {hasKnowledge && !canvas && !analyzing && (
+        <div className="rounded-2xl border border-white/10 bg-white/3 p-16 text-center space-y-4">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center mx-auto">
             <GitBranch className="w-8 h-8 text-violet-400" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-white mb-1">Módulos detectados</h3>
-            <p className="text-xs text-white/40 max-w-sm mx-auto">
-              Haz clic en "Generar desde módulos" y la IA analizará tu base de conocimiento para crear el diagrama de flujo editable.
-            </p>
+            <p className="text-sm font-semibold text-white">Módulos detectados</p>
+            <p className="text-xs text-white/40 max-w-xs mx-auto mt-1">Haz clic en "Generar Flujo" para crear el diagrama visual interactivo</p>
           </div>
-          <button onClick={analyzeAndGenerate}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 transition-all">
+          <button onClick={analyzeAndGenerate} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 transition-all">
             <Sparkles className="w-4 h-4" />Generar Flujo IA
           </button>
         </div>
       )}
 
-      {/* ══ EDITOR VISUAL ══ */}
-      {flowData && !analyzing && (
-        <div className="space-y-4">
+      {canvas && !analyzing && (
+        <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#0d0d1a]"
+          style={{ height: '65vh', cursor: isPanning ? 'grabbing' : 'default' }}>
 
-          {/* Info negocio editable */}
-          <div className="card p-4 flex items-center gap-3">
-            <Brain className="w-5 h-5 text-violet-400 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <input
-                value={flowData.negocio}
-                onChange={e => setFlowData({ ...flowData, negocio: e.target.value })}
-                className="w-full bg-transparent text-sm font-bold text-white focus:outline-none border-b border-transparent hover:border-white/20 focus:border-violet-500 transition-colors"
-                placeholder="Nombre del negocio"
-              />
-              <input
-                value={flowData.objetivo}
-                onChange={e => setFlowData({ ...flowData, objetivo: e.target.value })}
-                className="w-full bg-transparent text-xs text-white/40 focus:outline-none border-b border-transparent hover:border-white/20 focus:border-violet-500 transition-colors mt-0.5"
-                placeholder="Objetivo del asistente"
-              />
-            </div>
-          </div>
+          {/* Grid background */}
+          <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            <defs>
+              <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+                <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
 
-          {/* Leyenda */}
-          <div className="flex flex-wrap gap-3 px-1">
-            {STEP_COLORS.map(c => (
-              <div key={c.color} className="flex items-center gap-1.5 text-[10px] text-white/40">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
-                {c.label.split(' — ')[1]}
-              </div>
-            ))}
-          </div>
+          {/* Main SVG canvas */}
+          <svg ref={svgRef} width="100%" height="100%"
+            onMouseDown={handleSvgMouseDown}
+            onMouseMove={handleSvgMouseMove}
+            onMouseUp={handleSvgMouseUp}
+            onMouseLeave={handleSvgMouseUp}
+            onWheel={e => {
+              e.preventDefault();
+              setZoom(z => Math.max(0.3, Math.min(2, z - e.deltaY * 0.001)));
+            }}
+            style={{ cursor: isPanning ? 'grabbing' : 'grab' }}>
+            <defs>
+              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="rgba(255,255,255,0.25)" />
+              </marker>
+              <marker id="arrowhead-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="rgba(124,58,237,0.6)" />
+              </marker>
+              <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="rgba(16,185,129,0.6)" />
+              </marker>
+            </defs>
 
-          {/* Pasos */}
-          <div className="card p-5 space-y-0">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Pasos del flujo</span>
-              <button onClick={() => setAddingStep(true)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all">
-                <Plus className="w-3.5 h-3.5" />Agregar paso
+            <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+              {/* Edges */}
+              {canvas.edges.map(edge => {
+                const fromNode = canvas.nodes.find(n => n.id === edge.from);
+                const toNode = canvas.nodes.find(n => n.id === edge.to);
+                if (!fromNode || !toNode) return null;
+                const path = getEdgePath(fromNode, toNode);
+                const markerId = edge.color?.includes('7c3aed') ? 'arrowhead-violet' : edge.color?.includes('10b981') ? 'arrowhead-green' : 'arrowhead';
+                return (
+                  <g key={edge.id}>
+                    <path d={path} fill="none" stroke={edge.color || 'rgba(255,255,255,0.2)'} strokeWidth="1.5" markerEnd={`url(#${markerId})`} />
+                    {edge.label && (
+                      <text fontSize="9" fill="rgba(255,255,255,0.4)" fontFamily="system-ui">
+                        <textPath href={`#edge-${edge.id}`} startOffset="50%" textAnchor="middle">{edge.label}</textPath>
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* Nodes */}
+              {canvas.nodes.map(node => (
+                <FlowNodeEl key={node.id} node={node}
+                  selected={selectedId === node.id}
+                  onSelect={() => setSelectedId(node.id)}
+                  onDragEnd={updateNodePos}
+                  onEdit={setEditingNode}
+                />
+              ))}
+            </g>
+          </svg>
+
+          {/* Selected node actions */}
+          {selectedId && selectedId !== 'start' && selectedId !== 'end' && (
+            <div className="absolute top-3 left-3 flex gap-1 bg-black/70 backdrop-blur rounded-lg px-2 py-1.5 border border-white/10">
+              <button onClick={() => { const n = canvas.nodes.find(x => x.id === selectedId); if (n) setEditingNode(n); }}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 transition-all">
+                <Wand2 className="w-3 h-3" />Editar
               </button>
-            </div>
-
-            {/* Add step form */}
-            {addingStep && (
-              <StepForm
-                onSave={addStep}
-                onCancel={() => setAddingStep(false)}
-                isNew
-              />
-            )}
-
-            {flowData.pasos.map((paso, i) => {
-              const s = getStyle(paso.color);
-              const isEditing = editingStep?.id === paso.id;
-              // Find decision after this step
-              const decision = flowData.decisiones?.find(d => d.despues_del_paso === paso.num);
-
-              return (
-                <div key={paso.id}>
-                  {isEditing ? (
-                    <StepForm
-                      initial={editingStep!}
-                      onSave={updateStep}
-                      onCancel={() => setEditingStep(null)}
-                    />
-                  ) : (
-                    <div className={`group flex gap-3 p-3.5 rounded-xl border ${s.border} ${s.bg} mb-1 hover:brightness-110 transition-all`}>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${s.text} bg-white/5`}>
-                        {paso.num}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center flex-wrap gap-2">
-                          <span className={`text-sm font-semibold ${s.text}`}>{paso.titulo}</span>
-                          {paso.botones && paso.botones.length > 0 && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300">
-                              🔘 {paso.botones.slice(0,2).join(' · ')}{paso.botones.length > 2 ? `+${paso.botones.length-2}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-white/50 mt-0.5">{paso.descripcion}</p>
-                        {paso.regla && (
-                          <p className="text-[10px] text-amber-400/70 mt-1">⚠️ {paso.regla}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                        <button onClick={() => moveStep(paso.id, 'up')} disabled={i === 0}
-                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white disabled:opacity-20 transition-all" title="Subir">
-                          <ChevronUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => moveStep(paso.id, 'down')} disabled={i === flowData.pasos.length - 1}
-                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white disabled:opacity-20 transition-all" title="Bajar">
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => setEditingStep(paso)}
-                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white transition-all" title="Editar">
-                          <Wand2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deleteStep(paso.id)}
-                          className="p-1 rounded hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-all" title="Eliminar">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Decision diamond */}
-                  {decision && !isEditing && (
-                    <div className="ml-4 my-2 pl-4 border-l-2 border-violet-500/30 flex items-start gap-2">
-                      <div className="w-4 h-4 mt-1 bg-violet-500/20 border border-violet-500/40 rotate-45 flex-shrink-0" />
-                      <div>
-                        <p className="text-[11px] text-violet-400 font-medium">{decision.pregunta}</p>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {decision.opciones.map((op, j) => {
-                            const os = getStyle(op.color);
-                            return (
-                              <span key={j} className={`text-[10px] px-2 py-0.5 rounded-lg border ${os.border} ${os.bg} ${os.text}`}>
-                                {op.label}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Connector */}
-                  {i < flowData.pasos.length - 1 && !isEditing && (
-                    <div className="ml-7 w-px h-3 bg-white/10 my-0.5" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Alertas / Reglas críticas */}
-          <div className="card p-4 border border-amber-500/20 bg-amber-500/5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-semibold text-amber-300">Reglas críticas del agente</span>
-              </div>
-              <button onClick={addAlert}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs transition-all">
-                <Plus className="w-3 h-3" />Agregar
+              <button onClick={() => deleteNode(selectedId)}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-400 hover:bg-red-500/20 transition-all">
+                <Trash2 className="w-3 h-3" />Eliminar
               </button>
-            </div>
-            {(flowData.alertas || []).map((a, i) => (
-              <div key={i} className="flex items-start gap-2 group">
-                <span className="text-amber-400 text-xs mt-0.5 flex-shrink-0">⚠️</span>
-                {editingAlert === `alert-${i}` ? (
-                  <div className="flex-1 flex gap-2">
-                    <input
-                      defaultValue={a.texto}
-                      autoFocus
-                      className="flex-1 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1 text-xs text-amber-200 focus:outline-none focus:border-amber-500"
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') updateAlert(i, (e.target as HTMLInputElement).value);
-                        if (e.key === 'Escape') setEditingAlert(null);
-                      }}
-                    />
-                    <button onClick={() => setEditingAlert(null)} className="text-white/40 hover:text-white text-xs">✕</button>
-                  </div>
-                ) : (
-                  <>
-                    <p className="flex-1 text-xs text-amber-200/70 leading-relaxed">{a.texto}</p>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={() => setEditingAlert(`alert-${i}`)} className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white"><Wand2 className="w-3 h-3" /></button>
-                      <button onClick={() => deleteAlert(i)} className="p-1 hover:bg-red-500/20 rounded text-white/40 hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Rutas especiales */}
-          {flowData.rutas_especiales && flowData.rutas_especiales.length > 0 && (
-            <div className="card p-4 space-y-3">
-              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Rutas especiales</span>
-              <div className="grid grid-cols-2 gap-2">
-                {flowData.rutas_especiales.map((r, i) => (
-                  <div key={i} className="p-3 rounded-xl border border-white/8 bg-white/3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-base">{r.emoji}</span>
-                      <span className="text-xs font-semibold text-white">{r.nombre}</span>
-                    </div>
-                    <p className="text-[11px] text-white/40">{r.desc}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Multimedia */}
-          {flowData.multimedia && flowData.multimedia.length > 0 && (
-            <div className="card p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="text-base">🖼️</span>
-                <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Multimedia configurada ({flowData.multimedia.length} elementos)</span>
-              </div>
-              <div className="space-y-2">
-                {flowData.multimedia.map((m, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 rounded-xl border border-white/8 bg-white/3">
-                    <span className="text-lg flex-shrink-0">
-                      {m.tipo === 'catalogo' ? '📂' : m.tipo === 'video' ? '🎥' : m.tipo === 'audio' ? '🎵' : '🖼️'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-white">{m.nombre}</p>
-                      <p className="text-[10px] text-white/40 mt-0.5">{m.descripcion}</p>
-                      {m.keywords && (
-                        <p className="text-[10px] text-violet-400/70 mt-1">
-                          🔑 <span className="font-mono">{m.keywords}</span>
-                        </p>
-                      )}
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-white/30 capitalize flex-shrink-0">{m.tipo}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Save reminder */}
-          {onUpdateModFlujo && (
-            <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex items-center gap-3">
-              <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              <p className="text-xs text-emerald-300/80">
-                Edita los pasos y haz clic en <strong>"Guardar en módulo"</strong> para actualizar el módulo 06_flujos, luego en <strong>"Guardar Todo"</strong> para persistir.
-              </p>
             </div>
           )}
         </div>
       )}
-    </div>
-  );
-}
 
-// ── Editor de paso (form) ──
-function StepForm({ initial, onSave, onCancel, isNew }: {
-  initial?: FlowStep;
-  onSave: (step: any) => void;
-  onCancel: () => void;
-  isNew?: boolean;
-}) {
-  const [form, setForm] = useState<Partial<FlowStep>>(initial || {
-    num: '', titulo: '', descripcion: '', color: '#10b981', tipo: 'accion', botones: [], regla: ''
-  });
-  const [botonesText, setBotonesText] = useState((initial?.botones || []).join(', '));
-
-  const handleSave = () => {
-    if (!form.titulo?.trim()) return;
-    const botones = botonesText.split(',').map(b => b.trim()).filter(Boolean);
-    onSave({ ...form, botones, id: initial?.id || `p${Date.now()}` });
-  };
-
-  const s = getStyle(form.color || '#10b981');
-
-  return (
-    <div className={`p-4 rounded-xl border-2 ${s.border} ${s.bg} mb-2 space-y-3`}>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-[10px] text-white/40 uppercase tracking-wider">Número</label>
-          <input value={form.num || ''} onChange={e => setForm({ ...form, num: e.target.value })}
-            className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-            placeholder="1, 2, 3A..." />
+      {/* Node editor panel */}
+      {editingNode && (
+        <div className="card p-4 border border-violet-500/30 bg-violet-500/5 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-violet-300">Editando nodo</span>
+            <button onClick={() => setEditingNode(null)} className="text-white/40 hover:text-white"><X className="w-4 h-4" /></button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] text-white/40 uppercase tracking-wider">Tipo</label>
+              <select value={editingNode.type} onChange={e => setEditingNode({ ...editingNode, type: e.target.value as NodeType })}
+                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500">
+                <option value="action">📋 Acción</option>
+                <option value="decision">💠 Decisión</option>
+                <option value="media">🖼️ Multimedia</option>
+                <option value="alert">⚠️ Alerta</option>
+                <option value="start">🚀 Inicio</option>
+                <option value="end">✅ Fin</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-white/40 uppercase tracking-wider">Ancho</label>
+              <input type="number" value={editingNode.width || 180} onChange={e => setEditingNode({ ...editingNode, width: Number(e.target.value) })}
+                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500" />
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] text-white/40 uppercase tracking-wider">Título</label>
+            <input value={editingNode.label} onChange={e => setEditingNode({ ...editingNode, label: e.target.value })}
+              className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500" />
+          </div>
+          <div>
+            <label className="text-[10px] text-white/40 uppercase tracking-wider">Descripción / Sublabel</label>
+            <textarea value={editingNode.sublabel || ''} onChange={e => setEditingNode({ ...editingNode, sublabel: e.target.value })}
+              rows={2} className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500 resize-none" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => updateNode(editingNode)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
+              <Check className="w-3.5 h-3.5" />Aplicar
+            </button>
+            <button onClick={() => setEditingNode(null)}
+              className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-xs transition-all">
+              Cancelar
+            </button>
+          </div>
         </div>
-        <div>
-          <label className="text-[10px] text-white/40 uppercase tracking-wider">Color / Tipo</label>
-          <select value={form.color || '#10b981'} onChange={e => setForm({ ...form, color: e.target.value })}
-            className="w-full mt-1 bg-[var(--bg-secondary)] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500">
-            {STEP_COLORS.map(c => (
-              <option key={c.color} value={c.color}>{c.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">Título del paso</label>
-        <input value={form.titulo || ''} onChange={e => setForm({ ...form, titulo: e.target.value })}
-          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-          placeholder="Ej: Saludo y equipo" autoFocus />
-      </div>
-      <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">Descripción</label>
-        <textarea value={form.descripcion || ''} onChange={e => setForm({ ...form, descripcion: e.target.value })}
-          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500 resize-none"
-          placeholder="Qué hace la IA en este paso" rows={2} />
-      </div>
-      <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">Botones interactivos (separados por coma)</label>
-        <input value={botonesText} onChange={e => setBotonesText(e.target.value)}
-          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-          placeholder="Opción A, Opción B, Opción C" />
-      </div>
-      <div>
-        <label className="text-[10px] text-white/40 uppercase tracking-wider">Regla crítica (opcional)</label>
-        <input value={form.regla || ''} onChange={e => setForm({ ...form, regla: e.target.value })}
-          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
-          placeholder="Ej: NUNCA preguntar talla aquí" />
-      </div>
-      <div className="flex gap-2">
-        <button onClick={handleSave}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
-          <Check className="w-3.5 h-3.5" />{isNew ? 'Agregar paso' : 'Guardar cambios'}
-        </button>
-        <button onClick={onCancel}
-          className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all">
-          Cancelar
-        </button>
-      </div>
+      )}
     </div>
   );
 }

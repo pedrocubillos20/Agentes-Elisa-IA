@@ -1,4 +1,5 @@
 'use client';
+import React from 'react';
 
 import { useState, useEffect, useRef } from 'react';
 import { 
@@ -10,6 +11,604 @@ import {
 } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+// ═══════════════════════════════════════════════════════
+// 🔀 FLUJO IA — Editor visual bidireccional
+// Lee módulos → genera pasos editables → guarda de vuelta
+// Genérico para cualquier negocio en el Sistema Modular IA
+// ═══════════════════════════════════════════════════════
+
+type FlowStep = {
+  id: string;
+  num: string;
+  titulo: string;
+  descripcion: string;
+  color: string;
+  tipo: 'accion' | 'dato' | 'cierre' | 'decision' | 'alerta';
+  botones?: string[];
+  regla?: string;
+};
+
+type FlowDecision = {
+  id: string;
+  pregunta: string;
+  despues_del_paso: string;
+  opciones: { label: string; va_a_paso: string; color: string }[];
+};
+
+type FlowData = {
+  negocio: string;
+  objetivo: string;
+  pasos: FlowStep[];
+  decisiones: FlowDecision[];
+  alertas: { texto: string }[];
+  rutas_especiales: { emoji: string; nombre: string; desc: string }[];
+};
+
+const STEP_COLORS = [
+  { color: '#10b981', label: 'Verde — Acción', border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
+  { color: '#3b82f6', label: 'Azul — Dato', border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400' },
+  { color: '#ef4444', label: 'Rojo — Cierre/Pago', border: 'border-red-500', bg: 'bg-red-500/10', text: 'text-red-400' },
+  { color: '#7c3aed', label: 'Violeta — Decisión', border: 'border-violet-500', bg: 'bg-violet-500/10', text: 'text-violet-400' },
+  { color: '#f59e0b', label: 'Amarillo — Alerta', border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400' },
+];
+
+function getStyle(color: string) {
+  return STEP_COLORS.find(c => c.color === color) || STEP_COLORS[0];
+}
+
+function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAcciones, modMemoria, agenteCliente, modBotones, onUpdateModFlujo }: {
+  modOrquestador?: string; modFlujo?: string; modReglas?: string; modIdentidad?: string;
+  modAcciones?: string; modMemoria?: string; agenteCliente?: string; modBotones?: string;
+  onUpdateModFlujo?: (val: string) => void;
+}) {
+  const [flowData, setFlowData] = useState<FlowData | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [editingStep, setEditingStep] = useState<FlowStep | null>(null);
+  const [editingAlert, setEditingAlert] = useState<string | null>(null);
+  const [addingStep, setAddingStep] = useState(false);
+  const [lastSaved, setLastSaved] = useState('');
+
+  const hasKnowledge = !!(modFlujo || modOrquestador || agenteCliente || modReglas);
+
+  // ── Analizar módulos con Claude y generar flujo estructurado ──
+  const analyzeAndGenerate = async () => {
+    setAnalyzing(true);
+    setMsg('');
+    try {
+      const kb = [
+        agenteCliente && `## AGENTE CLIENTE\n${agenteCliente}`,
+        modOrquestador && `## ORQUESTADOR\n${modOrquestador}`,
+        modFlujo && `## FLUJO\n${modFlujo}`,
+        modReglas && `## REGLAS\n${modReglas}`,
+        modIdentidad && `## IDENTIDAD\n${modIdentidad}`,
+        modAcciones && `## ACCIONES\n${modAcciones}`,
+        modBotones && `## BOTONES\n${modBotones}`,
+      ].filter(Boolean).join('\n\n').substring(0, 14000);
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1200,
+          messages: [{
+            role: 'user',
+            content: `Analiza esta base de conocimiento de un asistente IA de ventas/atención y extrae el flujo de conversación completo.
+
+BASE DE CONOCIMIENTO:
+${kb}
+
+Responde SOLO con JSON válido, sin markdown:
+{
+  "negocio": "nombre del negocio o asistente (de identidad.md o agente_cliente)",
+  "objetivo": "qué hace el asistente en máx 70 chars",
+  "pasos": [
+    {
+      "id": "p1",
+      "num": "1",
+      "titulo": "nombre del paso en máx 28 chars",
+      "descripcion": "qué hace la IA en este paso en máx 75 chars",
+      "color": "#10b981",
+      "tipo": "accion",
+      "botones": ["Opción A", "Opción B"],
+      "regla": "regla crítica de este paso si existe en máx 60 chars"
+    }
+  ],
+  "decisiones": [
+    {
+      "id": "d1",
+      "pregunta": "¿pregunta de bifurcación? máx 30 chars",
+      "despues_del_paso": "3",
+      "opciones": [
+        {"label": "Ruta A máx 18 chars", "va_a_paso": "4", "color": "#10b981"},
+        {"label": "Ruta B máx 18 chars", "va_a_paso": "4b", "color": "#f59e0b"}
+      ]
+    }
+  ],
+  "alertas": [{"texto": "regla crítica global máx 85 chars"}],
+  "rutas_especiales": [{"emoji": "🔁", "nombre": "nombre máx 18 chars", "desc": "qué hace máx 50 chars"}]
+}
+
+Colores: accion/inicio="#10b981", dato/info="#3b82f6", cierre/pago="#ef4444", decision/confirm="#7c3aed", alerta="#f59e0b"
+Extrae máx 12 pasos. Los botones solo si están definidos en el módulo de botones.`
+          }]
+        })
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      const text = data.content?.[0]?.text || '';
+      const clean = text.replace(/```json|```/g, '').trim();
+      const parsed: FlowData = JSON.parse(clean);
+      // Ensure IDs
+      parsed.pasos = parsed.pasos.map((p, i) => ({ ...p, id: p.id || `p${i+1}` }));
+      parsed.decisiones = (parsed.decisiones || []).map((d, i) => ({ ...d, id: d.id || `d${i+1}` }));
+      setFlowData(parsed);
+    } catch (e: any) {
+      setMsg('Error al analizar. Verifica que tienes módulos configurados.');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  // ── Guardar flujo de vuelta al módulo 06_flujos ──
+  const saveFlowToModule = () => {
+    if (!flowData || !onUpdateModFlujo) return;
+    setSaving(true);
+    try {
+      // Serializar el flowData como markdown estructurado para modFlujo
+      const lines: string[] = [];
+      lines.push(`# FLUJO DE CONVERSACIÓN — ${flowData.negocio}`);
+      lines.push(`## Objetivo: ${flowData.objetivo}`);
+      lines.push('');
+      flowData.pasos.forEach(p => {
+        lines.push(`## PASO ${p.num} — ${p.titulo}`);
+        lines.push(p.descripcion);
+        if (p.botones && p.botones.length > 0) {
+          lines.push(`⚡ BOTONES: [${p.botones.join(' | ')}]`);
+        }
+        if (p.regla) lines.push(`⚠️ REGLA: ${p.regla}`);
+        lines.push('');
+      });
+      if (flowData.alertas?.length) {
+        lines.push('## REGLAS CRÍTICAS');
+        flowData.alertas.forEach(a => lines.push(`🚨 ${a.texto}`));
+        lines.push('');
+      }
+      if (flowData.rutas_especiales?.length) {
+        lines.push('## RUTAS ESPECIALES');
+        flowData.rutas_especiales.forEach(r => lines.push(`${r.emoji} ${r.nombre}: ${r.desc}`));
+      }
+      const markdown = lines.join('\n');
+      onUpdateModFlujo(markdown);
+      setLastSaved(new Date().toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }));
+      setMsg('✅ Flujo guardado en el módulo 06_flujos. Haz clic en "Guardar Todo" para persistir.');
+      setTimeout(() => setMsg(''), 4000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Editar paso ──
+  const updateStep = (updated: FlowStep) => {
+    if (!flowData) return;
+    setFlowData({ ...flowData, pasos: flowData.pasos.map(p => p.id === updated.id ? updated : p) });
+    setEditingStep(null);
+  };
+
+  const deleteStep = (id: string) => {
+    if (!flowData) return;
+    setFlowData({ ...flowData, pasos: flowData.pasos.filter(p => p.id !== id) });
+  };
+
+  const addStep = (step: Omit<FlowStep, 'id'>) => {
+    if (!flowData) return;
+    const newId = `p${Date.now()}`;
+    const newNum = String(flowData.pasos.length + 1);
+    setFlowData({ ...flowData, pasos: [...flowData.pasos, { ...step, id: newId, num: step.num || newNum }] });
+    setAddingStep(false);
+  };
+
+  const moveStep = (id: string, dir: 'up' | 'down') => {
+    if (!flowData) return;
+    const idx = flowData.pasos.findIndex(p => p.id === id);
+    if (dir === 'up' && idx === 0) return;
+    if (dir === 'down' && idx === flowData.pasos.length - 1) return;
+    const newPasos = [...flowData.pasos];
+    const swap = dir === 'up' ? idx - 1 : idx + 1;
+    [newPasos[idx], newPasos[swap]] = [newPasos[swap], newPasos[idx]];
+    // Renumber
+    newPasos.forEach((p, i) => { p.num = String(i + 1); });
+    setFlowData({ ...flowData, pasos: newPasos });
+  };
+
+  const updateAlert = (idx: number, texto: string) => {
+    if (!flowData) return;
+    const newAlerts = [...flowData.alertas];
+    newAlerts[idx] = { texto };
+    setFlowData({ ...flowData, alertas: newAlerts });
+    setEditingAlert(null);
+  };
+
+  const deleteAlert = (idx: number) => {
+    if (!flowData) return;
+    setFlowData({ ...flowData, alertas: flowData.alertas.filter((_, i) => i !== idx) });
+  };
+
+  const addAlert = () => {
+    if (!flowData) return;
+    setFlowData({ ...flowData, alertas: [...(flowData.alertas || []), { texto: 'Nueva regla crítica' }] });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center">
+            <GitBranch className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-white">
+              {flowData ? flowData.negocio : 'Editor de Flujo IA'}
+            </h2>
+            <p className="text-xs text-white/35">
+              {flowData ? flowData.objetivo : 'Visualiza y edita el flujo de tu asistente'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {lastSaved && <span className="text-[10px] text-white/30">Guardado {lastSaved}</span>}
+          {flowData && onUpdateModFlujo && (
+            <button onClick={saveFlowToModule} disabled={saving}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50 transition-all">
+              <Check className="w-3.5 h-3.5" />
+              {saving ? 'Guardando...' : 'Guardar en módulo'}
+            </button>
+          )}
+          <button onClick={analyzeAndGenerate} disabled={analyzing || !hasKnowledge}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-semibold hover:from-violet-700 hover:to-indigo-700 disabled:opacity-50 transition-all">
+            {analyzing
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</>
+              : <><Sparkles className="w-3.5 h-3.5" />{flowData ? 'Re-analizar' : 'Generar desde módulos'}</>}
+          </button>
+        </div>
+      </div>
+
+      {/* Message */}
+      {msg && (
+        <div className={`p-3 rounded-xl text-xs font-medium ${msg.startsWith('✅') ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border border-red-500/30 text-red-300'}`}>
+          {msg}
+        </div>
+      )}
+
+      {/* Empty — no knowledge */}
+      {!hasKnowledge && !analyzing && (
+        <div className="card p-10 text-center space-y-3">
+          <GitBranch className="w-10 h-10 text-violet-400/50 mx-auto" />
+          <h3 className="text-sm font-semibold text-white">Configura la Base IA primero</h3>
+          <p className="text-xs text-white/40 max-w-xs mx-auto">
+            Agrega contenido a los módulos en la pestaña "Base IA" para generar el diagrama del flujo.
+          </p>
+        </div>
+      )}
+
+      {/* Loading */}
+      {analyzing && (
+        <div className="card p-8 text-center space-y-4">
+          <Loader2 className="w-8 h-8 text-violet-400 animate-spin mx-auto" />
+          <p className="text-sm text-white/60">Analizando tu base de conocimiento...</p>
+          <p className="text-xs text-white/30">La IA está leyendo tus módulos y construyendo el flujo</p>
+        </div>
+      )}
+
+      {/* Prompt to generate */}
+      {hasKnowledge && !flowData && !analyzing && (
+        <div className="card p-10 text-center space-y-4">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center mx-auto">
+            <GitBranch className="w-8 h-8 text-violet-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-1">Módulos detectados</h3>
+            <p className="text-xs text-white/40 max-w-sm mx-auto">
+              Haz clic en "Generar desde módulos" y la IA analizará tu base de conocimiento para crear el diagrama de flujo editable.
+            </p>
+          </div>
+          <button onClick={analyzeAndGenerate}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 transition-all">
+            <Sparkles className="w-4 h-4" />Generar Flujo IA
+          </button>
+        </div>
+      )}
+
+      {/* ══ EDITOR VISUAL ══ */}
+      {flowData && !analyzing && (
+        <div className="space-y-4">
+
+          {/* Info negocio editable */}
+          <div className="card p-4 flex items-center gap-3">
+            <Brain className="w-5 h-5 text-violet-400 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <input
+                value={flowData.negocio}
+                onChange={e => setFlowData({ ...flowData, negocio: e.target.value })}
+                className="w-full bg-transparent text-sm font-bold text-white focus:outline-none border-b border-transparent hover:border-white/20 focus:border-violet-500 transition-colors"
+                placeholder="Nombre del negocio"
+              />
+              <input
+                value={flowData.objetivo}
+                onChange={e => setFlowData({ ...flowData, objetivo: e.target.value })}
+                className="w-full bg-transparent text-xs text-white/40 focus:outline-none border-b border-transparent hover:border-white/20 focus:border-violet-500 transition-colors mt-0.5"
+                placeholder="Objetivo del asistente"
+              />
+            </div>
+          </div>
+
+          {/* Leyenda */}
+          <div className="flex flex-wrap gap-3 px-1">
+            {STEP_COLORS.map(c => (
+              <div key={c.color} className="flex items-center gap-1.5 text-[10px] text-white/40">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
+                {c.label.split(' — ')[1]}
+              </div>
+            ))}
+          </div>
+
+          {/* Pasos */}
+          <div className="card p-5 space-y-0">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Pasos del flujo</span>
+              <button onClick={() => setAddingStep(true)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all">
+                <Plus className="w-3.5 h-3.5" />Agregar paso
+              </button>
+            </div>
+
+            {/* Add step form */}
+            {addingStep && (
+              <StepForm
+                onSave={addStep}
+                onCancel={() => setAddingStep(false)}
+                isNew
+              />
+            )}
+
+            {flowData.pasos.map((paso, i) => {
+              const s = getStyle(paso.color);
+              const isEditing = editingStep?.id === paso.id;
+              // Find decision after this step
+              const decision = flowData.decisiones?.find(d => d.despues_del_paso === paso.num);
+
+              return (
+                <div key={paso.id}>
+                  {isEditing ? (
+                    <StepForm
+                      initial={editingStep!}
+                      onSave={updateStep}
+                      onCancel={() => setEditingStep(null)}
+                    />
+                  ) : (
+                    <div className={`group flex gap-3 p-3.5 rounded-xl border ${s.border} ${s.bg} mb-1 hover:brightness-110 transition-all`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${s.text} bg-white/5`}>
+                        {paso.num}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center flex-wrap gap-2">
+                          <span className={`text-sm font-semibold ${s.text}`}>{paso.titulo}</span>
+                          {paso.botones && paso.botones.length > 0 && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300">
+                              🔘 {paso.botones.slice(0,2).join(' · ')}{paso.botones.length > 2 ? `+${paso.botones.length-2}` : ''}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-white/50 mt-0.5">{paso.descripcion}</p>
+                        {paso.regla && (
+                          <p className="text-[10px] text-amber-400/70 mt-1">⚠️ {paso.regla}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                        <button onClick={() => moveStep(paso.id, 'up')} disabled={i === 0}
+                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white disabled:opacity-20 transition-all" title="Subir">
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => moveStep(paso.id, 'down')} disabled={i === flowData.pasos.length - 1}
+                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white disabled:opacity-20 transition-all" title="Bajar">
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => setEditingStep(paso)}
+                          className="p-1 rounded hover:bg-white/10 text-white/40 hover:text-white transition-all" title="Editar">
+                          <Wand2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => deleteStep(paso.id)}
+                          className="p-1 rounded hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-all" title="Eliminar">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Decision diamond */}
+                  {decision && !isEditing && (
+                    <div className="ml-4 my-2 pl-4 border-l-2 border-violet-500/30 flex items-start gap-2">
+                      <div className="w-4 h-4 mt-1 bg-violet-500/20 border border-violet-500/40 rotate-45 flex-shrink-0" />
+                      <div>
+                        <p className="text-[11px] text-violet-400 font-medium">{decision.pregunta}</p>
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {decision.opciones.map((op, j) => {
+                            const os = getStyle(op.color);
+                            return (
+                              <span key={j} className={`text-[10px] px-2 py-0.5 rounded-lg border ${os.border} ${os.bg} ${os.text}`}>
+                                {op.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Connector */}
+                  {i < flowData.pasos.length - 1 && !isEditing && (
+                    <div className="ml-7 w-px h-3 bg-white/10 my-0.5" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Alertas / Reglas críticas */}
+          <div className="card p-4 border border-amber-500/20 bg-amber-500/5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-semibold text-amber-300">Reglas críticas del agente</span>
+              </div>
+              <button onClick={addAlert}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs transition-all">
+                <Plus className="w-3 h-3" />Agregar
+              </button>
+            </div>
+            {(flowData.alertas || []).map((a, i) => (
+              <div key={i} className="flex items-start gap-2 group">
+                <span className="text-amber-400 text-xs mt-0.5 flex-shrink-0">⚠️</span>
+                {editingAlert === `alert-${i}` ? (
+                  <div className="flex-1 flex gap-2">
+                    <input
+                      defaultValue={a.texto}
+                      autoFocus
+                      className="flex-1 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1 text-xs text-amber-200 focus:outline-none focus:border-amber-500"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') updateAlert(i, (e.target as HTMLInputElement).value);
+                        if (e.key === 'Escape') setEditingAlert(null);
+                      }}
+                    />
+                    <button onClick={() => setEditingAlert(null)} className="text-white/40 hover:text-white text-xs">✕</button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="flex-1 text-xs text-amber-200/70 leading-relaxed">{a.texto}</p>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => setEditingAlert(`alert-${i}`)} className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white"><Wand2 className="w-3 h-3" /></button>
+                      <button onClick={() => deleteAlert(i)} className="p-1 hover:bg-red-500/20 rounded text-white/40 hover:text-red-400"><Trash2 className="w-3 h-3" /></button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Rutas especiales */}
+          {flowData.rutas_especiales && flowData.rutas_especiales.length > 0 && (
+            <div className="card p-4 space-y-3">
+              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Rutas especiales</span>
+              <div className="grid grid-cols-2 gap-2">
+                {flowData.rutas_especiales.map((r, i) => (
+                  <div key={i} className="p-3 rounded-xl border border-white/8 bg-white/3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base">{r.emoji}</span>
+                      <span className="text-xs font-semibold text-white">{r.nombre}</span>
+                    </div>
+                    <p className="text-[11px] text-white/40">{r.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Save reminder */}
+          {onUpdateModFlujo && (
+            <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 flex items-center gap-3">
+              <Check className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+              <p className="text-xs text-emerald-300/80">
+                Edita los pasos y haz clic en <strong>"Guardar en módulo"</strong> para actualizar el módulo 06_flujos, luego en <strong>"Guardar Todo"</strong> para persistir.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Editor de paso (form) ──
+function StepForm({ initial, onSave, onCancel, isNew }: {
+  initial?: FlowStep;
+  onSave: (step: any) => void;
+  onCancel: () => void;
+  isNew?: boolean;
+}) {
+  const [form, setForm] = useState<Partial<FlowStep>>(initial || {
+    num: '', titulo: '', descripcion: '', color: '#10b981', tipo: 'accion', botones: [], regla: ''
+  });
+  const [botonesText, setBotonesText] = useState((initial?.botones || []).join(', '));
+
+  const handleSave = () => {
+    if (!form.titulo?.trim()) return;
+    const botones = botonesText.split(',').map(b => b.trim()).filter(Boolean);
+    onSave({ ...form, botones, id: initial?.id || `p${Date.now()}` });
+  };
+
+  const s = getStyle(form.color || '#10b981');
+
+  return (
+    <div className={`p-4 rounded-xl border-2 ${s.border} ${s.bg} mb-2 space-y-3`}>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-[10px] text-white/40 uppercase tracking-wider">Número</label>
+          <input value={form.num || ''} onChange={e => setForm({ ...form, num: e.target.value })}
+            className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+            placeholder="1, 2, 3A..." />
+        </div>
+        <div>
+          <label className="text-[10px] text-white/40 uppercase tracking-wider">Color / Tipo</label>
+          <select value={form.color || '#10b981'} onChange={e => setForm({ ...form, color: e.target.value })}
+            className="w-full mt-1 bg-[var(--bg-secondary)] border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500">
+            {STEP_COLORS.map(c => (
+              <option key={c.color} value={c.color}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">Título del paso</label>
+        <input value={form.titulo || ''} onChange={e => setForm({ ...form, titulo: e.target.value })}
+          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+          placeholder="Ej: Saludo y equipo" autoFocus />
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">Descripción</label>
+        <textarea value={form.descripcion || ''} onChange={e => setForm({ ...form, descripcion: e.target.value })}
+          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500 resize-none"
+          placeholder="Qué hace la IA en este paso" rows={2} />
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">Botones interactivos (separados por coma)</label>
+        <input value={botonesText} onChange={e => setBotonesText(e.target.value)}
+          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+          placeholder="Opción A, Opción B, Opción C" />
+      </div>
+      <div>
+        <label className="text-[10px] text-white/40 uppercase tracking-wider">Regla crítica (opcional)</label>
+        <input value={form.regla || ''} onChange={e => setForm({ ...form, regla: e.target.value })}
+          className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500"
+          placeholder="Ej: NUNCA preguntar talla aquí" />
+      </div>
+      <div className="flex gap-2">
+        <button onClick={handleSave}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
+          <Check className="w-3.5 h-3.5" />{isNew ? 'Agregar paso' : 'Guardar cambios'}
+        </button>
+        <button onClick={onCancel}
+          className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs transition-all">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 export default function AsistentesPage() {
   const [loading, setLoading] = useState(true);
@@ -1683,297 +2282,17 @@ export default function AsistentesPage() {
 
       {/* ==================== FLUJO IA TAB ==================== */}
       {activeTab === 'flow' && (
-        <div className="space-y-4">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-violet-500/25">
-                <GitBranch className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className="text-sm font-bold text-white">Flujo de Conversación IA</h2>
-                <p className="text-xs text-white/35">Diagrama completo del asistente Elisa</p>
-              </div>
-            </div>
-            <div className="flex gap-2 text-[10px]">
-              {[{color:'bg-emerald-500',label:'Acción IA'},{color:'bg-violet-500',label:'Decisión'},{color:'bg-amber-500',label:'Alerta'},{color:'bg-blue-500',label:'Dato'}].map(l=>(
-                <div key={l.label} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 border border-white/8">
-                  <div className={`w-2 h-2 rounded-full ${l.color}`}/>
-                  <span className="text-white/50">{l.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Diagram canvas */}
-          <div className="card p-0 overflow-hidden">
-            <div className="overflow-auto" style={{maxHeight:'78vh'}}>
-              <svg viewBox="0 0 900 2080" xmlns="http://www.w3.org/2000/svg" style={{width:'100%',minWidth:'640px',display:'block'}}>
-                <defs>
-                  <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L0,6 L8,3 z" fill="#ffffff30"/>
-                  </marker>
-                  <marker id="arr-warn" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b80"/>
-                  </marker>
-                  <marker id="arr-ok" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                    <path d="M0,0 L0,6 L8,3 z" fill="#10b98180"/>
-                  </marker>
-                  <filter id="glow">
-                    <feGaussianBlur stdDeviation="3" result="blur"/>
-                    <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-                  </filter>
-                </defs>
-
-                {/* BG */}
-                <rect width="900" height="2080" fill="#0a0a0f"/>
-                {/* Grid dots */}
-                {Array.from({length:42}).map((_,row)=>Array.from({length:18}).map((_,col)=>(
-                  <circle key={`${row}-${col}`} cx={col*50+25} cy={row*50+25} r="1" fill="#ffffff08"/>
-                )))}
-
-                {/* ── INICIO ── */}
-                <ellipse cx="450" cy="55" rx="80" ry="26" fill="#10b981" opacity="0.15" stroke="#10b981" strokeWidth="1.5"/>
-                <text x="450" y="60" textAnchor="middle" fill="#10b981" fontSize="13" fontWeight="600">🚀 Inicio</text>
-
-                {/* arrow */}
-                <line x1="450" y1="81" x2="450" y2="108" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 1: SALUDO ── */}
-                <rect x="290" y="112" width="320" height="70" rx="14" fill="#10b98112" stroke="#10b981" strokeWidth="1.5"/>
-                <text x="450" y="137" textAnchor="middle" fill="#10b981" fontSize="12" fontWeight="700">PASO 1 — Saludo + Equipo</text>
-                <text x="450" y="155" textAnchor="middle" fill="#ffffff60" fontSize="10">Bienvenida variada → pregunta el equipo</text>
-                <text x="450" y="170" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [Ver catálogo | Ver precios | Asesor]</text>
-
-                <line x1="450" y1="182" x2="450" y2="210" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 2: CATÁLOGO ── */}
-                <rect x="290" y="214" width="320" height="66" rx="14" fill="#10b98112" stroke="#10b981" strokeWidth="1.5"/>
-                <text x="450" y="238" textAnchor="middle" fill="#10b981" fontSize="12" fontWeight="700">PASO 2 — Catálogo del Equipo</text>
-                <text x="450" y="256" textAnchor="middle" fill="#ffffff60" fontSize="10">Trigger: colores [equipo] → envía todas las imágenes</text>
-                <text x="450" y="271" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Lista: [Nacional | Barcelona | Millonarios | ...]</text>
-
-                <line x1="450" y1="280" x2="450" y2="308" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 3A: COLOR ── */}
-                <rect x="265" y="312" width="370" height="78" rx="14" fill="#f59e0b12" stroke="#f59e0b" strokeWidth="1.5"/>
-                <text x="450" y="337" textAnchor="middle" fill="#f59e0b" fontSize="12" fontWeight="700">PASO 3A — Cliente elige COLOR</text>
-                <rect x="330" y="346" width="80" height="18" rx="6" fill="#ef444420"/>
-                <text x="370" y="358" textAnchor="middle" fill="#ef4444" fontSize="9" fontWeight="600">≠ diseño</text>
-                <text x="460" y="358" textAnchor="middle" fill="#ffffff60" fontSize="10">Negro, Rojo, Azul... = solo color</text>
-                <text x="450" y="378" textAnchor="middle" fill="#ffffff60" fontSize="10">Trigger: [equipo] [color] → envía diseños de ese color</text>
-
-                <line x1="450" y1="390" x2="450" y2="418" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── DECISIÓN ── */}
-                <polygon points="450,422 560,452 450,482 340,452" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="1.5"/>
-                <text x="450" y="449" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">¿Cómo confirma</text>
-                <text x="450" y="464" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">el diseño?</text>
-
-                {/* Sí - reply */}
-                <line x1="560" y1="452" x2="680" y2="452" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
-                <text x="618" y="446" textAnchor="middle" fill="#10b981" fontSize="9">Reply imagen</text>
-                <rect x="682" y="432" width="160" height="42" rx="10" fill="#10b98112" stroke="#10b981" strokeWidth="1"/>
-                <text x="762" y="450" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="600">Sistema inyecta</text>
-                <text x="762" y="464" textAnchor="middle" fill="#ffffff60" fontSize="9">[cliente seleccionó: X-Opción N]</text>
-                <line x1="762" y1="474" x2="762" y2="530" stroke="#10b98160" strokeWidth="1.5"/>
-                <line x1="762" y1="530" x2="560" y2="530" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
-
-                {/* Ambiguo */}
-                <line x1="340" y1="452" x2="200" y2="452" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
-                <text x="272" y="446" textAnchor="middle" fill="#f59e0b" fontSize="9">Ambiguo</text>
-                <rect x="58" y="432" width="140" height="42" rx="10" fill="#f59e0b12" stroke="#f59e0b" strokeWidth="1"/>
-                <text x="128" y="450" textAnchor="middle" fill="#f59e0b" fontSize="10" fontWeight="600">Pedir claridad</text>
-                <text x="128" y="464" textAnchor="middle" fill="#ffffff60" fontSize="9">¿Opción 1, 2 o 3?</text>
-                <line x1="128" y1="474" x2="128" y2="530" stroke="#f59e0b60" strokeWidth="1.5"/>
-                <line x1="128" y1="530" x2="340" y2="530" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
-
-                {/* Dice opción N */}
-                <line x1="450" y1="482" x2="450" y2="510" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-                <text x="500" y="500" fill="#ffffff50" fontSize="9">Dice "Opción 2"</text>
-
-                {/* ── PASO 3B: DISEÑO ── */}
-                <rect x="280" y="514" width="340" height="68" rx="14" fill="#10b98112" stroke="#10b981" strokeWidth="2"/>
-                <text x="450" y="538" textAnchor="middle" fill="#10b981" fontSize="12" fontWeight="700">PASO 3B — Confirma DISEÑO</text>
-                <rect x="360" y="547" width="90" height="18" rx="6" fill="#10b98120"/>
-                <text x="405" y="559" textAnchor="middle" fill="#10b981" fontSize="9" fontWeight="600">Opción N confirmada</text>
-                <text x="450" y="573" textAnchor="middle" fill="#ffffff60" fontSize="10">Guarda detalles_producto → ⛔ No más imágenes</text>
-
-                <line x1="450" y1="582" x2="450" y2="610" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 4: TALLA ── */}
-                <rect x="290" y="614" width="320" height="66" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
-                <text x="450" y="638" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 4 — Talla</text>
-                <text x="450" y="656" textAnchor="middle" fill="#ffffff60" fontSize="10">Adulto: XS S M L XL 2XL 3XL 4XL</text>
-                <text x="450" y="671" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Lista: adulto (8) + niño (4) · La talla define el tipo</text>
-
-                <line x1="450" y1="680" x2="450" y2="708" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 5: CALIDAD ── */}
-                <rect x="290" y="712" width="320" height="66" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
-                <text x="450" y="736" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 5 — Calidad + Precio</text>
-                <text x="450" y="754" textAnchor="middle" fill="#ffffff60" fontSize="10">Premium 300g vs Monaco 260g · Precio exacto de productos.json</text>
-                <text x="450" y="769" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [⭐ Premium | 💫 Monaco | ¿Diferencia?]</text>
-
-                <line x1="450" y1="778" x2="450" y2="806" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 6: CIUDAD ── */}
-                <rect x="290" y="810" width="320" height="66" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
-                <text x="450" y="834" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 6 — Ciudad + Envío</text>
-                <text x="450" y="852" textAnchor="middle" fill="#ffffff60" fontSize="10">Bogotá/Soacha = GRATIS · Otras = Inter Rapidísimo</text>
-                <text x="450" y="867" textAnchor="middle" fill="#ffffff60" fontSize="10">Total = subtotal + envío SIEMPRE</text>
-
-                <line x1="450" y1="876" x2="450" y2="904" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── DECISIÓN CIUDAD ── */}
-                <polygon points="450,908 570,932 450,956 330,932" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="1.5"/>
-                <text x="450" y="936" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">¿Ciudad?</text>
-
-                {/* Bogotá path */}
-                <line x1="330" y1="932" x2="170" y2="932" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
-                <text x="252" y="926" textAnchor="middle" fill="#10b981" fontSize="9">Bogotá/Soacha</text>
-                <rect x="40" y="912" width="128" height="42" rx="10" fill="#10b98112" stroke="#10b981" strokeWidth="1"/>
-                <text x="104" y="929" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="600">Domicilio</text>
-                <text x="104" y="943" textAnchor="middle" fill="#ffffff60" fontSize="9">Pide dirección + barrio</text>
-                <line x1="104" y1="954" x2="104" y2="1010" stroke="#10b98160" strokeWidth="1.5"/>
-                <line x1="104" y1="1010" x2="330" y2="1010" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
-
-                {/* IR path */}
-                <line x1="570" y1="932" x2="710" y2="932" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
-                <text x="638" y="926" textAnchor="middle" fill="#f59e0b" fontSize="9">Otra ciudad</text>
-                <rect x="712" y="910" width="148" height="46" rx="10" fill="#f59e0b12" stroke="#f59e0b" strokeWidth="1"/>
-                <text x="786" y="929" textAnchor="middle" fill="#f59e0b" fontSize="10" fontWeight="600">Inter Rapidísimo</text>
-                <text x="786" y="943" textAnchor="middle" fill="#ffffff60" fontSize="9">Oficina principal</text>
-                <text x="786" y="956" textAnchor="middle" fill="#ffffff60" fontSize="9">Pide cédula (no dirección)</text>
-                <line x1="786" y1="956" x2="786" y2="1010" stroke="#f59e0b60" strokeWidth="1.5"/>
-                <line x1="786" y1="1010" x2="570" y2="1010" stroke="#f59e0b60" strokeWidth="1.5" markerEnd="url(#arr-warn)"/>
-
-                {/* ── PASO 7: DATOS ── */}
-                <rect x="285" y="1014" width="330" height="56" rx="14" fill="#3b82f612" stroke="#3b82f6" strokeWidth="1.5"/>
-                <text x="450" y="1037" textAnchor="middle" fill="#3b82f6" fontSize="12" fontWeight="700">PASO 7 — Datos del Cliente</text>
-                <text x="450" y="1055" textAnchor="middle" fill="#ffffff60" fontSize="10">Nombre · Teléfono · [Dirección+Barrio o Cédula]</text>
-
-                <line x1="450" y1="1070" x2="450" y2="1098" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 8: RESUMEN + ORDER BUMP ── */}
-                <rect x="275" y="1102" width="350" height="76" rx="14" fill="#ef444412" stroke="#ef4444" strokeWidth="1.5"/>
-                <text x="450" y="1126" textAnchor="middle" fill="#ef4444" fontSize="12" fontWeight="700">PASO 8 — Resumen + Order Bump</text>
-                <text x="450" y="1144" textAnchor="middle" fill="#ffffff60" fontSize="10">Muestra resumen completo del pedido</text>
-                <text x="450" y="1159" textAnchor="middle" fill="#f59e0b" fontSize="10">🔥 Ofrece 2do buzo 15% OFF · 3er buzo 20% OFF</text>
-                <text x="450" y="1170" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [🛒 Sí, otro | ✅ Solo este]</text>
-
-                <line x1="450" y1="1178" x2="450" y2="1206" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── DECISIÓN ORDER BUMP ── */}
-                <polygon points="450,1210 555,1232 450,1254 345,1232" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="1.5"/>
-                <text x="450" y="1236" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="600">¿2do buzo?</text>
-
-                {/* Acepta order bump */}
-                <line x1="555" y1="1232" x2="680" y2="1232" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
-                <text x="616" y="1226" textAnchor="middle" fill="#10b981" fontSize="9">Sí</text>
-                <rect x="682" y="1214" width="148" height="38" rx="10" fill="#10b98112" stroke="#10b981" strokeWidth="1"/>
-                <text x="756" y="1231" textAnchor="middle" fill="#10b981" fontSize="10" fontWeight="600">Agregar 2do buzo</text>
-                <text x="756" y="1245" textAnchor="middle" fill="#ffffff60" fontSize="9">→ vuelve al paso 3</text>
-                <line x1="756" y1="1252" x2="756" y2="1290" stroke="#10b98160" strokeWidth="1.5"/>
-                <line x1="756" y1="1290" x2="556" y2="1290" stroke="#10b98160" strokeWidth="1.5" markerEnd="url(#arr-ok)"/>
-
-                {/* No order bump */}
-                <line x1="450" y1="1254" x2="450" y2="1282" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-                <text x="470" y="1272" fill="#ffffff50" fontSize="9">No</text>
-
-                {/* ── PASO 9: PAGO ── */}
-                <rect x="280" y="1286" width="340" height="76" rx="14" fill="#ef444412" stroke="#ef4444" strokeWidth="1.5"/>
-                <text x="450" y="1310" textAnchor="middle" fill="#ef4444" fontSize="12" fontWeight="700">PASO 9 — Método de Pago</text>
-                <text x="450" y="1328" textAnchor="middle" fill="#10b981" fontSize="10">Bogotá: Efectivo · Nequi · Bancolombia · Tarjeta</text>
-                <text x="450" y="1343" textAnchor="middle" fill="#f59e0b" fontSize="10">IR: Envío anticipado (Nequi/Bancolombia) + buzo al recoger</text>
-                <text x="450" y="1354" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones según ciudad · ⚠️ NUNCA vacío</text>
-
-                <line x1="450" y1="1362" x2="450" y2="1390" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── PASO 10: CONFIRMAR ── */}
-                <rect x="280" y="1394" width="340" height="90" rx="14" fill="#7c3aed15" stroke="#7c3aed" strokeWidth="2"/>
-                <text x="450" y="1418" textAnchor="middle" fill="#a78bfa" fontSize="12" fontWeight="700">PASO 10 — Crear Pedido</text>
-                <text x="450" y="1436" textAnchor="middle" fill="#ffffff60" fontSize="10">Checklist completo antes de crear:</text>
-                <text x="450" y="1451" textAnchor="middle" fill="#10b981" fontSize="9">✅ nombre · teléfono · dirección/cédula · ciudad</text>
-                <text x="450" y="1465" textAnchor="middle" fill="#10b981" fontSize="9">✅ producto · total · metodo_pago · fecha_entrega</text>
-                <text x="450" y="1477" textAnchor="middle" fill="#6366f1" fontSize="10">🔘 Botones: [✅ Confirmar | ✏️ Cambiar algo]</text>
-
-                <line x1="450" y1="1484" x2="450" y2="1512" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── accion: crear_pedido ── */}
-                <rect x="310" y="1516" width="280" height="44" rx="12" fill="#7c3aed25" stroke="#7c3aed" strokeWidth="2"/>
-                <text x="450" y="1535" textAnchor="middle" fill="#a78bfa" fontSize="11" fontWeight="700">⚡ accion: crear_pedido</text>
-                <text x="450" y="1551" textAnchor="middle" fill="#ffffff60" fontSize="10">etapa_actual = Confirmado</text>
-
-                <line x1="450" y1="1560" x2="450" y2="1590" stroke="#ffffff25" strokeWidth="1.5" markerEnd="url(#arr)"/>
-
-                {/* ── FIN ── */}
-                <ellipse cx="450" cy="1610" rx="80" ry="26" fill="#10b981" opacity="0.15" stroke="#10b981" strokeWidth="1.5"/>
-                <text x="450" y="1615" textAnchor="middle" fill="#10b981" fontSize="13" fontWeight="600">🎉 Pedido creado</text>
-
-                {/* ════ RUTAS ESPECIALES (lateral) ════ */}
-                <text x="450" y="1670" textAnchor="middle" fill="#ffffff30" fontSize="11" fontWeight="500">── Rutas especiales (en cualquier paso) ──</text>
-
-                <rect x="30" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
-                <text x="123" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">💬 Objeción de precio</text>
-                <text x="123" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">10% solo si el cliente</text>
-                <text x="123" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">lo pide explícitamente</text>
-
-                <rect x="234" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
-                <text x="327" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">🔁 Recompra</text>
-                <text x="327" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">Confirmar ciudad anterior</text>
-                <text x="327" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">→ flujo desde Paso 2</text>
-
-                <rect x="438" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
-                <text x="531" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">🙋 Transferir humano</text>
-                <text x="531" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">2+ insistencias o reclamo</text>
-                <text x="531" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">mayor a $200.000</text>
-
-                <rect x="642" y="1690" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
-                <text x="735" y="1711" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">✏️ Modificar pedido</text>
-                <text x="735" y="1728" textAnchor="middle" fill="#ffffff45" fontSize="9">pedido = creado →</text>
-                <text x="735" y="1740" textAnchor="middle" fill="#ffffff45" fontSize="9">actualizar_pedido</text>
-
-                <rect x="132" y="1758" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
-                <text x="225" y="1779" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">📏 Tallas especiales</text>
-                <text x="225" y="1796" textAnchor="middle" fill="#ffffff45" fontSize="9">2XL/3XL/4XL y niño →</text>
-                <text x="225" y="1808" textAnchor="middle" fill="#ffffff45" fontSize="9">sobre pedido 3-4 días</text>
-
-                <rect x="336" y="1758" width="186" height="52" rx="12" fill="#ffffff08" stroke="#ffffff15" strokeWidth="1"/>
-                <text x="429" y="1779" textAnchor="middle" fill="#ffffff80" fontSize="11" fontWeight="600">📦 Cancelar pedido</text>
-                <text x="429" y="1796" textAnchor="middle" fill="#ffffff45" fontSize="9">Confirmar explícita →</text>
-                <text x="429" y="1808" textAnchor="middle" fill="#ffffff45" fontSize="9">cancelar_pedido</text>
-
-                <rect x="540" y="1758" width="200" height="52" rx="12" fill="#6366f115" stroke="#6366f140" strokeWidth="1"/>
-                <text x="640" y="1779" textAnchor="middle" fill="#818cf8" fontSize="11" fontWeight="600">🔘 Botones interactivos</text>
-                <text x="640" y="1796" textAnchor="middle" fill="#ffffff45" fontSize="9">8 pasos con botones →</text>
-                <text x="640" y="1808" textAnchor="middle" fill="#ffffff45" fontSize="9">ver 16_botones.json</text>
-
-                {/* ── REGLA CRÍTICA box ── */}
-                <rect x="160" y="1830" width="580" height="60" rx="14" fill="#f59e0b08" stroke="#f59e0b40" strokeWidth="1.5"/>
-                <text x="450" y="1853" textAnchor="middle" fill="#f59e0b" fontSize="11" fontWeight="700">⚠️ Regla crítica — COLOR ≠ DISEÑO</text>
-                <text x="450" y="1870" textAnchor="middle" fill="#ffffff55" fontSize="10">"Negro" = COLOR → trigger [equipo] [color] → mostrar diseños → esperar</text>
-                <text x="450" y="1885" textAnchor="middle" fill="#ffffff55" fontSize="10">"Opción 2" o reply = DISEÑO → confirmar → avanzar a talla</text>
-
-                {/* Step labels on left rail */}
-                {[
-                  [450, 148, '#10b981', '01'],
-                  [450, 248, '#10b981', '02'],
-                  [450, 352, '#f59e0b', '3A'],
-                  [450, 548, '#10b981', '3B'],
-                  [450, 648, '#3b82f6', '04'],
-                  [450, 747, '#3b82f6', '05'],
-                  [450, 843, '#3b82f6', '06'],
-                  [450, 1042, '#3b82f6', '07'],
-                  [450, 1141, '#ef4444', '08'],
-                  [450, 1324, '#ef4444', '09'],
-                  [450, 1440, '#7c3aed', '10'],
-                ].map(([,,c,n]) => null)}
-
-              </svg>
-            </div>
-          </div>
-        </div>
+        <FlowTab
+          modOrquestador={modOrquestador}
+          modFlujo={modFlujo}
+          modReglas={modReglas}
+          modIdentidad={modIdentidad}
+          modAcciones={modAcciones}
+          modMemoria={modMemoriaCliente}
+          agenteCliente={agenteCliente}
+          modBotones={modBotones}
+          onUpdateModFlujo={setModFlujo}
+        />
       )}
       {/* Footer */}
       <div className="flex items-center justify-center py-6">

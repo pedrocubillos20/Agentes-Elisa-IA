@@ -13,175 +13,185 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // ═══════════════════════════════════════════════════════
-// 🔀 FLUJO IA — Editor visual profesional estilo Miro
-// Nodos arrastrables, flechas SVG, diamantes de decisión
-// Genérico para cualquier negocio en el Sistema Modular IA
+// 🔀 FLUJO IA — Cerebro completo del asistente
+// Visualiza TODOS los módulos con contenido real
+// Canvas infinito, nodos expandibles, multimedia conectada
 // ═══════════════════════════════════════════════════════
 
-type NodeType = 'start' | 'end' | 'action' | 'decision' | 'media' | 'alert';
+type NodeKind = 'start' | 'end' | 'step' | 'decision' | 'module' | 'media' | 'alert' | 'rule';
 
-type FlowNode = {
+type BrainNode = {
   id: string;
-  type: NodeType;
-  label: string;
-  sublabel?: string;
+  kind: NodeKind;
+  title: string;
+  content?: string;
+  tags?: string[];
   x: number;
   y: number;
+  w: number;
+  h: number;
   color: string;
-  width?: number;
-  height?: number;
+  expanded?: boolean;
 };
 
-type FlowEdge = {
+type BrainEdge = {
   id: string;
   from: string;
   to: string;
   label?: string;
+  style?: 'solid' | 'dashed';
   color?: string;
 };
 
-type FlowCanvas = {
-  negocio: string;
-  objetivo: string;
-  nodes: FlowNode[];
-  edges: FlowEdge[];
+const KIND_STYLE: Record<NodeKind, { border: string; bg: string; header: string; text: string; tag: string }> = {
+  start:    { border: '#10b981', bg: '#0d2b22', header: '#10b981', text: '#6ee7b7', tag: '#064e3b' },
+  end:      { border: '#10b981', bg: '#0d2b22', header: '#10b981', text: '#6ee7b7', tag: '#064e3b' },
+  step:     { border: '#3b82f6', bg: '#0f172a', header: '#1d4ed8', text: '#93c5fd', tag: '#1e3a5f' },
+  decision: { border: '#7c3aed', bg: '#1e1033', header: '#6d28d9', text: '#c4b5fd', tag: '#3b1f6e' },
+  module:   { border: '#475569', bg: '#0f172a', header: '#334155', text: '#94a3b8', tag: '#1e293b' },
+  media:    { border: '#6366f1', bg: '#13123a', header: '#4338ca', text: '#a5b4fc', tag: '#1e1b4b' },
+  alert:    { border: '#f59e0b', bg: '#1c1408', header: '#d97706', text: '#fcd34d', tag: '#451a03' },
+  rule:     { border: '#ef4444', bg: '#1c0a0a', header: '#b91c1c', text: '#fca5a5', tag: '#450a0a' },
 };
 
-const NODE_COLORS: Record<NodeType, { bg: string; border: string; text: string; shadow: string }> = {
-  start:    { bg: '#10b981', border: '#059669', text: '#fff', shadow: 'rgba(16,185,129,0.4)' },
-  end:      { bg: '#10b981', border: '#059669', text: '#fff', shadow: 'rgba(16,185,129,0.4)' },
-  action:   { bg: '#1e293b', border: '#3b82f6', text: '#93c5fd', shadow: 'rgba(59,130,246,0.3)' },
-  decision: { bg: '#2d1b69', border: '#7c3aed', text: '#c4b5fd', shadow: 'rgba(124,58,237,0.4)' },
-  media:    { bg: '#1e1b4b', border: '#6366f1', text: '#a5b4fc', shadow: 'rgba(99,102,241,0.3)' },
-  alert:    { bg: '#292524', border: '#f59e0b', text: '#fcd34d', shadow: 'rgba(245,158,11,0.3)' },
-};
-
-// ─── SVG Arrow path between two nodes ───
-function getEdgePath(from: FlowNode, to: FlowNode): string {
-  const fw = (from.width || 180) / 2;
-  const fh = (from.height || (from.type === 'decision' ? 60 : 70)) / 2;
-  const tw = (to.width || 180) / 2;
-  const th = (to.height || (to.type === 'decision' ? 60 : 70)) / 2;
-
-  const fx = from.x + fw;
-  const fy = from.y + fh;
-  const tx = to.x + tw;
-  const ty = to.y + th;
-
-  // Exit from bottom, enter from top
-  const exitX = fx;
-  const exitY = from.y + fh * 2;
-  const entX = tx;
-  const entY = to.y;
-
-  const midY = (exitY + entY) / 2;
-  return `M ${exitX} ${exitY} C ${exitX} ${midY}, ${entX} ${midY}, ${entX} ${entY}`;
+// ── Edge path: smart routing ──
+function edgePath(from: BrainNode, to: BrainNode): string {
+  const fx = from.x + from.w / 2;
+  const fy = from.y + from.h;
+  const tx = to.x + to.w / 2;
+  const ty = to.y;
+  if (ty > fy) {
+    const my = (fy + ty) / 2;
+    return `M${fx},${fy} C${fx},${my} ${tx},${my} ${tx},${ty}`;
+  }
+  const side = fx < tx ? from.x + from.w : from.x;
+  const tside = fx < tx ? to.x : to.x + to.w;
+  const mx = (side + tside) / 2;
+  return `M${side},${from.y + from.h / 2} C${mx},${from.y + from.h / 2} ${mx},${to.y + to.h / 2} ${tside},${to.y + to.h / 2}`;
 }
 
-// ─── Node renderer ───
-function FlowNodeEl({
-  node, selected, onSelect, onDragEnd, onEdit
-}: {
-  node: FlowNode;
+// ── Node component ──
+function BNode({ node, selected, onPointerDown, onDoubleClick }: {
+  node: BrainNode;
   selected: boolean;
-  onSelect: () => void;
-  onDragEnd: (id: string, x: number, y: number) => void;
-  onEdit: (node: FlowNode) => void;
+  onPointerDown: (e: React.PointerEvent, id: string) => void;
+  onDoubleClick: (id: string) => void;
 }) {
-  const dragRef = useRef<{ startX: number; startY: number; nodeX: number; nodeY: number } | null>(null);
-  const c = NODE_COLORS[node.type];
-  const w = node.width || 180;
-  const h = node.type === 'decision' ? 60 : (node.type === 'start' || node.type === 'end') ? 44 : 70;
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSelect();
-    dragRef.current = { startX: e.clientX, startY: e.clientY, nodeX: node.x, nodeY: node.y };
-    const onMove = (ev: MouseEvent) => {
-      if (!dragRef.current) return;
-      const dx = ev.clientX - dragRef.current.startX;
-      const dy = ev.clientY - dragRef.current.startY;
-      onDragEnd(node.id, Math.max(0, dragRef.current.nodeX + dx), Math.max(0, dragRef.current.nodeY + dy));
-    };
-    const onUp = () => { dragRef.current = null; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-  };
-
-  if (node.type === 'start' || node.type === 'end') {
-    return (
-      <g transform={`translate(${node.x}, ${node.y})`} onMouseDown={handleMouseDown} onDoubleClick={() => onEdit(node)} style={{ cursor: 'grab' }}>
-        <rect x={0} y={0} width={w} height={h} rx={h/2} fill={c.bg} stroke={selected ? '#fff' : c.border} strokeWidth={selected ? 2.5 : 2}
-          style={{ filter: `drop-shadow(0 4px 12px ${c.shadow})` }} />
-        <text x={w/2} y={h/2} textAnchor="middle" dominantBaseline="middle" fill={c.text} fontSize="13" fontWeight="700" fontFamily="system-ui">
-          {node.label}
-        </text>
-      </g>
-    );
-  }
-
-  if (node.type === 'decision') {
-    const dw = w;
-    const dh = h + 20;
-    const pts = `${dw/2},0 ${dw},${dh/2} ${dw/2},${dh} 0,${dh/2}`;
-    return (
-      <g transform={`translate(${node.x}, ${node.y})`} onMouseDown={handleMouseDown} onDoubleClick={() => onEdit(node)} style={{ cursor: 'grab' }}>
-        <polygon points={pts} fill={c.bg} stroke={selected ? '#fff' : c.border} strokeWidth={selected ? 2.5 : 2}
-          style={{ filter: `drop-shadow(0 4px 14px ${c.shadow})` }} />
-        <text x={dw/2} y={dh/2-6} textAnchor="middle" dominantBaseline="middle" fill={c.text} fontSize="11" fontWeight="600" fontFamily="system-ui">
-          {node.label}
-        </text>
-        {node.sublabel && (
-          <text x={dw/2} y={dh/2+8} textAnchor="middle" dominantBaseline="middle" fill={c.text} fontSize="9" opacity="0.7" fontFamily="system-ui">
-            {node.sublabel}
-          </text>
-        )}
-      </g>
-    );
-  }
+  const s = KIND_STYLE[node.kind];
+  const isOval = node.kind === 'start' || node.kind === 'end';
 
   return (
-    <g transform={`translate(${node.x}, ${node.y})`} onMouseDown={handleMouseDown} onDoubleClick={() => onEdit(node)} style={{ cursor: 'grab' }}>
-      <rect x={0} y={0} width={w} height={h} rx={10} fill={c.bg} stroke={selected ? '#fff' : c.border} strokeWidth={selected ? 2.5 : 1.5}
-        style={{ filter: `drop-shadow(0 4px 12px ${c.shadow})` }} />
-      {/* Top accent bar */}
-      <rect x={0} y={0} width={w} height={3} rx={0} fill={c.border} opacity="0.8" />
-      <text x={12} y={22} fill={c.text} fontSize="12" fontWeight="600" fontFamily="system-ui">
-        {node.label.length > 22 ? node.label.substring(0, 22) + '…' : node.label}
-      </text>
-      {node.sublabel && (
-        <foreignObject x={12} y={30} width={w - 24} height={32}>
-          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', lineHeight: '1.4', overflow: 'hidden' }}>
-            {node.sublabel}
-          </div>
-        </foreignObject>
+    <g transform={`translate(${node.x},${node.y})`}
+      onPointerDown={e => onPointerDown(e, node.id)}
+      onDoubleClick={() => onDoubleClick(node.id)}
+      style={{ cursor: 'grab', userSelect: 'none' }}>
+
+      {isOval ? (
+        <>
+          <ellipse cx={node.w/2} cy={node.h/2} rx={node.w/2} ry={node.h/2}
+            fill={s.bg} stroke={selected ? '#fff' : s.border} strokeWidth={selected ? 3 : 2}
+            style={{ filter: `drop-shadow(0 0 10px ${s.border}60)` }} />
+          <text x={node.w/2} y={node.h/2} textAnchor="middle" dominantBaseline="middle"
+            fill={s.text} fontSize="14" fontWeight="700">{node.title}</text>
+        </>
+      ) : node.kind === 'decision' ? (
+        <>
+          <polygon points={`${node.w/2},0 ${node.w},${node.h/2} ${node.w/2},${node.h} 0,${node.h/2}`}
+            fill={s.bg} stroke={selected ? '#fff' : s.border} strokeWidth={selected ? 3 : 2}
+            style={{ filter: `drop-shadow(0 0 12px ${s.border}70)` }} />
+          <text x={node.w/2} y={node.h/2-6} textAnchor="middle" dominantBaseline="middle"
+            fill={s.text} fontSize="11" fontWeight="600">{node.title.substring(0,28)}</text>
+          {node.content && (
+            <text x={node.w/2} y={node.h/2+10} textAnchor="middle" dominantBaseline="middle"
+              fill={s.text} fontSize="9" opacity="0.7">{node.content.substring(0,32)}</text>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Shadow */}
+          <rect x={3} y={3} width={node.w} height={node.h} rx={10} fill="rgba(0,0,0,0.4)" />
+          {/* Body */}
+          <rect x={0} y={0} width={node.w} height={node.h} rx={10}
+            fill={s.bg} stroke={selected ? '#fff' : s.border} strokeWidth={selected ? 2.5 : 1.5}
+            style={{ filter: `drop-shadow(0 4px 16px ${s.border}40)` }} />
+          {/* Header bar */}
+          <rect x={0} y={0} width={node.w} height={28} rx={10} fill={s.header} opacity="0.25" />
+          <rect x={0} y={18} width={node.w} height={10} fill={s.header} opacity="0.25" />
+          {/* Kind dot */}
+          <circle cx={14} cy={14} r={4} fill={s.border} opacity="0.9" />
+          {/* Title */}
+          <text x={26} y={18} fill={s.text} fontSize="12" fontWeight="700" fontFamily="system-ui">
+            {node.title.length > 28 ? node.title.substring(0,28)+'…' : node.title}
+          </text>
+          {/* Content lines */}
+          {node.content && node.expanded && (
+            <foreignObject x={8} y={34} width={node.w - 16} height={node.h - 50}>
+              <div style={{
+                fontSize: '10px', color: 'rgba(255,255,255,0.55)', lineHeight: '1.55',
+                overflow: 'hidden', wordBreak: 'break-word', fontFamily: 'system-ui',
+                whiteSpace: 'pre-wrap',
+              }}>
+                {node.content.substring(0, node.expanded ? 2000 : 200)}
+              </div>
+            </foreignObject>
+          )}
+          {node.content && !node.expanded && (
+            <foreignObject x={8} y={34} width={node.w - 16} height={node.h - 50}>
+              <div style={{
+                fontSize: '10px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.5',
+                overflow: 'hidden', wordBreak: 'break-word', fontFamily: 'system-ui',
+              }}>
+                {node.content.substring(0, 160)}{node.content.length > 160 ? '…' : ''}
+              </div>
+            </foreignObject>
+          )}
+          {/* Tags */}
+          {node.tags && node.tags.length > 0 && (
+            node.tags.slice(0,3).map((tag, ti) => (
+              <g key={ti} transform={`translate(${8 + ti * 80}, ${node.h - 18})`}>
+                <rect width={74} height={14} rx={7} fill={s.tag} />
+                <text x={37} y={10} textAnchor="middle" fill={s.text} fontSize="8" opacity="0.8">{tag.substring(0,10)}</text>
+              </g>
+            ))
+          )}
+          {/* Expand indicator */}
+          {node.content && node.content.length > 160 && (
+            <text x={node.w - 10} y={node.h - 6} textAnchor="end" fill={s.border} fontSize="9" opacity="0.6">
+              {node.expanded ? '▲ menos' : '▼ más'}
+            </text>
+          )}
+        </>
       )}
     </g>
   );
 }
 
-// ─── Main FlowTab component ───
+// ── Main FlowTab ──
 function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAcciones, modMemoria, agenteCliente, modBotones, onUpdateModFlujo }: {
   modOrquestador?: string; modFlujo?: string; modReglas?: string; modIdentidad?: string;
   modAcciones?: string; modMemoria?: string; agenteCliente?: string; modBotones?: string;
   onUpdateModFlujo?: (val: string) => void;
 }) {
-  const [canvas, setCanvas] = useState<FlowCanvas | null>(null);
+  const [nodes, setNodes] = useState<BrainNode[]>([]);
+  const [edges, setEdges] = useState<BrainEdge[]>([]);
+  const [meta, setMeta] = useState({ negocio: '', objetivo: '' });
   const [analyzing, setAnalyzing] = useState(false);
   const [msg, setMsg] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editingNode, setEditingNode] = useState<FlowNode | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const panRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+  const [zoom, setZoom] = useState(0.6);
+  const [pan, setPan] = useState({ x: 60, y: 40 });
+  const [fullscreen, setFullscreen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ nodeId: string | null; startX: number; startY: number; nodeX: number; nodeY: number } | null>(null);
+  const panRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
   const hasKnowledge = !!(modFlujo || modOrquestador || agenteCliente || modReglas);
+  const hasFlow = nodes.length > 0;
 
-  // Build canvas dimensions
-  const canvasW = canvas ? Math.max(1200, ...canvas.nodes.map(n => n.x + (n.width || 200))) + 100 : 1200;
-  const canvasH = canvas ? Math.max(800, ...canvas.nodes.map(n => n.y + 120)) + 100 : 800;
+  // Compute canvas size
+  const maxX = nodes.length > 0 ? Math.max(...nodes.map(n => n.x + n.w)) + 120 : 2000;
+  const maxY = nodes.length > 0 ? Math.max(...nodes.map(n => n.y + n.h)) + 120 : 1400;
 
   const analyzeAndGenerate = async () => {
     setAnalyzing(true);
@@ -195,213 +205,291 @@ function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAccione
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
-
-      // ── Auto-layout: flow steps (center) + modules panel (left) + multimedia (right) ──
       const flow = data.flow;
-      const nodes: FlowNode[] = [];
-      const edges: FlowEdge[] = [];
 
-      const STEP_X = 320;   // Center column for flow steps
-      const STEP_W = 200;
-      const ROW_H  = 120;
-      const START_Y = 40;
+      // ── LAYOUT CONSTANTS ──
+      // COL A (left): Módulos de identidad/config
+      // COL B (center-left): Flujo de conversación
+      // COL C (center-right): Acciones, reglas, memoria
+      // COL D (right): Multimedia
 
-      // ── LEFT PANEL: 17 Módulos del Sistema Modular IA ──
-      const MODULE_PANEL = [
-        { id: 'mod-00', label: '⚙️ 00_orquestador', sublabel: 'Enrutamiento y lógica', color: '#7c3aed' },
-        { id: 'mod-01', label: '👤 01_identidad', sublabel: 'Nombre, tono, personalidad', color: '#3b82f6' },
-        { id: 'mod-02', label: '📋 02_reglas', sublabel: 'Precios, políticas, reglas', color: '#3b82f6' },
-        { id: 'mod-03', label: '📦 03_productos', sublabel: 'Catálogo y precios', color: '#3b82f6' },
-        { id: 'mod-04', label: '📅 04_agenda', sublabel: 'Horarios y seguimientos', color: '#3b82f6' },
-        { id: 'mod-05', label: '🔄 05_flujos', sublabel: 'Flujo de conversación', color: '#10b981' },
-        { id: 'mod-06', label: '⚡ 06_acciones', sublabel: 'crear_pedido, actualizar', color: '#ef4444' },
-        { id: 'mod-07', label: '🔑 07_admin', sublabel: 'Panel administrador', color: '#f59e0b' },
-        { id: 'mod-08', label: '📍 08_zonas', sublabel: 'Ciudades y envíos', color: '#3b82f6' },
-        { id: 'mod-09', label: '🧠 09_memoria', sublabel: 'MEMORY_JSON y retentiva', color: '#7c3aed' },
-        { id: 'mod-10', label: '📊 10_métricas', sublabel: 'KPIs y FAQ', color: '#3b82f6' },
-        { id: 'mod-11', label: '🎯 11_intenciones', sublabel: 'Detección de intenciones', color: '#6366f1' },
-        { id: 'mod-12', label: '🖼️ 12_triggers', sublabel: 'Multimedia y triggers', color: '#6366f1' },
-        { id: 'mod-13', label: '📂 13_catalogo', sublabel: 'Contexto del catálogo', color: '#6366f1' },
-        { id: 'mod-14', label: '🔤 14_nlu_map', sublabel: 'Sinónimos y entidades', color: '#6366f1' },
-        { id: 'mod-15', label: '💡 15_motor_ofertas', sublabel: 'Descuentos y order bump', color: '#f59e0b' },
-        { id: 'mod-16', label: '🔘 16_botones', sublabel: 'Botones interactivos', color: '#7c3aed' },
-      ];
-      MODULE_PANEL.forEach((m, i) => {
-        nodes.push({ id: m.id, type: 'media', label: m.label, sublabel: m.sublabel, x: 20, y: START_Y + i * 85, color: m.color, width: 185 });
-      });
+      const CA = 20;    // Config modules column
+      const CB = 310;   // Flow steps column
+      const CC = 620;   // Rules/Actions column
+      const CD = 930;   // Multimedia column
+      const NW = 270;   // Node width
+      const MNW = 250;  // Module node width
+      const STEP_H = 100; // Step height
+      const MOD_H_BASE = 90; // Module base height
+      const GAP = 24;   // Gap between nodes
 
-      // ── CENTER: Start node ──
-      nodes.push({ id: 'start', type: 'start', label: '🚀 Inicio', x: STEP_X + 30, y: START_Y, width: 140, color: '#10b981' });
+      const newNodes: BrainNode[] = [];
+      const newEdges: BrainEdge[] = [];
+      let y = 20;
 
+      // ── START node ──
+      newNodes.push({ id: 'start', kind: 'start', title: '🚀 ' + (flow.negocio || 'Inicio'), x: CB + 60, y, w: 160, h: 44, color: '#10b981' });
+      y += 64;
+
+      // ── FLOW STEPS (Column B) ──
       let prevId = 'start';
+      const stepNodes: BrainNode[] = [];
 
-      // ── CENTER: Flow steps from AI analysis ──
       (flow.pasos || []).forEach((paso: any, i: number) => {
         const id = paso.id || `p${i}`;
-        const typeMap: Record<string, NodeType> = { '#ef4444': 'action', '#7c3aed': 'action', '#f59e0b': 'alert', '#3b82f6': 'action', '#10b981': 'action' };
-        const type: NodeType = typeMap[paso.color] || 'action';
-        const x = STEP_X + (i % 2 === 0 ? 0 : STEP_W * 0.6);
-        const y = START_Y + 80 + Math.floor(i / 2) * ROW_H * 1.3;
-        nodes.push({ id, type, label: `${paso.num}. ${paso.titulo}`, sublabel: paso.descripcion?.substring(0, 65), x, y, color: paso.color || '#3b82f6', width: STEP_W });
-        edges.push({ id: `e-${prevId}-${id}`, from: prevId, to: id, color: '#ffffff18' });
+        const h = 95 + Math.floor((paso.descripcion || '').length / 40) * 14;
+        const n: BrainNode = {
+          id, kind: 'step',
+          title: `${paso.num}. ${paso.titulo}`,
+          content: [
+            paso.descripcion,
+            paso.regla ? `⚠️ ${paso.regla}` : '',
+            paso.botones?.length ? `🔘 ${paso.botones.join(' · ')}` : '',
+          ].filter(Boolean).join('\n'),
+          tags: paso.botones?.slice(0,2),
+          x: CB, y, w: NW, h: Math.max(STEP_H, h),
+          color: paso.color || '#3b82f6',
+          expanded: false,
+        };
+        newNodes.push(n);
+        stepNodes.push(n);
+        newEdges.push({ id: `ef-${prevId}-${id}`, from: prevId, to: id, color: '#3b82f640', style: 'solid' });
 
-        const decision = (flow.decisiones || []).find((d: any) => d.despues_del_paso === paso.num);
-        if (decision) {
-          const dId = decision.id;
-          nodes.push({ id: dId, type: 'decision', label: decision.pregunta, x: x + 20, y: y + ROW_H, color: '#7c3aed', width: 180 });
-          edges.push({ id: `e-${id}-${dId}`, from: id, to: dId, color: '#7c3aed50' });
-          prevId = dId;
+        // Decision?
+        const dec = (flow.decisiones || []).find((d: any) => d.despues_del_paso === paso.num);
+        if (dec) {
+          const dh = 80;
+          const dn: BrainNode = {
+            id: dec.id, kind: 'decision', title: dec.pregunta,
+            content: dec.opciones?.map((o: any) => o.label).join(' / '),
+            x: CB + 20, y: y + n.h + 10, w: NW - 40, h: dh, color: '#7c3aed',
+          };
+          newNodes.push(dn);
+          newEdges.push({ id: `ed-${id}-${dec.id}`, from: id, to: dec.id, color: '#7c3aed50', style: 'solid' });
+          y += n.h + dh + GAP * 2;
+          prevId = dec.id;
         } else {
+          y += n.h + GAP;
           prevId = id;
         }
       });
 
-      // ── CENTER: End node ──
-      const lastCenterNode = nodes.filter(n => n.id !== 'start' && !n.id.startsWith('mod-') && !n.id.startsWith('media-') && !n.id.startsWith('alert-')).pop();
-      if (lastCenterNode) {
-        nodes.push({ id: 'end', type: 'end', label: '✅ Completado', x: lastCenterNode.x + 20, y: lastCenterNode.y + ROW_H, width: 150, color: '#10b981' });
-        edges.push({ id: 'e-last-end', from: lastCenterNode.id, to: 'end', color: '#10b98150' });
-      }
+      // END node
+      newNodes.push({ id: 'end', kind: 'end', title: '✅ ' + (flow.objetivo?.substring(0,30) || 'Completado'), x: CB + 55, y, w: 170, h: 44, color: '#10b981' });
+      newEdges.push({ id: 'ef-end', from: prevId, to: 'end', color: '#10b98140', style: 'solid' });
+      const totalFlowHeight = y + 60;
 
-      // ── RIGHT PANEL: Multimedia items ──
-      const RIGHT_X = STEP_X + STEP_W + 100;
+      // ── COLUMN A: Config + Identity modules ──
+      const colAModules = [
+        {
+          id: 'mod-orq', title: '⚙️ Orquestador',
+          content: modOrquestador || '(sin contenido)',
+          tags: ['routing', 'agentes'],
+        },
+        {
+          id: 'mod-id', title: '👤 Identidad del Agente',
+          content: modIdentidad || agenteCliente?.substring(0, 500) || '(sin contenido)',
+          tags: ['personalidad', 'tono'],
+        },
+        {
+          id: 'mod-reglas', title: '📋 Reglas del Negocio',
+          content: modReglas || '(sin contenido)',
+          tags: ['precios', 'políticas'],
+        },
+        {
+          id: 'mod-flujo', title: '🔄 Flujo de Conversación',
+          content: modFlujo?.substring(0, 600) || '(sin contenido)',
+          tags: ['pasos', 'flujo'],
+        },
+      ];
+
+      let ay = 20;
+      colAModules.forEach(m => {
+        const contentLen = (m.content || '').length;
+        const h = Math.min(220, MOD_H_BASE + Math.floor(contentLen / 80) * 14);
+        newNodes.push({ id: m.id, kind: 'module', title: m.title, content: m.content, tags: m.tags, x: CA, y: ay, w: MNW, h, color: '#475569', expanded: false });
+        ay += h + GAP;
+      });
+
+      // ── COLUMN C: Actions, Memory, Motor ofertas ──
+      const colCModules = [
+        {
+          id: 'mod-acc', title: '⚡ Acciones',
+          content: modAcciones || '(sin contenido)',
+          tags: ['crear_pedido', 'cancelar'],
+        },
+        {
+          id: 'mod-mem', title: '🧠 Memoria',
+          content: modMemoria || '(sin contenido)',
+          tags: ['MEMORY_JSON', 'retentiva'],
+        },
+        {
+          id: 'mod-bot', title: '🔘 Botones Interactivos',
+          content: modBotones || '(sin contenido)',
+          tags: ['interactive', 'WhatsApp'],
+        },
+      ];
+
+      let cy = 20;
+      colCModules.forEach(m => {
+        const contentLen = (m.content || '').length;
+        const h = Math.min(250, MOD_H_BASE + Math.floor(contentLen / 70) * 14);
+        newNodes.push({ id: m.id, kind: 'module', title: m.title, content: m.content, tags: m.tags, x: CC, y: cy, w: MNW, h, color: '#475569', expanded: false });
+        cy += h + GAP;
+      });
+
+      // ── COLUMN D: Multimedia ──
+      let dy = 20;
       if (flow.multimedia && flow.multimedia.length > 0) {
-        flow.multimedia.slice(0, 12).forEach((m: any, i: number) => {
+        flow.multimedia.forEach((m: any, i: number) => {
           const icon = m.tipo === 'catalogo' ? '📂' : m.tipo === 'video' ? '🎥' : m.tipo === 'audio' ? '🎵' : '🖼️';
-          nodes.push({
-            id: `media-${i}`, type: 'media',
-            label: `${icon} ${(m.nombre || 'Media').substring(0, 20)}`,
-            sublabel: (m.keywords || '').substring(0, 45),
-            x: RIGHT_X, y: START_Y + i * 92,
-            color: '#6366f1', width: 180
+          const mId = `media-${i}`;
+          const h = 90 + Math.floor((m.keywords || '').length / 30) * 12;
+          newNodes.push({
+            id: mId, kind: 'media',
+            title: `${icon} ${(m.nombre || 'Media').substring(0, 22)}`,
+            content: [m.keywords && `🔑 ${m.keywords}`, m.descripcion].filter(Boolean).join('\n'),
+            tags: [m.tipo],
+            x: CD, y: dy, w: MNW, h: Math.max(85, h), color: '#6366f1', expanded: false,
           });
+
+          // Connect to matching flow step via trigger
+          const kw = (m.keywords || '').toLowerCase();
+          const matchingStep = stepNodes.find(sn => {
+            const sc = (sn.content || '').toLowerCase() + sn.title.toLowerCase();
+            return kw.split(',').some((k: string) => k.trim() && sc.includes(k.trim()));
+          });
+          if (matchingStep) {
+            newEdges.push({ id: `em-${mId}`, from: matchingStep.id, to: mId, label: 'trigger', color: '#6366f160', style: 'dashed' });
+          }
+
+          dy += Math.max(85, h) + GAP;
         });
       }
 
-      // ── BOTTOM: Alert/reglas críticas ──
-      const allY = nodes.map(n => n.y).filter(Boolean);
-      const bottomY = Math.max(...allY, 600) + 140;
-      (flow.alertas || []).slice(0, 4).forEach((a: any, i: number) => {
-        nodes.push({
-          id: `alert-${i}`, type: 'alert',
-          label: '⚠️ Regla crítica',
-          sublabel: (a.texto || '').substring(0, 60),
-          x: 20 + i * 230, y: bottomY,
-          color: '#f59e0b', width: 215
+      // ── BOTTOM ROW: Alerts + Rutas especiales ──
+      const bottomY = Math.max(totalFlowHeight, ay, cy, dy) + 20;
+
+      (flow.alertas || []).slice(0, 5).forEach((a: any, i: number) => {
+        newNodes.push({
+          id: `alert-${i}`, kind: 'alert',
+          title: '⚠️ Regla crítica',
+          content: a.texto || '',
+          x: CA + i * 260, y: bottomY, w: 245, h: 80, color: '#f59e0b',
         });
       });
 
-      // ── ROUTES ESPECIALES ──
       (flow.rutas_especiales || []).slice(0, 4).forEach((r: any, i: number) => {
-        nodes.push({
-          id: `ruta-${i}`, type: 'action',
-          label: `${r.emoji || '🔁'} ${(r.nombre || '').substring(0, 20)}`,
-          sublabel: (r.desc || '').substring(0, 55),
-          x: RIGHT_X + 195, y: START_Y + i * 95,
-          color: '#475569', width: 180
+        newNodes.push({
+          id: `ruta-${i}`, kind: 'rule',
+          title: `${r.emoji || '🔁'} ${(r.nombre || '').substring(0, 22)}`,
+          content: r.desc || '',
+          x: CD + i * 260, y: bottomY, w: 245, h: 80, color: '#ef4444',
         });
       });
 
-      setCanvas({ negocio: flow.negocio, objetivo: flow.objetivo, nodes, edges });
-      setZoom(0.55);
-      setPan({ x: 10, y: 10 });
+      setNodes(newNodes);
+      setEdges(newEdges);
+      setMeta({ negocio: flow.negocio || '', objetivo: flow.objetivo || '' });
+      setZoom(0.5);
+      setPan({ x: 60, y: 40 });
     } catch (e: any) {
-      setMsg(e.message || 'Error al generar. Verifica tu API Key y módulos configurados.');
+      setMsg(e.message || 'Error. Verifica API Key y módulos configurados.');
     } finally {
       setAnalyzing(false);
     }
   };
 
-  const updateNodePos = (id: string, x: number, y: number) => {
-    if (!canvas) return;
-    setCanvas({ ...canvas, nodes: canvas.nodes.map(n => n.id === id ? { ...n, x, y } : n) });
+  // ── Drag logic ──
+  const handlePointerDown = (e: React.PointerEvent, nodeId: string) => {
+    e.stopPropagation();
+    setSelectedId(nodeId);
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    dragRef.current = { nodeId, startX: e.clientX, startY: e.clientY, nodeX: node.x, nodeY: node.y };
+    (e.target as Element).setPointerCapture(e.pointerId);
   };
 
-  const updateNode = (updated: FlowNode) => {
-    if (!canvas) return;
-    setCanvas({ ...canvas, nodes: canvas.nodes.map(n => n.id === updated.id ? updated : n) });
-    setEditingNode(null);
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (dragRef.current?.nodeId) {
+      const dx = (e.clientX - dragRef.current.startX) / zoom;
+      const dy = (e.clientY - dragRef.current.startY) / zoom;
+      setNodes(ns => ns.map(n => n.id === dragRef.current!.nodeId
+        ? { ...n, x: Math.max(0, dragRef.current!.nodeX + dx), y: Math.max(0, dragRef.current!.nodeY + dy) }
+        : n));
+    } else if (panRef.current) {
+      setPan({ x: panRef.current.panX + (e.clientX - panRef.current.startX), y: panRef.current.panY + (e.clientY - panRef.current.startY) });
+    }
+  };
+
+  const handlePointerUp = () => { dragRef.current = null; panRef.current = null; };
+
+  const handleBgPointerDown = (e: React.PointerEvent) => {
+    if (e.target === svgRef.current || (e.target as SVGElement).classList.contains('bg-rect')) {
+      setSelectedId(null);
+      panRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setNodes(ns => ns.map(n => n.id === id ? { ...n, expanded: !n.expanded, h: n.expanded ? Math.max(90, n.h - 120) : n.h + 140 } : n));
   };
 
   const deleteNode = (id: string) => {
-    if (!canvas) return;
-    setCanvas({
-      ...canvas,
-      nodes: canvas.nodes.filter(n => n.id !== id),
-      edges: canvas.edges.filter(e => e.from !== id && e.to !== id),
-    });
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.from !== id && e.to !== id));
     setSelectedId(null);
   };
 
   const addNode = () => {
-    if (!canvas) return;
-    const id = `node-${Date.now()}`;
-    const newNode: FlowNode = {
-      id, type: 'action', label: 'Nuevo paso', sublabel: 'Descripción del paso',
-      x: 100, y: 100, color: '#3b82f6', width: 190,
-    };
-    setCanvas({ ...canvas, nodes: [...canvas.nodes, newNode] });
-    setEditingNode(newNode);
+    const id = `custom-${Date.now()}`;
+    setNodes(ns => [...ns, { id, kind: 'module', title: 'Nuevo nodo', content: 'Doble clic para editar', x: 100, y: 100, w: 260, h: 90, color: '#475569', expanded: false }]);
     setSelectedId(id);
   };
 
-  const saveFlow = () => {
-    if (!canvas || !onUpdateModFlujo) return;
-    const lines = [`# FLUJO — ${canvas.negocio}`, `## Objetivo: ${canvas.objetivo}`, ''];
-    canvas.nodes.filter(n => n.type === 'action' || n.type === 'alert').forEach(n => {
-      lines.push(`## ${n.label}`);
-      if (n.sublabel) lines.push(n.sublabel);
-      lines.push('');
-    });
-    onUpdateModFlujo(lines.join('\n'));
-    setMsg('✅ Flujo guardado en módulo 06_flujos. Haz clic en "Guardar Todo".');
-    setTimeout(() => setMsg(''), 4000);
-  };
-
-  // Pan handlers
-  const handleSvgMouseDown = (e: React.MouseEvent) => {
-    if (e.target === svgRef.current || (e.target as Element).tagName === 'svg') {
-      setSelectedId(null);
-      setIsPanning(true);
-      panRef.current = { startX: e.clientX, startY: e.clientY, panX: pan.x, panY: pan.y };
-    }
-  };
-  const handleSvgMouseMove = (e: React.MouseEvent) => {
-    if (!isPanning || !panRef.current) return;
-    setPan({ x: panRef.current.panX + (e.clientX - panRef.current.startX), y: panRef.current.panY + (e.clientY - panRef.current.startY) });
-  };
-  const handleSvgMouseUp = () => { setIsPanning(false); panRef.current = null; };
+  const containerH = fullscreen ? '100vh' : '78vh';
 
   return (
-    <div className="space-y-3">
+    <div className={fullscreen ? 'fixed inset-0 z-50 bg-[#070711] flex flex-col' : 'space-y-3'}>
       {/* Toolbar */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center">
+      <div className={`flex items-center justify-between flex-wrap gap-2 ${fullscreen ? 'px-4 pt-3 pb-2 border-b border-white/10 flex-shrink-0' : ''}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 flex items-center justify-center flex-shrink-0">
             <GitBranch className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <h2 className="text-sm font-bold text-white">{canvas ? canvas.negocio : 'Editor de Flujo IA'}</h2>
-            <p className="text-[10px] text-white/35">{canvas ? canvas.objetivo : 'Diagrama visual de tu asistente'}</p>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-white truncate">{meta.negocio || 'Cerebro del Asistente IA'}</h2>
+            <p className="text-[10px] text-white/35 truncate">{meta.objetivo || 'Visualización completa de todos los módulos'}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {canvas && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {hasFlow && (
             <>
-              {/* Zoom */}
-              <div className="flex items-center gap-1 bg-white/5 rounded-lg px-2 py-1">
-                <button onClick={() => setZoom(z => Math.max(0.3, z - 0.15))} className="text-white/60 hover:text-white w-5 h-5 flex items-center justify-center">−</button>
-                <span className="text-[10px] text-white/50 w-9 text-center">{Math.round(zoom * 100)}%</span>
-                <button onClick={() => setZoom(z => Math.min(2, z + 0.15))} className="text-white/60 hover:text-white w-5 h-5 flex items-center justify-center">+</button>
+              <div className="flex items-center bg-white/5 rounded-lg px-1.5 py-1 gap-0.5">
+                <button onClick={() => setZoom(z => Math.max(0.2, z - 0.1))} className="w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-sm">−</button>
+                <span className="text-[10px] text-white/40 w-9 text-center">{Math.round(zoom*100)}%</span>
+                <button onClick={() => setZoom(z => Math.min(2.5, z + 0.1))} className="w-6 h-6 flex items-center justify-center text-white/50 hover:text-white text-sm">+</button>
               </div>
-              <button onClick={() => { setZoom(0.75); setPan({ x: 20, y: 20 }); }} className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-xs transition-all">
+              <button onClick={() => { setZoom(0.5); setPan({ x: 60, y: 40 }); }}
+                className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-xs transition-all">
                 Centrar
               </button>
-              <button onClick={addNode} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 text-xs transition-all">
+              <button onClick={() => setFullscreen(f => !f)}
+                className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-xs transition-all">
+                {fullscreen ? '⊡ Salir' : '⊞ Pantalla completa'}
+              </button>
+              <button onClick={addNode}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/20 border border-blue-500/30 text-blue-300 text-xs hover:bg-blue-600/30 transition-all">
                 <Plus className="w-3.5 h-3.5" />Nodo
               </button>
               {onUpdateModFlujo && (
-                <button onClick={saveFlow} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
+                <button onClick={() => {
+                  if (!onUpdateModFlujo) return;
+                  const lines = [`# ${meta.negocio}`, meta.objetivo, '', ...nodes.filter(n => n.kind === 'step' || n.kind === 'alert').map(n => `## ${n.title}\n${n.content || ''}`)];
+                  onUpdateModFlujo(lines.join('\n'));
+                  setMsg('✅ Guardado en módulo. Haz clic en "Guardar Todo".');
+                  setTimeout(() => setMsg(''), 3500);
+                }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
                   <Check className="w-3.5 h-3.5" />Guardar módulo
                 </button>
               )}
@@ -409,199 +497,154 @@ function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAccione
           )}
           <button onClick={analyzeAndGenerate} disabled={analyzing || !hasKnowledge}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-semibold hover:opacity-90 disabled:opacity-40 transition-all">
-            {analyzing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</> : <><Sparkles className="w-3.5 h-3.5" />{canvas ? 'Re-generar' : 'Generar Flujo'}</>}
+            {analyzing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Analizando...</> : <><Sparkles className="w-3.5 h-3.5" />{hasFlow ? 'Re-generar' : 'Generar cerebro'}</>}
           </button>
+          {fullscreen && <button onClick={() => setFullscreen(false)} className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white"><X className="w-4 h-4" /></button>}
         </div>
       </div>
 
-      {msg && (
-        <div className={`px-4 py-2 rounded-xl text-xs font-medium border ${msg.startsWith('✅') ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`}>
-          {msg}
-        </div>
-      )}
+      {msg && <div className={`px-3 py-2 rounded-xl text-xs border ${msg.startsWith('✅') ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/30 text-red-300'} ${fullscreen ? 'mx-4' : ''}`}>{msg}</div>}
 
       {/* Legend */}
-      {canvas && (
-        <div className="flex flex-wrap gap-3">
-          {([['start', '🚀 Inicio/Fin'], ['action', '📋 Acción'], ['decision', '💠 Decisión'], ['media', '🖼️ Multimedia'], ['alert', '⚠️ Alerta']] as [NodeType, string][]).map(([type, label]) => {
-            const c = NODE_COLORS[type];
-            return (
-              <div key={type} className="flex items-center gap-1.5 text-[10px] text-white/40">
-                <div className="w-2.5 h-2.5 rounded-sm border" style={{ background: c.bg, borderColor: c.border }} />
-                {label}
-              </div>
-            );
-          })}
-          <div className="text-[10px] text-white/25 ml-2">· Arrastra nodos · Doble clic para editar · Scroll para zoom</div>
+      {hasFlow && (
+        <div className={`flex flex-wrap gap-3 ${fullscreen ? 'px-4' : ''}`}>
+          {([['step','🔵 Paso flujo'],['decision','💠 Decisión'],['module','⬜ Módulo config'],['media','🟣 Multimedia'],['alert','🟡 Alerta'],['rule','🔴 Ruta especial']] as [NodeKind,string][]).map(([k,l]) => (
+            <div key={k} className="flex items-center gap-1.5 text-[10px] text-white/40">
+              <div className="w-2.5 h-2.5 rounded-sm border" style={{ background: KIND_STYLE[k].bg, borderColor: KIND_STYLE[k].border }} />{l}
+            </div>
+          ))}
+          <span className="text-[10px] text-white/20">· Arrastra nodos · Doble clic para expandir · Scroll = zoom</span>
         </div>
       )}
 
       {/* Canvas */}
       {!hasKnowledge && !analyzing && (
-        <div className="rounded-2xl border border-white/8 bg-white/3 p-16 text-center space-y-3">
-          <GitBranch className="w-10 h-10 text-violet-400/40 mx-auto" />
-          <p className="text-sm text-white/50">Configura los módulos en "Base IA" primero</p>
+        <div className="rounded-2xl border border-white/8 bg-white/3 p-16 text-center">
+          <GitBranch className="w-10 h-10 text-violet-400/40 mx-auto mb-3" />
+          <p className="text-sm text-white/50">Configura los módulos en "Base IA" para generar el diagrama</p>
         </div>
       )}
-
       {analyzing && (
-        <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-16 text-center space-y-4">
-          <Loader2 className="w-10 h-10 text-violet-400 animate-spin mx-auto" />
-          <p className="text-sm text-white/60">Analizando tu base de conocimiento...</p>
+        <div className="rounded-2xl border border-violet-500/20 bg-violet-500/5 p-16 text-center">
+          <Loader2 className="w-10 h-10 text-violet-400 animate-spin mx-auto mb-3" />
+          <p className="text-sm text-white/60">Analizando el cerebro del asistente...</p>
+          <p className="text-xs text-white/30 mt-1">Procesando todos los módulos y multimedia</p>
         </div>
       )}
-
-      {hasKnowledge && !canvas && !analyzing && (
+      {hasKnowledge && !hasFlow && !analyzing && (
         <div className="rounded-2xl border border-white/10 bg-white/3 p-16 text-center space-y-4">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center mx-auto">
             <GitBranch className="w-8 h-8 text-violet-400" />
           </div>
-          <div>
-            <p className="text-sm font-semibold text-white">Módulos detectados</p>
-            <p className="text-xs text-white/40 max-w-xs mx-auto mt-1">Haz clic en "Generar Flujo" para crear el diagrama visual interactivo</p>
-          </div>
-          <button onClick={analyzeAndGenerate} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 transition-all">
-            <Sparkles className="w-4 h-4" />Generar Flujo IA
+          <p className="text-sm font-semibold text-white">Módulos detectados ✅</p>
+          <p className="text-xs text-white/40 max-w-sm mx-auto">Genera el diagrama completo del cerebro de tu asistente — todos los módulos, flujo, multimedia y conexiones</p>
+          <button onClick={analyzeAndGenerate}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold hover:opacity-90 transition-all">
+            <Sparkles className="w-4 h-4" />Generar cerebro completo
           </button>
         </div>
       )}
 
-      {canvas && !analyzing && (
-        <div className="relative rounded-2xl border border-white/10 overflow-hidden bg-[#0d0d1a]"
-          style={{ height: '65vh', cursor: isPanning ? 'grabbing' : 'default' }}>
-
-          {/* Grid background */}
+      {hasFlow && !analyzing && (
+        <div ref={containerRef} className="relative rounded-2xl border border-white/10 overflow-hidden"
+          style={{ height: containerH, background: '#070711', flexGrow: fullscreen ? 1 : undefined }}>
+          {/* Grid */}
           <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
             <defs>
-              <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
-                <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1"/>
+              <pattern id="dot" width="28" height="28" patternUnits="userSpaceOnUse">
+                <circle cx="14" cy="14" r="0.8" fill="rgba(255,255,255,0.06)" />
               </pattern>
             </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
+            <rect width="100%" height="100%" fill="url(#dot)" />
           </svg>
 
-          {/* Main SVG canvas */}
+          {/* Main SVG */}
           <svg ref={svgRef} width="100%" height="100%"
-            onMouseDown={handleSvgMouseDown}
-            onMouseMove={handleSvgMouseMove}
-            onMouseUp={handleSvgMouseUp}
-            onMouseLeave={handleSvgMouseUp}
-            onWheel={e => {
-              e.preventDefault();
-              setZoom(z => Math.max(0.3, Math.min(2, z - e.deltaY * 0.001)));
-            }}
-            style={{ cursor: isPanning ? 'grabbing' : 'grab' }}>
+            onPointerDown={handleBgPointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onWheel={e => { e.preventDefault(); setZoom(z => Math.max(0.2, Math.min(2.5, z * (e.deltaY < 0 ? 1.1 : 0.9)))); }}
+            style={{ cursor: panRef.current ? 'grabbing' : 'grab', touchAction: 'none' }}>
             <defs>
-              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="rgba(255,255,255,0.25)" />
+              <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="rgba(255,255,255,0.25)" />
               </marker>
-              <marker id="arrowhead-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="rgba(124,58,237,0.6)" />
+              <marker id="arr-violet" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="rgba(124,58,237,0.7)" />
               </marker>
-              <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="rgba(16,185,129,0.6)" />
+              <marker id="arr-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="rgba(16,185,129,0.7)" />
+              </marker>
+              <marker id="arr-indigo" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="rgba(99,102,241,0.7)" />
               </marker>
             </defs>
 
-            <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
+            <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
               {/* Edges */}
-              {canvas.edges.map(edge => {
-                const fromNode = canvas.nodes.find(n => n.id === edge.from);
-                const toNode = canvas.nodes.find(n => n.id === edge.to);
-                if (!fromNode || !toNode) return null;
-                const path = getEdgePath(fromNode, toNode);
-                const markerId = edge.color?.includes('7c3aed') ? 'arrowhead-violet' : edge.color?.includes('10b981') ? 'arrowhead-green' : 'arrowhead';
+              {edges.map(edge => {
+                const fn = nodes.find(n => n.id === edge.from);
+                const tn = nodes.find(n => n.id === edge.to);
+                if (!fn || !tn) return null;
+                const d = edgePath(fn, tn);
+                const isDashed = edge.style === 'dashed';
+                const markerId = edge.color?.includes('7c3aed') ? 'arr-violet' : edge.color?.includes('10b981') ? 'arr-green' : edge.color?.includes('6366f1') ? 'arr-indigo' : 'arr';
                 return (
                   <g key={edge.id}>
-                    <path d={path} fill="none" stroke={edge.color || 'rgba(255,255,255,0.2)'} strokeWidth="1.5" markerEnd={`url(#${markerId})`} />
-                    {edge.label && (
-                      <text fontSize="9" fill="rgba(255,255,255,0.4)" fontFamily="system-ui">
-                        <textPath href={`#edge-${edge.id}`} startOffset="50%" textAnchor="middle">{edge.label}</textPath>
-                      </text>
-                    )}
+                    <path d={d} fill="none" stroke={edge.color || 'rgba(255,255,255,0.15)'}
+                      strokeWidth={isDashed ? 1.5 : 1.8} strokeDasharray={isDashed ? '6,4' : 'none'}
+                      markerEnd={`url(#${markerId})`} />
+                    {edge.label && (() => {
+                      const fn2 = nodes.find(n => n.id === edge.from)!;
+                      const tn2 = nodes.find(n => n.id === edge.to)!;
+                      const lx = (fn2.x + fn2.w / 2 + tn2.x + tn2.w / 2) / 2;
+                      const ly = (fn2.y + fn2.h / 2 + tn2.y + tn2.h / 2) / 2;
+                      return (
+                        <g>
+                          <rect x={lx - 24} y={ly - 8} width={48} height={16} rx={8} fill="#0f0f1e" stroke="#6366f140" strokeWidth={1} />
+                          <text x={lx} y={ly + 1} textAnchor="middle" dominantBaseline="middle" fill="#818cf8" fontSize="9">{edge.label}</text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
 
               {/* Nodes */}
-              {canvas.nodes.map(node => (
-                <FlowNodeEl key={node.id} node={node}
-                  selected={selectedId === node.id}
-                  onSelect={() => setSelectedId(node.id)}
-                  onDragEnd={updateNodePos}
-                  onEdit={setEditingNode}
+              {nodes.map(node => (
+                <BNode key={node.id} node={node} selected={selectedId === node.id}
+                  onPointerDown={handlePointerDown}
+                  onDoubleClick={toggleExpand}
                 />
               ))}
             </g>
           </svg>
 
-          {/* Selected node actions */}
+          {/* Selected actions */}
           {selectedId && selectedId !== 'start' && selectedId !== 'end' && (
-            <div className="absolute top-3 left-3 flex gap-1 bg-black/70 backdrop-blur rounded-lg px-2 py-1.5 border border-white/10">
-              <button onClick={() => { const n = canvas.nodes.find(x => x.id === selectedId); if (n) setEditingNode(n); }}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-white/70 hover:text-white hover:bg-white/10 transition-all">
-                <Wand2 className="w-3 h-3" />Editar
+            <div className="absolute top-3 left-3 flex gap-1 bg-black/80 backdrop-blur rounded-xl px-3 py-2 border border-white/10 shadow-xl">
+              <button onClick={() => toggleExpand(selectedId)}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-white/60 hover:text-white hover:bg-white/10 transition-all">
+                <Eye className="w-3 h-3" />Expandir
               </button>
+              <div className="w-px bg-white/10" />
               <button onClick={() => deleteNode(selectedId)}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-red-400 hover:bg-red-500/20 transition-all">
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-red-400 hover:bg-red-500/20 transition-all">
                 <Trash2 className="w-3 h-3" />Eliminar
               </button>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Node editor panel */}
-      {editingNode && (
-        <div className="card p-4 border border-violet-500/30 bg-violet-500/5 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-violet-300">Editando nodo</span>
-            <button onClick={() => setEditingNode(null)} className="text-white/40 hover:text-white"><X className="w-4 h-4" /></button>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] text-white/40 uppercase tracking-wider">Tipo</label>
-              <select value={editingNode.type} onChange={e => setEditingNode({ ...editingNode, type: e.target.value as NodeType })}
-                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500">
-                <option value="action">📋 Acción</option>
-                <option value="decision">💠 Decisión</option>
-                <option value="media">🖼️ Multimedia</option>
-                <option value="alert">⚠️ Alerta</option>
-                <option value="start">🚀 Inicio</option>
-                <option value="end">✅ Fin</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] text-white/40 uppercase tracking-wider">Ancho</label>
-              <input type="number" value={editingNode.width || 180} onChange={e => setEditingNode({ ...editingNode, width: Number(e.target.value) })}
-                className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500" />
-            </div>
-          </div>
-          <div>
-            <label className="text-[10px] text-white/40 uppercase tracking-wider">Título</label>
-            <input value={editingNode.label} onChange={e => setEditingNode({ ...editingNode, label: e.target.value })}
-              className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500" />
-          </div>
-          <div>
-            <label className="text-[10px] text-white/40 uppercase tracking-wider">Descripción / Sublabel</label>
-            <textarea value={editingNode.sublabel || ''} onChange={e => setEditingNode({ ...editingNode, sublabel: e.target.value })}
-              rows={2} className="w-full mt-1 bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500 resize-none" />
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => updateNode(editingNode)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all">
-              <Check className="w-3.5 h-3.5" />Aplicar
-            </button>
-            <button onClick={() => setEditingNode(null)}
-              className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 text-xs transition-all">
-              Cancelar
-            </button>
+          {/* Mini-map indicator */}
+          <div className="absolute bottom-3 right-3 bg-black/60 backdrop-blur rounded-xl px-3 py-2 border border-white/10 text-[10px] text-white/30">
+            {nodes.length} nodos · {edges.length} conexiones · {Math.round(zoom*100)}%
           </div>
         </div>
       )}
     </div>
   );
 }
+
 
 
 export default function AsistentesPage() {
@@ -2285,7 +2328,12 @@ export default function AsistentesPage() {
           modMemoria={modMemoriaCliente}
           agenteCliente={agenteCliente}
           modBotones={modBotones}
+          modTriggers={modTriggers}
+          modCatalogo={modCatalogo}
+          modNlu={modNlu}
+          modOfertas={modOfertas}
           onUpdateModFlujo={setModFlujo}
+          mediaItems={mediaItems}
         />
       )}
       {/* Footer */}

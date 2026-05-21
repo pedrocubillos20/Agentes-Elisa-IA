@@ -196,90 +196,115 @@ function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAccione
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
 
-      // Convert flow steps → canvas nodes with auto-layout
+      // ── Auto-layout: flow steps (center) + modules panel (left) + multimedia (right) ──
       const flow = data.flow;
       const nodes: FlowNode[] = [];
       const edges: FlowEdge[] = [];
 
-      const COL_W = 220;
-      const ROW_H = 130;
-      const START_X = 60;
+      const STEP_X = 320;   // Center column for flow steps
+      const STEP_W = 200;
+      const ROW_H  = 120;
       const START_Y = 40;
 
-      // Start node
-      nodes.push({ id: 'start', type: 'start', label: '🚀 Inicio', x: START_X + 200, y: START_Y, width: 140 });
+      // ── LEFT PANEL: 17 Módulos del Sistema Modular IA ──
+      const MODULE_PANEL = [
+        { id: 'mod-00', label: '⚙️ 00_orquestador', sublabel: 'Enrutamiento y lógica', color: '#7c3aed' },
+        { id: 'mod-01', label: '👤 01_identidad', sublabel: 'Nombre, tono, personalidad', color: '#3b82f6' },
+        { id: 'mod-02', label: '📋 02_reglas', sublabel: 'Precios, políticas, reglas', color: '#3b82f6' },
+        { id: 'mod-03', label: '📦 03_productos', sublabel: 'Catálogo y precios', color: '#3b82f6' },
+        { id: 'mod-04', label: '📅 04_agenda', sublabel: 'Horarios y seguimientos', color: '#3b82f6' },
+        { id: 'mod-05', label: '🔄 05_flujos', sublabel: 'Flujo de conversación', color: '#10b981' },
+        { id: 'mod-06', label: '⚡ 06_acciones', sublabel: 'crear_pedido, actualizar', color: '#ef4444' },
+        { id: 'mod-07', label: '🔑 07_admin', sublabel: 'Panel administrador', color: '#f59e0b' },
+        { id: 'mod-08', label: '📍 08_zonas', sublabel: 'Ciudades y envíos', color: '#3b82f6' },
+        { id: 'mod-09', label: '🧠 09_memoria', sublabel: 'MEMORY_JSON y retentiva', color: '#7c3aed' },
+        { id: 'mod-10', label: '📊 10_métricas', sublabel: 'KPIs y FAQ', color: '#3b82f6' },
+        { id: 'mod-11', label: '🎯 11_intenciones', sublabel: 'Detección de intenciones', color: '#6366f1' },
+        { id: 'mod-12', label: '🖼️ 12_triggers', sublabel: 'Multimedia y triggers', color: '#6366f1' },
+        { id: 'mod-13', label: '📂 13_catalogo', sublabel: 'Contexto del catálogo', color: '#6366f1' },
+        { id: 'mod-14', label: '🔤 14_nlu_map', sublabel: 'Sinónimos y entidades', color: '#6366f1' },
+        { id: 'mod-15', label: '💡 15_motor_ofertas', sublabel: 'Descuentos y order bump', color: '#f59e0b' },
+        { id: 'mod-16', label: '🔘 16_botones', sublabel: 'Botones interactivos', color: '#7c3aed' },
+      ];
+      MODULE_PANEL.forEach((m, i) => {
+        nodes.push({ id: m.id, type: 'media', label: m.label, sublabel: m.sublabel, x: 20, y: START_Y + i * 85, color: m.color, width: 185 });
+      });
+
+      // ── CENTER: Start node ──
+      nodes.push({ id: 'start', type: 'start', label: '🚀 Inicio', x: STEP_X + 30, y: START_Y, width: 140, color: '#10b981' });
 
       let prevId = 'start';
-      let col = 0;
 
+      // ── CENTER: Flow steps from AI analysis ──
       (flow.pasos || []).forEach((paso: any, i: number) => {
         const id = paso.id || `p${i}`;
-        const type: NodeType = paso.color === '#ef4444' ? 'action' : paso.color === '#7c3aed' ? 'action' : paso.color === '#f59e0b' ? 'alert' : 'action';
-        const x = START_X + (i % 3) * COL_W * 1.1;
-        const y = START_Y + 80 + Math.floor(i / 3) * ROW_H * 1.4;
-        const node: FlowNode = {
-          id, type, label: `${paso.num}. ${paso.titulo}`,
-          sublabel: paso.descripcion?.substring(0, 60),
-          x, y, color: paso.color || '#3b82f6', width: 190, height: 70
-        };
-        nodes.push(node);
-        edges.push({ id: `e-${prevId}-${id}`, from: prevId, to: id, color: '#ffffff20' });
+        const typeMap: Record<string, NodeType> = { '#ef4444': 'action', '#7c3aed': 'action', '#f59e0b': 'alert', '#3b82f6': 'action', '#10b981': 'action' };
+        const type: NodeType = typeMap[paso.color] || 'action';
+        const x = STEP_X + (i % 2 === 0 ? 0 : STEP_W * 0.6);
+        const y = START_Y + 80 + Math.floor(i / 2) * ROW_H * 1.3;
+        nodes.push({ id, type, label: `${paso.num}. ${paso.titulo}`, sublabel: paso.descripcion?.substring(0, 65), x, y, color: paso.color || '#3b82f6', width: STEP_W });
+        edges.push({ id: `e-${prevId}-${id}`, from: prevId, to: id, color: '#ffffff18' });
 
-        // Decision after this step?
         const decision = (flow.decisiones || []).find((d: any) => d.despues_del_paso === paso.num);
         if (decision) {
           const dId = decision.id;
-          const dX = x + 10;
-          const dY = y + ROW_H * 0.9;
-          nodes.push({ id: dId, type: 'decision', label: decision.pregunta, x: dX, y: dY, color: '#7c3aed', width: 170 });
-          edges.push({ id: `e-${id}-${dId}`, from: id, to: dId, color: '#7c3aed60' });
+          nodes.push({ id: dId, type: 'decision', label: decision.pregunta, x: x + 20, y: y + ROW_H, color: '#7c3aed', width: 180 });
+          edges.push({ id: `e-${id}-${dId}`, from: id, to: dId, color: '#7c3aed50' });
           prevId = dId;
-          col++;
         } else {
           prevId = id;
         }
       });
 
-      // End node
-      const lastNode = nodes[nodes.length - 1];
-      const endId = 'end';
-      nodes.push({ id: endId, type: 'end', label: '✅ Pedido creado', x: lastNode.x + 10, y: lastNode.y + ROW_H, width: 160 });
-      edges.push({ id: `e-${lastNode.id}-end`, from: lastNode.id, to: endId, color: '#10b98160' });
+      // ── CENTER: End node ──
+      const lastCenterNode = nodes.filter(n => n.id !== 'start' && !n.id.startsWith('mod-') && !n.id.startsWith('media-') && !n.id.startsWith('alert-')).pop();
+      if (lastCenterNode) {
+        nodes.push({ id: 'end', type: 'end', label: '✅ Completado', x: lastCenterNode.x + 20, y: lastCenterNode.y + ROW_H, width: 150, color: '#10b981' });
+        edges.push({ id: 'e-last-end', from: lastCenterNode.id, to: 'end', color: '#10b98150' });
+      }
 
-      // Multimedia nodes in a side column
+      // ── RIGHT PANEL: Multimedia items ──
+      const RIGHT_X = STEP_X + STEP_W + 100;
       if (flow.multimedia && flow.multimedia.length > 0) {
-        const mxBase = START_X + 3 * COL_W * 1.1 + 40;
-        flow.multimedia.slice(0, 6).forEach((m: any, i: number) => {
-          const mId = `media-${i}`;
-          const myIcon = m.tipo === 'catalogo' ? '📂' : m.tipo === 'video' ? '🎥' : m.tipo === 'audio' ? '🎵' : '🖼️';
+        flow.multimedia.slice(0, 12).forEach((m: any, i: number) => {
+          const icon = m.tipo === 'catalogo' ? '📂' : m.tipo === 'video' ? '🎥' : m.tipo === 'audio' ? '🎵' : '🖼️';
           nodes.push({
-            id: mId, type: 'media',
-            label: `${myIcon} ${m.nombre?.substring(0, 18) || 'Media'}`,
-            sublabel: m.keywords?.substring(0, 40),
-            x: mxBase, y: START_Y + 80 + i * 105,
-            color: '#6366f1', width: 175
+            id: `media-${i}`, type: 'media',
+            label: `${icon} ${(m.nombre || 'Media').substring(0, 20)}`,
+            sublabel: (m.keywords || '').substring(0, 45),
+            x: RIGHT_X, y: START_Y + i * 92,
+            color: '#6366f1', width: 180
           });
         });
       }
 
-      // Alert nodes at bottom
-      if (flow.alertas && flow.alertas.length > 0) {
-        const aY = canvasH - 120;
-        flow.alertas.slice(0, 3).forEach((a: any, i: number) => {
-          nodes.push({
-            id: `alert-${i}`, type: 'alert',
-            label: '⚠️ Regla crítica',
-            sublabel: a.texto?.substring(0, 55),
-            x: START_X + i * 230, y: aY,
-            color: '#f59e0b', width: 210
-          });
+      // ── BOTTOM: Alert/reglas críticas ──
+      const allY = nodes.map(n => n.y).filter(Boolean);
+      const bottomY = Math.max(...allY, 600) + 140;
+      (flow.alertas || []).slice(0, 4).forEach((a: any, i: number) => {
+        nodes.push({
+          id: `alert-${i}`, type: 'alert',
+          label: '⚠️ Regla crítica',
+          sublabel: (a.texto || '').substring(0, 60),
+          x: 20 + i * 230, y: bottomY,
+          color: '#f59e0b', width: 215
         });
-      }
+      });
+
+      // ── ROUTES ESPECIALES ──
+      (flow.rutas_especiales || []).slice(0, 4).forEach((r: any, i: number) => {
+        nodes.push({
+          id: `ruta-${i}`, type: 'action',
+          label: `${r.emoji || '🔁'} ${(r.nombre || '').substring(0, 20)}`,
+          sublabel: (r.desc || '').substring(0, 55),
+          x: RIGHT_X + 195, y: START_Y + i * 95,
+          color: '#475569', width: 180
+        });
+      });
 
       setCanvas({ negocio: flow.negocio, objetivo: flow.objetivo, nodes, edges });
-      // Center view
-      setZoom(0.75);
-      setPan({ x: 20, y: 20 });
+      setZoom(0.55);
+      setPan({ x: 10, y: 10 });
     } catch (e: any) {
       setMsg(e.message || 'Error al generar. Verifica tu API Key y módulos configurados.');
     } finally {

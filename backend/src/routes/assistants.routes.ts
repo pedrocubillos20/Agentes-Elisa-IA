@@ -3,6 +3,7 @@ import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { removeFile } from '../lib/storage';
+import { callAI, resolveAIConfig } from '../lib/ai';
 
 const router = Router();
 
@@ -728,6 +729,128 @@ router.post('/elevenlabs/preview', async (req: Request, res: Response) => {
     res.status(400).json({ error: `No se pudo generar audio. Detalles: ${errors.join(' | ')}` });
   } catch (error: any) {
     res.status(500).json({ error: 'Error servidor: ' + error.message });
+  }
+});
+
+// ====================================================
+// 🔀 GENERAR FLUJO VISUAL — Analiza módulos con la IA del usuario
+// ====================================================
+router.post('/generate-flow', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+
+    // Obtener el asistente activo con todos sus módulos
+    const assistant = await prisma.assistant.findFirst({
+      where: { userId: ownerId, isActive: true },
+    });
+    if (!assistant) { res.status(404).json({ error: 'No hay asistente activo configurado' }); return; }
+
+    // Obtener la API key y config del usuario
+    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { openaiKey: true, groqKey: true } });
+    const aiConfig = resolveAIConfig({
+      assistantProvider: (assistant as any).aiProvider || 'openai',
+      assistantModel:    (assistant as any).model,
+      userOpenAiKey:     user?.openaiKey,
+      userGroqKey:       user?.groqKey,
+    });
+    if (!aiConfig) { res.status(400).json({ error: 'Configura tu API Key en Configuración para usar esta función' }); return; }
+
+    // Construir la base de conocimiento para el análisis
+    const a = assistant as any;
+    const mediaItems: any[] = Array.isArray(a.mediaItems) ? a.mediaItems : [];
+
+    const mediaSummary = mediaItems.length > 0
+      ? mediaItems.map((m: any) => {
+          if (m.type === 'catalog') {
+            return `- Catálogo "${m.name}" (${(m.images||[]).length} imgs) | Keywords: ${m.triggers || m.keywords || ''}`;
+          }
+          return `- ${m.type} "${m.name}" | Keywords: ${m.triggers || m.keywords || ''}`;
+        }).join('\n')
+      : 'Sin multimedia configurado';
+
+    const kb = [
+      a.agenteCliente && `## AGENTE CLIENTE\n${a.agenteCliente}`,
+      a.modOrquestador && `## ORQUESTADOR\n${a.modOrquestador}`,
+      a.modFlujo && `## FLUJO\n${a.modFlujo}`,
+      a.modReglas && `## REGLAS\n${a.modReglas}`,
+      a.modIdentidad && `## IDENTIDAD\n${a.modIdentidad}`,
+      a.modAcciones && `## ACCIONES\n${a.modAcciones}`,
+      a.modBotones && `## BOTONES INTERACTIVOS\n${a.modBotones}`,
+      a.modTriggers && `## TRIGGERS MULTIMEDIA\n${a.modTriggers}`,
+      `## MULTIMEDIA CONFIGURADO\n${mediaSummary}`,
+      a.modMemoriaCliente && `## MEMORIA\n${a.modMemoriaCliente}`,
+    ].filter(Boolean).join('\n\n').substring(0, 16000);
+
+    const prompt = `Analiza esta base de conocimiento de un asistente IA y extrae el flujo de conversación completo incluyendo la multimedia.
+
+BASE DE CONOCIMIENTO:
+${kb}
+
+Responde SOLO con JSON válido, sin markdown ni texto adicional:
+{
+  "negocio": "nombre del negocio o asistente",
+  "objetivo": "qué hace el asistente en máx 70 chars",
+  "pasos": [
+    {
+      "id": "p1",
+      "num": "1",
+      "titulo": "nombre del paso máx 28 chars",
+      "descripcion": "qué hace la IA en este paso máx 75 chars",
+      "color": "#10b981",
+      "tipo": "accion",
+      "botones": ["Opción A", "Opción B"],
+      "regla": "regla crítica de este paso si existe máx 60 chars"
+    }
+  ],
+  "decisiones": [
+    {
+      "id": "d1",
+      "pregunta": "¿pregunta de bifurcación? máx 30 chars",
+      "despues_del_paso": "3",
+      "opciones": [
+        {"label": "Ruta A máx 18 chars", "va_a_paso": "4", "color": "#10b981"},
+        {"label": "Ruta B máx 18 chars", "va_a_paso": "4b", "color": "#f59e0b"}
+      ]
+    }
+  ],
+  "alertas": [{"texto": "regla crítica global máx 85 chars"}],
+  "rutas_especiales": [{"emoji": "🔁", "nombre": "nombre máx 18 chars", "desc": "qué hace máx 50 chars"}],
+  "multimedia": [
+    {
+      "tipo": "catalogo o imagen o video o audio",
+      "nombre": "nombre del elemento",
+      "keywords": "triggers que lo activan",
+      "descripcion": "cuándo y cómo se envía"
+    }
+  ]
+}
+
+Colores: accion/inicio="#10b981", dato/info="#3b82f6", cierre/pago="#ef4444", decision/confirm="#7c3aed", alerta="#f59e0b"
+Extrae máx 12 pasos. Incluye la multimedia en la sección multimedia. Solo devuelve el JSON.`;
+
+    const result = await callAI({
+      ...aiConfig,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 1500,
+      temperature: 0.3,
+    });
+
+    // Parse JSON from response
+    const clean = result.content.replace(/```json|```/g, '').trim();
+    const flowData = JSON.parse(clean);
+
+    // Add IDs if missing
+    flowData.pasos = (flowData.pasos || []).map((p: any, i: number) => ({ ...p, id: p.id || `p${i+1}` }));
+    flowData.decisiones = (flowData.decisiones || []).map((d: any, i: number) => ({ ...d, id: d.id || `d${i+1}` }));
+
+    res.json({ flow: flowData });
+  } catch (e: any) {
+    console.error('generate-flow error:', e.message);
+    if (e.code === 'invalid_key') { res.status(400).json({ error: 'API Key inválida. Verifica tu configuración.' }); return; }
+    if (e.code === 'no_credits') { res.status(400).json({ error: 'Sin créditos en OpenAI. Recarga tu cuenta.' }); return; }
+    res.status(500).json({ error: 'Error al generar el flujo: ' + e.message });
   }
 });
 

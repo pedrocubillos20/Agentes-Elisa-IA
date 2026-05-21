@@ -43,6 +43,7 @@ type FlowData = {
   decisiones: FlowDecision[];
   alertas: { texto: string }[];
   rutas_especiales: { emoji: string; nombre: string; desc: string }[];
+  multimedia?: { tipo: string; nombre: string; keywords: string; descripcion: string }[];
 };
 
 const STEP_COLORS = [
@@ -78,76 +79,21 @@ function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAccione
     setAnalyzing(true);
     setMsg('');
     try {
-      const kb = [
-        agenteCliente && `## AGENTE CLIENTE\n${agenteCliente}`,
-        modOrquestador && `## ORQUESTADOR\n${modOrquestador}`,
-        modFlujo && `## FLUJO\n${modFlujo}`,
-        modReglas && `## REGLAS\n${modReglas}`,
-        modIdentidad && `## IDENTIDAD\n${modIdentidad}`,
-        modAcciones && `## ACCIONES\n${modAcciones}`,
-        modBotones && `## BOTONES\n${modBotones}`,
-      ].filter(Boolean).join('\n\n').substring(0, 14000);
-
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const token = localStorage.getItem('token');
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+      const res = await fetch(`${API_URL}/api/assistants/generate-flow`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1200,
-          messages: [{
-            role: 'user',
-            content: `Analiza esta base de conocimiento de un asistente IA de ventas/atención y extrae el flujo de conversación completo.
-
-BASE DE CONOCIMIENTO:
-${kb}
-
-Responde SOLO con JSON válido, sin markdown:
-{
-  "negocio": "nombre del negocio o asistente (de identidad.md o agente_cliente)",
-  "objetivo": "qué hace el asistente en máx 70 chars",
-  "pasos": [
-    {
-      "id": "p1",
-      "num": "1",
-      "titulo": "nombre del paso en máx 28 chars",
-      "descripcion": "qué hace la IA en este paso en máx 75 chars",
-      "color": "#10b981",
-      "tipo": "accion",
-      "botones": ["Opción A", "Opción B"],
-      "regla": "regla crítica de este paso si existe en máx 60 chars"
-    }
-  ],
-  "decisiones": [
-    {
-      "id": "d1",
-      "pregunta": "¿pregunta de bifurcación? máx 30 chars",
-      "despues_del_paso": "3",
-      "opciones": [
-        {"label": "Ruta A máx 18 chars", "va_a_paso": "4", "color": "#10b981"},
-        {"label": "Ruta B máx 18 chars", "va_a_paso": "4b", "color": "#f59e0b"}
-      ]
-    }
-  ],
-  "alertas": [{"texto": "regla crítica global máx 85 chars"}],
-  "rutas_especiales": [{"emoji": "🔁", "nombre": "nombre máx 18 chars", "desc": "qué hace máx 50 chars"}]
-}
-
-Colores: accion/inicio="#10b981", dato/info="#3b82f6", cierre/pago="#ef4444", decision/confirm="#7c3aed", alerta="#f59e0b"
-Extrae máx 12 pasos. Los botones solo si están definidos en el módulo de botones.`
-          }]
-        })
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
-      if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
-      const text = data.content?.[0]?.text || '';
-      const clean = text.replace(/```json|```/g, '').trim();
-      const parsed: FlowData = JSON.parse(clean);
-      // Ensure IDs
-      parsed.pasos = parsed.pasos.map((p, i) => ({ ...p, id: p.id || `p${i+1}` }));
-      parsed.decisiones = (parsed.decisiones || []).map((d, i) => ({ ...d, id: d.id || `d${i+1}` }));
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      const parsed: FlowData = data.flow;
       setFlowData(parsed);
     } catch (e: any) {
-      setMsg('Error al analizar. Verifica que tienes módulos configurados.');
+      setMsg(e.message || 'Error al analizar. Verifica que tienes módulos y API Key configurados.');
     } finally {
       setAnalyzing(false);
     }
@@ -511,6 +457,35 @@ Extrae máx 12 pasos. Los botones solo si están definidos en el módulo de boto
                       <span className="text-xs font-semibold text-white">{r.nombre}</span>
                     </div>
                     <p className="text-[11px] text-white/40">{r.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Multimedia */}
+          {flowData.multimedia && flowData.multimedia.length > 0 && (
+            <div className="card p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🖼️</span>
+                <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Multimedia configurada ({flowData.multimedia.length} elementos)</span>
+              </div>
+              <div className="space-y-2">
+                {flowData.multimedia.map((m, i) => (
+                  <div key={i} className="flex items-start gap-3 p-3 rounded-xl border border-white/8 bg-white/3">
+                    <span className="text-lg flex-shrink-0">
+                      {m.tipo === 'catalogo' ? '📂' : m.tipo === 'video' ? '🎥' : m.tipo === 'audio' ? '🎵' : '🖼️'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-white">{m.nombre}</p>
+                      <p className="text-[10px] text-white/40 mt-0.5">{m.descripcion}</p>
+                      {m.keywords && (
+                        <p className="text-[10px] text-violet-400/70 mt-1">
+                          🔑 <span className="font-mono">{m.keywords}</span>
+                        </p>
+                      )}
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-white/30 capitalize flex-shrink-0">{m.tipo}</span>
                   </div>
                 ))}
               </div>

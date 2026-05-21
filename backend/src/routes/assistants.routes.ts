@@ -748,12 +748,12 @@ router.post('/generate-flow', async (req: Request, res: Response) => {
     if (!assistant) { res.status(404).json({ error: 'No hay asistente activo configurado' }); return; }
 
     // Obtener la API key y config del usuario
-    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { openaiKey: true, groqKey: true } });
+    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, groqApiKey: true } });
     const aiConfig = resolveAIConfig({
       assistantProvider: (assistant as any).aiProvider || 'openai',
       assistantModel:    (assistant as any).model,
-      userOpenAiKey:     user?.openaiKey,
-      userGroqKey:       user?.groqKey,
+      userOpenAiKey:     user?.apiKey,
+      userGroqKey:       user?.groqApiKey,
     });
     if (!aiConfig) { res.status(400).json({ error: 'Configura tu API Key en Configuración para usar esta función' }); return; }
 

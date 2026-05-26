@@ -123,12 +123,15 @@ const createRateLimit = (max: number, windowMs: number, message?: string) => rat
 });
 
 const webhookRL = createRateLimit(200, 1000, 'Webhook rate limit');
-const apiRL     = createRateLimit(120, 60_000);
-// Solo para login/register/forgot-password (proteccion brute-force)
-const authRL    = createRateLimit(20, 15 * 60 * 1000, 'Demasiados intentos. Espera 15 minutos.');
-// Para /me y /refresh: el frontend los llama en cada navegacion, necesitan limite amplio
-const meRL      = createRateLimit(300, 60_000);
-const mediaRL   = createRateLimit(30, 60_000);
+const apiRL     = createRateLimit(200, 60_000);
+// Login/register: 50 intentos por hora — suficiente para usuarios legítimos sin bloquear
+const authRL    = createRateLimit(50, 60 * 60 * 1000, 'Demasiados intentos. Espera un momento.');
+// /me y /refresh: el frontend los llama en cada navegación, límite amplio
+const meRL      = createRateLimit(600, 60_000);
+const mediaRL   = createRateLimit(60, 60_000);
+
+// Media proxy rate limit — more lenient since conversation view loads many images
+const mediaProxyRL = createRateLimit(120, 60_000);
 
 // ===== TIMEOUTS =====
 app.use((req, res, next) => {
@@ -204,7 +207,7 @@ app.post('/api/webhook/retell', (req, res, next) => {
 });
 
 // ===== MEDIA PROXY =====
-app.get('/api/media-proxy/:msgId', async (req: any, res: any) => {
+app.get('/api/media-proxy/:msgId', mediaProxyRL, async (req: any, res: any) => {
   try {
     const token = req.query.token as string || req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'No token' });
@@ -220,7 +223,8 @@ app.get('/api/media-proxy/:msgId', async (req: any, res: any) => {
     const userId = decoded.id;
     const { msgId } = req.params;
     const message = await prisma.message.findUnique({ where: { id: msgId } });
-    if (!message || !message.mediaUrl) return res.status(404).end();
+    // Silent 204 for missing old messages - avoid flooding logs with 404s
+    if (!message || !message.mediaUrl) return res.status(204).end();
 
     const conv = await prisma.conversation.findFirst({ where: { id: message.conversationId } });
     if (!conv) return res.status(404).end();

@@ -167,10 +167,12 @@ function BNode({ node, selected, onPointerDown, onDoubleClick }: {
 }
 
 // ── Main FlowTab ──
-function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAcciones, modMemoria, agenteCliente, modBotones, onUpdateModFlujo }: {
+function FlowTab({ modOrquestador, modFlujo, modReglas, modIdentidad, modAcciones, modMemoria, agenteCliente, modBotones, modTriggers, modCatalogo, modNlu, modOfertas, onUpdateModFlujo, mediaItems }: {
   modOrquestador?: string; modFlujo?: string; modReglas?: string; modIdentidad?: string;
   modAcciones?: string; modMemoria?: string; agenteCliente?: string; modBotones?: string;
+  modTriggers?: string; modCatalogo?: string; modNlu?: string; modOfertas?: string;
   onUpdateModFlujo?: (val: string) => void;
+  mediaItems?: any[];
 }) {
   const [nodes, setNodes] = useState<BrainNode[]>([]);
   const [edges, setEdges] = useState<BrainEdge[]>([]);

@@ -110,28 +110,45 @@ app.use((req, res, next) => {
 // Ahora: express-rate-limit con opciones mejoradas
 import rateLimit from 'express-rate-limit';
 
-const createRateLimit = (max: number, windowMs: number, message?: string) => rateLimit({
+// ── Rate limit con key por usuario (no por IP) para rutas autenticadas ──
+// En Railway todos los usuarios comparten el mismo IP del proxy — usar IP sola bloquea a todos
+const createRateLimit = (max: number, windowMs: number, message?: string, useUserKey = false) => rateLimit({
   max,
   windowMs,
   message: { error: message || 'Demasiadas solicitudes, intenta más tarde' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: useUserKey ? (req) => {
+    // Usar userId del JWT si está disponible — si no, IP
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '') || (req.query.token as string);
+      if (token) {
+        const jwt = require('jsonwebtoken');
+        const decoded: any = jwt.verify(token, process.env.JWT_SECRET);
+        return `user_${decoded.id}`;
+      }
+    } catch { /* use IP fallback */ }
+    return req.ip || 'unknown';
+  } : (req) => req.ip || 'unknown',
   handler: (req, res, next, options) => {
     logger.warn('Rate limit excedido', { ip: req.ip, path: req.path, max, windowMs });
     res.status(429).json(options.message);
   },
 });
 
-const webhookRL = createRateLimit(200, 1000, 'Webhook rate limit');
-const apiRL     = createRateLimit(200, 60_000);
-// Login/register: 50 intentos por hora — suficiente para usuarios legítimos sin bloquear
-const authRL    = createRateLimit(50, 60 * 60 * 1000, 'Demasiados intentos. Espera un momento.');
-// /me y /refresh: el frontend los llama en cada navegación, límite amplio
-const meRL      = createRateLimit(600, 60_000);
-const mediaRL   = createRateLimit(60, 60_000);
+const webhookRL = createRateLimit(300, 1000, 'Webhook rate limit');
+const apiRL     = createRateLimit(300, 60_000, undefined, true);  // por usuario
 
-// Media proxy rate limit — more lenient since conversation view loads many images
-const mediaProxyRL = createRateLimit(120, 60_000);
+// Login/register: por IP (no autenticado), 30 intentos por 15 min — razonable anti-brute-force
+const authRL    = createRateLimit(30, 15 * 60 * 1000, 'Demasiados intentos de login. Espera 15 minutos.');
+
+// /me y /refresh: POR USUARIO — cada usuario tiene su propio contador independiente
+// El frontend llama /me en cada navegación (~cada 2s en algunas páginas)
+// 1000 llamadas/min por usuario = sobrado para uso normal, imposible de alcanzar accidentalmente
+const meRL      = createRateLimit(1000, 60_000, undefined, true);
+
+const mediaRL   = createRateLimit(120, 60_000, undefined, true);
+const mediaProxyRL = createRateLimit(200, 60_000, undefined, true);
 
 // ===== TIMEOUTS =====
 app.use((req, res, next) => {

@@ -514,7 +514,7 @@ router.post('/cleanup', async (req: Request, res: Response) => {
 // 🧠 AUTO-APRENDIZAJE
 // ====================================================
 
-// POST /api/assistants/learn
+// POST /api/assistants/learn — Análisis real con IA
 router.post('/learn', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
@@ -522,79 +522,188 @@ router.post('/learn', async (req: Request, res: Response) => {
     const ownerId = await getOwnerId(userId);
     const { lineId } = req.body;
 
-    let assistant;
-    if (lineId) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId, isActive: true } });
-    }
-    if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
-    }
-    if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
+    // Obtener asistente
+    let assistant: any;
+    if (lineId) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId, isActive: true } });
+    if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
+    if (!assistant) { res.status(404).json({ error: 'Sin asistente activo' }); return; }
 
+    // Obtener últimas 20 conversaciones con mensajes
     const convWhere: any = { userId: ownerId };
     if (lineId) convWhere.whatsappLineId = lineId;
-
-    const recentConversations = await prisma.conversation.findMany({
+    const conversations = await prisma.conversation.findMany({
       where: convWhere,
       orderBy: { updatedAt: 'desc' },
-      take: 10,
-      include: { messages: { orderBy: { timestamp: 'desc' }, take: 20 } }
+      take: 20,
+      include: { messages: { orderBy: { timestamp: 'asc' }, take: 30 } }
     });
 
-    if (recentConversations.length === 0) {
+    if (conversations.length === 0) {
       res.json({ suggestions: [], message: 'No hay conversaciones para analizar' });
       return;
     }
 
-    const allMessages = recentConversations.flatMap(c => c.messages);
-    const customerMessages = allMessages.filter(m => !m.fromMe).map(m => m.content);
+    // Construir resumen de conversaciones para la IA
+    const convSummaries = conversations.map(conv => {
+      const msgs = conv.messages.slice(0, 20).map(m =>
+        `${m.fromMe ? '[BOT]' : '[CLIENTE]'}: ${(m.content || '').substring(0, 120)}`
+      ).join('\n');
+      const etapa = (conv as any).etapaActual || (conv as any).lastMessage?.substring(0, 30) || '';
+      return `--- Conversación (etapa: ${etapa}) ---\n${msgs}`;
+    }).join('\n\n');
 
-    const wordFreq: Record<string, number> = {};
-    customerMessages.forEach(msg => {
-      msg.toLowerCase().split(/\s+/).forEach(word => {
-        if (word.length > 3) wordFreq[word] = (wordFreq[word] || 0) + 1;
-      });
+    // Extraer contexto actual del asistente — todos los módulos disponibles
+    const currentContext = [
+      assistant.agenteCliente && `[IDENTIDAD/AGENTE]\n${assistant.agenteCliente}`,
+      (assistant as any).modFlujo && `[FLUJO]\n${(assistant as any).modFlujo}`,
+      (assistant as any).modReglas && `[REGLAS]\n${(assistant as any).modReglas}`,
+      (assistant as any).modProductos && `[PRODUCTOS]\n${(assistant as any).modProductos}`,
+      (assistant as any).modAcciones && `[ACCIONES]\n${(assistant as any).modAcciones}`,
+      assistant.context && `[CONTEXTO]\n${assistant.context}`,
+    ].filter(Boolean).join('\n---\n').substring(0, 3000);
+
+    // Intentar usar IA del usuario para análisis real
+    const user = await prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, groqApiKey: true } });
+    const aiConfig = resolveAIConfig({
+      assistantProvider: assistant.aiProvider || 'openai',
+      assistantModel: assistant.model,
+      userOpenAiKey: (user as any)?.apiKey,
+      userGroqKey: (user as any)?.groqApiKey,
     });
 
-    const topWords = Object.entries(wordFreq).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const commonQuestions = customerMessages.filter(m => m.includes('?')).slice(0, 5);
+    let suggestions: any[] = [];
 
-    const suggestions = [
-      {
-        id: `learn_${Date.now()}`,
-        type: 'pattern',
-        title: 'Temas frecuentes detectados',
-        content: `Los clientes preguntan frecuentemente sobre: ${topWords.map(([w, c]) => `${w} (${c}x)`).join(', ')}`,
+    if (aiConfig) {
+      // Análisis con IA real — genérico para cualquier negocio
+      // Detectar nombres reales de módulos configurados por este usuario
+      const configuredModules = [
+        assistant.agenteCliente && 'AGENTE_CLIENTE',
+        (assistant as any).modOrquestador && '00_orquestador',
+        (assistant as any).modIdentidad && 'identidad',
+        (assistant as any).modReglas && 'reglas',
+        (assistant as any).modProductos && 'productos',
+        (assistant as any).modFlujo && 'flujos',
+        (assistant as any).modAcciones && 'acciones',
+        (assistant as any).modMemoria && 'memoria',
+        (assistant as any).modBotones && 'botones',
+        assistant.context && 'contexto_general',
+      ].filter(Boolean).join(', ') || 'contexto_general';
+
+      const prompt = `Eres un analista experto en asistentes IA de WhatsApp. Analiza estas conversaciones reales y genera sugerencias concretas y accionables para mejorar el asistente.
+
+CONVERSACIONES RECIENTES:
+${convSummaries.substring(0, 6000)}
+
+CONFIGURACIÓN ACTUAL DEL ASISTENTE:
+${currentContext}
+
+MÓDULOS DISPONIBLES EN ESTE ASISTENTE: ${configuredModules}
+
+Genera 4-6 sugerencias específicas basadas en lo que realmente ocurrió en las conversaciones.
+Responde SOLO con JSON array válido:
+[
+  {
+    "type": "mejora_flujo|pregunta_frecuente|objecion|producto|conversion|retentiva|tono",
+    "title": "Título específico de la mejora (máx 60 chars)",
+    "content": "Descripción detallada de qué cambiar y cómo. Incluye el texto exacto que debería decir el asistente.",
+    "impacto": "alto|medio|bajo",
+    "modulo_sugerido": "uno de los módulos disponibles listados arriba, o 'contexto_general' si aplica a todo"
+  }
+]
+
+Tipos:
+- mejora_flujo: el bot no siguió el flujo correctamente
+- pregunta_frecuente: preguntas que el bot no respondió bien
+- objecion: clientes que abandonaron por precio u objeción no resuelta
+- producto: información faltante o incorrecta sobre productos/servicios
+- conversion: pasos donde se perdieron ventas/citas/reservas
+- retentiva: datos que el bot olvidó entre mensajes
+- tono: el bot respondió con tono inadecuado para el contexto
+- conversion: pasos donde se perdieron ventas
+- retentiva: datos que el bot olvidó entre mensajes`;
+
+      const result = await callAI({ ...aiConfig, messages: [{ role: 'user', content: prompt }], maxTokens: 1200, temperature: 0.4 });
+      const clean = result.content.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(clean);
+      suggestions = parsed.map((s: any, i: number) => ({
+        id: `learn_ai_${Date.now()}_${i}`,
+        type: s.type || 'pattern',
+        title: s.title || 'Sugerencia IA',
+        content: s.content || '',
+        impacto: s.impacto || 'medio',
+        modulo_sugerido: s.modulo_sugerido || '',
         applied: false,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        source: 'ai_analysis',
+      }));
+    } else {
+      // Análisis básico sin IA — útil igualmente
+      const allMessages = conversations.flatMap(c => c.messages);
+      const clienteMsgs = allMessages.filter(m => !m.fromMe && m.content);
+      const preguntas = clienteMsgs.filter(m => (m.content || '').includes('?')).map(m => m.content!.substring(0, 100));
+      const abandonos = conversations.filter(c => {
+        const lastMsg = c.messages[c.messages.length - 1];
+        return lastMsg && !lastMsg.fromMe; // Última respuesta fue del cliente (bot no respondió o cliente abandonó)
+      });
+      const wordFreq: Record<string, number> = {};
+      clienteMsgs.forEach(m => {
+        (m.content || '').toLowerCase().split(/\s+/).forEach(w => {
+          if (w.length > 3) wordFreq[w] = (wordFreq[w] || 0) + 1;
+        });
+      });
+      const topWords = Object.entries(wordFreq).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+      suggestions = [
+        {
+          id: `learn_words_${Date.now()}`,
+          type: 'pregunta_frecuente',
+          title: 'Palabras más frecuentes de clientes',
+          content: `Los clientes mencionan: ${topWords.map(([w,c]) => `"${w}" (${c} veces)`).join(', ')}. Verifica que el asistente responda bien sobre estos temas.`,
+          impacto: 'medio',
+          applied: false, createdAt: new Date().toISOString(), source: 'basic_analysis',
+        }
+      ];
+      if (preguntas.length > 0) {
+        suggestions.push({
+          id: `learn_q_${Date.now()}`,
+          type: 'pregunta_frecuente',
+          title: `${preguntas.length} preguntas de clientes detectadas`,
+          content: `Preguntas frecuentes:\n${preguntas.slice(0,5).map(q => `• ${q}`).join('\n')}\n\nVerifica que el asistente responda estas claramente.`,
+          impacto: 'alto',
+          applied: false, createdAt: new Date().toISOString(), source: 'basic_analysis',
+        });
       }
-    ];
-
-    if (commonQuestions.length > 0) {
+      if (abandonos.length > 0) {
+        suggestions.push({
+          id: `learn_drop_${Date.now()}`,
+          type: 'conversion',
+          title: `${abandonos.length} conversaciones sin cierre detectadas`,
+          content: `Hay conversaciones donde el cliente respondió por última vez sin que el bot continuara. Revisa el flujo y agrega seguimientos automáticos.`,
+          impacto: 'alto',
+          modulo_sugerido: '05_agenda',
+          applied: false, createdAt: new Date().toISOString(), source: 'basic_analysis',
+        });
+      }
       suggestions.push({
-        id: `learn_q_${Date.now()}`,
-        type: 'questions',
-        title: 'Preguntas frecuentes',
-        content: `Preguntas comunes:\n${commonQuestions.map(q => `- ${q}`).join('\n')}`,
-        applied: false,
-        createdAt: new Date().toISOString()
+        id: `learn_key_${Date.now()}`,
+        type: 'mejora_flujo',
+        title: 'Configura tu API Key para análisis IA completo',
+        content: 'Ve a Configuración → API Key de OpenAI/Groq para activar el análisis inteligente. Con IA, las sugerencias serán específicas y accionables basadas en el contenido real de las conversaciones.',
+        impacto: 'alto',
+        applied: false, createdAt: new Date().toISOString(), source: 'system',
       });
     }
 
-    // ✅ Trim history BEFORE adding new entries
+    // Guardar en historial
     const oldHistory = (assistant.learningHistory as any[]) || [];
-    const trimmed = trimLearningHistory(oldHistory, 18); // Leave room for new suggestions
-    const history = [...trimmed, ...suggestions];
+    const history = [...trimLearningHistory(oldHistory, 15), ...suggestions];
+    await prisma.assistant.update({ where: { id: assistant.id }, data: { learningHistory: history } });
 
-    await prisma.assistant.update({
-      where: { id: assistant.id },
-      data: { learningHistory: history }
-    });
-
-    console.log(`🧠 Auto-aprendizaje: ${suggestions.length} sugerencias (history: ${history.length} entries)${lineId ? ` (línea: ${lineId})` : ''}`);
-    res.json({ suggestions, message: `${suggestions.length} sugerencias generadas` });
+    console.log(`🧠 Auto-aprendizaje: ${suggestions.length} sugerencias (${aiConfig ? 'IA real' : 'análisis básico'}) | history: ${history.length}`);
+    res.json({ suggestions, message: `${suggestions.length} sugerencias generadas con ${aiConfig ? 'análisis IA' : 'análisis básico'}` });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Error' });
+    console.error('Learn error:', error.message);
+    res.status(500).json({ error: error.message || 'Error en el análisis' });
   }
 });
 
@@ -605,30 +714,53 @@ router.post('/learn/apply', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
 
-    const { suggestionId, suggestion, lineId } = req.body;
+    const { suggestionId, suggestion, lineId, moduloSugerido } = req.body;
 
-    let assistant;
-    if (lineId) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId, isActive: true } });
-    }
-    if (!assistant) {
-      assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
-    }
+    let assistant: any;
+    if (lineId) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, whatsappLineId: lineId, isActive: true } });
+    if (!assistant) assistant = await prisma.assistant.findFirst({ where: { userId: ownerId, isActive: true } });
     if (!assistant) { res.status(404).json({ error: 'Sin asistente' }); return; }
 
-    const newContext = (assistant.context || '') + '\n\n' + suggestion;
+    // Aplicar al módulo correcto — genérico para cualquier negocio
+    // Mapear el nombre del módulo sugerido al campo real del asistente en DB
+    const updateData: any = {};
+    const modulo = (moduloSugerido || '').toLowerCase();
 
+    // Mapa genérico: palabras clave del módulo → campo en DB
+    const moduleMap: { keywords: string[]; field: string; label: string }[] = [
+      { keywords: ['flujo', 'flow', 'conversacion', 'pasos', 'steps'], field: 'modFlujo', label: 'Flujo de conversación' },
+      { keywords: ['reglas', 'rules', 'precios', 'politicas', 'config'], field: 'modReglas', label: 'Reglas' },
+      { keywords: ['identidad', 'identity', 'agente', 'agent', 'tono', 'personalidad'], field: 'agenteCliente', label: 'Identidad del agente' },
+      { keywords: ['acciones', 'actions', 'pedido', 'order', 'reserva'], field: 'modAcciones', label: 'Acciones' },
+      { keywords: ['memoria', 'memory', 'retentiva'], field: 'modMemoria', label: 'Memoria' },
+      { keywords: ['botones', 'buttons', 'interactive'], field: 'modBotones', label: 'Botones' },
+      { keywords: ['producto', 'product', 'catalogo', 'catalog', 'servicio'], field: 'modProductos', label: 'Productos' },
+      { keywords: ['agenda', 'cita', 'appointment', 'horario'], field: 'modAgenda', label: 'Agenda' },
+      { keywords: ['orquestador', 'orchestrator', 'routing'], field: 'modOrquestador', label: 'Orquestador' },
+    ];
+
+    const match = moduleMap.find(m => m.keywords.some(k => modulo.includes(k)));
+
+    if (match) {
+      const currentVal = (assistant as any)[match.field] || '';
+      updateData[match.field] = `${currentVal}\n\n## Aprendizaje aplicado (${new Date().toLocaleDateString()})\n${suggestion}`.trim();
+    } else {
+      // Default: contexto general — siempre disponible en cualquier negocio
+      updateData.context = `${assistant.context || ''}\n\n## Mejora aprendida (${new Date().toLocaleDateString()})\n${suggestion}`.trim();
+    }
+
+    // Marcar sugerencia como aplicada en historial
     const history = (assistant.learningHistory as any[]) || [];
     const updatedHistory = history.map((h: any) =>
       h.id === suggestionId ? { ...h, applied: true, appliedAt: new Date().toISOString() } : h
     );
+    updateData.learningHistory = trimLearningHistory(updatedHistory, 20);
 
-    await prisma.assistant.update({
-      where: { id: assistant.id },
-      data: { context: newContext, learningHistory: trimLearningHistory(updatedHistory, 20) }
-    });
+    await prisma.assistant.update({ where: { id: assistant.id }, data: updateData });
 
-    res.json({ success: true, message: 'Sugerencia aplicada al contexto' });
+    const targetModule = modulo || 'contexto general';
+    console.log(`🧠 Sugerencia aplicada → módulo: ${targetModule} | assistant: ${assistant.id}`);
+    res.json({ success: true, message: `Sugerencia aplicada en ${targetModule}` });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Error' });
   }

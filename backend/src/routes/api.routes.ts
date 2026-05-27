@@ -255,7 +255,7 @@ publicRouter.get('/appointments', apiKeyAuth, async (req: Request, res: Response
     const userId = (req as any).apiUserId;
     const { status, from, to } = req.query; const where: any = { userId }; if (status) where.status = status;
     if (from || to) { where.date = {}; if (from) where.date.gte = new Date(from as string); if (to) where.date.lte = new Date(to as string); }
-    const appointments = await prisma.appointment.findMany({ where, orderBy: { date: 'asc' }, take: 100 });
+    const appointments = await prisma.appointment.findMany({ where, orderBy: { date: 'asc' } }); // sin límite
     res.json({ data: appointments });
   } catch (error) { res.status(500).json({ error: 'Error' }); }
 });

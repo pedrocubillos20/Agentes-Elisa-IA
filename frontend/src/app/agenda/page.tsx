@@ -57,7 +57,7 @@ export default function AgendaPage() {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/appointments?lineId=${getLineId()}`, {
+      const res = await fetch(`${API_URL}/api/appointments?lineId=${getLineId()}&limit=5000`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (res.ok) {

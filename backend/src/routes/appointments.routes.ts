@@ -430,7 +430,8 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const user = (req as AuthRequest).user;
     const userId = await getOwnerId(user?.id || '');
-    const { type, status, date, startDate, endDate, limit = '100', lineId } = req.query;
+    const { type, status, date, startDate, endDate, limit = '1000', offset = '0', lineId } = req.query;
+    // Sin límite artificial — la agenda puede crecer sin restricción
 
     const where: any = { userId };
     if (lineId) where.whatsappLineId = lineId as string;
@@ -450,14 +451,21 @@ router.get('/', async (req: Request, res: Response) => {
       where.date = { gte: new Date(startDate as string), lte: new Date(endDate as string) };
     }
 
-    const appointments = await prisma.appointment.findMany({
-      where,
-      orderBy: [{ date: 'asc' }, { time: 'asc' }],
-      take: parseInt(limit as string),
-      include: { client: { select: { id: true, name: true, phone: true, email: true } } }
-    });
+    const limitNum = Math.min(parseInt(limit as string) || 1000, 5000); // max 5000 por llamada
+    const offsetNum = parseInt(offset as string) || 0;
 
-    res.json({ appointments });
+    const [appointments, total] = await Promise.all([
+      prisma.appointment.findMany({
+        where,
+        orderBy: [{ date: 'asc' }, { time: 'asc' }],
+        take: limitNum,
+        skip: offsetNum,
+        include: { client: { select: { id: true, name: true, phone: true, email: true } } }
+      }),
+      prisma.appointment.count({ where }),
+    ]);
+
+    res.json({ appointments, total, limit: limitNum, offset: offsetNum });
   } catch (error: any) {
     console.error('Error listando citas:', error);
     res.status(500).json({ error: 'Error al obtener citas' });

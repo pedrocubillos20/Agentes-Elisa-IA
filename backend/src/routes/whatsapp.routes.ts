@@ -5923,9 +5923,14 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
 
-    const { contacts, message, whatsappLineId, lineId: legacyBulkLineId, mediaUrl, mediaType: bulkMediaType } = req.body;
-    if (!contacts?.length || (!message && !mediaUrl)) { 
-      res.status(400).json({ error: 'Se requieren contactos y mensaje o media' }); return; 
+    const { 
+      contacts, message, whatsappLineId, lineId: legacyBulkLineId, 
+      mediaUrl, mediaType: bulkMediaType,
+      templateName, templateLanguage, templateVariables,
+      interactive, bulkJobId
+    } = req.body;
+    if (!contacts?.length || (!message && !mediaUrl && !templateName && !interactive)) { 
+      res.status(400).json({ error: 'Se requieren contactos y al menos uno: mensaje, media, plantilla o botones' }); return; 
     }
 
     const effectiveLineId = whatsappLineId || legacyBulkLineId || null; // ✅ Acepta ambos
@@ -5945,7 +5950,21 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
       }
     }
 
-    log(`📢 Envío masivo: ${contacts.length} contactos, sesión: ${sessionName}`);
+    // Detectar si la línea activa es Cloud API
+    let cloudLine: any = null;
+    if (effectiveLineId) {
+      const lineCheck = await prisma.whatsappLine.findFirst({ where: { id: effectiveLineId, userId: ownerId } });
+      if (lineCheck?.connectionType === 'cloud_api' && lineCheck?.cloudAccessToken && lineCheck?.cloudPhoneNumberId) {
+        cloudLine = lineCheck;
+      }
+    }
+    if (!cloudLine && sessionName) {
+      const lineCheck = await prisma.whatsappLine.findFirst({ where: { userId: ownerId, status: 'connected', connectionType: 'cloud_api' } });
+      if (lineCheck?.cloudAccessToken && lineCheck?.cloudPhoneNumberId) cloudLine = lineCheck;
+    }
+
+    const isCloudBulk = !!cloudLine;
+    log(`📢 Envío masivo: ${contacts.length} contactos | modo: ${isCloudBulk ? 'CLOUD API' : 'WAHA'} | template: ${templateName || 'no'} | interactive: ${interactive ? 'sí' : 'no'}`);
 
     // Responder inmediatamente y procesar en background
     res.json({ success: true, message: `Enviando a ${contacts.length} contactos...`, total: contacts.length });
@@ -6028,6 +6047,68 @@ router.post('/send-bulk', async (req: Request, res: Response) => {
         await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
         await stopPresence(sessionName!, chatId).catch(() => {});
 
+        // ── CLOUD API: template, interactive o texto ──
+        if (isCloudBulk) {
+          let cloudSent = false;
+          
+          if (templateName) {
+            // 📋 Plantilla aprobada por Meta
+            const tplVars = templateVariables || [];
+            const components: any[] = [];
+            if (tplVars.length > 0) {
+              components.push({ type: 'body', parameters: tplVars.map((v: string) => ({ type: 'text', text: v })) });
+            }
+            const tplBody = {
+              messaging_product: 'whatsapp',
+              to: phone,
+              type: 'template',
+              template: {
+                name: templateName,
+                language: { code: templateLanguage || 'es' },
+                ...(components.length > 0 ? { components } : {})
+              }
+            };
+            const r = await fetch(`https://graph.facebook.com/v19.0/${cloudLine.cloudPhoneNumberId}/messages`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${cloudLine.cloudAccessToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify(tplBody)
+            });
+            cloudSent = r.ok;
+            if (!r.ok) { const e = await r.text(); log(`❌ Template falló ${phone}: ${e.substring(0,100)}`); }
+
+          } else if (interactive) {
+            // 🔘 Botones interactivos
+            const iResult = await sendCloudInteractive(
+              cloudLine.cloudPhoneNumberId, cloudLine.cloudAccessToken, phone,
+              { type: interactive.type || 'button', body: message || interactive.body || '', buttons: interactive.buttons || [], footer: interactive.footer }
+            );
+            cloudSent = iResult.ok;
+
+          } else if (message) {
+            // 💬 Texto normal vía Cloud API
+            const r = await fetch(`https://graph.facebook.com/v19.0/${cloudLine.cloudPhoneNumberId}/messages`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${cloudLine.cloudAccessToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messaging_product: 'whatsapp', to: phone, type: 'text', text: { body: message } })
+            });
+            cloudSent = r.ok;
+          }
+
+          if (!cloudSent && !templateName) { failed++; continue; }
+          
+          // Guardar en DB
+          const convCloud = await prisma.conversation.findFirst({ where: { userId: ownerId, recipientId: { endsWith: phone.slice(-10) } } });
+          if (convCloud) {
+            const msgContent = templateName ? `[Plantilla: ${templateName}]` : (interactive ? `[Botones: ${message || ''}]` : (message || ''));
+            await prisma.message.create({ data: { conversationId: convCloud.id, content: msgContent, fromMe: true, userId: ownerId, role: 'user' } });
+          }
+          sent++;
+          log(`📢 Cloud masivo ${sent}/${total}: ✅ ${phone}`);
+          if (i < contacts.length - 1) await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+          continue; // Skip WAHA flow
+        }
+
+        // ── WAHA: texto e imagen ──
         // 💬 PASO 1: Enviar TEXTO PRIMERO
         if (message) {
           // Variación invisible para anti-spam

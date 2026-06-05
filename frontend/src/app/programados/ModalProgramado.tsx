@@ -66,6 +66,8 @@ interface ModalProgramadoProps {
   templateVars: string[];
   templateSearch: string;
   showTemplateList: boolean;
+  useInteractive: boolean;
+  interactiveButtons: string[];
   // setters
   onClose: () => void;
   onSave: () => void;
@@ -90,6 +92,8 @@ interface ModalProgramadoProps {
   setTemplateVars: (v: string[]) => void;
   setTemplateSearch: (v: string) => void;
   setShowTemplateList: (v: boolean) => void;
+  setUseInteractive: (v: boolean) => void;
+  setInteractiveButtons: (v: string[]) => void;
   fetchTemplates: () => void;
   selectTemplate: (tpl: any) => void;
   handleExcelInput: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -117,6 +121,7 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
     setClientFilter, setUseTemplate, setSelectedTemplate, setTemplateVars,
     setTemplateSearch, setShowTemplateList,
     fetchTemplates, selectTemplate,
+    useInteractive, interactiveButtons, setUseInteractive, setInteractiveButtons,
     handleExcelInput, handleDrop, handleDragOver, handleDragLeave,
     handleFileSelect, downloadTemplate,
   } = props;
@@ -443,8 +448,36 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
                   <p className="text-xs font-semibold text-white mt-1">Plantilla aprobada</p>
                   <p className="text-[10px] text-[var(--text-muted)]">Facebook Business + botones</p>
                 </button>
+                <button
+                  onClick={() => { setUseInteractive(!useInteractive); if (useInteractive) setUseInteractive(false); }}
+                  className={'p-3 rounded-xl border text-left transition-all ' + (useInteractive ? 'border-violet-500 bg-violet-500/10' : 'border-[var(--border-primary)] hover:border-white/20')}
+                >
+                  <span className="text-sm">🔘</span>
+                  <p className="text-xs font-semibold text-white mt-1">Botones interactivos</p>
+                  <p className="text-[10px] text-[var(--text-muted)]">Solo Cloud API · máx 3 opciones</p>
+                </button>
               </div>
             </div>
+
+            {/* Botones interactivos */}
+            {useInteractive && (
+              <div className="space-y-2 mb-3 p-3 rounded-xl border border-violet-500/30 bg-violet-500/5">
+                <p className="text-xs font-semibold text-violet-300">🔘 Configurar botones interactivos</p>
+                <p className="text-[10px] text-white/40">El texto del mensaje será el cuerpo. Agrega hasta 3 botones (máx 20 chars c/u).</p>
+                {interactiveButtons.map((btn, i) => (
+                  <input key={i} value={btn}
+                    onChange={e => {
+                      const b = [...interactiveButtons];
+                      b[i] = e.target.value.substring(0, 20);
+                      setInteractiveButtons(b);
+                    }}
+                    placeholder={`Botón ${i + 1}${i === 0 ? ' (requerido)' : ' (opcional)'}`}
+                    className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg px-3 py-2 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-violet-500"
+                  />
+                ))}
+                <p className="text-[9px] text-amber-400/70">⚠️ Solo funciona con líneas Cloud API (API oficial de Meta). WAHA no soporta botones interactivos.</p>
+              </div>
+            )}
 
             {/* Plantillas */}
             {useTemplate && (

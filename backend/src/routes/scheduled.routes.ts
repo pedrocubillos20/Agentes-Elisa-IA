@@ -195,7 +195,7 @@ router.post('/', async (req: Request, res: Response) => {
       message, mediaUrl, mediaType,
       scheduledAt, recurrence, recurrenceDays, recurrenceTime, recurrenceEnd,
       timezone, bulkRecipients,
-      templateName, templateLanguage, templateVariables
+      templateName, templateLanguage, templateVariables, interactive
     } = req.body;
 
     if (!targetId || !scheduledAt) {
@@ -231,6 +231,7 @@ router.post('/', async (req: Request, res: Response) => {
         mediaUrl: finalMediaUrl, mediaType: mediaType || null,
         scheduledAt: new Date(scheduledAt), recurrence: recurrence || 'once',
         ...(templateName && { templateName, templateLanguage: templateLanguage || 'es', templateVariables: JSON.stringify(templateVariables || []) }),
+        ...(interactive && { interactiveData: JSON.stringify(interactive) }),
         recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
         timezone: timezone || 'America/Bogota', status: 'pending',
@@ -541,6 +542,26 @@ const processScheduledMessage = async (msg: any) => {
       }
 
       // 💬 PASO 2: Enviar TEXTO después (con variación anti-spam)
+      // 🔘 Interactive buttons (Cloud API only)
+      if ((msg as any).interactiveData && lineData?.connectionType === 'cloud_api' && lineData?.cloudAccessToken && lineData?.cloudPhoneNumberId) {
+        try {
+          const iData = JSON.parse((msg as any).interactiveData);
+          const { sendCloudInteractive } = await import('./whatsapp.routes');
+          const iResult = await sendCloudInteractive(
+            lineData.cloudPhoneNumberId!, lineData.cloudAccessToken!, phone,
+            { type: iData.type || 'button', body: msg.message || iData.body || '', buttons: iData.buttons || [], footer: iData.footer }
+          );
+          if (iResult.ok) {
+            log(`✅ Botones interactivos enviados a ${target.name || phone}`);
+            await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'sent', sentAt: new Date() } });
+          } else {
+            log(`❌ Error enviando botones a ${target.name || phone}`);
+            await prisma.scheduledMessage.update({ where: { id: msg.id }, data: { status: 'failed' } });
+          }
+        } catch (ie: any) { log(`❌ Interactive scheduled error: ${ie.message}`); }
+        continue;
+      }
+
       if (message && !msg.templateName) {
         const variedMsg = varyMessage(message, i);
         textSent = await sendText(sessionName!, target.chatId, variedMsg, 3);

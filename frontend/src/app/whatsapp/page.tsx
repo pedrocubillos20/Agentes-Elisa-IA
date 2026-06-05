@@ -490,7 +490,7 @@ export default function WhatsAppPage() {
             <img src="/bizonne.png" alt="Bizonne" className="w-8 h-8 rounded-lg" />
           </div>
           <h3 className="font-semibold text-white mb-2">IA Integrada</h3>
-          <p className="text-sm text-[var(--text-muted)]">Elisa responde automáticamente a tus clientes 24/7</p>
+          <p className="text-sm text-[var(--text-muted)]">Tu asistente IA responde automáticamente a tus clientes 24/7</p>
         </div>
         <div className="card text-center">
           <div className="w-14 h-14 rounded-xl bg-blue-500/20 flex items-center justify-center mx-auto mb-4">
@@ -628,11 +628,50 @@ export default function WhatsAppPage() {
                       />
                     </div>
                     <div>
-                      <label className="input-label">Business Account ID <span className="text-gray-600">(opcional)</span></label>
-                      <input type="text" value={lineForm.cloudBusinessId}
-                        onChange={e => setLineForm({...lineForm, cloudBusinessId: e.target.value})}
-                        className="input font-mono text-sm" placeholder="Ej: 987654321012345"
-                      />
+                      <label className="input-label">WhatsApp Business Account ID (WABA ID) <span className="text-gray-600">(opcional — se auto-detecta)</span></label>
+                      <div className="flex gap-2">
+                        <input type="text" value={lineForm.cloudBusinessId}
+                          onChange={e => setLineForm({...lineForm, cloudBusinessId: e.target.value})}
+                          className="input font-mono text-sm flex-1" placeholder="Auto-detectado al guardar"
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const editingLine = lines.find((l: any) => l.id === editingLineId);
+                            if (!editingLine) { alert('Guarda la línea primero'); return; }
+                            const token = localStorage.getItem('token');
+                            const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+                            try {
+                              const r = await fetch(`${API_URL}/api/whatsapp/diagnose-cloud?lineId=${editingLine.id}`, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                              });
+                              const d = await r.json();
+                              const wabaFound = d.waba_id_autofix || d.waba_id_saved;
+                              const tmpl = d.templates_test;
+                              let msg = `📋 Diagnóstico Cloud API\n\n`;
+                              msg += `Phone Number ID: ${d.phone_number_id_saved}\n`;
+                              msg += `WABA ID guardado: ${d.waba_id_saved || 'ninguno'}\n`;
+                              if (d.waba_id_autofix) msg += `✅ WABA ID auto-detectado: ${d.waba_id_autofix}\n`;
+                              if (d.phone_number_lookup?.error) msg += `⚠️ Error lookup: ${d.phone_number_lookup.error}\n`;
+                              if (tmpl) {
+                                msg += `\nPlantillas:\n`;
+                                if (tmpl.error) msg += `❌ Error: ${tmpl.error}\n`;
+                                else msg += `✅ ${tmpl.count} plantillas encontradas\n`;
+                                if (tmpl.first_template) msg += `Primera: ${tmpl.first_template}\n`;
+                              }
+                              if (d.autofix_applied) {
+                                msg += `\n✅ WABA ID actualizado automáticamente`;
+                                setLineForm(f => ({ ...f, cloudBusinessId: d.waba_id_autofix }));
+                              }
+                              alert(msg);
+                            } catch(e: any) { alert('Error: ' + e.message); }
+                          }}
+                          className="px-3 py-2 rounded-lg bg-violet-600/20 border border-violet-500/30 text-violet-300 text-xs hover:bg-violet-600/30 transition-all whitespace-nowrap"
+                        >
+                          🔍 Diagnosticar
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-gray-500 mt-1">Se detecta automáticamente desde el Phone Number ID. Usa "Diagnosticar" si las plantillas no cargan.</p>
                     </div>
                     <a href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noopener"
                       className="text-xs text-blue-400 hover:underline flex items-center gap-1">

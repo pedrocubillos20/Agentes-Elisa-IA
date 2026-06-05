@@ -8025,21 +8025,131 @@ router.get('/waba-id', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Sin config Cloud API' }); return;
     }
 
-    // Método 1: Phone Number → WABA
-    const r = await fetch(
+    // Método 1: Phone Number ID → WABA ID
+    const r1 = await fetch(
       `${CLOUD_API_URL}/${line.cloudPhoneNumberId}?fields=id,display_phone_number,whatsapp_business_account`,
       { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
     );
-    if (r.ok) {
-      const d = await r.json() as any;
-      const wabaId = d?.whatsapp_business_account?.id;
+    if (r1.ok) {
+      const d1 = await r1.json() as any;
+      const wabaId = d1?.whatsapp_business_account?.id;
       if (wabaId) {
         await prisma.whatsappLine.update({ where: { id: String(lineId) }, data: { cloudBusinessId: wabaId } }).catch(() => {});
-        res.json({ wabaId, saved: true });
+        log(`✅ WABA ID detectado método 1: ${wabaId}`);
+        res.json({ wabaId, saved: true, method: 'phone_number_lookup' });
         return;
       }
+      log(`⚠️ Método 1 no devolvió WABA: ${JSON.stringify(d1).substring(0, 100)}`);
+    } else {
+      const e1 = await r1.text();
+      log(`⚠️ Método 1 falló (${r1.status}): ${e1.substring(0, 100)}`);
     }
-    res.json({ wabaId: null, current: line.cloudBusinessId });
+
+    // Método 2: /me/businesses → /subscribed_apps → WABA
+    const r2 = await fetch(
+      `${CLOUD_API_URL}/me?fields=id,name`,
+      { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+    );
+    if (r2.ok) {
+      const me = await r2.json() as any;
+      // Try to get WABA accounts for this user/app
+      const r3 = await fetch(
+        `${CLOUD_API_URL}/${me.id}/owned_whatsapp_business_accounts?fields=id,name,currency,message_template_namespace`,
+        { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+      );
+      if (r3.ok) {
+        const accounts = await r3.json() as any;
+        const firstWaba = accounts?.data?.[0]?.id;
+        if (firstWaba) {
+          await prisma.whatsappLine.update({ where: { id: String(lineId) }, data: { cloudBusinessId: firstWaba } }).catch(() => {});
+          log(`✅ WABA ID detectado método 2: ${firstWaba}`);
+          res.json({ wabaId: firstWaba, saved: true, method: 'owned_accounts', allAccounts: accounts.data?.map((a: any) => ({ id: a.id, name: a.name })) });
+          return;
+        }
+      }
+    }
+
+    // Devolver la info de diagnóstico para que el usuario pueda corregir manualmente
+    const diagInfo = { wabaId: null, current: line.cloudBusinessId, phoneNumberId: line.cloudPhoneNumberId };
+    res.json(diagInfo);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ====================================================
+// 🔍 GET /diagnose-cloud — Diagnóstico de IDs de Cloud API
+// Devuelve todos los IDs disponibles para el token configurado
+// ====================================================
+router.get('/diagnose-cloud', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const { lineId } = req.query;
+
+    const line = await prisma.whatsappLine.findFirst({
+      where: { ...(lineId ? { id: String(lineId) } : {}), userId: ownerId, connectionType: 'cloud_api' },
+      select: { id: true, name: true, cloudPhoneNumberId: true, cloudAccessToken: true, cloudBusinessId: true }
+    });
+    if (!line?.cloudAccessToken) {
+      res.status(400).json({ error: 'No hay línea Cloud API configurada' }); return;
+    }
+
+    const results: any = {
+      line_id: line.id,
+      line_name: line.name,
+      phone_number_id_saved: line.cloudPhoneNumberId,
+      waba_id_saved: line.cloudBusinessId,
+      token_prefix: line.cloudAccessToken?.substring(0, 12) + '...',
+    };
+
+    // Test 1: Verify phone number ID
+    try {
+      const r = await fetch(
+        `${CLOUD_API_URL}/${line.cloudPhoneNumberId}?fields=id,display_phone_number,whatsapp_business_account,name_status`,
+        { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+      );
+      const d = await r.json() as any;
+      results.phone_number_lookup = {
+        status: r.status,
+        phone: d?.display_phone_number,
+        waba_id_from_phone: d?.whatsapp_business_account?.id,
+        name_status: d?.name_status,
+        error: d?.error?.message,
+      };
+      if (d?.whatsapp_business_account?.id) {
+        await prisma.whatsappLine.update({ where: { id: line.id }, data: { cloudBusinessId: d.whatsapp_business_account.id } }).catch(() => {});
+        results.waba_id_autofix = d.whatsapp_business_account.id;
+        results.autofix_applied = true;
+      }
+    } catch (e: any) { results.phone_number_lookup = { error: e.message }; }
+
+    // Test 2: Token /me info
+    try {
+      const r = await fetch(`${CLOUD_API_URL}/me?fields=id,name,email`, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
+      const d = await r.json() as any;
+      results.token_identity = { id: d?.id, name: d?.name, error: d?.error?.message };
+    } catch (e: any) { results.token_identity = { error: e.message }; }
+
+    // Test 3: Try templates directly
+    const wabaToTest = results.waba_id_autofix || line.cloudBusinessId;
+    if (wabaToTest) {
+      try {
+        const r = await fetch(
+          `${CLOUD_API_URL}/${wabaToTest}/message_templates?fields=id,name,status,language&limit=5`,
+          { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } }
+        );
+        const d = await r.json() as any;
+        results.templates_test = {
+          status: r.status,
+          count: d?.data?.length ?? 0,
+          first_template: d?.data?.[0]?.name,
+          error: d?.error?.message,
+          waba_id_used: wabaToTest,
+        };
+      } catch (e: any) { results.templates_test = { error: e.message }; }
+    }
+
+    res.json(results);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

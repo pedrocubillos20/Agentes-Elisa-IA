@@ -479,9 +479,10 @@ const processScheduledMessage = async (msg: any) => {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       // 📋 PLANTILLA DE FACEBOOK (Cloud API) — envío directo
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      const phone = target.chatId.replace('@c.us', '').replace(/\D/g, '');
+
       if (msg.templateName && lineData?.connectionType === 'cloud_api' && lineData?.cloudAccessToken && lineData?.cloudPhoneNumberId) {
         const tplVars = msg.templateVariables ? JSON.parse(msg.templateVariables) : [];
-        const phone = target.chatId.replace('@c.us', '').replace(/\D/g, '');
 
         // Build components array for template
         const bodyComponents: any[] = [];
@@ -546,7 +547,7 @@ const processScheduledMessage = async (msg: any) => {
       if ((msg as any).interactiveData && lineData?.connectionType === 'cloud_api' && lineData?.cloudAccessToken && lineData?.cloudPhoneNumberId) {
         try {
           const iData = JSON.parse((msg as any).interactiveData);
-          const { sendCloudInteractive } = await import('./whatsapp.routes');
+          const { sendCloudInteractive } = require('./whatsapp.routes');
           const iResult = await sendCloudInteractive(
             lineData.cloudPhoneNumberId!, lineData.cloudAccessToken!, phone,
             { type: iData.type || 'button', body: msg.message || iData.body || '', buttons: iData.buttons || [], footer: iData.footer }

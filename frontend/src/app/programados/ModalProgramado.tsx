@@ -66,8 +66,8 @@ interface ModalProgramadoProps {
   templateVars: string[];
   templateSearch: string;
   showTemplateList: boolean;
-  useInteractive: boolean;
-  interactiveButtons: string[];
+  useInteractive?: boolean;
+  interactiveButtons?: string[];
   // setters
   onClose: () => void;
   onSave: () => void;
@@ -92,8 +92,8 @@ interface ModalProgramadoProps {
   setTemplateVars: (v: string[]) => void;
   setTemplateSearch: (v: string) => void;
   setShowTemplateList: (v: boolean) => void;
-  setUseInteractive: (v: boolean) => void;
-  setInteractiveButtons: (v: string[]) => void;
+  setUseInteractive?: (v: boolean) => void;
+  setInteractiveButtons?: (v: string[]) => void;
   fetchTemplates: () => void;
   selectTemplate: (tpl: any) => void;
   handleExcelInput: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -121,7 +121,7 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
     setClientFilter, setUseTemplate, setSelectedTemplate, setTemplateVars,
     setTemplateSearch, setShowTemplateList,
     fetchTemplates, selectTemplate,
-    useInteractive, interactiveButtons, setUseInteractive, setInteractiveButtons,
+    useInteractive = false, interactiveButtons = ['', '', ''], setUseInteractive, setInteractiveButtons,
     handleExcelInput, handleDrop, handleDragOver, handleDragLeave,
     handleFileSelect, downloadTemplate,
   } = props;
@@ -449,7 +449,7 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
                   <p className="text-[10px] text-[var(--text-muted)]">Facebook Business + botones</p>
                 </button>
                 <button
-                  onClick={() => { setUseInteractive(!useInteractive); if (useInteractive) setUseInteractive(false); }}
+                  onClick={() => { setUseInteractive?.(!useInteractive); }}
                   className={'p-3 rounded-xl border text-left transition-all ' + (useInteractive ? 'border-violet-500 bg-violet-500/10' : 'border-[var(--border-primary)] hover:border-white/20')}
                 >
                   <span className="text-sm">🔘</span>
@@ -469,7 +469,7 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
                     onChange={e => {
                       const b = [...interactiveButtons];
                       b[i] = e.target.value.substring(0, 20);
-                      setInteractiveButtons(b);
+                      setInteractiveButtons?.(b);
                     }}
                     placeholder={`Botón ${i + 1}${i === 0 ? ' (requerido)' : ' (opcional)'}`}
                     className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded-lg px-3 py-2 text-sm text-white placeholder-[var(--text-muted)] focus:outline-none focus:border-violet-500"

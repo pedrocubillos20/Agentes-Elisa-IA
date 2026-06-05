@@ -8217,6 +8217,6 @@ router.get('/templates', async (req: Request, res: Response) => {
   }
 });
 
-export { sendCloudTemplate };
+export { sendCloudTemplate, sendCloudInteractive };
 
 export default router;

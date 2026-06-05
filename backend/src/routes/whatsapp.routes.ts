@@ -8177,22 +8177,49 @@ router.get('/templates', async (req: Request, res: Response) => {
     const fields = 'id,name,language,status,category,components';
     const url = `${CLOUD_API_URL}/${wabaId}/message_templates?fields=${fields}&limit=100`;
 
+    log(`📋 Fetching templates → WABA ID: ${wabaId} | URL: ${url.substring(0, 80)}`);
+
     const metaRes = await fetch(url, {
       headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` },
     });
 
     if (!metaRes.ok) {
       const errText = await metaRes.text().catch(() => '');
-      let errMsg = `Error Meta API (${metaRes.status})`;
-      try {
-        const errJson = JSON.parse(errText);
-        errMsg = errJson?.error?.message || errMsg;
-      } catch { /* noop */ }
+      let errJson: any = {};
+      try { errJson = JSON.parse(errText); } catch { /* noop */ }
+      const errMsg = errJson?.error?.message || `Error Meta API (${metaRes.status})`;
+      const errCode = errJson?.error?.code;
       console.error(`❌ Meta templates (${metaRes.status}) lineId=${lineId}:`, errText.substring(0, 300));
-      // If 400 with nonexisting field, likely using Business Manager ID instead of WABA ID
+
       const isWrongId = errText.includes('nonexisting field') || errText.includes('message_templates');
-      const hint = isWrongId ? ' El ID configurado parece ser el Business Manager ID, no el WABA ID. Ve a Meta Business → Configuración → Cuentas de WhatsApp para obtener el ID correcto.' : '';
-      res.status(metaRes.status).json({ error: errMsg + hint, reason: 'meta_api_error' });
+      const isPermission = errCode === 10 || errText.includes('permission') || errText.includes('OAuthException');
+      const isExpiredToken = errCode === 190 || errText.includes('token') && errText.includes('expir');
+
+      let reason = 'meta_api_error';
+      let userMessage = errMsg;
+      let guide = '';
+
+      if (isWrongId) {
+        reason = 'wrong_waba_id';
+        userMessage = 'El ID configurado no es el WABA ID correcto.';
+        guide = 'Para obtener el WABA ID correcto: Meta Business Manager → Configuración → Cuentas de WhatsApp → copia el ID que aparece (NO el del negocio, sino el de la cuenta de WhatsApp Business).';
+      } else if (isPermission) {
+        reason = 'missing_permission';
+        userMessage = 'El token no tiene permiso para leer plantillas.';
+        guide = 'El token necesita el permiso "whatsapp_business_management". En Meta Business → Configuración → Usuarios del sistema → elige tu usuario → Editar → asigna permiso WhatsApp Business Management.';
+      } else if (isExpiredToken) {
+        reason = 'expired_token';
+        userMessage = 'El token ha expirado o es inválido.';
+        guide = 'Genera un nuevo token permanente de sistema en Meta Business → Configuración → Usuarios del sistema.';
+      }
+
+      res.status(metaRes.status).json({ 
+        error: userMessage, 
+        guide,
+        reason,
+        waba_id_used: wabaId,
+        phone_number_id_used: line.cloudPhoneNumberId,
+      });
       return;
     }
 

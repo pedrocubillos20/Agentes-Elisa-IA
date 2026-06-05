@@ -62,6 +62,7 @@ interface ModalProgramadoProps {
   useTemplate: boolean;
   templates: any[];
   templatesLoading: boolean;
+  templateError?: { error: string; guide?: string; reason?: string; waba_id_used?: string };
   selectedTemplate: any;
   templateVars: string[];
   templateSearch: string;
@@ -111,7 +112,7 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
     mediaFile, mediaPreview, excelContacts, excelFileName, excelParsing,
     showExcelPreview, isDragging, excelValid, excelInvalid,
     conversations, groups, stages, clients, clientFilter,
-    useTemplate, templates, templatesLoading, selectedTemplate,
+    useTemplate, templates, templatesLoading, templateError, selectedTemplate,
     templateVars, templateSearch, showTemplateList,
     onClose, onSave,
     setTargetType, setTargetId, setTargetName, setMessage,
@@ -488,11 +489,31 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
                     <span className="text-sm text-[var(--text-muted)]">Cargando plantillas...</span>
                   </div>
                 ) : templates.length === 0 ? (
-                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl">
-                    <p className="text-sm text-amber-300 font-medium mb-1">No hay plantillas aprobadas</p>
-                    <p className="text-xs text-[var(--text-muted)]">Verifica que tu línea Cloud API (The Four) tenga el WABA ID configurado y plantillas con estado <strong>APPROVED</strong> en Meta Business Manager.</p>
-                    <p className="text-xs text-amber-400 mt-1">💡 El WABA ID lo encuentras en Meta Business → Configuración → Cuentas de WhatsApp</p>
-                    <button onClick={fetchTemplates} className="mt-2 text-xs text-[var(--accent-primary)] hover:underline">↻ Recargar</button>
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-2">
+                    <p className="text-sm text-amber-300 font-medium">
+                      {templateError?.reason === 'missing_permission' ? '⚠️ Token sin permiso para plantillas' :
+                       templateError?.reason === 'wrong_waba_id' ? '⚠️ WABA ID incorrecto' :
+                       templateError?.reason === 'expired_token' ? '⚠️ Token expirado' :
+                       'No se encontraron plantillas aprobadas'}
+                    </p>
+                    {templateError?.error && (
+                      <p className="text-xs text-amber-200/80">{templateError.error}</p>
+                    )}
+                    {templateError?.guide && (
+                      <div className="p-2 bg-amber-500/10 rounded-lg">
+                        <p className="text-[11px] text-amber-300 leading-relaxed">💡 {templateError.guide}</p>
+                      </div>
+                    )}
+                    {!templateError && (
+                      <>
+                        <p className="text-xs text-[var(--text-muted)]">Verifica que tu línea Cloud API tenga el WABA ID y plantillas con estado <strong>APPROVED</strong> en Meta Business Manager.</p>
+                        <p className="text-[11px] text-amber-400">💡 Meta Business Manager → Configuración → Cuentas de WhatsApp → copia el ID de la cuenta (no el del negocio)</p>
+                      </>
+                    )}
+                    {templateError?.waba_id_used && (
+                      <p className="text-[10px] text-white/30 font-mono">WABA ID usado: {templateError.waba_id_used}</p>
+                    )}
+                    <button onClick={fetchTemplates} className="text-xs text-[var(--accent-primary)] hover:underline">↻ Reintentar</button>
                   </div>
                 ) : (
                   <div>

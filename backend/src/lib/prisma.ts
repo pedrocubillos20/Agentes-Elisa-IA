@@ -25,10 +25,10 @@ const getDatabaseUrl = (): string => {
 
   const separator = url.includes('?') ? '&' : '?';
   const params = [
-    'connection_limit=5',        // Railway free: máx 5-10 conexiones
-    'pool_timeout=20',           // 20s espera conexión disponible
+    'connection_limit=10',       // Aumentado: permite más concurrencia (asistente personal hace 10+ queries)
+    'pool_timeout=30',           // 30s espera conexión disponible (era 20s, muy corto para burst)
     'connect_timeout=15',        // 15s para conectar
-    'socket_timeout=60',         // 60s timeout de socket
+    'socket_timeout=30',         // 30s timeout de socket (era 60s, liberamos conexiones más rápido)
   ];
 
   // pgbouncer para Supabase pooler (puerto 6543)
@@ -42,7 +42,7 @@ const getDatabaseUrl = (): string => {
 const createPrismaClient = () => new PrismaClient({
   datasources: { db: { url: getDatabaseUrl() } },
   log: [{ emit: 'event', level: 'error' }],
-  transactionOptions: { maxWait: 10000, timeout: 30000 }
+  transactionOptions: { maxWait: 15000, timeout: 25000 }
 });
 
 let prisma: PrismaClient = globalForPrisma.prisma ?? createPrismaClient();

@@ -137,8 +137,10 @@ export default function ModalProgramado(props: ModalProgramadoProps) {
     });
   };
 
+  // Con plantilla aprobada: message está vacío pero selectedTemplate tiene el contenido
+  const hasContent = !!message || !!mediaFile || (useTemplate && !!selectedTemplate);
   const isSaveDisabled = saving
-    || (!message && !mediaFile)
+    || !hasContent
     || !scheduledDate
     || !scheduledTime
     || (targetType !== 'bulk_excel' && !targetId)

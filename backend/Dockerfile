@@ -19,8 +19,10 @@ RUN node node_modules/typescript/bin/tsc
 RUN mkdir -p /app/auth_sessions /app/uploads/pdfs /app/media && \
     chmod -R 777 /app/auth_sessions /app/uploads /app/media
 
+RUN chmod +x /app/start.sh
+
 ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "echo "🔄 Aplicando migraciones DB..." && npx prisma db push --accept-data-loss && echo "✅ DB actualizada" && npm start"]
+CMD ["/app/start.sh"]

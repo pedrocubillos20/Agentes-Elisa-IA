@@ -96,6 +96,8 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const ms = Date.now() - start;
+    // 204 = intentionally silent (media-proxy no-token/not-found) — skip logging
+    if (res.statusCode === 204) return;
     const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'debug';
     logger[level](`${req.method} ${req.path} ${res.statusCode} ${ms}ms`, {
       ip: req.ip,
@@ -227,7 +229,8 @@ app.post('/api/webhook/retell', (req, res, next) => {
 app.get('/api/media-proxy/:msgId', mediaProxyRL, async (req: any, res: any) => {
   try {
     const token = req.query.token as string || req.headers.authorization?.replace('Bearer ', '');
-    if (!token) return res.status(401).json({ error: 'No token' });
+    // Silently ignore requests without token (SSR pre-renders) — avoid log spam
+    if (!token) return res.status(204).end();
 
     const jwt = require('jsonwebtoken');
     let decoded: any;
@@ -294,7 +297,7 @@ app.get('/api/media-proxy/:msgId', mediaProxyRL, async (req: any, res: any) => {
         }
       } catch {}
     }
-    res.status(404).json({ error: 'Media not found' });
+    res.status(204).end(); // Silent — media expired or not found, avoid log noise
   } catch (e: any) {
     logger.error('Media proxy error', { error: e.message });
     res.status(500).json({ error: 'Proxy error' });

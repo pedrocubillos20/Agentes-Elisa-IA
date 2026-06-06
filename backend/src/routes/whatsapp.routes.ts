@@ -2910,8 +2910,14 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
               const memoryData = JSON.parse(rawMemory);
               console.log(`🔍 memoryData accion: "${memoryData.accion}" | keys: ${Object.keys(memoryData).join(',')} | interactive: ${memoryData.interactive ? '✅ SÍ' : '❌ NO'}`);
               // Merge con datos existentes (no borrar datos previos si vienen vacíos)
+              // 🚫 Campos TRANSITORIOS: no guardar en contextData (instrucciones UI de una sola vez)
+              const TRANSIENT_FIELDS = new Set(["interactive", "accion", "_leadTemp"]);
               const merged = { ...savedContext };
+              // Limpiar transitorios de sesión previa (evita que botones viejos se acumulen)
+              delete (merged as any)["interactive"];
+              delete (merged as any)["_leadTemp"];
               for (const [key, value] of Object.entries(memoryData)) {
+                if (TRANSIENT_FIELDS.has(key)) continue; // ⛔ No persistir campos transitorios
                 if (value && value !== '' && value !== 'null' && value !== 'undefined') {
                   merged[key] = value;
                 }
@@ -7845,6 +7851,27 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
           messageBody = "📍 El cliente compartió su ubicación por WhatsApp.\nCoordenadas: " + locLat + ", " + locLon + "\nVer en Maps: " + mapsLink + coverageMsg;
         } else {
           messageBody = "📍 El cliente compartió una ubicación (sin coordenadas válidas)";
+        }
+      } else if (msgType === 'interactive') {
+        // 🔘 BOTÓN o LISTA — El cliente tocó un botón de respuesta rápida o seleccionó de una lista
+        const btnReply = msg.interactive?.button_reply;
+        const listReply = msg.interactive?.list_reply;
+        const nfmReply = msg.interactive?.nfm_reply;
+        if (btnReply) {
+          // Botón de respuesta rápida: { id: "btn_0", title: "Opción A" }
+          messageBody = btnReply.title || btnReply.id || 'Opción seleccionada';
+          clog(`☁️ 🔘 Botón tocado: "${messageBody}" (id: ${btnReply.id}) por ${senderName}`);
+        } else if (listReply) {
+          // Lista interactiva: { id: "row_0", title: "Opción X", description: "..." }
+          messageBody = listReply.title || listReply.id || 'Opción seleccionada';
+          if (listReply.description) messageBody += ` (${listReply.description})`;
+          clog(`☁️ 📋 Lista seleccionada: "${messageBody}" (id: ${listReply.id}) por ${senderName}`);
+        } else if (nfmReply) {
+          // Flow reply (formularios interactivos de Meta)
+          messageBody = nfmReply.name || JSON.stringify(nfmReply.response_json || {}).substring(0, 200);
+          clog(`☁️ 📋 Flow reply: "${messageBody.substring(0, 60)}" por ${senderName}`);
+        } else {
+          messageBody = msg.interactive?.type ? `[interactivo: ${msg.interactive.type}]` : '[interactivo]';
         }
       } else if (msgType === 'contacts') {
         const c = msg.contacts?.[0];

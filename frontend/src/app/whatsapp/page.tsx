@@ -647,11 +647,17 @@ export default function WhatsAppPage() {
                               const d = await r.json();
                               const wabaFound = d.waba_id_autofix || d.waba_id_saved;
                               const tmpl = d.templates_test;
+                              const templatesOk = tmpl && !tmpl.error && tmpl.count > 0;
                               let msg = `📋 Diagnóstico Cloud API\n\n`;
                               msg += `Phone Number ID: ${d.phone_number_id_saved}\n`;
                               msg += `WABA ID guardado: ${d.waba_id_saved || 'ninguno'}\n`;
                               if (d.waba_id_autofix) msg += `✅ WABA ID auto-detectado: ${d.waba_id_autofix}\n`;
-                              if (d.phone_number_lookup?.error) msg += `⚠️ Error lookup: ${d.phone_number_lookup.error}\n`;
+                              // Solo mostrar error de lookup si las plantillas NO funcionan (es informativo, no crítico)
+                              if (d.phone_number_lookup?.error && !templatesOk) {
+                                msg += `⚠️ Error lookup: ${d.phone_number_lookup.error}\n`;
+                              } else if (d.phone_number_lookup?.error && templatesOk) {
+                                msg += `ℹ️ Nota: El campo whatsapp_business_account no está disponible con este token, pero las plantillas funcionan correctamente usando el WABA ID guardado.\n`;
+                              }
                               if (tmpl) {
                                 msg += `\nPlantillas:\n`;
                                 if (tmpl.error) msg += `❌ Error: ${tmpl.error}\n`;
@@ -661,6 +667,9 @@ export default function WhatsAppPage() {
                               if (d.autofix_applied) {
                                 msg += `\n✅ WABA ID actualizado automáticamente`;
                                 setLineForm(f => ({ ...f, cloudBusinessId: d.waba_id_autofix }));
+                              }
+                              if (templatesOk) {
+                                msg += `\n\n✅ Todo listo — tu Cloud API está funcionando correctamente.`;
                               }
                               alert(msg);
                             } catch(e: any) { alert('Error: ' + e.message); }

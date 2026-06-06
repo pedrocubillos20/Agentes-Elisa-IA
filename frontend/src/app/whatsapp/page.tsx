@@ -637,8 +637,7 @@ export default function WhatsAppPage() {
                         <button
                           type="button"
                           onClick={async () => {
-                            const editingLine = lines.find((l: any) => l.id === editingLineId);
-                            if (!editingLine) { alert('Guarda la línea primero'); return; }
+                            if (!editingLine) { alert('Guarda la línea primero para poder diagnosticar'); return; }
                             const token = localStorage.getItem('token');
                             const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
                             try {

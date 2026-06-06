@@ -8088,7 +8088,7 @@ router.get('/diagnose-cloud', async (req: Request, res: Response) => {
 
     const line = await prisma.whatsappLine.findFirst({
       where: { ...(lineId ? { id: String(lineId) } : {}), userId: ownerId, connectionType: 'cloud_api' },
-      select: { id: true, name: true, cloudPhoneNumberId: true, cloudAccessToken: true, cloudBusinessId: true }
+      select: { id: true, label: true, cloudPhoneNumberId: true, cloudAccessToken: true, cloudBusinessId: true }
     });
     if (!line?.cloudAccessToken) {
       res.status(400).json({ error: 'No hay línea Cloud API configurada' }); return;
@@ -8096,7 +8096,7 @@ router.get('/diagnose-cloud', async (req: Request, res: Response) => {
 
     const results: any = {
       line_id: line.id,
-      line_name: line.name,
+      line_name: line.label,
       phone_number_id_saved: line.cloudPhoneNumberId,
       waba_id_saved: line.cloudBusinessId,
       token_prefix: line.cloudAccessToken?.substring(0, 12) + '...',

@@ -284,7 +284,8 @@ export default function ProgramadosPage() {
   const handleSave = async () => {
     const validTargetId = targetType === 'bulk_excel' ? 'bulk_excel' : targetId;
     if (!validTargetId || !scheduledDate || !scheduledTime) return;
-    if (!message && !mediaFile) return;
+    // Con plantilla aprobada message está vacío pero selectedTemplate tiene el contenido
+    if (!message && !mediaFile && !(useTemplate && selectedTemplate)) return;
     const validContacts = excelContacts.filter((c) => c.valid);
     if (targetType === 'bulk_excel' && validContacts.length === 0) return;
 

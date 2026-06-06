@@ -23,4 +23,4 @@ ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && npm start"]
+CMD ["sh", "-c", "echo "🔄 Aplicando migraciones DB..." && npx prisma db push --accept-data-loss && echo "✅ DB actualizada" && npm start"]

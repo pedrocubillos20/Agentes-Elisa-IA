@@ -399,6 +399,11 @@ model ScheduledMessage {
   message         String?   @db.Text
   mediaUrl        String?   @db.Text
   mediaType       String?
+
+  // Plantillas aprobadas de Meta (Cloud API)
+  templateName      String?
+  templateLanguage  String?
+  templateVariables String?  @db.Text  // JSON array: ["var1","var2"]
   
   scheduledAt     DateTime
   recurrence      String    @default("once")      // once, daily, weekly, monthly

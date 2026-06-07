@@ -196,7 +196,7 @@ router.post('/', async (req: Request, res: Response) => {
       message, mediaUrl, mediaType,
       scheduledAt, recurrence, recurrenceDays, recurrenceTime, recurrenceEnd,
       timezone, bulkRecipients,
-      templateName, templateLanguage, templateVariables, interactive
+      templateName, templateLanguage, templateVariables, templateHeaderUrl, interactive
     } = req.body;
 
     if (!targetId || !scheduledAt) {
@@ -231,7 +231,7 @@ router.post('/', async (req: Request, res: Response) => {
         message: message || (templateName ? `[Plantilla: ${templateName}]` : null),
         mediaUrl: finalMediaUrl, mediaType: mediaType || null,
         scheduledAt: new Date(scheduledAt), recurrence: recurrence || 'once',
-        ...(templateName && { templateName, templateLanguage: templateLanguage || 'es', templateVariables: JSON.stringify(templateVariables || []) }),
+        ...(templateName && { templateName, templateLanguage: templateLanguage || 'es', templateVariables: JSON.stringify(templateVariables || []), ...(templateHeaderUrl && { templateHeaderUrl }) }),
         ...(interactive && { interactiveData: JSON.stringify(interactive) }),
         recurrenceDays: recurrenceDays || null, recurrenceTime: recurrenceTime || null,
         recurrenceEnd: recurrenceEnd ? new Date(recurrenceEnd) : null,
@@ -491,29 +491,43 @@ const processScheduledMessage = async (msg: any) => {
           return v;
         });
 
-        // 🖼️ Obtener header de la plantilla desde Meta (puede tener video/imagen)
+        // 🖼️ Header media: usar URL guardada, o consultar Meta para obtenerla
         let headerMedia: { type: 'image' | 'video' | 'document'; url: string } | undefined;
-        try {
-          const WABA_ID = lineData.cloudBusinessId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-          if (WABA_ID) {
-            const tplRes = await fetch(
-              `https://graph.facebook.com/v18.0/${WABA_ID}/message_templates?name=${encodeURIComponent(msg.templateName)}&fields=components`,
-              { headers: { 'Authorization': `Bearer ${lineData.cloudAccessToken}` } }
-            );
-            if (tplRes.ok) {
-              const tplData = await tplRes.json() as any;
-              const tpl = tplData?.data?.[0];
-              const headerComp = tpl?.components?.find((c: any) => c.type === 'HEADER');
-              if (headerComp && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format)) {
-                const exampleUrl = headerComp.example?.header_handle?.[0];
-                if (exampleUrl) {
-                  headerMedia = { type: headerComp.format.toLowerCase() as any, url: exampleUrl };
+        if (msg.templateHeaderUrl) {
+          const url = msg.templateHeaderUrl.toLowerCase();
+          const mediaType = url.includes('.mp4') || url.includes('.mov') || url.includes('.avi') ? 'video'
+            : url.includes('.pdf') || url.includes('.doc') ? 'document'
+            : 'image';
+          headerMedia = { type: mediaType as any, url: msg.templateHeaderUrl };
+          log(`🖼️ Header media guardado: ${mediaType} → ${msg.templateHeaderUrl.substring(0, 60)}`);
+        } else {
+          // Sin URL guardada: consultar Meta para ver si la plantilla tiene header media
+          try {
+            const WABA_ID = (lineData as any).cloudBusinessId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+            if (WABA_ID) {
+              const tplRes = await fetch(
+                `https://graph.facebook.com/v18.0/${WABA_ID}/message_templates?name=${encodeURIComponent(msg.templateName)}&fields=components`,
+                { headers: { 'Authorization': `Bearer ${lineData.cloudAccessToken}` } }
+              );
+              if (tplRes.ok) {
+                const tplData = await tplRes.json() as any;
+                const tpl = tplData?.data?.[0];
+                const headerComp = tpl?.components?.find((c: any) => c.type === 'HEADER');
+                if (headerComp && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format)) {
+                  const exampleUrl = headerComp.example?.header_handle?.[0];
+                  if (exampleUrl) {
+                    headerMedia = { type: headerComp.format.toLowerCase() as any, url: exampleUrl };
+                    log(`🖼️ Header media desde Meta: ${headerComp.format} → ${exampleUrl.substring(0, 60)}`);
+                  } else {
+                    // La plantilla tiene header media pero sin URL de ejemplo — omitir components
+                    log(`⚠️ Plantilla tiene header ${headerComp.format} sin URL de ejemplo — enviando sin header`);
+                  }
                 }
               }
             }
+          } catch (hErr: any) {
+            console.error('⚠️ No se pudo consultar header de plantilla en Meta:', hErr.message);
           }
-        } catch (hErr: any) {
-          console.error('⚠️ No se pudo obtener header de plantilla:', hErr.message);
         }
 
         const result = await sendCloudTemplate(

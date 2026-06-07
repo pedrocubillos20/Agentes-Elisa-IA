@@ -449,7 +449,7 @@ const processScheduledMessage = async (msg: any) => {
   // Load line data for Cloud API template sending
   const lineData = effectiveLineId ? await prisma.whatsappLine.findFirst({
     where: { id: effectiveLineId },
-    select: { connectionType: true, cloudAccessToken: true, cloudPhoneNumberId: true }
+    select: { connectionType: true, cloudAccessToken: true, cloudPhoneNumberId: true, cloudBusinessId: true }
   }) : null;
 
   log(`📅 Enviando programado ${msg.id} a ${targets.length} destinatarios vía sesión ${sessionName}`);
@@ -491,13 +491,39 @@ const processScheduledMessage = async (msg: any) => {
           return v;
         });
 
+        // 🖼️ Obtener header de la plantilla desde Meta (puede tener video/imagen)
+        let headerMedia: { type: 'image' | 'video' | 'document'; url: string } | undefined;
+        try {
+          const WABA_ID = lineData.cloudBusinessId || process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+          if (WABA_ID) {
+            const tplRes = await fetch(
+              `https://graph.facebook.com/v18.0/${WABA_ID}/message_templates?name=${encodeURIComponent(msg.templateName)}&fields=components`,
+              { headers: { 'Authorization': `Bearer ${lineData.cloudAccessToken}` } }
+            );
+            if (tplRes.ok) {
+              const tplData = await tplRes.json() as any;
+              const tpl = tplData?.data?.[0];
+              const headerComp = tpl?.components?.find((c: any) => c.type === 'HEADER');
+              if (headerComp && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerComp.format)) {
+                const exampleUrl = headerComp.example?.header_handle?.[0];
+                if (exampleUrl) {
+                  headerMedia = { type: headerComp.format.toLowerCase() as any, url: exampleUrl };
+                }
+              }
+            }
+          }
+        } catch (hErr: any) {
+          console.error('⚠️ No se pudo obtener header de plantilla:', hErr.message);
+        }
+
         const result = await sendCloudTemplate(
           lineData.cloudPhoneNumberId,
           lineData.cloudAccessToken,
           phone,
           msg.templateName,
           msg.templateLanguage || 'es_CO',
-          resolvedVars
+          resolvedVars,
+          headerMedia
         );
 
         if (result.ok) {

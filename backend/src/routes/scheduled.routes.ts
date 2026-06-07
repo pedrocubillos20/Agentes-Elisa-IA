@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadFile } from '../lib/storage';
+import { sendCloudTemplate } from './whatsapp.routes';
 
 const router = Router();
 
@@ -482,44 +483,28 @@ const processScheduledMessage = async (msg: any) => {
       const phone = target.chatId.replace('@c.us', '').replace(/\D/g, '');
 
       if (msg.templateName && lineData?.connectionType === 'cloud_api' && lineData?.cloudAccessToken && lineData?.cloudPhoneNumberId) {
-        const tplVars = msg.templateVariables ? JSON.parse(msg.templateVariables) : [];
+        // ✅ Usar sendCloudTemplate centralizado (mismo que funciona en envío manual)
+        const tplVars: string[] = msg.templateVariables ? JSON.parse(msg.templateVariables) : [];
+        // Reemplazar {{nombre}} por nombre del destinatario si la variable es el placeholder
+        const resolvedVars = tplVars.map((v: string) => {
+          if (v === '{{nombre}}' || v === '{nombre}') return target.name || v;
+          return v;
+        });
 
-        // Build components array for template
-        const bodyComponents: any[] = [];
-        if (tplVars.length > 0) {
-          bodyComponents.push({
-            type: 'body',
-            parameters: tplVars.map((v: string) => ({ type: 'text', text: v || ' ' }))
-          });
-        }
+        const result = await sendCloudTemplate(
+          lineData.cloudPhoneNumberId,
+          lineData.cloudAccessToken,
+          phone,
+          msg.templateName,
+          msg.templateLanguage || 'es_CO',
+          resolvedVars
+        );
 
-        const tplBody: any = {
-          messaging_product: 'whatsapp',
-          to: phone,
-          type: 'template',
-          template: {
-            name: msg.templateName,
-            language: { code: msg.templateLanguage || 'es' },
-            ...(bodyComponents.length > 0 && { components: bodyComponents })
-          }
-        };
-
-        try {
-          const tplRes = await fetch(`https://graph.facebook.com/v18.0/${lineData.cloudPhoneNumberId}/messages`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${lineData.cloudAccessToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(tplBody)
-          });
-          if (tplRes.ok) {
-            sentCount++;
-            log(`✅ Plantilla '${msg.templateName}' enviada a ${target.name || phone}`);
-          } else {
-            const errD = await tplRes.json().catch(() => ({})) as any;
-            console.error(`❌ Plantilla falló (${tplRes.status}):`, errD?.error?.message || 'unknown');
-            failedCount++;
-          }
-        } catch (tplErr: any) {
-          console.error(`❌ Error enviando plantilla:`, tplErr.message);
+        if (result.ok) {
+          sentCount++;
+          log(`✅ Plantilla '${msg.templateName}' enviada a ${target.name || phone}`);
+        } else {
+          console.error(`❌ Plantilla falló para ${target.name || phone}`);
           failedCount++;
         }
         continue; // Skip normal send flow for template messages

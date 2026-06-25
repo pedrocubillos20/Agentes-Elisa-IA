@@ -117,6 +117,18 @@ export const apiKeyErrorCache = new LRUCache<{ type: string; message: string }>(
 // Permite lookup exacto de quoted messages sin necesitar columna en DB
 export const wamidCache = new LRUCache<string>(1000, 86_400_000);
 
+// ⚡ EGRESS: API keys del usuario (60s TTL, max 1000)
+// El webhook hace prisma.user.findUnique({ select: { apiKey, groqApiKey } })
+// en CADA mensaje entrante (decenas/seg). La key casi nunca cambia →
+// cachearla 60s elimina ~95% de esas queries. Se invalida al actualizarla.
+export const userApiKeyCache = new LRUCache<{ apiKey: string | null; groqApiKey: string | null }>(1000, 60_000);
+
+// ⚡ EGRESS: Respuesta completa del dashboard (60s TTL, max 300)
+// El dashboard dispara ~26 queries (counts + raw SQL) por carga. Cachear la
+// respuesta 60s evita recomputar en refresh/múltiples pestañas/navegación.
+// Key: `${ownerId}|${lineId}|${period}|${dateFrom}|${dateTo}`
+export const dashboardCache = new LRUCache<any>(300, 60_000);
+
 // ===== DEDUP SETS with auto-cleanup =====
 class TimedSet {
   private set = new Map<string, number>();
@@ -185,6 +197,8 @@ setInterval(() => {
   total += numberExistsCache.cleanup();
   total += apiKeyErrorCache.cleanup();
   total += wamidCache.cleanup();
+  total += userApiKeyCache.cleanup();
+  total += dashboardCache.cleanup();
   total += recentlyProcessed.cleanup();
   total += recentlySentFromPlatform.cleanup();
   total += processingLock.cleanup();
@@ -202,6 +216,8 @@ export const getCacheStats = () => ({
   numberExistsCache: numberExistsCache.stats(),
   apiKeyErrorCache: apiKeyErrorCache.stats(),
   wamidCache: wamidCache.stats(),
+  userApiKeyCache: userApiKeyCache.stats(),
+  dashboardCache: dashboardCache.stats(),
   recentlyProcessed: recentlyProcessed.size,
   recentlySentFromPlatform: recentlySentFromPlatform.size,
   processingLock: processingLock.size,

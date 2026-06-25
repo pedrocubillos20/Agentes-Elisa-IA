@@ -1,5 +1,5 @@
 import prisma from './prisma';
-import { ownerIdCache } from './cache';
+import { ownerIdCache, userApiKeyCache } from './cache';
 import logger from './logger';
 
 /**
@@ -22,6 +22,31 @@ export const getOwnerId = async (userId: string): Promise<string> => {
 
 export const invalidateOwnerCache = (userId: string) => {
   ownerIdCache.delete(userId);
+};
+
+/**
+ * ⚡ CACHED getUserApiKeys — SINGLE SOURCE OF TRUTH
+ * Reemplaza los prisma.user.findUnique({ select: { apiKey, groqApiKey } })
+ * dispersos por el hot path del webhook (se ejecutaban en cada mensaje).
+ * TTL 60s. Invalidar con invalidateUserApiKeyCache al actualizar la key.
+ */
+export const getUserApiKeys = async (
+  userId: string
+): Promise<{ apiKey: string | null; groqApiKey: string | null }> => {
+  const cached = userApiKeyCache.get(userId);
+  if (cached) return cached;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { apiKey: true, groqApiKey: true },
+  });
+  const keys = { apiKey: user?.apiKey ?? null, groqApiKey: user?.groqApiKey ?? null };
+  userApiKeyCache.set(userId, keys);
+  return keys;
+};
+
+export const invalidateUserApiKeyCache = (userId: string) => {
+  userApiKeyCache.delete(userId);
 };
 
 /**

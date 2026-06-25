@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import path from 'path';
 import prisma from './lib/prisma';
 import { getCacheStats } from './lib/cache';
@@ -57,6 +58,18 @@ app.use(helmet({
   hsts: {
     maxAge: 31536000,  // 1 año
     includeSubDomains: true,
+  },
+}));
+
+// ===== GZIP COMPRESSION =====
+// ⚡ EGRESS: comprime las respuestas JSON (listas de conversaciones, mensajes,
+// dashboard) ~70-80%. Salta binarios ya comprimidos del media-proxy (sirven
+// imágenes/audio que no se recomprimen) para no gastar CPU en vano.
+app.use(compression({
+  threshold: 1024, // solo respuestas > 1KB
+  filter: (req, res) => {
+    if (req.path.startsWith('/api/media-proxy')) return false;
+    return compression.filter(req, res);
   },
 }));
 

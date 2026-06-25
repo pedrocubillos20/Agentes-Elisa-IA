@@ -5,6 +5,7 @@ import prisma from '../lib/prisma';
 import { authMiddleware, AuthRequest, generateTokens, verifyRefreshToken } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validate.middleware';
 import { LoginSchema, RegisterSchema, ForgotPasswordSchema, ResetPasswordSchema } from '../lib/schemas';
+import { invalidateUserApiKeyCache } from '../lib/helpers';
 import logger from '../lib/logger';
 
 const router = Router();
@@ -499,6 +500,7 @@ router.post('/api-key', authMiddleware, async (req: Request, res: Response) => {
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador puede configurar la API Key' }); return; }
 
     await prisma.user.update({ where: { id: userId }, data: { apiKey, apiKeyConnected: true } });
+    invalidateUserApiKeyCache(userId!);
     res.json({ success: true, message: 'API Key guardada' });
   } catch { res.status(500).json({ error: 'Error' }); }
 });
@@ -510,6 +512,7 @@ router.delete('/api-key', authMiddleware, async (req: Request, res: Response) =>
     const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
     await prisma.user.update({ where: { id: userId }, data: { apiKey: null, apiKeyConnected: false } });
+    invalidateUserApiKeyCache(userId!);
     res.json({ success: true });
   } catch { res.status(500).json({ error: 'Error' }); }
 });
@@ -739,6 +742,7 @@ router.post('/groq-api-key', authMiddleware, async (req: Request, res: Response)
       where: { id: userId },
       data: { groqApiKey, groqApiKeyConnected: true }
     });
+    invalidateUserApiKeyCache(userId!);
 
     logger.info('Groq API Key configurada', { userId });
     res.json({ success: true, message: 'API Key de Groq guardada correctamente' });
@@ -761,6 +765,7 @@ router.delete('/groq-api-key', authMiddleware, async (req: Request, res: Respons
     const user = await prisma.user.findUnique({ where: { id: userId! }, select: { parentUserId: true } });
     if (user?.parentUserId) { res.status(403).json({ error: 'Solo el administrador' }); return; }
     await prisma.user.update({ where: { id: userId! }, data: { groqApiKey: null, groqApiKeyConnected: false } });
+    invalidateUserApiKeyCache(userId!);
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: 'Error' });

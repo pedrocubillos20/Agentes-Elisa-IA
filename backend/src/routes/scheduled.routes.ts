@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { uploadFile } from '../lib/storage';
+import { getOwnerId } from '../lib/helpers';
 import { sendCloudTemplate } from './whatsapp.routes';
 
 const router = Router();
@@ -18,15 +19,8 @@ const getWahaHeaders = () => {
   return h;
 };
 
-const ownerIdCache = new Map<string, { value: string; ts: number }>();
-const getOwnerId = async (userId: string): Promise<string> => {
-  const cached = ownerIdCache.get(userId);
-  if (cached && Date.now() - cached.ts < 300000) return cached.value;
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { parentUserId: true } });
-  const ownerId = user?.parentUserId || userId;
-  ownerIdCache.set(userId, { value: ownerId, ts: Date.now() });
-  return ownerId;
-};
+// ⚡ getOwnerId compartido desde lib/helpers (caché LRU unificado).
+// Antes había un Map local duplicado — eliminado para tener una sola fuente.
 
 // ===== ANTI-BLOQUEO: Random delay =====
 const randomDelay = (minMs: number, maxMs: number): Promise<void> => {

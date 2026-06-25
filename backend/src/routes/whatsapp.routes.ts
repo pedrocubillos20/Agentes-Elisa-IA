@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
-import { getOwnerId } from '../lib/helpers';
+import { getOwnerId, getUserApiKeys } from '../lib/helpers';
 import { lidPhoneCache, apiKeyErrorCache, recentlyProcessed, recentlySentFromPlatform, processingLock, wamidCache } from '../lib/cache';
 import { callAI, resolveAIConfig, DEFAULT_MODELS } from '../lib/ai';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -4111,7 +4111,7 @@ const generateMediaFollowUp = async (
         take: 5,
         select: { content: true, fromMe: true }
       }),
-      prisma.user.findUnique({ where: { id: ownerId }, select: { apiKey: true, groqApiKey: true } })
+      getUserApiKeys(ownerId)
     ]);
 
     if (!user?.apiKey) return null;
@@ -6709,7 +6709,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
           : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
         const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
         if (userIdTemp) {
-          const user = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
+          const user = await getUserApiKeys(userIdTemp);
           if (user?.apiKey) {
             const downloaded = await downloadMediaFromWaha(sessionName, media.messageId, payload);
             if (downloaded) {
@@ -6755,7 +6755,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
             : from.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@lid', '').replace(/\D/g, '');
           const userIdTemp = await resolveUserFromWebhook(sessionName, recipientIdTemp);
           if (userIdTemp) {
-            const userForVision = await prisma.user.findUnique({ where: { id: userIdTemp }, select: { apiKey: true, groqApiKey: true } });
+            const userForVision = await getUserApiKeys(userIdTemp);
             if (userForVision?.apiKey) {
               // Obtener contexto del negocio para análisis más relevante
               const assistantForContext = await prisma.assistant.findFirst({ 
@@ -7791,7 +7791,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
             const audioRes = await fetch(savedMediaUrl, { headers: { 'Authorization': `Bearer ${line.cloudAccessToken}` } });
             if (audioRes.ok) {
               const audioBuf = Buffer.from(await audioRes.arrayBuffer());
-              const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
+              const owner = await getUserApiKeys(userId);
               const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
               if (apiKey) { const t = await transcribeAudio(audioBuf, apiKey); if (t) messageBody = t; }
             }
@@ -7816,7 +7816,7 @@ router.post('/webhook-cloud', async (req: Request, res: Response) => {
               imgMime = imgRes.headers.get('content-type') || 'image/jpeg';
             } else { throw new Error('No access token'); }
 
-            const owner = await prisma.user.findUnique({ where: { id: userId }, select: { apiKey: true, groqApiKey: true } });
+            const owner = await getUserApiKeys(userId);
             const apiKey = owner?.apiKey || process.env.OPENAI_API_KEY;
             if (apiKey) {
               const assistantCtx = await prisma.assistant.findFirst({ where: { userId, isActive: true }, select: { businessInfo: true, context: true } });

@@ -226,6 +226,7 @@ export default function ConversacionesPage() {
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const selectedConvRef = useRef<any>(null); // Ref para polling de mensajes
   const lastMessageCountRef = useRef<number>(0);
+  const messagesRef = useRef<any[]>([]); // espejo de messages para el polling sin stale closure
 
   const getLineId = () => localStorage.getItem('selectedLineId') || '';
 
@@ -238,6 +239,11 @@ export default function ConversacionesPage() {
   useEffect(() => {
     selectedConvRef.current = selectedConv;
   }, [selectedConv]);
+
+  // Espejo de messages para el polling (evita stale closure en el interval)
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // 🔥 CARGA INICIAL: stages + quick-stage-sync (solo una vez)
   const initialLoadDone = useRef(false);
@@ -331,17 +337,43 @@ export default function ConversacionesPage() {
     }
   }, [selectedConv?.id]);
 
-  // 🔥 POLLING DE MENSAJES — refresca cada 3s la conversación activa
+  // 🔥 POLLING DE MENSAJES — cada 3s revisa la conversación activa
+  // ⚡ EGRESS: primero un "tip check" diminuto (~80 bytes). Solo si cambió el
+  // último mensaje / conteo trae los 100 mensajes completos. Antes traía 100
+  // mensajes completos cada 3s aunque no hubiera nada nuevo.
   useEffect(() => {
     const pollMessages = async () => {
       const conv = selectedConvRef.current;
       if (!conv) return;
-      
+
       const convIdBefore = conv.id; // ✅ Guardar ID antes del fetch
       const token = localStorage.getItem('token');
       try {
-        const res = await fetch(`${API_URL}/api/conversations/${conv.id}/messages?limit=100`, { 
-          headers: { 'Authorization': `Bearer ${token}` } 
+        // 1) Tip ligero: ¿hay algo nuevo?
+        const tipRes = await fetch(`${API_URL}/api/conversations/${conv.id}/messages/tip`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (selectedConvRef.current?.id !== convIdBefore) return;
+        if (!tipRes.ok) return;
+        const tip = await tipRes.json(); // { lastId, lastTs, count }
+
+        // Estado actual (solo mensajes reales del server, ignorando optimistas temp-)
+        const current = messagesRef.current || [];
+        const realMsgs = current.filter((m: any) => !String(m.id).startsWith('temp'));
+        const curLast = realMsgs[realMsgs.length - 1];
+        const hasPending = current.length !== realMsgs.length; // optimistas por reconciliar
+
+        const changed =
+          tip.count !== realMsgs.length ||
+          (!!curLast && tip.lastId !== curLast.id) ||
+          (!curLast && (tip.count || 0) > 0) ||
+          hasPending;
+
+        if (!changed) return; // 95% de los polls terminan aquí (casi 0 bytes)
+
+        // 2) Solo si cambió: fetch completo (reemplaza y reconcilia optimistas)
+        const res = await fetch(`${API_URL}/api/conversations/${conv.id}/messages?limit=100`, {
+          headers: { 'Authorization': `Bearer ${token}` }
         });
         // ✅ Verificar que no cambió de conversación durante el fetch
         if (selectedConvRef.current?.id !== convIdBefore) return;
@@ -351,8 +383,8 @@ export default function ConversacionesPage() {
           setMessages(prev => {
             const prevLast = prev[prev.length - 1];
             const newLast = newMsgs[newMsgs.length - 1];
-            if (prev.length !== newMsgs.length || 
-                prevLast?.id !== newLast?.id || 
+            if (prev.length !== newMsgs.length ||
+                prevLast?.id !== newLast?.id ||
                 prevLast?.content !== newLast?.content) {
               lastMessageCountRef.current = newMsgs.length;
               return newMsgs;

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { getOwnerId } from '../lib/helpers';
+import { dashboardCache } from '../lib/cache';
 import { AuthRequest } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -70,6 +71,13 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
     const ownerId = await getOwnerId(userId);
     const { lineId, period, dateFrom, dateTo } = req.query;
+
+    // ⚡ EGRESS: cache de la respuesta completa (60s). El dashboard hace ~26
+    // queries por carga; con refresh/pestañas múltiples esto evita recomputar.
+    // Las métricas con 60s de antigüedad son imperceptibles en un dashboard.
+    const cacheKey = `${ownerId}|${lineId || ''}|${period || ''}|${dateFrom || ''}|${dateTo || ''}`;
+    const cachedDashboard = dashboardCache.get(cacheKey);
+    if (cachedDashboard) { res.json(cachedDashboard); return; }
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -392,7 +400,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     const aiResolvedCount = convertedTotal > 0 ? Math.max(convertedTotal - aiPausedCount, 0) : 0;
     const aiResolvedRate = convertedTotal > 0 ? Math.round((aiResolvedCount / Math.max(convertedTotal, 1)) * 100) : 0;
 
-    res.json({
+    const payload = {
       rangeLabel, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(),
       totalConversations, totalMessages,
       rangeMessages, todayMessages, yesterdayMessages,
@@ -417,7 +425,10 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         messages: l._count.messages, lastActive: l.updatedAt
       })),
       lines
-    });
+    };
+
+    dashboardCache.set(cacheKey, payload);
+    res.json(payload);
   } catch (error) {
     console.error('Error dashboard:', error);
     res.status(500).json({ error: 'Error al obtener datos del dashboard' });
@@ -463,33 +474,115 @@ router.get('/groups', async (req: Request, res: Response) => {
 });
 
 // GET /api/conversations/:id/messages
+// ⚡ EGRESS:
+//   1. Default 50 (antes 200) y cap 100 (antes 500).
+//   2. Paginación por cursor `?before=<ISO timestamp>` para cargar más antiguos.
+//   3. NO se trae el base64 de imágenes desde Supabase: el frontend las carga
+//      on-demand vía /api/media-proxy/:id. Antes se traía el base64 (megas) y
+//      se descartaba en el transform — fuga de egress en cada poll del chat.
 router.get('/:id/messages', async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthRequest).user?.id;
     const { id } = req.params;
-    const limit = Math.min(parseInt(req.query.limit as string) || 200, 500);
-    
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+
+    // Cursor de paginación: traer mensajes anteriores a este timestamp
+    const beforeRaw = req.query.before as string | undefined;
+    const beforeDate = beforeRaw ? new Date(beforeRaw) : null;
+    const validBefore = beforeDate && !isNaN(beforeDate.getTime()) ? beforeDate : null;
+
     const ownerId = await getOwnerId(userId!);
 
-    const conversation = await prisma.conversation.findFirst({ where: { id, userId: ownerId } });
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, userId: ownerId },
+      select: { id: true },
+    });
     if (!conversation) { res.status(404).json({ error: 'No encontrada' }); return; }
 
-    const messages = await prisma.message.findMany({
-      where: { conversationId: id }, 
-      orderBy: { timestamp: 'desc' }, 
-      take: limit
-    });
-    messages.reverse();
-    
-    // Transform: replace heavy base64/WAHA URLs with lightweight proxy URL for images
-    const transformed = messages.map((msg: any) => {
-      if (msg.mediaType === 'image' && msg.mediaUrl) {
+    // CASE: para imágenes devolvemos NULL en mediaUrl (se reemplaza por el
+    // proxy igual que antes), evitando transferir el base64 desde la DB.
+    // hasImage replica la condición original (mediaType==='image' && mediaUrl)
+    // sin transferir el contenido. Mismo patrón $queryRaw que el dashboard.
+    type Row = {
+      id: string; conversationId: string; content: string; fromMe: boolean;
+      timestamp: Date; mediaType: string | null; mediaUrl: string | null;
+      userId: string | null; role: string; hasImage: boolean;
+    };
+
+    const rows: Row[] = validBefore
+      ? await prisma.$queryRaw<Row[]>`
+          SELECT id, "conversationId", content, "fromMe", "timestamp",
+                 "mediaType",
+                 CASE WHEN "mediaType" = 'image' THEN NULL ELSE "mediaUrl" END AS "mediaUrl",
+                 ("mediaType" = 'image' AND "mediaUrl" IS NOT NULL) AS "hasImage",
+                 "userId", role
+          FROM "Message"
+          WHERE "conversationId" = ${id} AND "timestamp" < ${validBefore}
+          ORDER BY "timestamp" DESC
+          LIMIT ${limit}`
+      : await prisma.$queryRaw<Row[]>`
+          SELECT id, "conversationId", content, "fromMe", "timestamp",
+                 "mediaType",
+                 CASE WHEN "mediaType" = 'image' THEN NULL ELSE "mediaUrl" END AS "mediaUrl",
+                 ("mediaType" = 'image' AND "mediaUrl" IS NOT NULL) AS "hasImage",
+                 "userId", role
+          FROM "Message"
+          WHERE "conversationId" = ${id}
+          ORDER BY "timestamp" DESC
+          LIMIT ${limit}`;
+
+    // El más antiguo de este lote sirve de cursor para la siguiente página
+    const hasMore = rows.length === limit;
+    const nextCursor = hasMore && rows.length > 0
+      ? rows[rows.length - 1].timestamp
+      : null;
+
+    rows.reverse();
+
+    // Transform: imágenes con media → URL ligera de proxy (idéntico al previo)
+    const transformed = rows.map(({ hasImage, ...msg }) => {
+      if (msg.mediaType === 'image' && hasImage) {
         return { ...msg, mediaUrl: `/api/media-proxy/${msg.id}` };
       }
       return msg;
     });
-    
-    res.json({ messages: transformed });
+
+    res.json({ messages: transformed, nextCursor, hasMore });
+  } catch (error) {
+    res.status(500).json({ error: 'Error' });
+  }
+});
+
+// GET /api/conversations/:id/messages/tip
+// ⚡ EGRESS: respuesta diminuta (~80 bytes) para el polling cada 3s.
+// El frontend solo trae los 100 mensajes completos si lastId/count cambiaron.
+// Antes el poll traía 100 mensajes cada 3s aunque no hubiera nada nuevo.
+router.get('/:id/messages/tip', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    const { id } = req.params;
+    const ownerId = await getOwnerId(userId!);
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, userId: ownerId },
+      select: { id: true },
+    });
+    if (!conversation) { res.status(404).json({ error: 'No encontrada' }); return; }
+
+    const [last, count] = await Promise.all([
+      prisma.message.findFirst({
+        where: { conversationId: id },
+        orderBy: { timestamp: 'desc' },
+        select: { id: true, timestamp: true },
+      }),
+      prisma.message.count({ where: { conversationId: id } }),
+    ]);
+
+    res.json({
+      lastId: last?.id || null,
+      lastTs: last?.timestamp ? last.timestamp.toISOString() : null,
+      count,
+    });
   } catch (error) {
     res.status(500).json({ error: 'Error' });
   }

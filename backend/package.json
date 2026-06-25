@@ -4,9 +4,12 @@
   "description": "Bizonne Backend - Multi-Tenant WhatsApp Platform",
   "main": "dist/server.js",
   "scripts": {
-    "build": "npx prisma generate && npx prisma db push && tsc",
-    "start": "npx prisma db push --accept-data-loss && node dist/server.js",
+    "build": "npx prisma generate && tsc",
+    "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn src/server.ts",
+    "db:push": "npx prisma db push",
+    "db:push:force": "npx prisma db push --accept-data-loss",
+    "db:studio": "npx prisma studio",
     "test": "jest",
     "test:coverage": "jest --coverage"
   },

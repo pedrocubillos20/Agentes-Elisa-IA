@@ -789,13 +789,17 @@ export const startAppointmentReminderCron = () => {
           const nombre = (appt.clientName || 'cliente').split(' ')[0];
           const tipo = appt.type;
 
+          // 🏪 Nombre del negocio desde la línea de WhatsApp (genérico para cualquier negocio)
+          const businessName = line.label && line.label !== 'Principal' ? line.label : '';
+          const businessTag = businessName ? ` en *${businessName}*` : '';
+
           if (tipo === 'order') {
             msg = `📦 *¡Hola ${nombre}!* Te recordamos que hoy es el día de entrega de tu pedido 🎉\n\n🕐 Hora estimada: ${timeStr}\n\n¿Tienes alguna duda? Con gusto te ayudamos 😊`;
           } else if (tipo === 'reservation') {
-            msg = `📋 *¡Hola ${nombre}!* Te recordamos tu reserva de hoy 😊\n\n🕐 Hora: ${timeStr}\n\nRecuerda traer tus documentos. ¡Te esperamos! 🙌`;
+            msg = `📋 *¡Hola ${nombre}!* Te recordamos tu reserva de hoy${businessTag} 😊\n\n🕐 Hora: ${timeStr}\n\n¡Te esperamos! 🙌`;
           } else {
-            // appointment (cita)
-            msg = `🏍 *¡Hola ${nombre}!* Te recordamos tu cita de hoy en *CDA Ready to Race* 😊\n\n🕐 Hora: ${timeStr}\n\n📌 Recuerda traer:\n- Tarjeta de propiedad\n- SOAT vigente\n- Cédula\n- Moto limpia\n\n¡Te esperamos! 🌟`;
+            // appointment (cita) — genérico, sin instrucciones específicas de CDA
+            msg = `📅 *¡Hola ${nombre}!* Te recordamos tu cita de hoy${businessTag} 😊\n\n🕐 Hora: ${timeStr}\n\n¡Te esperamos! 🌟`;
           }
 
           // Enviar WhatsApp
@@ -859,13 +863,18 @@ export const startAppointmentReminderCron = () => {
           const nombre = (appt.clientName || 'cliente').split(' ')[0];
           const tipo = appt.type;
 
+          // 🏪 Nombre del negocio desde la línea de WhatsApp (genérico para cualquier negocio)
+          const businessName = line.label && line.label !== 'Principal' ? line.label : '';
+          const businessTag = businessName ? ` en *${businessName}*` : '';
+
           let msg = '';
           if (tipo === 'order') {
             msg = `📦 *¡Hola ${nombre}!* Esperamos que hayas recibido tu pedido sin novedad 😊\n\n¿Todo llegó bien? Tu opinión nos ayuda a mejorar 🙏`;
           } else if (tipo === 'reservation') {
-            msg = `😊 *¡Hola ${nombre}!* ¿Cómo te fue con tu servicio de ayer?\n\nTu opinión es muy valiosa para nosotros. ¿Quedaste satisfecho/a? 🌟`;
+            msg = `😊 *¡Hola ${nombre}!* ¿Cómo te fue con tu experiencia de ayer${businessTag}?\n\nTu opinión es muy valiosa para nosotros. ¿Quedaste satisfecho/a? 🌟`;
           } else {
-            msg = `🏍 *¡Hola ${nombre}!* ¿Cómo te fue con tu revisión de ayer en *CDA Ready to Race*?\n\nNos importa tu experiencia. ¿Quedaste satisfecho/a con el servicio? 😊\n\n¡Gracias por confiar en nosotros! 🙌`;
+            // appointment — genérico sin referencias a negocios específicos
+            msg = `😊 *¡Hola ${nombre}!* ¿Cómo te fue con tu cita de ayer${businessTag}?\n\nNos importa tu experiencia. ¿Quedaste satisfecho/a con la atención? 🌟\n\n¡Gracias por confiar en nosotros! 🙌`;
           }
 
           const r = await fetch(`${WAHA_API_URL}/api/sendText`, {

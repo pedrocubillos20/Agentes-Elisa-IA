@@ -5595,6 +5595,63 @@ router.get('/status', async (req: Request, res: Response) => {
   } catch { res.json({ connected: false, status: 'error', phone: null, hasQR: false }); }
 });
 
+// 🔄 FORCE RESTART SESSION — Para cuando WAHA tiene webhook configurado pero no lo dispara
+router.post('/lines/:id/restart-session', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const line = await prisma.whatsappLine.findFirst({ where: { id: req.params.id, userId: ownerId } });
+    if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
+
+    const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
+    const sn = line.sessionName;
+
+    console.log(`🔄 Reiniciando sesión ${sn} para aplicar webhooks...`);
+
+    // 1. Actualizar config con webhook ANTES de reiniciar
+    await fetch(`${WAHA_API_URL}/api/sessions/${sn}`, {
+      method: 'PUT', headers: getWahaHeaders(),
+      body: JSON.stringify({
+        config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] }
+      })
+    }).catch(() => {});
+
+    // 2. Stop
+    const stopRes = await fetch(`${WAHA_API_URL}/api/sessions/${sn}/stop`, { method: 'POST', headers: getWahaHeaders() });
+    console.log(`🔄 Stop: HTTP ${stopRes.status}`);
+    await new Promise(r => setTimeout(r, 3000));
+
+    // 3. Start con webhook en el body
+    const startRes = await fetch(`${WAHA_API_URL}/api/sessions/${sn}/start`, {
+      method: 'POST', headers: getWahaHeaders(),
+      body: JSON.stringify({
+        config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] }
+      })
+    });
+    console.log(`🔄 Start: HTTP ${startRes.status}`);
+    await new Promise(r => setTimeout(r, 3000));
+
+    // 4. Verificar estado final
+    const check = await fetch(`${WAHA_API_URL}/api/sessions/${sn}`, { headers: getWahaHeaders() });
+    const finalData = check.ok ? await check.json() as any : {};
+    const finalWebhook = finalData.config?.webhooks?.[0]?.url || 'no configurado';
+
+    console.log(`🔄 Sesión ${sn} reiniciada → estado: ${finalData.status} | webhook: ${finalWebhook}`);
+
+    res.json({
+      success: true,
+      sessionName: sn,
+      estadoFinal: finalData.status,
+      webhookFinal: finalWebhook,
+      webhookOk: finalWebhook === webhookUrl,
+      mensaje: finalData.status === 'WORKING' ? '✅ Sesión reiniciada. Prueba escribir al WhatsApp ahora.' : `⚠️ Estado: ${finalData.status} — puede necesitar reconectar QR`
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /waha-session-info/:lineId — Ver configuración COMPLETA de la sesión en WAHA
 router.get('/waha-session-info/:lineId', async (req: Request, res: Response) => {
   try {

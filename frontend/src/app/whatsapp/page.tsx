@@ -443,6 +443,16 @@ Estado WAHA: ${d.wahaStatus}` : `❌ Error: ${JSON.stringify(d)}`);
                         }} className="btn-secondary text-sm">
                           🔍 Diagnóstico
                         </button>
+                        <button onClick={async () => {
+                          if (!confirm('¿Reiniciar sesión WAHA? La IA no responde ~10 segundos.')) return;
+                          try {
+                            const r = await fetch(`${API_URL}/api/whatsapp/lines/${line.id}/restart-session`, { method: 'POST', headers: headers() });
+                            const d = await r.json();
+                            alert(`🔄 ${d.mensaje}\n\nEstado: ${d.estadoFinal}\nWebhook OK: ${d.webhookOk ? '✅' : '❌'}`);
+                          } catch(e: any) { alert('Error: ' + e.message); }
+                        }} className="btn-secondary text-sm">
+                          🔄 Reiniciar
+                        </button>
                         <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
                           <XCircle className="w-4 h-4" /> Desconectar
                         </button>

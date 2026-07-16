@@ -5697,6 +5697,61 @@ router.post('/connect', async (req: Request, res: Response) => {
 });
 
 // ====================================================
+// 🧪 TEST WEBHOOK — Simular llegada de mensaje para diagnosticar pipeline completo
+router.post('/lines/:id/test-message', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const line = await prisma.whatsappLine.findFirst({ where: { id: req.params.id, userId: ownerId } });
+    if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
+
+    const testPhone = req.body.phone || '5700000000001';
+    const testMsg = req.body.message || 'Hola, esto es un mensaje de prueba';
+
+    // Verificar webhook en WAHA
+    const wahaCheck = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
+    const wahaData = wahaCheck.ok ? await wahaCheck.json() as any : null;
+    const webhookConfigured = wahaData?.config?.webhooks?.[0]?.url || 'ninguno';
+    const expectedWebhook = `${BACKEND_URL}/api/webhook/whatsapp`;
+
+    // Simular webhook hacia el propio backend
+    const fakeWebhook = {
+      event: 'message',
+      session: line.sessionName,
+      payload: {
+        from: `${testPhone}@c.us`,
+        chatId: `${testPhone}@c.us`,
+        body: testMsg,
+        fromMe: false,
+        notifyName: 'TEST_USER',
+        id: { id: `TEST_${Date.now()}`, fromMe: false, remote: `${testPhone}@c.us` },
+        timestamp: Math.floor(Date.now() / 1000)
+      }
+    };
+
+    const selfTest = await fetch(`${BACKEND_URL}/api/webhook/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fakeWebhook)
+    });
+    const selfTestOk = selfTest.ok;
+
+    res.json({
+      success: true,
+      sessionName: line.sessionName,
+      wahaStatus: wahaData?.status || 'unknown',
+      webhookEnWAHA: webhookConfigured,
+      webhookEsperado: expectedWebhook,
+      webhookCoincide: webhookConfigured === expectedWebhook,
+      testSelfWebhook: selfTestOk ? '✅ Backend procesó el test' : `❌ Error HTTP ${selfTest.status}`,
+      mensaje: `Prueba enviada con número ${testPhone}. Revisa Railway logs y la sección Conversaciones.`
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 🔔 FORZAR REGISTRO DE WEBHOOK — Endpoint para reparar líneas sin webhook
 router.post('/lines/:id/fix-webhook', async (req: Request, res: Response) => {
   try {
@@ -6546,11 +6601,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const { event, session, payload } = req.body;
     const sessionName = session || 'default';
 
+    // 🔍 LOG SIEMPRE — para ver en Railway si WAHA está enviando webhooks
+    console.log(`📨 WAHA Webhook → event:"${event}" session:"${sessionName}" from:"${payload?.from || payload?.chatId || 'N/A'}" body:"${(payload?.body || payload?.text || '').substring(0, 60)}"`);
+
     // [FIX 1] Aceptar TODOS los eventos de mensaje de WAHA Plus 2026:
-    // Eventos válidos: 'message', 'message.any', 'message.reaction', 'state.change', 'session.status'
-    // message.new fue eliminado en WAHA Plus 2026
     const isMessageEvent = event === 'message' || event === 'message.any' || event === 'message.new' || event === 'message.reaction';
-    if (!event || !isMessageEvent) { res.json({ success: true }); return; }
+    if (!event || !isMessageEvent) {
+      console.log(`📨 Webhook ignorado (no es mensaje): "${event}"`);
+      res.json({ success: true }); return;
+    }
     
     // 🔄 Para mensajes fromMe (enviados desde el celular o plataforma):
     // - Guardar en DB si fue enviado manualmente desde el celular

@@ -419,6 +419,15 @@ Estado WAHA: ${d.wahaStatus}` : `❌ Error: ${JSON.stringify(d)}`);
                         }} className="btn-secondary text-sm">
                           🔔 Reparar webhook
                         </button>
+                        <button onClick={async () => {
+                          try {
+                            const r = await fetch(`${API_URL}/api/whatsapp/lines/${line.id}/test-message`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '5700000000001', message: 'Prueba de conexion' }) });
+                            const d = await r.json();
+                            alert(`🧪 Diagnóstico:\n\nEstado WAHA: ${d.wahaStatus}\nWebhook en WAHA: ${d.webhookEnWAHA}\n¿Coincide con backend?: ${d.webhookCoincide ? '✅ SÍ' : '❌ NO → usa Reparar webhook'}\n\nTest pipeline: ${d.testSelfWebhook}\n\nRevisa Railway logs y sección Conversaciones.`);
+                          } catch(e: any) { alert('Error: ' + e.message); }
+                        }} className="btn-secondary text-sm">
+                          🧪 Test
+                        </button>
                         <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
                           <XCircle className="w-4 h-4" /> Desconectar
                         </button>

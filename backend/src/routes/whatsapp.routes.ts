@@ -1598,7 +1598,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     const hasOpenAI = !!(owner?.apiKey && owner.apiKeyConnected);
     const hasGroq   = !!(owner?.groqApiKey && owner.groqApiKeyConnected);
     if (!hasOpenAI && !hasGroq) {
-      clog(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
+      console.log(`⚠️ AI bloqueada — Sin API key o no conectada (userId: ${ownerId})`);
       return null;
     }
 
@@ -1614,7 +1614,7 @@ const generateAIResponse = async (ownerId: string, message: string, conversation
     }
 
     if (isExpired) {
-      clog(`🔒 AI bloqueada — Suscripción expirada (userId: ${ownerId}, plan: ${owner.plan})`);
+      console.log(`🔒 AI bloqueada — Suscripción expirada (userId: ${ownerId}, plan: ${owner.plan})`);
       return null;
     }
 
@@ -2700,7 +2700,7 @@ ACCIONES: crear_cita(fecha_cita,hora_cita,tipo_cita) | crear_pedido(producto_ser
     const finalConfig = aiConfig || fallbackConfig;
 
     if (!finalConfig) {
-      log(`❌ Sin API key de IA configurada (userId: ${ownerId})`);
+      console.log(`❌ Sin API key de IA configurada (userId: ${ownerId})`);
       apiKeyErrorCache.set(ownerId, { type: 'not_connected', message: 'Configura tu API Key de OpenAI o Groq en Configuración' });
       return null;
     }
@@ -4521,7 +4521,7 @@ const processBufferedMessages = async (bufferKey: string) => {
     }
     if (!assistant) {
       // ⚠️ Sin asistente configurado → no responder, evita respuestas vacías sin contexto
-      clog(`⚠️ Sin asistente para userId:${userId} lineId:${whatsappLineId} → mensaje ignorado por IA`);
+      console.log(`⚠️ Sin asistente para userId:${userId} lineId:${whatsappLineId} → mensaje ignorado por IA`);
       return;
     }
     // ✅ Verificar base de conocimiento (context legacy O módulos separados)

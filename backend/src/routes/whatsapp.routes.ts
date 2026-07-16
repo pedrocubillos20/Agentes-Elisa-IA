@@ -358,7 +358,8 @@ const findActiveSession = async (userId: string): Promise<{ name: string; data: 
 const resolveUserFromWebhook = async (sessionName: string, recipientId: string): Promise<string | null> => {
   // 1. ÚNICO MÉTODO: Buscar por sessionName de línea de WhatsApp
   // Cada línea tiene su sessionName único y pertenece a UN solo usuario
-  const waLine = await prisma.whatsappLine.findUnique({ 
+  // ✅ FIX: findFirst en vez de findUnique — findUnique con filtros extra falla en Prisma
+  const waLine = await prisma.whatsappLine.findFirst({ 
     where: { sessionName, connectionType: { not: 'cloud_api' } },
     select: { userId: true }
   }).catch(() => null);
@@ -5696,6 +5697,38 @@ router.post('/connect', async (req: Request, res: Response) => {
 });
 
 // ====================================================
+// 🔔 FORZAR REGISTRO DE WEBHOOK — Endpoint para reparar líneas sin webhook
+router.post('/lines/:id/fix-webhook', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const line = await prisma.whatsappLine.findFirst({ where: { id: req.params.id, userId: ownerId } });
+    if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
+    if (line.connectionType === 'cloud_api') { res.status(400).json({ error: 'Solo aplica para líneas WAHA' }); return; }
+
+    const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
+
+    // Verificar estado actual en WAHA
+    const check = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
+    if (!check.ok) { res.status(502).json({ error: `Sesión no encontrada en WAHA: ${line.sessionName}` }); return; }
+    const sessionData = await check.json() as any;
+    const currentWebhook = sessionData.config?.webhooks?.[0]?.url || 'ninguno';
+
+    // Forzar registro del webhook
+    const updateRes = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
+      method: 'PUT', headers: getWahaHeaders(),
+      body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] } })
+    });
+    const updateOk = updateRes.ok;
+
+    log(`🔔 Fix webhook ${line.sessionName}: ${currentWebhook} → ${webhookUrl} (${updateOk ? 'OK' : 'FAILED'})`);
+    res.json({ success: updateOk, sessionName: line.sessionName, webhookAntes: currentWebhook, webhookAhora: webhookUrl, wahaStatus: sessionData.status });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 🔄 RECONFIGURAR WEBHOOKS DE WAHA (para sesión existente)
 // ====================================================
 router.post('/reconfigure-webhooks', async (req: Request, res: Response) => {
@@ -7535,6 +7568,19 @@ export const startWahaSyncCron = () => {
                 data: updateData
               });
               console.log(`🔄 Línea ${mePhone || line.phone || line.sessionName}: ${line.status} → ${newStatus}${mePhone && !line.phone ? ` (phone: ${mePhone})` : ''}`);
+            }
+            // ✅ FIX CRÍTICO: Re-registrar webhook en cada sync para sesiones conectadas
+            // Esto soluciona el caso donde el backend reinició y el webhook se perdió
+            if (newStatus === 'connected') {
+              const webhookUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
+              const existingWebhook = data.config?.webhooks?.[0]?.url || '';
+              if (existingWebhook !== webhookUrl) {
+                await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
+                  method: 'PUT', headers: getWahaHeaders(),
+                  body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] } })
+                }).catch(() => {});
+                console.log(`🔔 Webhook re-registrado para ${line.sessionName}: ${webhookUrl}`);
+              }
             }
           } else {
             // Session doesn't exist in WAHA → mark disconnected

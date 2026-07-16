@@ -407,9 +407,22 @@ export default function WhatsAppPage() {
                       {line.connectionType === 'cloud_api' ? 'Cloud API activa — API oficial Meta' : 'Línea activa y respondiendo'}
                     </div>
                     {line.connectionType !== 'cloud_api' && (
-                      <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
-                        <XCircle className="w-4 h-4" /> Desconectar
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={async () => {
+                          try {
+                            const r = await fetch(`${API_URL}/api/whatsapp/lines/${line.id}/fix-webhook`, { method: 'POST', headers: headers() });
+                            const d = await r.json();
+                            alert(d.success ? `✅ Webhook registrado correctamente.
+Sesión: ${d.sessionName}
+Estado WAHA: ${d.wahaStatus}` : `❌ Error: ${JSON.stringify(d)}`);
+                          } catch(e: any) { alert('Error: ' + e.message); }
+                        }} className="btn-secondary text-sm">
+                          🔔 Reparar webhook
+                        </button>
+                        <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
+                          <XCircle className="w-4 h-4" /> Desconectar
+                        </button>
+                      </div>
                     )}
                   </div>
                 ) : line.connectionType === 'cloud_api' ? (

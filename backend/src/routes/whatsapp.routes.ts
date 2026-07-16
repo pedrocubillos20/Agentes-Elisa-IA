@@ -5595,6 +5595,40 @@ router.get('/status', async (req: Request, res: Response) => {
   } catch { res.json({ connected: false, status: 'error', phone: null, hasQR: false }); }
 });
 
+// GET /waha-session-info/:lineId — Ver configuración COMPLETA de la sesión en WAHA
+router.get('/waha-session-info/:lineId', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthRequest).user?.id;
+    if (!userId) { res.status(401).json({ error: 'No autorizado' }); return; }
+    const ownerId = await getOwnerId(userId);
+    const line = await prisma.whatsappLine.findFirst({ where: { id: req.params.lineId, userId: ownerId } });
+    if (!line) { res.status(404).json({ error: 'Línea no encontrada' }); return; }
+
+    const r = await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { headers: getWahaHeaders() });
+    if (!r.ok) { res.status(502).json({ error: `WAHA HTTP ${r.status}`, sessionName: line.sessionName }); return; }
+    const data = await r.json() as any;
+
+    const webhookUrl = data.config?.webhooks?.[0]?.url || 'NO CONFIGURADO';
+    const webhookEvents = data.config?.webhooks?.[0]?.events || [];
+    const expectedUrl = `${BACKEND_URL}/api/webhook/whatsapp`;
+
+    res.json({
+      sessionName: line.sessionName,
+      wahaStatus: data.status,
+      phone: data.me?.id || 'unknown',
+      webhookUrl,
+      webhookEvents,
+      expectedUrl,
+      webhookOk: webhookUrl === expectedUrl,
+      webhookTieneMessageEvent: webhookEvents.includes('message') || webhookEvents.includes('message.any'),
+      fullConfig: data.config,
+      engineInfo: data.engine || data.engineType || 'unknown'
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /waha-diagnostic — Verificar conectividad con WAHA (para diagnóstico de QR)
 router.get('/waha-diagnostic', async (req: Request, res: Response) => {
   try {

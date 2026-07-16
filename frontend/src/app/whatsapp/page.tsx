@@ -421,12 +421,27 @@ Estado WAHA: ${d.wahaStatus}` : `❌ Error: ${JSON.stringify(d)}`);
                         </button>
                         <button onClick={async () => {
                           try {
-                            const r = await fetch(`${API_URL}/api/whatsapp/lines/${line.id}/test-message`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: '5700000000001', message: 'Prueba de conexion' }) });
+                            const r = await fetch(`${API_URL}/api/whatsapp/waha-session-info/${line.id}`, { headers: headers() });
                             const d = await r.json();
-                            alert(`🧪 Diagnóstico:\n\nEstado WAHA: ${d.wahaStatus}\nWebhook en WAHA: ${d.webhookEnWAHA}\n¿Coincide con backend?: ${d.webhookCoincide ? '✅ SÍ' : '❌ NO → usa Reparar webhook'}\n\nTest pipeline: ${d.testSelfWebhook}\n\nRevisa Railway logs y sección Conversaciones.`);
+                            const msg = [
+                              `🔍 DIAGNÓSTICO COMPLETO`,
+                              ``,
+                              `Sesión WAHA: ${d.sessionName}`,
+                              `Estado: ${d.wahaStatus}`,
+                              `Teléfono: ${d.phone}`,
+                              `Motor: ${d.engineInfo}`,
+                              ``,
+                              `── WEBHOOK ──`,
+                              `URL configurada: ${d.webhookUrl}`,
+                              `URL esperada: ${d.expectedUrl}`,
+                              `¿Coinciden?: ${d.webhookOk ? '✅ SÍ' : '❌ NO → presiona Reparar webhook'}`,
+                              `Eventos: ${(d.webhookEvents||[]).join(', ') || 'NINGUNO'}`,
+                              `¿Tiene evento message?: ${d.webhookTieneMessageEvent ? '✅ SÍ' : '❌ NO → presiona Reparar webhook'}`,
+                            ].join('\n');
+                            alert(msg);
                           } catch(e: any) { alert('Error: ' + e.message); }
                         }} className="btn-secondary text-sm">
-                          🧪 Test
+                          🔍 Diagnóstico
                         </button>
                         <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
                           <XCircle className="w-4 h-4" /> Desconectar

@@ -5387,18 +5387,34 @@ router.post('/lines/:id/connect', async (req: Request, res: Response) => {
       const data = await check.json() as any;
       log(`📱 Sesión WAHA existe con estado: ${data.status}`);
       
+      const webhookCfg = { url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] };
+
       if (['WORKING', 'CONNECTED'].includes(data.status)) {
+        // 🔑 FIX: DELETE + recrear sesión para forzar nueva autenticación QR
+        // Esto limpia la sesión corrupta y permite escanear QR fresco
+        log(`📱 Sesión WORKING → eliminando para forzar nuevo QR: ${line.sessionName}`);
         await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/stop`, { method: 'POST', headers: getWahaHeaders() }).catch(() => {});
-        await new Promise(r => setTimeout(r, 2000));
-        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
-        log(`📱 Sesión reiniciada para nuevo QR: ${line.sessionName}`);
+        await new Promise(r => setTimeout(r, 1500));
+        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, { method: 'DELETE', headers: getWahaHeaders() }).catch(() => {});
+        await new Promise(r => setTimeout(r, 1500));
+        // Recrear con webhook desde el inicio
+        await fetch(`${WAHA_API_URL}/api/sessions`, {
+          method: 'POST', headers: getWahaHeaders(),
+          body: JSON.stringify({ name: line.sessionName, start: true, engine: 'WEBJS', config: { webhooks: [webhookCfg] } })
+        });
+        log(`📱 Sesión recreada para nuevo QR: ${line.sessionName}`);
       } else if (['STOPPED', 'FAILED', 'STARTING'].includes(data.status)) {
-        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, { method: 'POST', headers: getWahaHeaders() });
+        // Para sesiones detenidas: start con webhook en el body
+        await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}/start`, {
+          method: 'POST', headers: getWahaHeaders(),
+          body: JSON.stringify({ config: { webhooks: [webhookCfg] } })
+        });
       }
       
+      // Siempre actualizar config con webhook (doble seguro)
       await fetch(`${WAHA_API_URL}/api/sessions/${line.sessionName}`, {
         method: 'PUT', headers: getWahaHeaders(),
-        body: JSON.stringify({ config: { webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'message.reaction', 'session.status', 'state.change'] }] } })
+        body: JSON.stringify({ config: { webhooks: [webhookCfg] } })
       }).catch(() => {});
     }
     

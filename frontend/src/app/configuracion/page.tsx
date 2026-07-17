@@ -44,7 +44,7 @@ export default function ConfiguracionPage() {
     if (!apiKey) return;
     setTestingOpenAI(true); setMsgOpenAI({ type: '', text: '' });
     try {
-      const res = await fetch(`${API_URL}/api/auth/test-api-key`, {
+      const res = await fetch(`${API_URL}/api/auth/api-key/test`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey })

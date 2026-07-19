@@ -6009,8 +6009,8 @@ router.post('/send', async (req: Request, res: Response) => {
     if (!userId || !to || (!message && !mediaUrl && !templateName)) { res.status(400).json({ error: 'Faltan datos' }); return; }
     const ownerId = await getOwnerId(userId);
     const cleanNumber = to.replace(/\D/g, '');
-    // WEBJS: Always use @c.us (WEBJS doesn't use @lid)
-    // Keep @lid fallback only for legacy NOWEB sessions
+    // NOWEB: Always use @c.us
+    // Keep @lid fallback for compatibility
     const chatId = to.includes('@') ? to : `${cleanNumber}@c.us`;
 
     // 🔗 DETERMINAR SESIÓN/LÍNEA CORRECTA
@@ -6843,18 +6843,27 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
 
 
-    // 🔍 DETECT @lid FORMAT (NOWEB engine only — WEBJS uses @c.us with real phone numbers)
-    // Keep this for backward compatibility if NOWEB sessions still exist
+    // 🔍 DETECT @lid FORMAT (NOWEB/GOWS — resolve to real phone)
+    // NOWEB: payload.sender or payload.key.remoteJid may have real phone
+    // Try to extract real phone BEFORE resolveLidToPhone (faster, no API call)
     const isLid = from.includes('@lid') || (
       !from.includes('@g.us') && !from.includes('@c.us') && !from.includes('@s.whatsapp.net') &&
       from.replace(/\D/g, '').length > 13
     );
     if (isLid) {
-      log(`🔑 Detectado formato LID: ${from} — resolviendo número real...`);
-      log(`🔑 Payload keys: ${Object.keys(payload || {}).join(', ')}`);
-      log(`🔑 _data.from: ${payload?._data?.from || 'N/A'}`);
-      log(`🔑 _data.id: ${JSON.stringify(payload?._data?.id || {}).substring(0, 200)}`);
-      log(`🔑 chat: ${JSON.stringify(payload?.chat || {}).substring(0, 200)}`);
+    if (isLid) {
+      // Log full payload to diagnose what WEBJS 2026 sends with LID numbers
+      console.log("=== LID DEBUG: " + from + " ===");
+      console.log("payload.keys: " + Object.keys(payload||{}).join(', '));
+      const p = payload || {};
+      console.log("_data.from: " + (p._data && p._data.from || 'N/A'));
+      console.log("_data.id: " + JSON.stringify((p._data && p._data.id) || {}).substring(0,150));
+      console.log("chatId: " + (p.chatId || 'N/A'));
+      console.log("sender: " + (p.sender || 'N/A'));
+      console.log("author: " + (p.author || 'N/A'));
+      console.log("_data.author: " + (p._data && p._data.author || 'N/A'));
+      console.log("contact: " + JSON.stringify(p.contact || {}).substring(0,150));
+      console.log("=== END LID DEBUG ===");
     }
 
     // 🚫 Filtrar: historias/estados, broadcast, newsletters de Meta (publicidad)

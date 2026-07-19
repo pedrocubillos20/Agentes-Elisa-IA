@@ -6854,16 +6854,19 @@ router.post('/webhook', async (req: Request, res: Response) => {
       from.replace(/\D/g, '').length >= 13
     );
     if (isLid) {
-      // Resolver LID → número real via WAHA API
+      // Resolver LID → número real via WAHA API (WEBJS 2026 tiene contactos sincronizados)
       const lidCleanNum = from.replace('@lid','').replace(/\D/g,'');
+      const fromWithLid = lidCleanNum + '@lid';
 
-      // Intentar múltiples endpoints de WAHA 2026
+      // Intentar múltiples endpoints — WEBJS guarda contactos localmente
       let resolvedPhone = '';
       let resolvedName = '';
       const lidEndpoints = [
-        `${WAHA_API_URL}/api/${sessionName}/contacts/${encodeURIComponent(from)}`,
-        `${WAHA_API_URL}/api/contacts?session=${sessionName}&contactId=${encodeURIComponent(from)}`,
-        `${WAHA_API_URL}/api/${sessionName}/contacts?contactId=${encodeURIComponent(from)}`,
+        `${WAHA_API_URL}/api/${sessionName}/contacts/${encodeURIComponent(fromWithLid)}`,
+        `${WAHA_API_URL}/api/${sessionName}/contacts?contactId=${encodeURIComponent(fromWithLid)}`,
+        `${WAHA_API_URL}/api/contacts?session=${sessionName}&contactId=${encodeURIComponent(fromWithLid)}`,
+        `${WAHA_API_URL}/api/${sessionName}/contacts/${encodeURIComponent(lidCleanNum + '@c.us')}`,
+        `${WAHA_API_URL}/api/${sessionName}/contacts?contactId=${encodeURIComponent(lidCleanNum + '@c.us')}`,
       ];
 
       for (const ep of lidEndpoints) {
@@ -6873,7 +6876,8 @@ router.post('/webhook', async (req: Request, res: Response) => {
             const d = await r.json() as any;
             const arr = Array.isArray(d) ? d : [d];
             for (const item of arr) {
-              const ph = (item?.id?.user || item?.number || item?.phone || item?.jid?.replace('@s.whatsapp.net','') || '').replace(/\D/g,'');
+              const ph = (item?.id?.user || item?.number || item?.phone ||
+                item?.jid?.replace('@s.whatsapp.net','').replace('@c.us','') || '').replace(/\D/g,'');
               const nm = item?.name || item?.pushname || item?.verifiedName || item?.notify || '';
               if (ph && ph.length >= 7 && ph.length <= 13 && ph !== lidCleanNum) {
                 resolvedPhone = ph;
@@ -6889,14 +6893,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
       if (resolvedPhone) {
         console.log("🔑 LID " + lidCleanNum + " → " + resolvedPhone + (resolvedName ? " (" + resolvedName + ")" : ""));
         from = resolvedPhone + "@c.us";
-        lidPhoneCache.set(from, resolvedPhone);
-        // Si resolvimos el nombre también, usarlo
-        if (resolvedName && !payload.notifyName) {
-          (payload as any).notifyName = resolvedName;
-        }
+        lidPhoneCache.set(fromWithLid, resolvedPhone);
+        if (resolvedName && !payload.notifyName) (payload as any).notifyName = resolvedName;
       } else {
-        console.log("🔑 LID no resuelto via API: " + from + " — usando LID como ID");
-        // Mantener el LID como identificador pero marcar que es un LID
+        // No resuelto — usar LID como ID (se actualizará cuando WEBJS sincronice contactos)
+        console.log("🔑 LID no resuelto: " + lidCleanNum + " — guardando como LID hasta sincronización");
         from = lidCleanNum + "@lid";
       }
     }
@@ -7172,16 +7173,28 @@ router.post('/webhook', async (req: Request, res: Response) => {
         const last10 = recipientId.slice(-10);
         conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: last10 }, whatsappLineId } });
       }
-      // 🔑 LID MIGRATION: Also search by LID number if we resolved a phone
+      // 🔑 LID MIGRATION: buscar conversación existente con número LID
       if (!conv && isLid) {
         const lidClean = from.replace('@lid', '').replace(/\D/g, '');
+        // Búsqueda exacta por LID number (sin @lid suffix)
         conv = await prisma.conversation.findFirst({ where: { userId, recipientId: lidClean, whatsappLineId } });
         if (!conv) {
           conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { contains: lidClean.slice(-10) }, whatsappLineId } });
         }
         if (!conv) {
-          // Try with LID_ prefix
           conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { startsWith: 'LID_' }, whatsappLineId } });
+        }
+        // Si el recipientId resuelto es diferente al LID original, buscar también por recipientId resuelto
+        if (!conv && recipientId !== lidClean) {
+          conv = await prisma.conversation.findFirst({ where: { userId, recipientId: { endsWith: recipientId.slice(-10) }, whatsappLineId } });
+        }
+        // Si encontramos conv con LID y ahora tenemos número real, actualizar
+        if (conv && recipientId !== lidClean && !recipientId.includes('@lid')) {
+          await prisma.conversation.update({
+            where: { id: conv.id },
+            data: { recipientId, recipientName: senderName }
+          }).catch(() => {});
+          console.log("🔑 CONV ACTUALIZADA: LID " + lidClean + " → " + recipientId + " (" + senderName + ")");
         }
       }
     } else {

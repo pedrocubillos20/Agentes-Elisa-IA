@@ -6814,7 +6814,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       setTimeout(() => recentlyProcessed.delete(contentDedupKey), 5000);
     }
 
-    const from = payload?.from || payload?.chatId || payload?.key?.remoteJid || '';
+    let from = payload?.from || payload?.chatId || payload?.key?.remoteJid || '';
     let body = payload?.body || payload?.text || payload?.content || '';
     const notifyName = payload?.notifyName || payload?.pushName || payload?._data?.notifyName || '';
 

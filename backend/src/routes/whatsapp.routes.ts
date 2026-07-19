@@ -6851,18 +6851,32 @@ router.post('/webhook', async (req: Request, res: Response) => {
       from.replace(/\D/g, '').length > 13
     );
     if (isLid) {
-      // Log full payload to diagnose what WEBJS 2026 sends with LID numbers
-      console.log("=== LID DEBUG: " + from + " ===");
-      console.log("payload.keys: " + Object.keys(payload||{}).join(', '));
-      const p = payload || {};
-      console.log("_data.from: " + (p._data && p._data.from || 'N/A'));
-      console.log("_data.id: " + JSON.stringify((p._data && p._data.id) || {}).substring(0,150));
-      console.log("chatId: " + (p.chatId || 'N/A'));
-      console.log("sender: " + (p.sender || 'N/A'));
-      console.log("author: " + (p.author || 'N/A'));
-      console.log("_data.author: " + (p._data && p._data.author || 'N/A'));
-      console.log("contact: " + JSON.stringify(p.contact || {}).substring(0,150));
-      console.log("=== END LID DEBUG ===");
+      // WEBJS 2026: LID no tiene número real en el payload — consultar API de WAHA
+      const lidCleanNum = from.replace('@lid','').replace(/\D/g,'');
+      const resolved = await resolveLidToPhone(sessionName, from, payload);
+      if (resolved && resolved !== lidCleanNum && !resolved.startsWith('LID_')) {
+        console.log("🔑 LID resuelto via API: " + from + " → " + resolved);
+        from = resolved + "@c.us";
+      } else {
+        // Fallback: intentar endpoint check-exists de WAHA directamente
+        try {
+          const checkRes = await fetch(WAHA_API_URL + "/api/" + sessionName + "/contacts/" + encodeURIComponent(from), {
+            headers: getWahaHeaders()
+          });
+          if (checkRes.ok) {
+            const checkData = await checkRes.json() as any;
+            const phone = (checkData?.id?.user || checkData?.number || checkData?.phone || '').replace(/\D/g,'');
+            if (phone && phone.length >= 7 && phone.length <= 13 && phone !== lidCleanNum) {
+              console.log("🔑 LID resuelto via contacts API: " + from + " → " + phone);
+              from = phone + "@c.us";
+            } else {
+              console.log("🔑 LID no resuelto, usando LID directo: " + from);
+            }
+          }
+        } catch(e: any) {
+          console.log("🔑 LID contacts API error: " + e.message);
+        }
+      }
     }
 
     // 🚫 Filtrar: historias/estados, broadcast, newsletters de Meta (publicidad)

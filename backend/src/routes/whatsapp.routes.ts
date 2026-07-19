@@ -6851,7 +6851,6 @@ router.post('/webhook', async (req: Request, res: Response) => {
       from.replace(/\D/g, '').length > 13
     );
     if (isLid) {
-    if (isLid) {
       // Log full payload to diagnose what WEBJS 2026 sends with LID numbers
       console.log("=== LID DEBUG: " + from + " ===");
       console.log("payload.keys: " + Object.keys(payload||{}).join(', '));

@@ -476,8 +476,10 @@ const resolveLidToPhone = async (session: string, lidChatId: string, payload?: a
     } catch {}
   }
 
-  // 4. Last resort: If LID digits look like they could be a phone (≤13 digits), use as-is
-  if (lidClean.length >= 7 && lidClean.length <= 13) {
+  // 4. Last resort: If LID digits look like they could be a phone (≤12 digits), use as-is
+  // NOTE: 13-digit numbers are ambiguous (could be LID or real phone with country code)
+  // Only trust ≤12 digits as real phone without API confirmation
+  if (lidClean.length >= 7 && lidClean.length <= 12) {
     log(`⚠️ No se pudo resolver LID ${lidClean}, usando como número (${lidClean.length} dígitos)`);
     return lidClean;
   }
@@ -6846,36 +6848,56 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🔍 DETECT @lid FORMAT (NOWEB/GOWS — resolve to real phone)
     // NOWEB: payload.sender or payload.key.remoteJid may have real phone
     // Try to extract real phone BEFORE resolveLidToPhone (faster, no API call)
+    // @lid explicit OR number with >12 digits without @c.us (13+ digit numbers are Meta LIDs)
     const isLid = from.includes('@lid') || (
       !from.includes('@g.us') && !from.includes('@c.us') && !from.includes('@s.whatsapp.net') &&
-      from.replace(/\D/g, '').length > 13
+      from.replace(/\D/g, '').length >= 13
     );
     if (isLid) {
-      // WEBJS 2026: LID no tiene número real en el payload — consultar API de WAHA
+      // Resolver LID → número real via WAHA API
       const lidCleanNum = from.replace('@lid','').replace(/\D/g,'');
-      const resolved = await resolveLidToPhone(sessionName, from, payload);
-      if (resolved && resolved !== lidCleanNum && !resolved.startsWith('LID_')) {
-        console.log("🔑 LID resuelto via API: " + from + " → " + resolved);
-        from = resolved + "@c.us";
-      } else {
-        // Fallback: intentar endpoint check-exists de WAHA directamente
+
+      // Intentar múltiples endpoints de WAHA 2026
+      let resolvedPhone = '';
+      let resolvedName = '';
+      const lidEndpoints = [
+        `${WAHA_API_URL}/api/${sessionName}/contacts/${encodeURIComponent(from)}`,
+        `${WAHA_API_URL}/api/contacts?session=${sessionName}&contactId=${encodeURIComponent(from)}`,
+        `${WAHA_API_URL}/api/${sessionName}/contacts?contactId=${encodeURIComponent(from)}`,
+      ];
+
+      for (const ep of lidEndpoints) {
         try {
-          const checkRes = await fetch(WAHA_API_URL + "/api/" + sessionName + "/contacts/" + encodeURIComponent(from), {
-            headers: getWahaHeaders()
-          });
-          if (checkRes.ok) {
-            const checkData = await checkRes.json() as any;
-            const phone = (checkData?.id?.user || checkData?.number || checkData?.phone || '').replace(/\D/g,'');
-            if (phone && phone.length >= 7 && phone.length <= 13 && phone !== lidCleanNum) {
-              console.log("🔑 LID resuelto via contacts API: " + from + " → " + phone);
-              from = phone + "@c.us";
-            } else {
-              console.log("🔑 LID no resuelto, usando LID directo: " + from);
+          const r = await fetch(ep, { headers: getWahaHeaders() });
+          if (r.ok) {
+            const d = await r.json() as any;
+            const arr = Array.isArray(d) ? d : [d];
+            for (const item of arr) {
+              const ph = (item?.id?.user || item?.number || item?.phone || item?.jid?.replace('@s.whatsapp.net','') || '').replace(/\D/g,'');
+              const nm = item?.name || item?.pushname || item?.verifiedName || item?.notify || '';
+              if (ph && ph.length >= 7 && ph.length <= 13 && ph !== lidCleanNum) {
+                resolvedPhone = ph;
+                if (nm) resolvedName = nm;
+                break;
+              }
             }
           }
-        } catch(e: any) {
-          console.log("🔑 LID contacts API error: " + e.message);
+          if (resolvedPhone) break;
+        } catch {}
+      }
+
+      if (resolvedPhone) {
+        console.log("🔑 LID " + lidCleanNum + " → " + resolvedPhone + (resolvedName ? " (" + resolvedName + ")" : ""));
+        from = resolvedPhone + "@c.us";
+        lidPhoneCache.set(from, resolvedPhone);
+        // Si resolvimos el nombre también, usarlo
+        if (resolvedName && !payload.notifyName) {
+          (payload as any).notifyName = resolvedName;
         }
+      } else {
+        console.log("🔑 LID no resuelto via API: " + from + " — usando LID como ID");
+        // Mantener el LID como identificador pero marcar que es un LID
+        from = lidCleanNum + "@lid";
       }
     }
 

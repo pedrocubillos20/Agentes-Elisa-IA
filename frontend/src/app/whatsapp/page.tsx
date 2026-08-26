@@ -408,51 +408,6 @@ export default function WhatsAppPage() {
                     </div>
                     {line.connectionType !== 'cloud_api' && (
                       <div className="flex gap-2">
-                        <button onClick={async () => {
-                          try {
-                            const r = await fetch(`${API_URL}/api/whatsapp/lines/${line.id}/fix-webhook`, { method: 'POST', headers: headers() });
-                            const d = await r.json();
-                            alert(d.success ? `✅ Webhook registrado correctamente.
-Sesión: ${d.sessionName}
-Estado WAHA: ${d.wahaStatus}` : `❌ Error: ${JSON.stringify(d)}`);
-                          } catch(e: any) { alert('Error: ' + e.message); }
-                        }} className="btn-secondary text-sm">
-                          🔔 Reparar webhook
-                        </button>
-                        <button onClick={async () => {
-                          try {
-                            const r = await fetch(`${API_URL}/api/whatsapp/waha-session-info/${line.id}`, { headers: headers() });
-                            const d = await r.json();
-                            const msg = [
-                              `🔍 DIAGNÓSTICO COMPLETO`,
-                              ``,
-                              `Sesión WAHA: ${d.sessionName}`,
-                              `Estado: ${d.wahaStatus}`,
-                              `Teléfono: ${d.phone}`,
-                              `Motor: ${d.engineInfo}`,
-                              ``,
-                              `── WEBHOOK ──`,
-                              `URL configurada: ${d.webhookUrl}`,
-                              `URL esperada: ${d.expectedUrl}`,
-                              `¿Coinciden?: ${d.webhookOk ? '✅ SÍ' : '❌ NO → presiona Reparar webhook'}`,
-                              `Eventos: ${(d.webhookEvents||[]).join(', ') || 'NINGUNO'}`,
-                              `¿Tiene evento message?: ${d.webhookTieneMessageEvent ? '✅ SÍ' : '❌ NO → presiona Reparar webhook'}`,
-                            ].join('\n');
-                            alert(msg);
-                          } catch(e: any) { alert('Error: ' + e.message); }
-                        }} className="btn-secondary text-sm">
-                          🔍 Diagnóstico
-                        </button>
-                        <button onClick={async () => {
-                          if (!confirm('¿Reiniciar sesión WAHA? La IA no responde ~10 segundos.')) return;
-                          try {
-                            const r = await fetch(`${API_URL}/api/whatsapp/lines/${line.id}/restart-session`, { method: 'POST', headers: headers() });
-                            const d = await r.json();
-                            alert(`🔄 ${d.mensaje}\n\nEstado: ${d.estadoFinal}\nWebhook OK: ${d.webhookOk ? '✅' : '❌'}`);
-                          } catch(e: any) { alert('Error: ' + e.message); }
-                        }} className="btn-secondary text-sm">
-                          🔄 Reiniciar
-                        </button>
                         <button onClick={() => disconnectLine(line.id)} className="btn-danger text-sm">
                           <XCircle className="w-4 h-4" /> Desconectar
                         </button>

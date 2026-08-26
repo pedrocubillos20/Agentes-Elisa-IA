@@ -6713,10 +6713,12 @@ router.post('/webhook', async (req: Request, res: Response) => {
     // 🔍 LOG SIEMPRE — para ver en Railway si WAHA está enviando webhooks
     console.log(`📨 WAHA Webhook → event:"${event}" session:"${sessionName}" from:"${payload?.from || payload?.chatId || 'N/A'}" body:"${(payload?.body || payload?.text || '').substring(0, 60)}"`);
 
-    // [FIX 1] Aceptar TODOS los eventos de mensaje de WAHA Plus 2026:
-    const isMessageEvent = event === 'message' || event === 'message.any' || event === 'message.new' || event === 'message.reaction';
+    // ✅ FIX DOBLE MENSAJE: Solo procesar 'message' (entrante) — ignorar 'message.any'
+    // 'message.any' incluye mensajes SALIENTES del bot y genera duplicados
+    // 'message' = solo mensajes ENTRANTES del cliente → correcto
+    const isMessageEvent = event === 'message' || event === 'message.new' || event === 'message.reaction';
     if (!event || !isMessageEvent) {
-      console.log(`📨 Webhook ignorado (no es mensaje): "${event}"`);
+      console.log(`📨 Webhook ignorado (${event})`);
       res.json({ success: true }); return;
     }
     

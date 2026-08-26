@@ -1860,6 +1860,17 @@ export default function AsistentesPage() {
                 <p className="text-xs text-[var(--text-muted)]">Mensajes de voz</p>
                 <p className="text-xs text-orange-400 mt-2">Máx 5MB</p>
               </label>
+
+              {/* 📄 PDF / Documentos */}
+              <label className="card glass-hover cursor-pointer text-center py-8 border-2 border-dashed border-[var(--border-primary)] hover:border-red-500/50">
+                <input type="file" accept=".pdf,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => handleMediaUpload(e, 'document')} />
+                <div className="w-16 h-16 rounded-2xl bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-8 h-8 text-red-400" />
+                </div>
+                <h4 className="font-semibold text-white mb-1">Documentos</h4>
+                <p className="text-xs text-[var(--text-muted)]">PDF, Word — con trigger</p>
+                <p className="text-xs text-red-400 mt-2">Máx 15MB</p>
+              </label>
             </div>
 
             {/* 🛒 Order Bump: Productos del catálogo */}

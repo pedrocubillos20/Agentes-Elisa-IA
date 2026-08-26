@@ -746,7 +746,8 @@ export default function ConversacionesPage() {
         body: JSON.stringify({ 
           to: selectedConv.recipientId, 
           message: messageText || null, 
-          whatsappLineId: getLineId(),
+          // ✅ FIX: usar la línea de la conversación, no la línea global del localStorage
+          whatsappLineId: selectedConv.whatsappLineId || getLineId(),
           ...(mediaUrl && { mediaUrl, mediaType })
         })
       });
